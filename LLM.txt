@@ -297,6 +297,26 @@ conn.close()
 This pattern is fully supported.
 
 ==============================================================
+7.3 STRINGS IN PYTHON CODE
+==============================================================
+
+Python code must contain regular string literals in the target language (Russian, English, etc.)
+
+Do NOT use Unicode escape sequences (\uXXXX) in Python code
+
+Base64 encoding is applied to the ENTIRE FILE as a whole, not to individual strings
+
+Example of correct Python code:
+
+python
+# GOOD – regular strings
+toast("Product added")
+Dialog("dialog1", "Enter quantity", "OK", "Cancel")
+
+# BAD – do NOT use escape sequences
+toast("\u041f\u0440\u043e\u0434\u0443\u043a\u0442 \u0434\u043e\u0431\u0430\u0432\u043b\u0435\u043d")
+
+==============================================================
 8. PYTHON FILE: nodes_server_handlers (SERVER)
 ==============================================================
 Typical server handler:
