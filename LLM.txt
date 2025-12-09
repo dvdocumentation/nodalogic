@@ -181,6 +181,52 @@ Actions:
 7. PYTHON FILE: nodes_handlers (ANDROID HANDLERS)
 ==============================================================
 
+For each class defined in the 'classes' array, you MUST generate complete Python handler code with all methods declared in the class definition. The Python file must contain class definitions with exact same names as in the JSON configuration.
+
+When generating configuration, you must ensure complete consistency between JSON class definitions and Python handler implementations. Each method listed in 'methods' array must have corresponding Python method implementation.
+
+Example of class for Android client:
+
+class Order(Node):
+    def Open(self):
+        # Initial layout setup
+        layout = [
+            [
+                {"type": "Text", "value": "Order Form", "bold": true, "size": "large"}
+            ],
+            [
+                {"type": "Input", "id": "customer", "caption": "Заказчик", "value": "@customer"}
+            ],
+            [
+                {"type": "Input", "id": "comment", "caption": "Комментарий", "value": "@comment", "multiline": true}
+            ],
+            [
+                {"type": "Button", "id": "btn_add", "caption": "Add Item", "background": "#00AAFF"}
+            ],
+            [
+                {"type": "Table", "id": "items_table", "value": "@items", "layout": [
+                    [{"type": "Text", "value": "@barcode"}],
+                    [{"type": "Text", "value": "@quantity"}]
+                ]}
+            ]
+        ]
+        self.PlugIn([
+            {"type": "CameraBarcodeScannerButton", "id": "camera_btn"}
+        ])
+        self.Show(layout)
+    
+    def AddItem(self):
+        # Dialog for quantity input
+        Dialog("qty_dialog", "Enter Quantity", "OK", "Cancel", 
+               [[{"type": "Input", "id": "quantity", "caption": "Quantity", "input_type": "number"}]])
+
+    def ScanBarcodeHandler(self):
+        barcode = self._data.get("camera_btn", "")
+        if barcode:
+            self._data["scanned_barcode"] = barcode
+            self._save()
+            self.AddItem()
+
 You MUST assume the following imports ALWAYS exist:
 
 from nodesclient import SetTitle,RefreshTab,CloseNode,RunGPS,StopGPS,UpdateView,Dialog,ScanBarcode,GetLocation,AddTimer,StopTimer,ShowProgressButton,HideProgressButton,ShowProgressGlobal,HideProgressGlobal,Controls,SetCover,getBase64FromImageFile,convertImageFilesToBase64Array,saveBase64ToFile,convertBase64ArrayToFilePaths,UpdateMediaGallery
@@ -194,6 +240,8 @@ import threading
 import time
 from nodes import Node
 import uuid
+
+
 
 Required constants (generated inside handler file):
 
@@ -379,5 +427,6 @@ Sending to server:
 ==============================================================
 14. CRITICAL RULE
 ==============================================================
+Before outputting JSON, verify that all classes have complete Python implementations in the handlers sections (nodes_handlers, nodes_server_handlers).
 You MUST ALWAYS output EXACTLY ONE valid NodaLogic JSON configuration.  
 No explanations, no comments, no text before or after JSON.
