@@ -114,6 +114,15 @@ The "datasets" field of the configuration is an array of such Dataset objects.
 ==============================================================
 5. CLASSES
 ==============================================================
+
+Rules:
+- Every class in JSON MUST exist in Python handlers with the same name.
+- Each method in the JSON "methods" array MUST have a corresponding Python method
+  with the EXACT SAME name, following the signature: method_name(self, input_data)
+  and returning a tuple (bool, dict).
+- When updating an existing configuration, NEVER modify the imports/constants section.
+  Only append new class definitions after existing code.
+
 Class definition:
 
 {
@@ -138,6 +147,13 @@ Rules:
 ==============================================================
 6. METHODS AND EVENTS
 ==============================================================
+
+Important Notes:
+- All Python methods in Android handlers must have the signature: method_name(self, input_data)
+- All Python methods must return a tuple: (success: bool, result: dict)
+- The input_data parameter contains event data passed from the UI
+- When methods are called via events, input_data may be empty dict: {}
+
 Method entry:
 
 {
@@ -185,26 +201,37 @@ For each class defined in the 'classes' array, you MUST generate complete Python
 
 When generating configuration, you must ensure complete consistency between JSON class definitions and Python handler implementations. Each method listed in 'methods' array must have corresponding Python method implementation.
 
-Example of class for Android client:
+Example of correct Android handler class:
 
 class Order(Node):
-    def Open(self):
-        # Initial layout setup
+    def __init__(self, modules, jNode, modulename, uid, _data):
+        super().__init__(modules, jNode, modulename, uid, _data)
+    
+    def Open(self, input_data):
+        # Initialize data if not exists
+        if "order_items" not in self._data:
+            self._data["order_items"] = []
+        if "customer" not in self._data:
+            self._data["customer"] = ""
+        if "comment" not in self._data:
+            self._data["comment"] = ""
+        
+        # Layout
         layout = [
             [
-                {"type": "Text", "value": "Order Form", "bold": true, "size": "large"}
+                {"type": "Text", "value": "Order Form", "bold": True, "size": "large"}
             ],
             [
-                {"type": "Input", "id": "customer", "caption": "Заказчик", "value": "@customer"}
+                {"type": "Input", "id": "customer", "caption": "Customer", "value": "@customer"}
             ],
             [
-                {"type": "Input", "id": "comment", "caption": "Комментарий", "value": "@comment", "multiline": true}
+                {"type": "Input", "id": "comment", "caption": "Comment", "value": "@comment", "multiline": True}
             ],
             [
                 {"type": "Button", "id": "btn_add", "caption": "Add Item", "background": "#00AAFF"}
             ],
             [
-                {"type": "Table", "id": "items_table", "value": "@items", "layout": [
+                {"type": "Table", "id": "items_table", "value": self._data["order_items"], "layout": [
                     [{"type": "Text", "value": "@barcode"}],
                     [{"type": "Text", "value": "@quantity"}]
                 ]}
@@ -214,18 +241,13 @@ class Order(Node):
             {"type": "CameraBarcodeScannerButton", "id": "camera_btn"}
         ])
         self.Show(layout)
+        return True, {"status": "opened"}
     
-    def AddItem(self):
+    def AddItem(self, input_data):
         # Dialog for quantity input
         Dialog("qty_dialog", "Enter Quantity", "OK", "Cancel", 
                [[{"type": "Input", "id": "quantity", "caption": "Quantity", "input_type": "number"}]])
-
-    def ScanBarcodeHandler(self):
-        barcode = self._data.get("camera_btn", "")
-        if barcode:
-            self._data["scanned_barcode"] = barcode
-            self._save()
-            self.AddItem()
+        return True, {"status": "dialog_shown"}
 
 You MUST assume the following imports ALWAYS exist:
 
@@ -261,6 +283,29 @@ message("text")
 Dialog(id, title, ok_caption, cancel_caption, layout=None)
 ScanBarcode(listener)
 self.PlugIn([...])
+
+================================================
+7.0 CLASS STRUCTURE AND METHOD SIGNATURES
+================================================
+
+Every Android handler class MUST follow this exact structure:
+
+1. __init__ method signature:
+   class Order(Node):
+       def __init__(self, modules, jNode, modulename, uid, _data):
+           super().__init__(modules, jNode, modulename, uid, _data)
+
+2. All class methods MUST:
+   - Accept exactly one parameter: input_data
+   - Return a tuple: (True/False, result_dict)
+
+3. Example of correct method signature:
+   def Open(self, input_data):
+       # method implementation
+       return True, {"status": "ok"}
+
+4. The existing imports and constants section in the Python file MUST NOT be modified.
+   Only add new class definitions below the existing constants.
 
 ==============================================================
 7.1 CAMERA BARCODE SCANNING (IMPORTANT)
