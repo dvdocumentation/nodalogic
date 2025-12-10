@@ -34,29 +34,13 @@ No comments, explanations, or text outside JSON are allowed.
 ==============================================================
 The configuration JSON must contain these fields:
 
-- "name": string  
-- "server_name": string  
-- "uid": string  
-- "url": string  
-- "content_uid": string  
-- "vendor": string  
-
-- "nodes_handlers": base64-encoded Python file (Android handlers)  
-- "nodes_handlers_meta": null or object  
-
-- "nodes_server_handlers": base64-encoded Python file (server handlers)  
-- "nodes_server_handlers_meta": null or object  
-
-- "version": string  
-- "NodaLogicFormat": string  
-- "NodaLogicType": must be "ANDROID_SERVER"  
-- "last_modified": ISO datetime string  
-- "provider": string  
-
-- "classes": array of class definitions  
-- "datasets": array of Dataset objects  
-- "sections": array of UI Sections  
-- "servers": array of Server definitions  
+- common options("name", "uid", "vendor" etc) : You don't change it, you leave it as is!
+- "nodes_handlers": base64-encoded Python file (Android handlers)  : You can add Python code (classes, functions, and constants) strictly below the imports and constants section that exist there. That is, below the last line of the block (from nodes import Node).
+- "nodes_server_handlers": base64-encoded Python file (server handlers) : You can add Python code (classes, functions, and constants) strictly below the imports and constants section that exist there. That is, below the last line of the block (from nodes import Node). You can add Python code (classes, functions, and constants) strictly below the imports and constants section that exist there. That is, below the last line of the block (from nodes import Node).
+- "classes": array of class definitions  : You can add your own objects to this section.
+- "datasets": array of Dataset objects   : You can add your own objects to this section.
+- "sections": array of UI Sections   : You can add your own objects to this section!
+- "servers": array of Server definitions  : You don't change it, you leave it as is!
 
 ==============================================================
 2. SECTIONS
@@ -75,20 +59,6 @@ Rules:
 - Classes reference sections through:
   "section": <name>, "section_code": <code>
 
-==============================================================
-3. SERVERS
-==============================================================
-Server object:
-
-{
-  "alias": "default",
-  "url": "CHANGE_ME_SERVER_URL",
-  "is_default": true
-}
-
-Rules:
-- If RemoteClass / GetRemoteClass or _upload() is used, a default server MUST exist.
-- If servers already exist, reuse their aliases.
 
 ==============================================================
 4. DATASETS
