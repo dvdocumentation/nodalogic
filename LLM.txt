@@ -298,8 +298,8 @@ PLUGINS / SCREEN MECHANISMS (used with PlugIn):
 - PhotoButton
 - GalleryButton
 - MediaGallery
-- CameraBarcodeScannerButton
-- BarcodeScanner   (only if present in existing config/examples)
+- CameraBarcodeScannerButton   (camera scanning button)
+- BarcodeScanner               (hardware scanner interception for terminals)
 
 If TT requires an element not listed above, you MUST NOT invent a new type.
 Instead reuse existing types or follow existing config patterns.
