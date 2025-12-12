@@ -404,6 +404,16 @@ Rules:
 Media / camera plugins:
 - PhotoButton, GalleryButton write selected file path to _data[<id>] and/or result_file.
 - MediaGallery uses _data[<id>] as array of file paths; may fire "<id>_delete" event.
+Barcode scanning plugins (DIFFERENT PURPOSES):
+- CameraBarcodeScannerButton:
+  Adds a UI button that opens camera scanning. Use it when device has a camera and user initiates scanning.
+- BarcodeScanner:
+  Enables interception of hardware scanner input (TSD terminals). Use it for devices with built-in scanners.
+  It may be used together with CameraBarcodeScannerButton or instead of it.
+Rules:
+- Both are used via PlugIn([...]) as 1D list items.
+- Both MUST have "type" and "id".
+- Events must listen to their "id" using onInput (same pattern as for Button).
 
 ==============================================================
 10. COMMON EVENTS (GLOBAL)
@@ -457,5 +467,6 @@ Calling server method from JSON action:
 - Input.input_type must be one of: NUMBER, PASSWORD, MULTILINE, DATE (case-sensitive).
 - PlugIn parameter is 1D list of dict objects (not 2D layout).
 - Sections.commands must be string "Title|cmd[,Title|cmd]*" or "".
+- Barcode scanning: CameraBarcodeScannerButton and BarcodeScanner are two different plugins and both are allowed.
 
 END OF RULES
