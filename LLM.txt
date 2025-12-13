@@ -160,8 +160,8 @@ class_type:
 ==============================================================
 Every class in "classes" MUST have a non-empty "cover_image".
 
-"cover_image" is a STRING containing UI layout in STRING LAYOUT format, stored as JSON-in-string.
-(Oblozhka / cover can be overridden per-node via _data["_cover"] and SetCover.)
+"cover_image" is a STRING containing UI layout in STRING LAYOUT format, stored as JSON-in-string (The string must be JSON - escaped if double quotes are used!).
+(The cover parameter can be overridden for individual nodes using _data["_cover"] if needed)
 
 Examples:
 1) Simple cover (two rows):
