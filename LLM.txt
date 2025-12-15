@@ -1366,4 +1366,281 @@ Calling server method from JSON action:
 - Sections.commands must be string "Title|cmd[,Title|cmd]*" or "".
 - Barcode scanning: CameraBarcodeScannerButton and BarcodeScanner are two different plugins and both are allowed.
 
+==============================================================
+16. WORKING WITH REMOTE CLASS (CLIENT → SERVER) — RemoteClass
+==============================================================
+
+RemoteClass is a client-side wrapper for executing server-side node class API.
+It is used from ANDROID client handlers to work with objects stored on the server:
+- read/update server objects
+- call server methods
+- save objects on server
+- register objects in Rooms for device delivery
+
+IMPORTANT:
+- RemoteClass is used on the CLIENT.
+- Methods executed via RemoteClass run on the SERVER.
+- Remote objects have their own _data and system methods like _save() / _register().
+
+────────────────────────────────────
+16.1 GetRemoteClass(class_name, server_url="")
+────────────────────────────────────
+
+To get a remote class wrapper:
+Remote = GetRemoteClass("<ClassName>", server_url="")  # server_url optional
+
+Example:
+WClass = GetRemoteClass("Warehouse")
+
+────────────────────────────────────
+16.2 RemoteClass methods
+────────────────────────────────────
+
+RemoteClass provides:
+
+- get(uid)
+  returns a remote object by uid (or None)
+
+- create(data=None)
+  creates a new object on the server
+  optional initial data dict may be provided
+
+- all()
+  returns a list of objects on the server (implementation-specific; may return dicts)
+
+Example:
+WClass = GetRemoteClass("Warehouse")
+wh = WClass.get("4503")
+new_wh = WClass.create({"name":"New warehouse","qty":50,"_id":"2"})
+all_wh = WClass.all()
+
+────────────────────────────────────
+16.3 RemoteObject (remote node) basics
+────────────────────────────────────
+
+A remote object behaves like a node:
+- it has ._data dict
+- you can call server methods on it (user methods)
+- you can save it on server via _save()
+- you can register it in a room via _register(room_uid)
+
+Example:
+WClass = GetRemoteClass("Warehouse")
+wh = WClass.get("4503")
+if wh:
+    wh._data["name"] = "Updated warehouse #1"
+    wh._save()
+    wh._register("<room_uid>")
+
+────────────────────────────────────
+16.4 Calling server methods on a remote object
+────────────────────────────────────
+
+Calling a user method executes it on the server.
+
+Example:
+WClass = GetRemoteClass("Warehouse")
+wh = WClass.get("4503")
+if wh:
+    result = wh.income({"qty": 1})
+    message("Method result: " + str(result))
+
+Rules:
+- method signature is method(input_data_dict) on server
+- result format is (True/False, output_data_dict) depending on implementation
+- do NOT assume UI methods exist on server
+
+────────────────────────────────────
+16.5 Server transactions example (balance / log)
+────────────────────────────────────
+
+RemoteObject may provide transaction helpers on server:
+
+- _sum_transaction(scheme_name, period, keys, values, meta=None)
+- _get_balance(scheme_name)
+- _get_sum_transactions(scheme_name)
+
+Example pattern (client UI triggers server transaction):
+qty = self._data.get("operation_qty")
+if self._data.get("listener") == "btn_debt":
+    qty = -1 * qty
+
+WClass = GetRemoteClass("Warehouse")
+wh = WClass.get(self._data.get("_id"))
+
+res = wh._sum_transaction(
+    "sku_balance",
+    "2025-09-05",
+    [self._data.get("sku")],
+    [qty],
+    meta={"comment": self._data.get("sku")}
+)
+
+balance = wh._get_balance("sku_balance")
+transactions = wh._get_sum_transactions("sku_balance")
+
+────────────────────────────────────
+16.6 Creating server objects from a dialog (GLOBAL HANDLER PATTERN)
+────────────────────────────────────
+
+A common pattern:
+1) user clicks StartMenu command → show Dialog with layout
+2) global event onDialogResult receives result + result_data
+3) create remote server object, fill data, _save(), optionally _register() for Rooms
+4) RefreshTab() to update UI list
+
+IMPORTANT:
+- Dialog id MUST be a FIXED STRING.
+- Result mapping:
+  input_data["result"] == "<dialog_id>_positive" or "<dialog_id>_negative"
+- Layout input values appear in:
+  input_data["result_data"] as a dict, keys are input ids
+
+EXAMPLE:
+
+def onStartMenuCommand(input_data):
+    if input_data.get("command") == "add_warehouse":
+        Dialog(
+          "add_warehouse",
+          "Создание нового склада",
+          "Сохранить",
+          "Отмена",
+          [[{"type":"Input","id":"name_dialog","caption":"Название склада"}]]
+        )
+    return True,{}
+
+def onDialogResult(input_data):
+    if input_data.get("result") == "add_warehouse_positive":
+        data = input_data.get("result_data") or {}
+        WClass = GetRemoteClass("Warehouse")
+        new_wh = WClass.create()
+        new_wh._data["name"] = data.get("name_dialog")
+        new_wh._save()
+        new_wh._register("<room_uid>")
+        RefreshTab()
+    return True,{}
+
+CRITICAL RULES:
+- Do NOT use self._data inside global handlers unless you explicitly store values there.
+- Use input_data["result"] and input_data["result_data"] in onDialogResult.
+
+────────────────────────────────────
+16.7 When to use RemoteClass vs local nodes
+────────────────────────────────────
+
+Use RemoteClass when:
+- the object is stored and processed on the server
+- you need server transactions / balances / server-only logic
+- you need to share object updates to other devices via Rooms
+
+Use local nodes when:
+- you need offline-first behavior
+- you store and edit data locally and upload later
+
+────────────────────────────────────
+16.8 LLM STRICT RULES (REMOTE CLASS)
+────────────────────────────────────
+
+- GetRemoteClass is CLIENT-side; called from Android handlers.
+- Remote methods execute on SERVER; do not call Android UI helpers on remote objects.
+- To persist remote changes, ALWAYS call remote_object._save().
+- To distribute to devices, call remote_object._register(room_uid).
+- Do NOT invent remote methods; only call known user methods or documented system ones.
+
+
+
+==============================================================
+CRITICAL: NODE CREATION RULES (CLIENT)
+==============================================================
+
+Node instances on the Android client MUST be created ONLY via class methods.
+Direct low-level constructors like NewNode(...) MUST NOT be used by LLM.
+
+❌ FORBIDDEN (do not generate):
+NewNode("AssemblyTask")
+NewNode("AssemblyTask", uid)
+NewNode("AssemblyTask", _data={...})
+
+These are internal/legacy helpers and should NOT appear in generated code.
+
+────────────────────────────────────
+CORRECT PATTERN: Class.create()
+────────────────────────────────────
+
+Each client-side class automatically provides a class method create().
+
+Signature:
+<Class>.create(uid=None, data=None)
+
+Examples:
+
+Create a new empty node:
+new_task = AssemblyTask.create()
+
+Create a node with initial data:
+new_task = AssemblyTask.create(data={
+    "name": "New task",
+    "plan_date": "2025-01-01"
+})
+
+Create a node with explicit UID:
+new_task = AssemblyTask.create(uid="custom_uid")
+
+────────────────────────────────────
+OPENING A NEW NODE
+────────────────────────────────────
+
+After creation, to open the node form:
+
+new_task._open()
+
+IMPORTANT:
+- _open() is a SYSTEM method inherited from Node
+- Do NOT call user-defined Open() directly
+- Do NOT invent OpenNode(), ShowNode(), or similar methods
+
+Correct:
+new_task._open()
+
+Incorrect:
+new_task.Open()
+OpenNode(new_task)
+
+────────────────────────────────────
+CREATION FROM MENU (onStartMenuCommand)
+────────────────────────────────────
+
+Correct pattern inside a global handler:
+
+def onStartMenuCommand(input_data):
+    if input_data.get("command") == "create_task":
+        task = Task.create()
+        task._open()
+    return True,{}
+
+────────────────────────────────────
+CREATION WITH CHILD NODES (HIERARCHY)
+────────────────────────────────────
+
+When creating child nodes, ALWAYS use AddChild():
+
+Correct:
+new_line = self.AddChild("OrderLine")
+new_line._open()
+
+Incorrect:
+new_line = OrderLine.create()
+new_line.parent = self
+
+────────────────────────────────────
+LLM STRICT RULES
+────────────────────────────────────
+
+- NEVER generate NewNode(...)
+- ALWAYS use <Class>.create()
+- ALWAYS use _open() to open node UI
+- User-defined methods Open(), Save(), etc. must NOT be called directly
+- _create(), _open(), _save(), _upload() are SYSTEM methods inherited from Node
+
+
 END OF RULES
