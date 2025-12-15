@@ -744,18 +744,35 @@ self.PlugIn([
   {"type":"ToolbarButton","id":"save","caption":"Save"}
 ])
 
+Upload pattern example (user method):
+def upload(self, input_data=None):
+    status, error = self._upload()
+    if status:
+        message("Object uploaded")
+    else:
+        toast(error)
+    return True,{}
+
+Delete pattern example:
+def del_node(self, input_data=None):
+    DeleteNode(self.uid)
+    RefreshTab()
+    CloseNode()
+    return True,{}
+
 ────────────────────────────────────
 9.5 PhotoButton / GalleryButton
 ────────────────────────────────────
 PhotoButton:
-- Opens camera
-- Writes captured file path into self._data["result_file"]
+- Opens camera to capture a photo
+- Captured image is saved to a file
+- File path is written into self._data["result_file"]
 
 GalleryButton:
-- Opens system gallery
-- Same behavior as PhotoButton
+- Opens system gallery to select a media file
+- Selected file path is written into self._data["result_file"]
 
-Used together with MediaGallery.
+These buttons may be used with MediaGallery or without it.
 
 ────────────────────────────────────
 9.6 MediaGallery
@@ -767,7 +784,7 @@ Storage:
 - Typically list of file paths
 
 Behavior:
-- Automatically updated by PhotoButton/GalleryButton
+- Can be automatically updated by PhotoButton/GalleryButton
 - User deletion generates event "<id>_delete"
 
 Example:
@@ -776,9 +793,18 @@ self.PlugIn([
   {"type":"MediaGallery","id":"pic_files"}
 ])
 
+Handling deletion:
+def input(self, input_data=None):
+    if self._data.get("listener") == "pic_files_delete":
+        toast("Gallery updated")
+    return True,{}
+
 ==============================================================
-MEDIA / PHOTOS — STORAGE PATTERNS
+9.7 MEDIA / PHOTOS — STORAGE PATTERNS + DISPLAY (ANDROID)
 ==============================================================
+
+Photo capture/selection produces a local file path in:
+- self._data["result_file"]
 
 There are TWO VALID photo storage patterns.
 LLM MUST choose ONE and NOT mix them.
@@ -791,160 +817,375 @@ Store photos as file paths.
 Data:
 self._data["pic_files"] = ["/path/img1.jpg", "/path/img2.jpg"]
 
-Typical handler:
+Typical setup:
+self.PlugIn([
+  {"type":"PhotoButton","id":"capture_photo"},
+  {"type":"GalleryButton","id":"photo"},
+  {"type":"MediaGallery","id":"pic_files"}
+])
+
+Typical handler (append file path, refresh gallery UI, save):
 def CaptureImage(self, input_data=None):
     arr = self._data.get("pic_files", [])
-    arr.append(self._data["result_file"])
+    arr.append(self._data.get("result_file"))
     self._data["pic_files"] = arr
     UpdateMediaGallery()
     self._save()
     return True,{}
 
 Use when:
-- MediaGallery is primary UI
-- Local-only storage is acceptable
+- MediaGallery should show the same files that are stored in node data.
+- Local file paths are acceptable as stored values.
 
 ────────────────────────────────────
-PATTERN B: BASE64 ARRAY (data-first)
+PATTERN B: BASE64 ARRAY (data-first, upload-friendly)
 ────────────────────────────────────
 Store photos as base64 strings.
 
 Data:
 self._data["photos_base64"] = ["<base64_1>", "<base64_2>"]
 
-Handler example:
+Typical handler (convert file to base64, store, save):
 def process_photo(self, input_data=None):
     photos = self._data.get("photos_base64", [])
-    b64 = getBase64FromImageFile(self._data["result_file"],50,50)
+    b64 = getBase64FromImageFile(self._data.get("result_file"), 50, 50)
     photos.append(b64)
     self._data["photos_base64"] = photos
     self._save()
+    toast("Saved to photos")
     return True,{}
 
-Optional gallery rendering:
-paths = convertBase64ArrayToFilePaths(self._data["photos_base64"])
-self._data["pic_files"] = paths
-UpdateMediaGallery()
+If you need to DISPLAY base64 photos in MediaGallery:
+- Convert base64 array into temp files and set gallery paths:
+  paths = convertBase64ArrayToFilePaths(self._data["photos_base64"])
+  self._data["pic_files"] = paths
+  UpdateMediaGallery()
 
-RULE:
+CRITICAL RULE:
+- Pattern A stores file paths.
+- Pattern B stores base64 strings.
 - Do NOT store "@variables" in photo arrays.
 
-==============================================================
-11. COMMON ANDROID UI/UX HELPER METHODS
-==============================================================
+────────────────────────────────────
+DISPLAY WITHOUT GALLERY (SINGLE PHOTO ON FORM)
+────────────────────────────────────
+It is possible to capture a photo without MediaGallery and display it on screen.
 
-These helpers work ONLY on Android client.
+Pattern:
+1) PlugIn PhotoButton only
+2) On capture, copy result_file into a variable used by Picture
+3) Reopen screen (or UpdateView) to show the picture
+
+Example:
+def Open(self, input_data=None):
+    self.Show([
+        [{"type":"Picture","value":"@pic"}]
+    ])
+    self.PlugIn([
+        {"type":"PhotoButton","id":"capture_photo"}
+    ])
+    return True,{}
+
+def process_photo(self, input_data=None):
+    self._data["pic"] = self._data.get("result_file")   # file path
+    self._save()
+    self.Open()
+    return True,{}
 
 ────────────────────────────────────
-SetTitle(title)
+DISPLAY IN TABLE ROW (PHOTO PER ROW)
+────────────────────────────────────
+It is possible to store a photo per row and display it in a Table.
+
+Store row data as list of dict:
+self._data["rows"] = [
+  {"name":"...", "img":"/path/file.jpg"},
+  ...
+]
+
+Table layout must include Picture element:
+{"type":"Picture","value":"@img"}
+
+Example:
+def Open(self, input_data=None):
+    rows = self._data.get("rows", [])
+    self.Show([
+      [{"type":"Table","id":"t1","value":rows,"layout":[
+          [{"type":"Text","value":"@name"}],
+          [{"type":"Picture","value":"@img"}]
+      ]}]
+    ])
+    self.PlugIn([
+      {"type":"PhotoButton","id":"capture_photo"}
+    ])
+    return True,{}
+
+def process_photo(self, input_data=None):
+    path = self._data.get("result_file")
+    rows = self._data.get("rows", [])
+    rows.append({"name":"New photo", "img": path})
+    self._data["rows"] = rows
+    self._save()
+    self.Open()
+    return True,{}
+
+If using base64 storage for table rows:
+- Convert base64 to temp file paths using saveBase64ToFile() or convertBase64ArrayToFilePaths()
+- Picture element should receive a file path.
+
+==============================================================
+COMMON ANDROID UI/UX HELPER METHODS (CLIENT) — WITH EXAMPLES
+==============================================================
+
+These helpers work ONLY on Android client (nodes_handlers).
+They MUST NOT be used in server handlers.
+
+────────────────────────────────────
+ SetTitle(title)
 ────────────────────────────────────
 Sets node screen title.
 
 Example:
-SetTitle(self._data.get("title","New document"))
+def Open(self, input_data=None):
+    SetTitle(self._data.get("title","New task"))
+    self.Show([...])
+    return True,{}
 
 ────────────────────────────────────
 RefreshTab() + CloseNode()
 ────────────────────────────────────
-Used after save/delete.
+Used after save/delete to update the list screen and return back.
 
-Canonical pattern:
-self._save()
-RefreshTab()
-CloseNode()
+Save+Close pattern:
+def SaveAndClose(self, input_data=None):
+    self._save()
+    RefreshTab()
+    CloseNode()
+    return True,{}
+
+Delete+Close pattern:
+def DeleteAndClose(self, input_data=None):
+    DeleteNode(self.uid)
+    RefreshTab()
+    CloseNode()
+    return True,{}
 
 ────────────────────────────────────
-Dialog(...)
+ Dialog(id,title,yes_caption="",no_caption="",layout=None)
 ────────────────────────────────────
-Shows modal dialog.
+Dialog supports TWO modes:
+A) Yes/No dialog (no layout)
+B) Dialog with layout (inputs), where input values are stored into self._data
 
-Result:
-- listener == "<id>_positive" or "<id>_negative"
-- input values stored in self._data
+Dialog result is delivered via listener:
+- "<id>_positive" or "<id>_negative"
+In practice, listener is commonly available in self._data["listener"].
 
-Example:
-Dialog("dlg1","Confirm?","Yes","No")
+A) YES/NO dialog example:
+def ask_delete(self, input_data=None):
+    Dialog("dlg_confirm","Delete item?","Yes","No")
+    return True,{}
 
 Handling:
-if self._data.get("listener") == "dlg1_positive":
-    ...
+def input(self, input_data=None):
+    if self._data.get("listener") == "dlg_confirm_positive":
+        toast("Confirmed")
+    elif self._data.get("listener") == "dlg_confirm_negative":
+        toast("Cancelled")
+    return True,{}
+
+B) Dialog with layout (input data) — "Enter quantity" example:
+def ask_qty(self, input_data=None):
+    Dialog(
+      "dlg_qty",
+      "Enter quantity",
+      "Ok",
+      None,
+      [[{"type":"Input","id":"qty_dialog","caption":"Quantity","input_type":"number"}]]
+    )
+    return True,{}
+
+Using the entered quantity:
+def input(self, input_data=None):
+    if self._data.get("listener") == "dlg_qty_positive":
+        qty = self._data.get("qty_dialog")   # value from dialog input
+        self._data["qty"] = qty
+        self._save()
+        self.Open()
+    return True,{}
+
+IMPORTANT:
+- Dialog input ids write directly into self._data (e.g., qty_dialog).
+- LLM MUST NOT assume Dialog returns qty directly.
 
 ────────────────────────────────────
-Timers: AddTimer / StopTimer
+ ScanBarcode(listener)
 ────────────────────────────────────
-AddTimer(key, period_seconds)
-
-Event:
-- onTimer
-- input_data["timer_key"]
+Starts camera scanning programmatically (like pressing a scanner button).
+Result is delivered via event with the provided listener.
 
 Example:
-AddTimer("gps",5)
+ScanBarcode("barcode_cam")
+
+Handler uses:
+barcode = self._data.get("barcode_cam")
 
 ────────────────────────────────────
-GPS: RunGPS / StopGPS / GetLocation
+Timers: AddTimer(key, period) / StopTimer(key)
 ────────────────────────────────────
-RunGPS() starts background GPS.
-Use GetLocation() inside timer.
+Starts/stops a timer with a key.
 
-Location fields:
-latitude, longitude, altitude, accuracy, provider
+CommonEvents onTimer receives:
+input_data["timer_key"] == key
+
+Example:
+AddTimer("my_timer_1", 2)
+
+────────────────────────────────────
+11.6 GPS: RunGPS / StopGPS / GetLocation
+────────────────────────────────────
+RunGPS() starts tracking. Use timer to poll location.
+
+Example pattern:
+RunGPS()
+AddTimer("gps", 5)
+
+In onTimer:
+if input_data.get("timer_key") == "gps":
+    loc = GetLocation()
+    if loc:
+        self._data["location_str"] = "lat:"+str(loc["latitude"])+"\\nlong:"+str(loc["longitude"])
+        self.Open()
+
+Stop pattern:
+StopGPS()
+StopTimer("gps")
+
+IMPORTANT:
+- GPS data is not immediate; timer polling is recommended.
 
 ────────────────────────────────────
 Progress indicators
 ────────────────────────────────────
-ShowProgressButton(id)
-HideProgressButton(id)
+Button progress:
+ShowProgressButton(button_id)
+HideProgressButton(button_id)
 
+Example:
+def input(self, input_data=None):
+    if self._data.get("listener") == "button1":
+        def worker():
+            time.sleep(2)
+            HideProgressButton("button1")
+        ShowProgressButton("button1")
+        threading.Thread(target=worker).start()
+    return True,{}
+
+Global progress:
 ShowProgressGlobal()
 HideProgressGlobal()
 
-Pattern:
-ShowProgressButton("button1")
-threading.Thread(target=worker).start()
+Example:
+ShowProgressGlobal()
+threading.Thread(target=lambda: (time.sleep(2), HideProgressGlobal())).start()
 
 ────────────────────────────────────
-UpdateView(element_id, new_props)
+11.8 UpdateView(element_id, props_or_full_element)
 ────────────────────────────────────
-Partial UI update without full Show().
+Partial screen updates without full Show().
 
-Examples:
-UpdateView("btn_repl",None)
-UpdateView("btn_repl",{"background":"#FF0000"})
+Patterns:
+- UpdateView(id, None) — refresh element because bound variables changed
+- UpdateView(id, {"background":"#C82909"}) — change properties
+- UpdateView(id, {"type":"Input","id":"inp1",...}) — replace element
+
+Example:
+self._data["caption"] = "New name"
+UpdateView("btn_repl", None)
 
 ────────────────────────────────────
-SetCover(node, layout)
+11.9 SetCover(node, layout)
 ────────────────────────────────────
-Replaces node cover layout.
-Does NOT change data.
+Replaces node cover layout (UI wrapper). Does NOT change node data.
+Dynamic values referenced via "@" will update automatically.
+
+Example:
+SetCover(self, [[{"type":"Text","value":"@title"}]])
+
+────────────────────────────────────
+11.10 UpdateMediaGallery()
+────────────────────────────────────
+Refreshes MediaGallery UI after manual changes to the gallery array.
+
+Use when:
+- you modify self._data["pic_files"] directly
+- you convert base64 to temp file paths and want gallery to reflect changes
+
+Example:
+self._data["pic_files"] = convertBase64ArrayToFilePaths(self._data["photos_base64"])
+UpdateMediaGallery()
 
 ==============================================================
-ANDROID MODULE FUNCTIONS
+12. ANDROID MODULE FUNCTIONS (UI COMMANDS)
 ==============================================================
 
-toast(text) — short message
-message(text) — dialog message
+toast(text) — short Android toast
+message(text) — message dialog
 speak(text) — TTS
-listen() — voice recognition
-vibrate(), vibrate(ms)
-beep(), beep(tone), beep(tone,duration,volume)
+listen() — speech recognition
+vibrate() / vibrate(duration)
+beep() / beep(tone) / beep(tone, duration, volume)
 
-notification(message,title,number)
-notification_progress(...)
+notification(message)
+notification(message, title)
+notification(message, title, number)
+notification_progress(message, title, number, progress)
 notification_cancel(number)
 
 ==============================================================
-IMPORTANT RULES FOR LLM
+13. TEXT / HTML AND SVG ICONS
 ==============================================================
 
-- PlugIn elements are NOT part of Show()
-- PlugIn always replaces previous elements
-- Do NOT invent methods like Save/Open if _save/_open exist
-- Do NOT use "@var" inside data arrays (tables, media, datasets)
-- Choose ONE media storage pattern
-- RefreshTab + CloseNode after save/delete
-- Progress helpers are UI-only, not async logic
-- Android helpers NEVER exist on server
+HTML in text:
+- In any UI text, HTML tags may be used.
+Example: "Hello <b>world</b>"
+
+SVG icons:
+- For elements supporting icons, inline SVG string may be used.
+- Properties: svg, svg_size, svg_color
+
+Example:
+svg1 = "<svg ...>...</svg>"
+self.PlugIn([
+  {"type":"FloatingButton","id":"add","svg":svg1,"svg_size":48,"svg_color":"#000000"}
+])
+
+==============================================================
+14. IMAGE / GALLERY UTILITY FUNCTIONS
+==============================================================
+
+getBase64FromImageFile(path) — returns base64 string
+convertImageFilesToBase64Array(paths_array) — array of base64 strings
+saveBase64ToFile(base64_string) — saves base64 into temp file and returns file path
+convertBase64ArrayToFilePaths(base64_array) — saves base64 array into temp files and returns paths array
+
+Use:
+- convert captured files to base64 (upload-friendly)
+- convert base64 to files (Picture/MediaGallery requires file paths)
+
+==============================================================
+15. IMPORTANT LLM RULES (STRICT)
+==============================================================
+
+- PlugIn elements are outside Show() layout.
+- PlugIn ALWAYS clears previous elements; list all needed elements each time.
+- Dialog returns results via listener + writes inputs into self._data (by input ids).
+- PhotoButton/GalleryButton produce file path in self._data["result_file"].
+- Choose ONE photo storage pattern (paths OR base64); do not mix.
+- Picture/Table Picture expects a file path; if you store base64, convert to temp files first.
+- After _save or delete, use RefreshTab() then CloseNode() when returning to lists.
+- These helpers exist ONLY on Android client; never use them on server handlers.
+
 
 
 
