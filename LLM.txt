@@ -67,7 +67,7 @@ Rules:
   Format:
     "Title|command_code[,Title|command_code]*"
 - Section command buttons trigger CommonEvent: onStartMenuCommand
-  input_data contains "commandId" = command_code.
+  input_data contains "command" = command_code.
 - Classes reference sections through:
   "section": "Human name",
   "section_code": "SectionCode"
@@ -421,12 +421,12 @@ Rules:
 CommonEvents are global events of application.
 
 onStartMenuCommand:
-- Section commands fire onStartMenuCommand with input_data["commandId"].
+- Section commands fire onStartMenuCommand with input_data["command"].
 - In CommonEvents add:
   { "event":"onStartMenuCommand", "listener":"", "actions":[{"action":"run","source":"internal","server":"","method":"onStartMenuCommand","postExecuteMethod":""}] }
 - Handler:
   def onStartMenuCommand(input_data=None):
-      cmd = input_data.get("commandId")
+      cmd = input_data.get("command")
       ...
       return True, {}
 
@@ -435,10 +435,9 @@ onDialogResult:
 - input_data contains "result" and "result_data".
 
 onTimer:
-- Use AddTimer(key, period) / StopTimer(key) and CommonEvent onTimer.
+- Use AddTimer(key, period) / StopTimer(key) and CommonEvent onTimer.You can get "timer_key" in input_data
 
-onBackgroundMessage:
-- For background payload processing.
+
 
 ==============================================================
 11. SERVER HANDLERS (ANDROID_SERVER)
