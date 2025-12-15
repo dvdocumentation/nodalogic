@@ -411,49 +411,200 @@ CRITICAL LLM RULES
 
 
 ==============================================================
-6. LAYOUT STRUCTURE (ANDROID UI)
+6. SCREEN LAYOUT PRINCIPLES (ROWS, PARAMETERS, CONTAINERS)
 ==============================================================
-Layout is a list of rows. Each row is a list of UI elements placed horizontally.
+
+This section is CRITICAL.
+All UI layouts in the system use the SAME layout model:
+- node screen
+- dialog
+- node cover
+- table row layout
+- Card content
+
+All layouts are JSON-like structures (Python list/dict in handlers).
+
+--------------------------------------------------------------
+6.1 TWO LAYOUT APPROACHES (CAN BE MIXED)
+--------------------------------------------------------------
+
+There are TWO layout approaches:
+
+A) ROW-BASED LAYOUT (default)
+B) CONTAINER-BASED LAYOUT (Vertical / Horizontal / Scroll / Card)
+
+They can be freely mixed.
+
+--------------------------------------------------------------
+6.2 ROW-BASED LAYOUT (DEFAULT)
+--------------------------------------------------------------
+
+Row-based layout is a vertical list of horizontal rows.
+
+General structure:
+[
+  [ {...}, {...} ],   # one horizontal row
+  [ {...} ],          # another row
+  ...
+]
+
+- Outer list → vertical layout (top to bottom)
+- Inner list → horizontal layout (left to right)
+- Each inner list is a ROW and also acts as a CONTAINER
+
+DEFAULT RULES (important):
+- Each row width = MATCH_PARENT
+- Each row height = WRAP_CONTENT
+- Elements inside a row also default to WRAP_CONTENT
+- This behavior is equivalent to Android LinearLayout (vertical + horizontal)
+
+--------------------------------------------------------------
+6.3 SIZE CONSTANTS (ANDROID ANALOGY)
+--------------------------------------------------------------
+
+Size values are directly analogous to Android SDK:
+
+-  0    → size by weight (only meaningful if weight is used)
+- -1    → MATCH_PARENT
+- -2    → WRAP_CONTENT
+
+This applies to:
+- width
+- height
+
+IMPORTANT:
+If a container or row uses weight (w),
+elements inside may use height = -1 or width = -1 meaningfully.
+
+--------------------------------------------------------------
+6.4 PARAMETERS ELEMENT (ROW CONTROL)
+--------------------------------------------------------------
+
+Row itself is also a container.
+To control row size/behavior, use a Parameters element.
+
+Parameters affects THE ROW it is placed in.
 
 Example:
 [
-  [ {"type":"Text","value":"Hello","bold":true} ],
-  [ {"type":"Input","id":"qty","caption":"Qty","value":"@qty"} ]
+  [{"type":"Parameters","w":1},{"type":"Input","height":-1,"id":"body"}]
 ]
 
-This STRING LAYOUT is primary for:
-- screens (Show)
-- list item layouts (Table.layout)
-- dialogs
-- cover_image (stored as string)
+Meaning:
+- this row has weight = 1
+- row expands to fill remaining vertical space
+- Input fills entire row height
 
-==============================================================
-6.1 STRING LAYOUT VS CONTAINER LAYOUT
-==============================================================
-Two approaches can be mixed:
-1) STRING LAYOUT: [ [elements...], [elements...] ... ]
-2) CONTAINER LAYOUT inside rows:
-   - "VerticalLayout"
-   - "HorizontalLayout"
-   - "VerticalScroll"
-   - "HorizontalScroll"
-   - "Card"
+This is the canonical pattern for:
+"header input + big multiline input filling the rest of the screen"
 
-IMPORTANT:
-- Root of screen layout is still a list of rows.
-- Parameters element can be used as first element in a row to configure row container properties
-  (w/width/height). (See official docs.)
+Example (VERY COMMON):
+[
+  [{"type":"Switch","id":"done","caption":"Completed","value":"@done"}],
+  [{"type":"Input","id":"title","caption":"Subject","value":"@title"}],
+  [{"type":"Parameters","w":1},{"type":"Input","id":"body","height":-1,"input_type":"multiline"}],
+  [{"type":"Parameters","w":1},{"type":"NodeChildren"}]
+]
 
-==============================================================
-6.2 COMMON PROPERTIES OF UI ELEMENTS
-==============================================================
-Each UI element may have:
-- "type" (string) — element type, CASE-SENSITIVE.
-- "id" (string) — element identifier (required for interactive elements).
-- "visible" (int): 1 visible, 0 invisible but keeps space, -1 invisible and no space.
-- "w" (number) weight, default 1
-- "width" (number): -1 full container, -2 wrap content, or relative number
-- "height" (number): -1 full container, -2 wrap content, or relative number
+--------------------------------------------------------------
+6.5 CONTAINERS
+--------------------------------------------------------------
+
+Containers are elements that manage their own children.
+
+Available container types:
+- VerticalLayout
+- HorizontalLayout
+- VerticalScroll
+- HorizontalScroll
+- Card
+
+IMPORTANT RULE:
+If you use containers, YOU MUST specify width/height
+for child elements (and often for the container itself).
+
+--------------------------------------------------------------
+6.6 SCROLL CONTAINERS
+--------------------------------------------------------------
+
+Scroll containers break MATCH_PARENT logic for height.
+
+Rule:
+- height = -1 INSIDE Scroll usually does NOT work as expected
+- Scroll content should usually use WRAP_CONTENT (-2)
+
+Example: Vertical + Horizontal scroll combination
+
+Example:
+l = []
+for i in range(30):
+    l.append({
+      "type":"Button",
+      "caption":"Button "+str(i),
+      "id":"_"+str(i),
+      "height":-2,
+      "width":-2
+    })
+
+self.Show([
+  [
+    {"type":"Parameters","w":1,"height":-1},
+    {"type":"VerticalScroll","value":l,"w":2,"height":-2}
+  ],
+  [
+    {"type":"Parameters","w":1,"height":-1},
+    {"type":"HorizontalScroll","value":l,"w":1,"height":-2}
+  ]
+])
+
+--------------------------------------------------------------
+6.7 CARD CONTAINER
+--------------------------------------------------------------
+
+Card is a VISUAL container.
+
+Card.value format:
+- ALWAYS row-based layout (array of rows)
+
+Correct:
+"value": [
+   [ {...}, {...} ],
+   [ {...} ]
+]
+
+Incorrect:
+"value": [ {...}, {...} ]
+
+Card is used for:
+- list items
+- table row customization
+- grouping UI blocks
+
+--------------------------------------------------------------
+6.8 LAYOUT IS UNIVERSAL
+--------------------------------------------------------------
+
+The SAME layout rules apply to:
+- node screen (Show)
+- dialog layout (Dialog)
+- node cover (SetCover)
+- table row layout (Table.layout)
+- Card.value
+
+LLM MUST NOT invent new layout rules per context.
+
+--------------------------------------------------------------
+6.9 COMMON MISTAKES (STRICT)
+--------------------------------------------------------------
+
+- Card.value MUST be [[...]] (row-based), not [...]
+- Parameters affects the ROW, not the element
+- nodes_source tables IGNORE Table.layout (node cover is used)
+- height = -1 inside Scroll usually does not work
+- Containers REQUIRE explicit width/height
+- Do NOT mix list-table logic with node-table logic
+
+
 
 ==============================================================
 7. UI ELEMENTS (ANDROID) — ALLOWED TYPES
@@ -531,6 +682,61 @@ NODECHILDREN:
 ==============================================================
 7.2 TABLE
 ==============================================================
+
+
+TABLE — IMPORTANT DISTINCTIONS (LIST vs DATASET vs NODES)
+==============================================================
+
+Table.value has 3 DIFFERENT modes. The LLM MUST distinguish them.
+
+A) Table from LIST OF ROW DICTS (plain data table)
+--------------------------------------------------
+"value": [ {"name":"A","qty":5}, {"name":"B","qty":-1} ]
+
+- Each row is a dict.
+- Table.layout defines how to render row fields (e.g. "@name", "@qty").
+- Row dict may contain row formatting fields:
+  - "_background": "#RRGGBB"
+  - "_layout": custom layout for this row
+
+Use this mode when:
+- you need full control over what is displayed in each table row
+- you need conditional row styling (e.g. green background if assembled==True)
+- you are NOT showing nodes, just row data
+
+B) Table from DATASET NAME (dataset table)
+------------------------------------------
+"value": "goods"   # dataset name string
+
+- Table is populated from dataset records.
+- Table.layout (optional) renders dataset record fields.
+- Dataset searching may be enabled with dataset_search.
+
+Use this mode when:
+- table rows are dataset records
+- you want dataset search / autocomplete behavior
+
+C) Table from NODES (nodes_source mode — node cover table)
+----------------------------------------------------------
+"nodes_source": true
+"value": ["uid1","uid2", ...]   # list of node UIDs
+
+CRITICAL BEHAVIOR:
+- This table is a NODES LIST VIEW.
+- Rows represent nodes, rendered using NODE COVER (not Table.layout).
+- Clicking a row opens the node form (row is "openable").
+- Therefore, Table.layout is NOT the primary row renderer in nodes_source mode.
+
+Use this mode when:
+- you want to show a list of nodes (objects) in a table-like view
+- you want click-to-open behavior for each row node
+- you want the node cover to define row appearance
+
+LLM RULES:
+- Do NOT try to "print row fields" via Table.layout when nodes_source:true.
+  Instead, design the node cover (cover_image / SetCover) for how the row should look.
+- If TT asks "show something in the row for nodes_source", interpret it as:
+  "modify node cover to include the required fields".
 
 TABLE:
 {
@@ -1641,6 +1847,62 @@ LLM STRICT RULES
 - ALWAYS use _open() to open node UI
 - User-defined methods Open(), Save(), etc. must NOT be called directly
 - _create(), _open(), _save(), _upload() are SYSTEM methods inherited from Node
+
+==============================================================
+NODE SCREEN RETURN / REFRESH PATTERN — onShow vs onResume
+==============================================================
+
+When returning back to a node screen from another node screen
+(example: open child line node, edit it, close it, return to document),
+the document screen must refresh its rows/derived data.
+
+Correct mechanism:
+- Use event "onResume" on the parent node.
+- onResume is triggered when the node screen becomes active again (return).
+- onResume should call the SAME rendering method as onShow (commonly Open()).
+
+Example pattern:
+- onShow  → run Open
+- onResume → run Open
+
+LLM RULES:
+- Do NOT use RefreshTab() to refresh a node screen.
+  RefreshTab() refreshes the SECTION/LIST tab (main menu list), NOT an opened node screen.
+- For node-to-node return refresh:
+  use onResume and re-render (Open or a dedicated Render method).
+
+Typical child node close pattern:
+def Save(self, input_data=None):
+    self._save()
+    CloseNode()
+    return True,{}
+
+Then parent node onResume re-renders its tables/children.
+
+==============================================================
+AUTOSAVE NOTE — WHEN NOT TO CALL _save()
+==============================================================
+
+Classes may have autosave enabled ("has_storage": true).
+With autosave:
+- input changes are saved automatically by the system
+
+LLM RULES:
+- Do NOT call _save() after every input event if autosave is enabled,
+  unless TT explicitly requires immediate persistence (e.g. before upload, before close).
+- Typical cases where _save() IS appropriate even with autosave:
+  - before CloseNode() if TT requires guaranteed persistence
+  - after modifying computed fields not directly bound to inputs
+  - after modifying lists/children programmatically
+  - before _upload() / _register()
+
+==============================================================
+LAYOUT PRINCIPLES — ROWS vs CONTAINERS (CONFIRMATION)
+==============================================================
+
+The system uses TWO layout approaches that can be mixed:
+
+
 
 
 END OF RULES
