@@ -133,7 +133,7 @@ Rules:
 - Every class in JSON MUST exist in Python handlers (Android AND server) with the SAME name:
   - Android: class ClassName(Node)
   - Server:  class ClassName(Node)
-- If server has no logic, the class may contain only __init__, but MUST exist.
+- If server has no logic, the class may contain only __, but MUST exist.
 - Each method in JSON "methods" MUST have a corresponding Python method with EXACT SAME name,
   signature:  def MethodName(self, input_data=None)
   and MUST return a tuple: (success: bool, result: dict)
@@ -155,6 +155,70 @@ Class definition example:
 class_type:
 - "custom_process" — screen/process (single logical instance)
 - "data_node" — data entity (many instances)
+
+==============================================================
+4.0 CLASS EXECUTION CONTEXTS (ANDROID vs SERVER)
+==============================================================
+
+Every class exists in TWO execution contexts:
+
+1) Android (client-side execution)
+2) Server (server-side execution)
+
+The LLM MUST clearly distinguish these contexts.
+Rules for each context are DIFFERENT and MUST NOT be mixed.
+
+--------------------------------------------------------------
+ANDROID CLASS (CLIENT-SIDE)
+--------------------------------------------------------------
+
+Android classes are executed on the mobile device.
+They handle:
+- UI rendering
+- user interaction
+- local data storage
+- local node lifecycle
+
+Android class definition MUST follow this exact pattern:
+
+class MyClass(Node):
+    def __init__(self, modules, jNode, modulename, uid, _data):
+        super().__init__(modules, jNode, modulename, uid, _data)
+
+IMPORTANT:
+- This __init__ signature is MANDATORY for Android classes.
+- The LLM MUST NOT use server-style __init__ for Android.
+- Missing or incorrect __init__ is a CRITICAL ERROR.
+
+Android class methods:
+- signature: def MethodName(self, input_data=None)
+- MUST return: (bool, dict)
+
+--------------------------------------------------------------
+SERVER CLASS (SERVER-SIDE)
+--------------------------------------------------------------
+
+Server classes are executed on the server.
+They handle:
+- persistence
+- synchronization
+- REST API access
+- RemoteClass calls
+
+Server class definition MUST follow this exact pattern:
+
+class MyClass(Node):
+    def __init__(self, node_id=None, config_uid=None):
+        super().__init__(node_id, config_uid)
+
+IMPORTANT:
+- This __init__ signature is MANDATORY for server classes.
+- Server classes do NOT receive modules, jNode, modulename, _data.
+
+Server class methods:
+- signature: def MethodName(self, input_data=None)
+- MUST return: (bool, dict)
+
 ==============================================================
 4.1 COVER_IMAGE (CLASS COVERS) – REQUIRED
 ==============================================================
@@ -221,6 +285,130 @@ Actions:
 You MUST match:
 - event.listener → UI element "id" (or "" for global/common events)
 - action.method → existing Python method with same name and correct signature
+
+==============================================================
+5.x SYSTEM NODE METHODS (INHERITED FROM Node) — MUST KNOW
+==============================================================
+
+All user classes inherit built-in ("system") methods from Node.
+System methods are NOT user-defined business logic.
+They MUST NOT be declared inside JSON "methods" arrays, and MUST NOT be treated
+as event handlers unless TT explicitly says so.
+
+System methods are used for:
+- opening UI forms
+- saving/loading node data
+- creating/deleting child nodes (hierarchy)
+- syncing/registering nodes with server/rooms
+
+Naming:
+- System methods usually start with "_" (underscore).
+- Do NOT invent non-underscore variants (e.g. Save(), Open()).
+
+==============================================================
+5.x SYSTEM NODE METHODS (INHERITED FROM Node)
+==============================================================
+
+All user classes inherit built-in ("system") methods from Node.
+System methods are infrastructure methods provided by the platform.
+
+System methods:
+- are NOT business logic
+- are NOT user-defined handlers
+- MUST NOT be declared in JSON "methods"
+- MUST NOT be invented, renamed, or mixed between contexts
+
+System methods differ between ANDROID (client-side) and SERVER.
+The LLM MUST strictly distinguish execution contexts.
+
+────────────────────────────────────
+ANDROID (CLIENT-SIDE) SYSTEM METHODS
+────────────────────────────────────
+
+Android system methods exist ONLY on the mobile client.
+They are used for UI lifecycle, local storage, and synchronization.
+
+_open()
+- Purpose: open the node screen on the Android client.
+- Behavior:
+  - triggers the onShow event
+  - does NOT render UI directly
+- Correct flow:
+  node._open()
+  → onShow event fires
+  → onShow handler executes a USER method (commonly named "Open")
+  → USER method calls self.Show(layout)
+- Use when TT says: "open form", "open node", "show screen", "open document UI"
+- FORBIDDEN:
+  - calling _open() on the server
+  - calling user method Open() instead of _open() to open a screen
+
+_save()
+- Purpose: save node._data to local client storage.
+- Use when TT says: "save", "persist", "store changes"
+- Note:
+  - with autosave enabled, input fields may save automatically
+  - variables starting with "!" are excluded from autosave
+
+delete()
+- Purpose: delete the node and all its child nodes locally.
+
+_upload(server_alias=None, config_uid=None)
+- Purpose: upload or update the node on the server.
+
+_delete_from_server(server_alias=None, config_uid=None)
+- Purpose: delete the node from the server.
+
+_register(room_uid, server_alias=None, config_uid=None)
+- Purpose: register the node in a Room for delivery to other devices.
+
+AddChild(_class, uid=None, _data=None)
+- Purpose: create and attach a child node.
+
+RemoveChild(uid)
+- Purpose: remove a child node and all its descendants.
+
+GetChildren(level=None)
+- Purpose: retrieve child nodes (optionally recursive).
+
+────────────────────────────────────
+SERVER-SIDE SYSTEM METHODS
+────────────────────────────────────
+
+Server system methods exist ONLY on the server.
+There is NO UI and NO screen lifecycle on the server.
+
+IMPORTANT:
+- _open() DOES NOT exist on the server.
+- Any attempt to open or render UI on the server is INVALID.
+
+_save()
+- Purpose: save node._data to server-side storage.
+
+delete()
+- Purpose: delete the node and all its subordinate nodes.
+
+AddChild(_class, uid=None, _data=None)
+- Purpose: create and attach a child node on the server.
+
+RemoveChild(uid)
+- Purpose: remove a child node and all its descendants.
+
+GetChildren(level=None)
+- Purpose: retrieve child nodes from the server.
+
+────────────────────────────────────
+CRITICAL LLM RULES
+────────────────────────────────────
+
+- _open() is ANDROID-ONLY.
+- NEVER call _open() in server handlers.
+- To open UI → use _open() (client only).
+- To render UI → use self.Show(layout) inside a USER method.
+- User methods (Open, Input, AddItem, etc.) are NOT system methods.
+- System methods MUST NOT appear in JSON "methods" unless TT explicitly requests it.
+
+
 
 ==============================================================
 6. LAYOUT STRUCTURE (ANDROID UI)
