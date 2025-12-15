@@ -210,7 +210,7 @@ Event entry in JSON:
 
 Events:
 - onShow, onResume, onInput
-- CommonEvents: onLaunch, onTimer, onDialogResult, onStartMenuCommand, onBackgroundMessage
+- CommonEvents: onLaunch, onTimer, onDialogResult, onStartMenuCommand etc (see Common Events section)
 (others only if already present in existing config)
 
 Actions:
@@ -418,26 +418,150 @@ Rules:
 ==============================================================
 10. COMMON EVENTS (GLOBAL)
 ==============================================================
-CommonEvents are global events of application.
+Common events are global events that are not tied to a specific node.
+They are configured in the JSON section "CommonEvents".
 
-onStartMenuCommand:
-- Section commands fire onStartMenuCommand with input_data["command"].
-- In CommonEvents add:
-  { "event":"onStartMenuCommand", "listener":"", "actions":[{"action":"run","source":"internal","server":"","method":"onStartMenuCommand","postExecuteMethod":""}] }
-- Handler:
-  def onStartMenuCommand(input_data=None):
-      cmd = input_data.get("command")
-      ...
-      return True, {}
+IMPORTANT:
+- The LLM MUST follow the exact JSON schema shown below.
+- The list of common event names is STRICT and CLOSED.
+- The LLM MUST NOT invent fields like "commandId", "eventId", etc.
 
-onDialogResult:
-- Dialog(...) results handled by CommonEvent onDialogResult.
-- input_data contains "result" and "result_data".
+────────────────────────────────────
+10.1 CommonEvents JSON Schema (MUST MATCH)
+────────────────────────────────────
 
-onTimer:
-- Use AddTimer(key, period) / StopTimer(key) and CommonEvent onTimer.You can get "timer_key" in input_data
+"CommonEvents" is an array of event handler objects.
 
+Each handler object has the following structure:
 
+"CommonEvents": [
+  {
+    "event": "<event_name>",
+    "listener": "",
+    "actions": [
+      {
+        "action": "run",
+        "source": "internal",
+        "server": "",
+        "method": "<python_method_name>",
+        "postExecuteMethod": ""
+      }
+    ]
+  }
+]
+
+Rules:
+- "CommonEvents" MUST be an array, not an object.
+- Each element MUST contain: "event", "listener", "actions".
+- "actions" MUST be an array.
+- For calling Python handlers, use exactly:
+  - "action": "run"
+  - "source": "internal"
+  - "server": ""
+  - "postExecuteMethod": ""
+- The Python handler name goes to "method".
+- Do NOT add any extra keys unless they are explicitly documented.
+
+────────────────────────────────────
+10.2 Common Event Types (STRICT LIST)
+────────────────────────────────────
+
+Only the following common events exist:
+
+- onLaunch
+  Fired when configuration is loaded or restarted.
+  No parameters.
+
+- onTimer
+  Fired when a timer is triggered.
+  input_data contains:
+    - "timer_key": string
+
+- onJSONFile
+  Fired when a JSON file is opened via "Open" or "Share".
+  input_data contains:
+    - "content": string (full file content)
+
+- onTextFile
+  Fired when a text file is opened via "Open" or "Share".
+  input_data contains:
+    - "content": string (full file content)
+
+- onBarcode
+  Fired when barcode is scanned via ScanBarcode from the main menu.
+  This event does NOT provide input_data in the same way as file/timer events.
+  Do NOT assume input_data keys unless explicitly specified elsewhere.
+
+- onStartMenuCommand
+  Fired when a configuration menu command is selected
+  (commands added via Configuration Sections).
+  This event does NOT provide input_data like timer/file events.
+  Do NOT invent input_data keys and do NOT invent identifiers.
+
+- onDialogResult
+  Fired when a dialog opened from the main menu is closed.
+  input_data contains:
+    - "result": "result_positive" or "result_negative"
+    - "result_data": object (dialog input values, if any)
+
+────────────────────────────────────
+10.3 input_data Rules
+────────────────────────────────────
+
+- input_data exists only when the event type provides it.
+- The LLM MUST use ONLY documented keys for each event.
+- If keys are not documented for an event, the LLM MUST NOT invent them.
+
+Allowed input_data keys:
+- onTimer: "timer_key"
+- onJSONFile: "content"
+- onTextFile: "content"
+- onDialogResult: "result", "result_data"
+
+No documented input_data keys (do not invent):
+- onLaunch
+- onBarcode
+- onStartMenuCommand
+
+────────────────────────────────────
+10.4 Minimal Examples
+────────────────────────────────────
+
+Example: onStartMenuCommand
+
+"CommonEvents": [
+  {
+    "event": "onStartMenuCommand",
+    "listener": "",
+    "actions": [
+      {
+        "action": "run",
+        "source": "internal",
+        "server": "",
+        "method": "onStartMenuCommand",
+        "postExecuteMethod": ""
+      }
+    ]
+  }
+]
+
+Example: onTimer
+
+"CommonEvents": [
+  {
+    "event": "onTimer",
+    "listener": "",
+    "actions": [
+      {
+        "action": "run",
+        "source": "internal",
+        "server": "",
+        "method": "onTimer",
+        "postExecuteMethod": ""
+      }
+    ]
+  }
+]
 
 ==============================================================
 11. SERVER HANDLERS (ANDROID_SERVER)
