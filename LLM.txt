@@ -343,22 +343,49 @@ NODECHILDREN:
 ==============================================================
 7.2 TABLE
 ==============================================================
+
 TABLE:
 {
   "type":"Table",
   "id":"tbl",
+
+  // Table.value MUST be either:
+  // 1) a direct list of rows (list of dict), OR
+  // 2) a dataset name (STRING WITHOUT "@"), OR
+  // 3) a list of node IDs (only if "nodes_source": true)
+
   "value": [ {"name":"A","qty":5}, {"name":"B","qty":-1} ],
+
   "layout": [
     [ {"type":"Text","value":"@name"} ],
     [ {"type":"Text","value":"@qty"} ]
   ]
 }
 
-Rules for Table.value:
+Rules for Table.value (STRICT):
 - It MUST be one of:
-  1) a direct list of rows (list of dict)
-  2) a dataset name (STRING)
-  3) a list of node IDs if "nodes_source": true is specified
+  1) DIRECT LIST of rows: list of dict objects
+     Example: "value": [ {"name":"A"}, {"name":"B"} ]
+
+  2) DATASET NAME: a plain STRING (dataset identifier)
+     Example: "value": "positions"
+     IMPORTANT: do NOT prefix dataset name with "@"
+     FORBIDDEN: "value": "@positions"
+
+  3) LIST OF NODE IDS (only when "nodes_source": true is specified)
+     Example:
+       "nodes_source": true,
+       "value": ["node1","node2","node3"]
+
+ABSOLUTE FORBIDDEN PATTERNS for Table.value:
+- Any string starting with "@"
+- Any attempt to reference row fields in value (row-field references are ONLY for layout)
+
+Meaning of "@" in Table:
+- "@" is allowed ONLY inside Table.layout element values.
+- Inside Table.layout, "@field" reads the field from the CURRENT ROW dictionary.
+  Example: "@name", "@qty"
+- "@" in layout does NOT mean a dataset reference.
 
 Row-level formatting fields inside each row dict:
 - "_background": "#RRGGBB"
@@ -367,6 +394,7 @@ Row-level formatting fields inside each row dict:
 ACTIVE ELEMENTS IN TABLE ROW LAYOUT:
 - You may place Button / Input / CheckBox / Switch inside row layout.
 - Listener format in events for active elements in Table is special; follow existing config patterns.
+
 ==============================================================
 8. SHOW (DISPLAYING SCREENS)
 ==============================================================
@@ -564,7 +592,7 @@ Example: onTimer
 ]
 
 ==============================================================
-11. SERVER HANDLERS (ANDROID_SERVER)
+11. SERVER HANDLERS (PYTHON_SERVER)
 ==============================================================
 Every class in JSON MUST have server handler class:
 class ClassName(Node):
