@@ -584,6 +584,57 @@ ACTIVE ELEMENTS IN TABLE ROW LAYOUT:
 - Listener format in events for active elements in Table is special; follow existing config patterns.
 
 ==============================================================
+7.2.x TABLE WITH NODE CHILDREN (TABULAR PART PATTERN)
+==============================================================
+
+When TT requires a "tabular part" with a separate row class (e.g. header class + row class),
+the preferred pattern is CHILD NODES.
+
+Pattern:
+- Header node stores header fields in self._data (document header).
+- Each row is a CHILD node of the header node (row class).
+- Rows are created via AddChild(row_class, uid=None, _data=None).
+- Rows are displayed either via NodeChildren element OR via Table with nodes_source:true.
+
+CREATING A ROW (CLIENT / ANDROID):
+- Use AddChild to create the row node:
+  new_line = self.AddChild("OrderPosition", _data={"part":"", "position":""})
+- To edit row on screen: call new_line._open() (ANDROID ONLY).
+
+GETTING ROWS:
+- Use children list:
+  rows = self.GetChildren()
+- Convert nodes to UID list for Table:
+  row_uids = to_uid(rows)
+
+DISPLAYING ROWS IN TABLE (nodes_source):
+{
+  "type":"Table",
+  "id":"tbl_positions",
+  "nodes_source": true,
+  "value": row_uids,
+  "layout":[
+    [ {"type":"DatasetField","value":"@part","dataset":"nomenclature","width":-2} ],
+    [ {"type":"Text","value":"@position"} ],
+    [ {"type":"CheckBox","id":"assembled","value":"@assembled","width":-2} ]
+  ]
+}
+
+IMPORTANT RULES:
+- If a row class exists, the LLM MUST NOT store rows as plain dict list in header._data
+  unless TT explicitly requests "store rows inside _data as list".
+- The LLM MUST NOT create an unused row class.
+  If a row class is created, it MUST be used via AddChild/GetChildren (or nodes_source Table).
+- To open a node form, use _open() (ANDROID ONLY). Do NOT call Open() directly.
+- Saving: use _save(), never Save().
+
+ROW COLORING:
+- For list-of-dict Table.value, row dict may contain "_background":"#RRGGBB".
+- For nodes_source tables, row coloring depends on platform capabilities; if uncertain,
+  prefer list-of-dict rows and set "_background" explicitly.
+
+
+==============================================================
 8. SHOW (DISPLAYING SCREENS)
 ==============================================================
 Show(layout) renders the node screen and clears previous content.
@@ -603,33 +654,299 @@ Rules:
 - Do NOT pass non-layout objects into Show().
 
 ==============================================================
-9. PLUGIN (PlugIn) — SCREEN MECHANISMS
+9. PlugIn — SCREEN MECHANISMS & OUT-OF-LAYOUT UI ELEMENTS
 ==============================================================
-PlugIn(elements) attaches mechanisms to the screen (hardware/scanners and UI outside layout).
-Parameter MUST be a one-dimensional array/list of objects:
+
+PlugIn(elements) attaches UI mechanisms to the current node screen.
+These elements are NOT part of the Show() layout and live outside it
+(toolbar, floating buttons, camera, hardware scanners, gallery, etc).
+
+IMPORTANT:
+- PlugIn ALWAYS clears previously attached elements.
+- To remove all plugin elements, call: self.PlugIn([])
+- You MUST list ALL required elements in one call.
+
+Format:
 self.PlugIn([
-  {"type":"FloatingButton","id":"fab_add","caption":"+"},
-  {"type":"ToolbarButton","id":"tb_sync","caption":"Sync"}
+  {"type":"<element_type>", "id":"<element_id>", ...}
 ])
 
-Rules:
-- PlugIn receives 1D list of dict objects, NOT a 2D layout.
-- Each plugin object MUST have "type" and "id". Other fields depend on type.
-- You MUST create events (onInput) for plugin ids, same as for Buttons.
+All PlugIn elements:
+- generate events like normal UI elements
+- write their results into self._data under their id or special keys
+- trigger handlers via listener == element id
 
-Media / camera plugins:
-- PhotoButton, GalleryButton write selected file path to _data[<id>] and/or result_file.
-- MediaGallery uses _data[<id>] as array of file paths; may fire "<id>_delete" event.
-Barcode scanning plugins (DIFFERENT PURPOSES):
-- CameraBarcodeScannerButton:
-  Adds a UI button that opens camera scanning. Use it when device has a camera and user initiates scanning.
-- BarcodeScanner:
-  Enables interception of hardware scanner input (TSD terminals). Use it for devices with built-in scanners.
-  It may be used together with CameraBarcodeScannerButton or instead of it.
-Rules:
-- Both are used via PlugIn([...]) as 1D list items.
-- Both MUST have "type" and "id".
-- Events must listen to their "id" using onInput (same pattern as for Button).
+────────────────────────────────────
+9.1 CameraBarcodeScannerButton
+────────────────────────────────────
+Screen button that launches camera barcode scanning.
+
+Behavior:
+- Generates an event with listener == element id
+- Scanned barcode is written into self._data[<id>]
+
+Example:
+self.PlugIn([
+  {"type":"CameraBarcodeScannerButton","id":"barcode_cam"}
+])
+
+Handler example:
+def process_barcode(self, input_data=None):
+    barcode = self._data.get("barcode_cam")
+    toast(barcode)
+    return True,{}
+
+────────────────────────────────────
+9.2 BarcodeScanner (hardware scanner)
+────────────────────────────────────
+Subscribes to hardware barcode scanner (TSD devices).
+
+Requirements:
+- Scanner must be configured in device settings
+- Scanner must send data via Intent broadcast (not keyboard)
+
+Behavior:
+- listener == element id
+- scanned barcode in self._data[<id>]
+
+Example:
+self.PlugIn([
+  {"type":"BarcodeScanner","id":"barcode_hw"}
+])
+
+────────────────────────────────────
+9.3 FloatingButton
+────────────────────────────────────
+Floating button (bottom-right corner).
+
+Properties:
+- id (event listener)
+- caption (HTML allowed)
+- svg, svg_size, svg_color (optional)
+
+Example:
+self.PlugIn([
+  {"type":"FloatingButton","id":"add_child","caption":"Add <b>line</b>"}
+])
+
+────────────────────────────────────
+9.4 ToolbarButton
+────────────────────────────────────
+Button in the top toolbar.
+
+Typical use:
+- Save
+- Upload
+- Delete
+
+Example:
+self.PlugIn([
+  {"type":"ToolbarButton","id":"save","caption":"Save"}
+])
+
+────────────────────────────────────
+9.5 PhotoButton / GalleryButton
+────────────────────────────────────
+PhotoButton:
+- Opens camera
+- Writes captured file path into self._data["result_file"]
+
+GalleryButton:
+- Opens system gallery
+- Same behavior as PhotoButton
+
+Used together with MediaGallery.
+
+────────────────────────────────────
+9.6 MediaGallery
+────────────────────────────────────
+Displays an array of media files at the bottom of the screen.
+
+Storage:
+- self._data[<id>] MUST be a list
+- Typically list of file paths
+
+Behavior:
+- Automatically updated by PhotoButton/GalleryButton
+- User deletion generates event "<id>_delete"
+
+Example:
+self.PlugIn([
+  {"type":"PhotoButton","id":"capture_photo"},
+  {"type":"MediaGallery","id":"pic_files"}
+])
+
+==============================================================
+MEDIA / PHOTOS — STORAGE PATTERNS
+==============================================================
+
+There are TWO VALID photo storage patterns.
+LLM MUST choose ONE and NOT mix them.
+
+────────────────────────────────────
+PATTERN A: FILE PATHS (MediaGallery-driven)
+────────────────────────────────────
+Store photos as file paths.
+
+Data:
+self._data["pic_files"] = ["/path/img1.jpg", "/path/img2.jpg"]
+
+Typical handler:
+def CaptureImage(self, input_data=None):
+    arr = self._data.get("pic_files", [])
+    arr.append(self._data["result_file"])
+    self._data["pic_files"] = arr
+    UpdateMediaGallery()
+    self._save()
+    return True,{}
+
+Use when:
+- MediaGallery is primary UI
+- Local-only storage is acceptable
+
+────────────────────────────────────
+PATTERN B: BASE64 ARRAY (data-first)
+────────────────────────────────────
+Store photos as base64 strings.
+
+Data:
+self._data["photos_base64"] = ["<base64_1>", "<base64_2>"]
+
+Handler example:
+def process_photo(self, input_data=None):
+    photos = self._data.get("photos_base64", [])
+    b64 = getBase64FromImageFile(self._data["result_file"],50,50)
+    photos.append(b64)
+    self._data["photos_base64"] = photos
+    self._save()
+    return True,{}
+
+Optional gallery rendering:
+paths = convertBase64ArrayToFilePaths(self._data["photos_base64"])
+self._data["pic_files"] = paths
+UpdateMediaGallery()
+
+RULE:
+- Do NOT store "@variables" in photo arrays.
+
+==============================================================
+11. COMMON ANDROID UI/UX HELPER METHODS
+==============================================================
+
+These helpers work ONLY on Android client.
+
+────────────────────────────────────
+SetTitle(title)
+────────────────────────────────────
+Sets node screen title.
+
+Example:
+SetTitle(self._data.get("title","New document"))
+
+────────────────────────────────────
+RefreshTab() + CloseNode()
+────────────────────────────────────
+Used after save/delete.
+
+Canonical pattern:
+self._save()
+RefreshTab()
+CloseNode()
+
+────────────────────────────────────
+Dialog(...)
+────────────────────────────────────
+Shows modal dialog.
+
+Result:
+- listener == "<id>_positive" or "<id>_negative"
+- input values stored in self._data
+
+Example:
+Dialog("dlg1","Confirm?","Yes","No")
+
+Handling:
+if self._data.get("listener") == "dlg1_positive":
+    ...
+
+────────────────────────────────────
+Timers: AddTimer / StopTimer
+────────────────────────────────────
+AddTimer(key, period_seconds)
+
+Event:
+- onTimer
+- input_data["timer_key"]
+
+Example:
+AddTimer("gps",5)
+
+────────────────────────────────────
+GPS: RunGPS / StopGPS / GetLocation
+────────────────────────────────────
+RunGPS() starts background GPS.
+Use GetLocation() inside timer.
+
+Location fields:
+latitude, longitude, altitude, accuracy, provider
+
+────────────────────────────────────
+Progress indicators
+────────────────────────────────────
+ShowProgressButton(id)
+HideProgressButton(id)
+
+ShowProgressGlobal()
+HideProgressGlobal()
+
+Pattern:
+ShowProgressButton("button1")
+threading.Thread(target=worker).start()
+
+────────────────────────────────────
+UpdateView(element_id, new_props)
+────────────────────────────────────
+Partial UI update without full Show().
+
+Examples:
+UpdateView("btn_repl",None)
+UpdateView("btn_repl",{"background":"#FF0000"})
+
+────────────────────────────────────
+SetCover(node, layout)
+────────────────────────────────────
+Replaces node cover layout.
+Does NOT change data.
+
+==============================================================
+ANDROID MODULE FUNCTIONS
+==============================================================
+
+toast(text) — short message
+message(text) — dialog message
+speak(text) — TTS
+listen() — voice recognition
+vibrate(), vibrate(ms)
+beep(), beep(tone), beep(tone,duration,volume)
+
+notification(message,title,number)
+notification_progress(...)
+notification_cancel(number)
+
+==============================================================
+IMPORTANT RULES FOR LLM
+==============================================================
+
+- PlugIn elements are NOT part of Show()
+- PlugIn always replaces previous elements
+- Do NOT invent methods like Save/Open if _save/_open exist
+- Do NOT use "@var" inside data arrays (tables, media, datasets)
+- Choose ONE media storage pattern
+- RefreshTab + CloseNode after save/delete
+- Progress helpers are UI-only, not async logic
+- Android helpers NEVER exist on server
+
+
 
 ==============================================================
 10. COMMON EVENTS (GLOBAL)
