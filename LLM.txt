@@ -604,6 +604,86 @@ LLM MUST NOT invent new layout rules per context.
 - Containers REQUIRE explicit width/height
 - Do NOT mix list-table logic with node-table logic
 
+--------------------------------------------------------------
+6.10 ADDITIONAL VISUAL PROPERTIES AND BEHAVIOR
+--------------------------------------------------------------
+
+--------------------------------------------------------------
+6.10.1 Row and Node Background (_background)
+--------------------------------------------------------------
+
+Property "_background" can be used in ALL table modes:
+- table from list of dicts
+- dataset table
+- nodes_source table (node rows)
+
+Behavior:
+- "_background" sets row background color
+- applies also to node rows in nodes_source tables
+
+IMPORTANT RESET RULE:
+To RESET background dynamically, DO NOT delete the field.
+You MUST explicitly set background to None.
+
+Correct reset example:
+self._data["background"] = None
+
+Incorrect:
+del self._data["background"]
+
+LLM RULE:
+Always reset visual properties by assigning None, not by removing keys.
+
+--------------------------------------------------------------
+6.10.2 TEXT ELEMENT — RADIUS, STROKE, TAG-LIKE LABELS
+--------------------------------------------------------------
+
+Text element has additional visual properties:
+
+- radius (int)      → corner rounding
+- stroke (int)      → border width
+- padding (int)     → inner padding (applies to ALL elements)
+- background        → background color
+- text_color        → text color
+
+These properties allow using Text as a "tag" / "badge" element.
+
+Example: Tag-style Text (rounded label)
+{
+  "type": "Text",
+  "value": "my tag",
+  "radius": 15,
+  "background": "#216B61",
+  "padding": 10,
+  "text_color": "#FFFFFF",
+  "width": -2,
+  "w": 0
+}
+
+Typical use cases:
+- tags in lists
+- status labels (NEW / DONE / ERROR)
+- compact markers inside tables or node covers
+
+LLM RULE:
+- radius and stroke are integers
+- padding applies to ALL visual elements, not only Text
+- width:-2 + w:0 is common for compact inline tags
+
+--------------------------------------------------------------
+6.10.3 UNIVERSAL padding PROPERTY
+--------------------------------------------------------------
+
+Property "padding" is supported by ALL visual elements.
+
+Meaning:
+- inner spacing between element border and content
+- integer value
+- behavior similar to Android padding
+
+LLM RULE:
+- padding should be used instead of fake margins with empty elements
+- especially useful for Text, Button, Card, Picture
 
 
 ==============================================================
@@ -1903,6 +1983,82 @@ LAYOUT PRINCIPLES — ROWS vs CONTAINERS (CONFIRMATION)
 The system uses TWO layout approaches that can be mixed:
 
 
+==============================================================
+NODE SEARCH, SORT AND VISIBILITY (CLIENT-SIDE)
+==============================================================
 
+This section describes CLIENT behavior only.
+
+--------------------------------------------------------------
+Node Search (_search_index)
+--------------------------------------------------------------
+
+Application supports searching nodes.
+
+Default behavior:
+- if _search_index is NOT defined,
+  search is performed over ALL keys in node._data
+- this is slower and less controllable
+
+Optimized behavior:
+- define _search_index in node._data
+- search will be performed ONLY over this field
+- significantly faster and predictable
+
+Example:
+self._data["_search_index"] = (
+  self._data.get("number","") + " " +
+  self._data.get("customer_name","")
+)
+
+LLM RULE:
+- Use _search_index for frequently searched nodes
+- Store a plain string, not structured data
+
+--------------------------------------------------------------
+Node Sorting (_sort_string / _sort_string_desc)
+--------------------------------------------------------------
+
+Nodes can be sorted in lists on the client side.
+
+Available properties:
+- _sort_string        → ascending sort
+- _sort_string_desc   → descending sort
+
+Example:
+self._data["_sort_string"] = self._data.get("plan_date")
+
+or:
+self._data["_sort_string_desc"] = self._data.get("created_at")
+
+LLM RULE:
+- sorting is client-side only
+- value must be comparable as string
+- only one sort field is typically used
+
+--------------------------------------------------------------
+Node Visibility (_hidden)
+--------------------------------------------------------------
+
+Node visibility can be controlled on the client.
+
+Property:
+- _hidden = True
+
+Behavior:
+- node is hidden from lists
+- node still exists and can be accessed programmatically
+
+Example:
+self._data["_hidden"] = True
+
+Use cases:
+- archive
+- soft-delete
+- temporary internal nodes
+
+LLM RULE:
+- _hidden affects client UI only
+- do NOT delete node when soft-hiding is required
 
 END OF RULES
