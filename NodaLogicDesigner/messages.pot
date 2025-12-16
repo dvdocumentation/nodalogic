@@ -1,0 +1,1032 @@
+# Translations template for PROJECT.
+# Copyright (C) 2025 ORGANIZATION
+# This file is distributed under the same license as the PROJECT project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2025.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2025-10-11 09:42+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.17.0\n"
+
+#: app.py:918
+msgid "Profile updated successfully"
+msgstr ""
+
+#: app.py:931
+msgid "# Decoding error:"
+msgstr ""
+
+#: app.py:952
+msgid "Invalid email or password"
+msgstr ""
+
+#: app.py:961
+msgid "Email already taken"
+msgstr ""
+
+#: app.py:1380
+msgid "Configuration deleted"
+msgstr ""
+
+#: app.py:1408 app.py:1414 app.py:2897 app.py:2902
+msgid "File not selected"
+msgstr ""
+
+#: app.py:1419
+msgid "Only .py files allowed"
+msgstr ""
+
+#: app.py:1429
+msgid "Enter GitHub URL"
+msgstr ""
+
+#: app.py:1435
+msgid "Use GitHub RAW URL"
+msgstr ""
+
+#: app.py:1441
+msgid "Failed to load file"
+msgstr ""
+
+#: app.py:1449
+msgid "Invalid upload type"
+msgstr ""
+
+#: app.py:1471
+msgid "Handlers loaded successfully"
+msgstr ""
+
+#: app.py:1543
+msgid "Handlers cleared"
+msgstr ""
+
+#: app.py:1584
+msgid "Download error:"
+msgstr ""
+
+#: app.py:1723
+msgid "Configuration saved"
+msgstr ""
+
+#: app.py:1791
+msgid "Class saved"
+msgstr ""
+
+#: app.py:1902
+msgid "Method updated successfully"
+msgstr ""
+
+#: app.py:1934 app.py:2013
+msgid "Invalid actions format (JSON)"
+msgstr ""
+
+#: app.py:1938 app.py:2018
+msgid "Event type and at least one action required"
+msgstr ""
+
+#: app.py:1949 templates/room_detail.html:54
+msgid "Method"
+msgstr ""
+
+#: app.py:1949
+msgid " not found in class"
+msgstr ""
+
+#: app.py:1960
+msgid "Event with this event+listener already exists"
+msgstr ""
+
+#: app.py:1982
+msgid "Event added"
+msgstr ""
+
+#: app.py:2004
+msgid "Original event not found"
+msgstr ""
+
+#: app.py:2029
+#, python-format
+msgid "Method %(mname)s not found in class"
+msgstr ""
+
+#: app.py:2056
+msgid "Event updated"
+msgstr ""
+
+#: app.py:2077
+msgid "Event not found"
+msgstr ""
+
+#: app.py:2082
+msgid "Event deleted"
+msgstr ""
+
+#: app.py:2092
+msgid "New configuration"
+msgstr ""
+
+#: app.py:2142
+msgid "Class name not specified"
+msgstr ""
+
+#: app.py:2149
+msgid ""
+"Class name must start with a letter or underscore and contain only "
+"letters, numbers and underscores"
+msgstr ""
+
+#: app.py:2156
+msgid "Class with this name already exists"
+msgstr ""
+
+#: app.py:2181
+#, python-brace-format
+msgid ""
+"\n"
+"class {class_name}(Node):\n"
+"    \"\"\"Class {class_name}\"\"\"\n"
+"    \n"
+"    def __init__(self, node_id=None, config_uid=None):\n"
+"        super().__init__(node_id, config_uid)\n"
+"        # Additional initialization for {class_name}\n"
+msgstr ""
+
+#: app.py:2231
+msgid "Class created successfully"
+msgstr ""
+
+#: app.py:2906
+msgid "Only JSON files allowed"
+msgstr ""
+
+#: app.py:2940
+msgid "Configuration imported successfully"
+msgstr ""
+
+#: app.py:2943
+#, python-brace-format
+msgid "Import error: {error}"
+msgstr ""
+
+#: app.py:3307
+msgid "Method saved successfully"
+msgstr ""
+
+#: app.py:3311
+msgid "Save error: "
+msgstr ""
+
+#: app.py:3331
+msgid "Configuration updated"
+msgstr ""
+
+#: app.py:3350
+msgid "Empty handler code received"
+msgstr ""
+
+#: app.py:3359 app.py:3362 app.py:3848 app.py:3850
+msgid "Python syntax error"
+msgstr ""
+
+#: app.py:3375 app.py:3378
+msgid "Syntax error after adding imports:"
+msgstr ""
+
+#: app.py:3392
+msgid "Code saved successfully"
+msgstr ""
+
+#: app.py:3396
+msgid "Save error:"
+msgstr ""
+
+#: app.py:3560
+msgid "Dataset updated successfully"
+msgstr ""
+
+#: app.py:3768
+msgid "GitHub load error:"
+msgstr ""
+
+#: app.py:3787
+msgid "Server handlers loaded successfully"
+msgstr ""
+
+#: app.py:3797
+msgid "No server handlers available for download"
+msgstr ""
+
+#: app.py:3822
+msgid "Server handlers deleted"
+msgstr ""
+
+#: app.py:3840
+msgid "Empty server handler code received"
+msgstr ""
+
+#: app.py:3873
+msgid "Server handler code saved successfully"
+msgstr ""
+
+#: app.py:3877
+msgid "Server handler save error:"
+msgstr ""
+
+#: app.py:3898
+msgid "Server added"
+msgstr ""
+
+#: app.py:3910
+msgid "Server deleted"
+msgstr ""
+
+#: app.py:3929
+msgid "Server updated"
+msgstr ""
+
+#: templates/base.html:28 templates/edit_class.html:8
+#: templates/edit_config.html:6 templates/rooms.html:8
+msgid "Home"
+msgstr ""
+
+#: templates/base.html:34 templates/rooms.html:9
+msgid "Logout"
+msgstr ""
+
+#: templates/base.html:40
+msgid "Язык"
+msgstr ""
+
+#: templates/dashboard.html:14 templates/edit_config.html:28
+msgid "Configurations"
+msgstr ""
+
+#: templates/dashboard.html:33
+msgid "Create a configuration"
+msgstr ""
+
+#: templates/dashboard.html:49 templates/edit_class.html:159
+#: templates/edit_class.html:224 templates/edit_config.html:174
+#: templates/edit_config.html:239 templates/edit_config.html:465
+#: templates/edit_config.html:529
+msgid "Edit"
+msgstr ""
+
+#: templates/dashboard.html:59 templates/dashboard.html:117
+#: templates/edit_class.html:20 templates/edit_class.html:164
+#: templates/edit_class.html:231 templates/edit_config.html:179
+#: templates/edit_config.html:242 templates/edit_config.html:403
+#: templates/edit_config.html:470 templates/edit_config.html:534
+#: templates/rooms.html:43
+msgid "Delete"
+msgstr ""
+
+#: templates/dashboard.html:67
+msgid "You dont have any configurations yet."
+msgstr ""
+
+#: templates/dashboard.html:76 templates/dashboard.html:82
+msgid "Create room"
+msgstr ""
+
+#: templates/dashboard.html:81
+msgid "Room name"
+msgstr ""
+
+#: templates/dashboard.html:88
+msgid "Create debug room"
+msgstr ""
+
+#: templates/dashboard.html:100
+msgid "Created "
+msgstr ""
+
+#: templates/dashboard.html:103
+msgid "Debug room"
+msgstr ""
+
+#: templates/dashboard.html:103
+msgid "debug"
+msgstr ""
+
+#: templates/dashboard.html:106
+msgid "Debug"
+msgstr ""
+
+#: templates/dashboard.html:111 templates/rooms.html:38
+msgid "Open"
+msgstr ""
+
+#: templates/dashboard.html:116 templates/rooms.html:42
+msgid "Delete room"
+msgstr ""
+
+#: templates/dashboard.html:125
+msgid "You dont have any rooms yet."
+msgstr ""
+
+#: templates/edit_class.html:9
+msgid "Configuration"
+msgstr ""
+
+#: templates/edit_class.html:10
+msgid "Edit class"
+msgstr ""
+
+#: templates/edit_class.html:27
+msgid "General Settings"
+msgstr ""
+
+#: templates/edit_class.html:33 templates/edit_config.html:203
+msgid "Class name"
+msgstr ""
+
+#: templates/edit_class.html:37 templates/edit_config.html:206
+msgid ""
+"A class name must begin with a letter or underscore and contain only "
+"letters, numbers, and underscores."
+msgstr ""
+
+#: templates/edit_class.html:42
+msgid "The class name cannot be changed after creation"
+msgstr ""
+
+#: templates/edit_class.html:44
+msgid ""
+"Used to create a class in Python. Must begin with a letter or underscore "
+"and contain only letters, numbers, and underscores."
+msgstr ""
+
+#: templates/edit_class.html:49
+msgid "Display name"
+msgstr ""
+
+#: templates/edit_class.html:52
+msgid "Human-readable class name, can contain any characters."
+msgstr ""
+
+#: templates/edit_class.html:56
+msgid "Cover"
+msgstr ""
+
+#: templates/edit_class.html:58
+msgid "JSON markup for the node cover"
+msgstr ""
+
+#: templates/edit_class.html:59
+#, python-brace-format
+msgid ""
+"JSON markup. For example: "
+"[[{\"type\":\"Text\",\"value\":\"@ctitle\",\"bold\":true}],[{\"type\":\"Text\",\"value\":\"@cbody\"}]]"
+msgstr ""
+
+#: templates/edit_class.html:64
+msgid "Hidden class"
+msgstr ""
+
+#: templates/edit_class.html:65
+msgid "Hide class from user interface"
+msgstr ""
+
+#: templates/edit_class.html:70
+msgid "Autosave to _data"
+msgstr ""
+
+#: templates/edit_class.html:73
+msgid "Class type"
+msgstr ""
+
+#: templates/edit_class.html:75 templates/edit_class.html:89
+msgid "-- Not specified --"
+msgstr ""
+
+#: templates/edit_class.html:76
+msgid "Custom process"
+msgstr ""
+
+#: templates/edit_class.html:77
+msgid "Data node"
+msgstr ""
+
+#: templates/edit_class.html:78
+msgid "User task"
+msgstr ""
+
+#: templates/edit_class.html:79
+msgid "Background task"
+msgstr ""
+
+#: templates/edit_class.html:87
+msgid "Section code"
+msgstr ""
+
+#: templates/edit_class.html:101 templates/edit_class.html:324
+#: templates/edit_class.html:371 templates/edit_config.html:111
+#: templates/edit_config.html:327 templates/edit_config.html:418
+#: templates/edit_config.html:577 templates/edit_config.html:613
+#: templates/edit_config.html:660 templates/edit_profile.html:33
+#: templates/edit_profile.html:59
+msgid "Save"
+msgstr ""
+
+#: templates/edit_class.html:111
+msgid "Methods"
+msgstr ""
+
+#: templates/edit_class.html:116
+msgid "Events"
+msgstr ""
+
+#: templates/edit_class.html:126 templates/edit_class.html:254
+msgid "Add method"
+msgstr ""
+
+#: templates/edit_class.html:136 templates/edit_class.html:260
+#: templates/edit_class.html:304
+msgid "Method name"
+msgstr ""
+
+#: templates/edit_class.html:137 templates/edit_class.html:266
+#: templates/edit_class.html:310
+msgid "Engine/Language"
+msgstr ""
+
+#: templates/edit_class.html:138 templates/edit_class.html:196
+#: templates/edit_class.html:197 templates/edit_class.html:359
+#: templates/edit_config.html:163 templates/edit_config.html:229
+#: templates/edit_config.html:452 templates/edit_config.html:517
+#: templates/room_detail.html:117
+msgid "Actions"
+msgstr ""
+
+#: templates/edit_class.html:163
+msgid "Delete method"
+msgstr ""
+
+#: templates/edit_class.html:175
+msgid "No methods added"
+msgstr ""
+
+#: templates/edit_class.html:184 templates/edit_class.html:551
+msgid "Add event"
+msgstr ""
+
+#: templates/edit_class.html:194
+msgid "Event"
+msgstr ""
+
+#: templates/edit_class.html:243
+msgid "No events added"
+msgstr ""
+
+#: templates/edit_class.html:273 templates/edit_class.html:318
+msgid "Method body"
+msgstr ""
+
+#: templates/edit_class.html:275
+msgid "Node instance"
+msgstr ""
+
+#: templates/edit_class.html:276
+msgid "Input data"
+msgstr ""
+
+#: templates/edit_class.html:278
+msgid "Place your code here"
+msgstr ""
+
+#: templates/edit_class.html:285 templates/edit_class.html:323
+#: templates/edit_class.html:369 templates/edit_config.html:612
+#: templates/edit_config.html:659
+msgid "Cancel"
+msgstr ""
+
+#: templates/edit_class.html:286
+msgid "Add"
+msgstr ""
+
+#: templates/edit_class.html:298
+msgid "Edit method"
+msgstr ""
+
+#: templates/edit_class.html:336 templates/edit_class.html:537
+msgid "Edit event"
+msgstr ""
+
+#: templates/edit_class.html:345
+msgid "Event type"
+msgstr ""
+
+#: templates/edit_class.html:355
+msgid "Listener name (optional)"
+msgstr ""
+
+#: templates/edit_class.html:363
+msgid "Add action"
+msgstr ""
+
+#: templates/edit_class.html:752
+msgid "server alias"
+msgstr ""
+
+#: templates/edit_config.html:8
+msgid "Edit configuration"
+msgstr ""
+
+#: templates/edit_config.html:33
+msgid "Classes"
+msgstr ""
+
+#: templates/edit_config.html:38
+msgid "Android/Python handlers"
+msgstr ""
+
+#: templates/edit_config.html:43
+msgid "Server/Python handlers"
+msgstr ""
+
+#: templates/edit_config.html:47 templates/edit_config.html:439
+msgid "Datasets"
+msgstr ""
+
+#: templates/edit_config.html:52 templates/edit_config.html:505
+msgid "Servers"
+msgstr ""
+
+#: templates/edit_config.html:66
+msgid "General settings"
+msgstr ""
+
+#: templates/edit_config.html:76
+msgid "Configuration API QR-code"
+msgstr ""
+
+#: templates/edit_config.html:87
+msgid "Configuration name"
+msgstr ""
+
+#: templates/edit_config.html:91
+msgid "Version"
+msgstr ""
+
+#: templates/edit_config.html:96
+msgid "*Server name?"
+msgstr ""
+
+#: templates/edit_config.html:101
+msgid "Vendor"
+msgstr ""
+
+#: templates/edit_config.html:107
+msgid "Last modified"
+msgstr ""
+
+#: templates/edit_config.html:121
+msgid "Configuration uploading/downdloading"
+msgstr ""
+
+#: templates/edit_config.html:126
+msgid "Configuration download"
+msgstr ""
+
+#: templates/edit_config.html:127
+msgid "Download the full configuration in JSON format"
+msgstr ""
+
+#: templates/edit_config.html:129
+msgid "Download configuration"
+msgstr ""
+
+#: templates/edit_config.html:133
+msgid "Configuration uploading"
+msgstr ""
+
+#: templates/edit_config.html:134
+msgid "Load configuration from JSON file (existing data will be overwritten)"
+msgstr ""
+
+#: templates/edit_config.html:141
+msgid "Upload tconfiguration"
+msgstr ""
+
+#: templates/edit_config.html:152
+msgid "Sections"
+msgstr ""
+
+#: templates/edit_config.html:154 templates/edit_config.html:589
+#: templates/edit_config.html:915
+msgid "Add section"
+msgstr ""
+
+#: templates/edit_config.html:161 templates/edit_config.html:597
+msgid "ID"
+msgstr ""
+
+#: templates/edit_config.html:162
+msgid "Title"
+msgstr ""
+
+#: templates/edit_config.html:195
+msgid "Add class"
+msgstr ""
+
+#: templates/edit_config.html:208
+msgid "Used to create a class in Python"
+msgstr ""
+
+#: templates/edit_config.html:215
+msgid "Create class"
+msgstr ""
+
+#: templates/edit_config.html:227 templates/edit_config.html:601
+msgid "Name"
+msgstr ""
+
+#: templates/edit_config.html:228
+msgid "Methods count"
+msgstr ""
+
+#: templates/edit_config.html:257 templates/edit_config.html:348
+msgid "Handlers upload"
+msgstr ""
+
+#: templates/edit_config.html:260 templates/edit_config.html:351
+msgid "Code editor"
+msgstr ""
+
+#: templates/edit_config.html:269
+msgid "Upload handlers"
+msgstr ""
+
+#: templates/edit_config.html:274
+msgid "Upload py-file"
+msgstr ""
+
+#: templates/edit_config.html:277
+msgid "GitHub link"
+msgstr ""
+
+#: templates/edit_config.html:287
+msgid "Select py-file :"
+msgstr ""
+
+#: templates/edit_config.html:290 templates/edit_config.html:300
+#: templates/edit_config.html:380 templates/edit_config.html:390
+msgid "Upload"
+msgstr ""
+
+#: templates/edit_config.html:297 templates/edit_config.html:387
+msgid "GitHub raw URL:"
+msgstr ""
+
+#: templates/edit_config.html:308
+msgid "Download file"
+msgstr ""
+
+#: templates/edit_config.html:312
+msgid "Delete handlers code"
+msgstr ""
+
+#: templates/edit_config.html:325
+msgid "Edit handlers code"
+msgstr ""
+
+#: templates/edit_config.html:335
+msgid "No handlers code added"
+msgstr ""
+
+#: templates/edit_config.html:360
+msgid "Upload handlers code"
+msgstr ""
+
+#: templates/edit_config.html:365
+msgid "Upload file"
+msgstr ""
+
+#: templates/edit_config.html:368
+msgid "GitHab link"
+msgstr ""
+
+#: templates/edit_config.html:377
+msgid "Select py-file"
+msgstr ""
+
+#: templates/edit_config.html:399
+msgid "Doenload file"
+msgstr ""
+
+#: templates/edit_config.html:416
+msgid "Server handlers code editior"
+msgstr ""
+
+#: templates/edit_config.html:426
+msgid "No added handlers"
+msgstr ""
+
+#: templates/edit_config.html:441 templates/edit_config.html:625
+#: templates/edit_config.html:833
+msgid "Add dataset"
+msgstr ""
+
+#: templates/edit_config.html:448 templates/edit_config.html:635
+msgid "Dataset name"
+msgstr ""
+
+#: templates/edit_config.html:449 templates/edit_config.html:639
+msgid "Hash-indexes"
+msgstr ""
+
+#: templates/edit_config.html:450 templates/edit_config.html:644
+msgid "Text-indexes"
+msgstr ""
+
+#: templates/edit_config.html:451
+msgid "Records count"
+msgstr ""
+
+#: templates/edit_config.html:479
+msgid "API for working with datasets"
+msgstr ""
+
+#: templates/edit_config.html:482
+msgid "Adding/updating records"
+msgstr ""
+
+#: templates/edit_config.html:491
+msgid "Getting all records"
+msgstr ""
+
+#: templates/edit_config.html:507 templates/edit_config.html:557
+msgid "Add server"
+msgstr ""
+
+#: templates/edit_config.html:514 templates/edit_config.html:563
+msgid "Alias"
+msgstr ""
+
+#: templates/edit_config.html:516 templates/edit_config.html:573
+msgid "By default"
+msgstr ""
+
+#: templates/edit_config.html:605
+msgid "Commands"
+msgstr ""
+
+#: templates/edit_config.html:607 templates/edit_config.html:608
+msgid "Enter commands in the format Title|Variable"
+msgstr ""
+
+#: templates/edit_config.html:641
+msgid "Fields for exact search separated by commas"
+msgstr ""
+
+#: templates/edit_config.html:646
+msgid "Full-text search fields (comma separated)"
+msgstr ""
+
+#: templates/edit_config.html:649
+msgid "Record template"
+msgstr ""
+
+#: templates/edit_config.html:651
+#, python-brace-format
+msgid ""
+"HTML template for displaying dataset element in input fields. For "
+"example: {name} , {_id}"
+msgstr ""
+
+#: templates/edit_config.html:655
+msgid "Autoload?*"
+msgstr ""
+
+#: templates/edit_config.html:849
+msgid "Edit dataset"
+msgstr ""
+
+#: templates/edit_config.html:933 templates/edit_config.html:945
+msgid "Edit section"
+msgstr ""
+
+#: templates/edit_config.html:1155
+msgid "Put alias and ULR"
+msgstr ""
+
+#: templates/edit_profile.html:7
+msgid "Edit Profile"
+msgstr ""
+
+#: templates/edit_profile.html:11 templates/index.html:28
+#: templates/index.html:41
+msgid "Email"
+msgstr ""
+
+#: templates/edit_profile.html:17
+msgid "Configuration Display Name"
+msgstr ""
+
+#: templates/edit_profile.html:23
+msgid "New Password"
+msgstr ""
+
+#: templates/edit_profile.html:25
+msgid "Leave blank if you do not want to change password"
+msgstr ""
+
+#: templates/edit_profile.html:30
+msgid "Back"
+msgstr ""
+
+#: templates/edit_profile.html:40
+msgid "Devices"
+msgstr ""
+
+#: templates/edit_profile.html:44
+msgid "Android ID"
+msgstr ""
+
+#: templates/edit_profile.html:45
+msgid "Model"
+msgstr ""
+
+#: templates/edit_profile.html:46
+msgid "Last Connection"
+msgstr ""
+
+#: templates/edit_profile.html:47
+msgid "Token"
+msgstr ""
+
+#: templates/edit_profile.html:64
+msgid "No registered devices"
+msgstr ""
+
+#: templates/index.html:11 templates/index.html:33
+msgid "Login"
+msgstr ""
+
+#: templates/index.html:16 templates/index.html:46
+msgid "Register"
+msgstr ""
+
+#: templates/index.html:31 templates/index.html:44
+msgid "Password"
+msgstr ""
+
+#: templates/room_detail.html:7
+msgid "Room"
+msgstr ""
+
+#: templates/room_detail.html:8 templates/room_detail.html:114
+msgid "UID"
+msgstr ""
+
+#: templates/room_detail.html:12
+msgid "To Main"
+msgstr ""
+
+#: templates/room_detail.html:21
+msgid "Room Connection"
+msgstr ""
+
+#: templates/room_detail.html:28
+msgid "WebSocket URL"
+msgstr ""
+
+#: templates/room_detail.html:33
+msgid "Copy"
+msgstr ""
+
+#: templates/room_detail.html:38
+msgid "Connection status"
+msgstr ""
+
+#: templates/room_detail.html:39
+msgid "Not connected"
+msgstr ""
+
+#: templates/room_detail.html:44
+msgid "Scan QR code to connect"
+msgstr ""
+
+#: templates/room_detail.html:49
+msgid "API Endpoints"
+msgstr ""
+
+#: templates/room_detail.html:55
+msgid "URL"
+msgstr ""
+
+#: templates/room_detail.html:56 templates/room_detail.html:115
+msgid "Description"
+msgstr ""
+
+#: templates/room_detail.html:63
+msgid "Add tasks (JSON array)"
+msgstr ""
+
+#: templates/room_detail.html:68
+msgid "Get available task"
+msgstr ""
+
+#: templates/room_detail.html:73
+msgid "Mark task as completed"
+msgstr ""
+
+#: templates/room_detail.html:78
+msgid "Delete completed tasks"
+msgstr ""
+
+#: templates/room_detail.html:83
+msgid "Get task (automatically locks)"
+msgstr ""
+
+#: templates/room_detail.html:96
+msgid "Tasks in room"
+msgstr ""
+
+#: templates/room_detail.html:102
+msgid "Active only"
+msgstr ""
+
+#: templates/room_detail.html:105
+msgid "Refresh"
+msgstr ""
+
+#: templates/room_detail.html:116
+msgid "Status"
+msgstr ""
+
+#: templates/room_detail.html:129 templates/room_detail.html:150
+#: templates/room_detail.html:229
+msgid "Completed"
+msgstr ""
+
+#: templates/room_detail.html:131 templates/room_detail.html:231
+msgid "In progress"
+msgstr ""
+
+#: templates/room_detail.html:133 templates/room_detail.html:232
+msgid "Available"
+msgstr ""
+
+#: templates/room_detail.html:140 templates/room_detail.html:244
+msgid "Take"
+msgstr ""
+
+#: templates/room_detail.html:150
+msgid "Total tasks"
+msgstr ""
+
+#: templates/room_detail.html:150
+msgid "Active"
+msgstr ""
+
+#: templates/room_detail.html:167
+msgid "Connecting"
+msgstr ""
+
+#: templates/room_detail.html:171
+msgid "Connected"
+msgstr ""
+
+#: templates/room_detail.html:187
+msgid "Disconnected"
+msgstr ""
+
+#: templates/room_detail.html:191
+msgid "Connection error"
+msgstr ""
+
+#: templates/room_detail.html:263
+msgid "Copied"
+msgstr ""
+
+#: templates/rooms.html:6 templates/rooms.html:29
+msgid "My Rooms"
+msgstr ""
+
+#: templates/rooms.html:15
+msgid "Create New Room"
+msgstr ""
+
+#: templates/rooms.html:20
+msgid "Room Name"
+msgstr ""
+
+#: templates/rooms.html:23
+msgid "Create"
+msgstr ""
+
+#: templates/rooms.html:50
+msgid "You have no rooms yet"
+msgstr ""
+
