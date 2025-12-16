@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>{{ _('User details') }} : {{ user.email }}</h1>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">Назад</a>
+    </div>
+
+    <!-- Информация о пользователе -->
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">{{ _('Summary') }}</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>ID:</strong> {{ user.id }}</p>
+                    <p><strong>Email:</strong> {{ user.email }}</p>
+                    <p><strong>{{ _('Name ') }}</strong> {{ user.config_display_name or 'None' }}</p>
+                    <p><strong>{{ _('Status') }}:</strong> 
+                        {% if is_active %}
+                            <span class="badge bg-success">{{ _('Active') }}</span>
+                        {% else %}
+                            <span class="badge bg-secondary">{{ _('Inactive') }}</span>
+                        {% endif %}
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">{{ _('Statistics') }}</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>{{ _('Qty. devices') }}:</strong> {{ devices|length }}</p>
+                    <p><strong>{{ _('Configs') }}:</strong> {{ configurations|length }}</p>
+                    <p><strong>{{ _('Rooms') }}:</strong> {{ rooms|length }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- User devices -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="mb-0">{{ _('Devices') }}</h5>
+        </div>
+        <div class="card-body">
+            {% if devices %}
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>{{ _('ID') }}</th>
+                            <th>{{ _('Model') }}</th>
+                            <th>{{ _('Last connection') }}</th>
+                            <th>{{ _('Token') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for device in devices %}
+                        <tr>
+                            <td>{{ device.android_id }}</td>
+                            <td>{{ device.device_model or 'None' }}</td>
+                            <td>{{ device.last_connected.strftime('%Y-%m-%d %H:%M:%S') if device.last_connected else 'Never' }}</td>
+                            <td>
+                                {% if device.token %}
+                                <span class="badge bg-success">Yes</span>
+                                {% else %}
+                                <span class="badge bg-secondary">No</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted">{{ _('User not have devices') }}</p>
+            {% endif %}
+        </div>
+    </div>
+
+
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="mb-0">{{ _('User configurations') }}</h5>
+        </div>
+        <div class="card-body">
+            {% if configurations %}
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>{{ _('Name') }}</th>
+                            <th>UID</th>
+                            <th>{{ _('Version') }}</th>
+                            <th>{{ _('Last update') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for config in configurations %}
+                        <tr>
+                            <td>{{ config.name }}</td>
+                            <td><code>{{ config.uid }}</code></td>
+                            <td>{{ config.version }}</td>
+                            <td>{{ config.last_modified.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted">{{ _('User not have configurations') }}</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Комнаты пользователя -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="mb-0">{{ _('Rooms') }}</h5>
+        </div>
+        <div class="card-body">
+            {% if rooms %}
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>{{ _('Name') }}</th>
+                            <th>UID</th>
+                            <th>{{ _('created') }}/th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for room in rooms %}
+                        <tr>
+                            <td>{{ room.name }}</td>
+                            <td><code>{{ room.uid }}</code></td>
+                            <td>{{ room.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted">{{ _('User not have rooms') }}</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

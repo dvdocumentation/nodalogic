@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>User details: {{ user.email }}</h1>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">Back</a>
+    </div>
+
+    
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Basic information</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>ID:</strong> {{ user.id }}</p>
+                    <p><strong>Email:</strong> {{ user.email }}</p>
+                    <p><strong>Display name:</strong> {{ user.config_display_name or 'Not set' }}</p>
+                    <p><strong>Status:</strong> 
+                        {% if is_active %}
+                            <span class="badge bg-success">Active</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Not active</span>
+                        {% endif %}
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Statistics</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>Devices:</strong> {{ devices|length }}</p>
+                    <p><strong>Configurations:</strong> {{ configurations|length }}</p>
+                    <p><strong>Rooms:</strong> {{ rooms|length }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- User devices -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="mb-0">Devices</h5>
+        </div>
+        <div class="card-body">
+            {% if devices %}
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Device ID</th>
+                            <th>Model</th>
+                            <th>Last connection</th>
+                            <th>Token</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for device in devices %}
+                        <tr>
+                            <td>{{ device.android_id }}</td>
+                            <td>{{ device.device_model or 'Not specified' }}</td>
+                            <td>{{ device.last_connected.strftime('%Y-%m-%d %H:%M:%S') if device.last_connected else 'Never' }}</td>
+                            <td>
+                                {% if device.token %}
+                                <span class="badge bg-success">Yes</span>
+                                {% else %}
+                                <span class="badge bg-secondary">No</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted">>The user has no devices</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- User Configurations -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="mb-0">Configuration</h5>
+        </div>
+        <div class="card-body">
+            {% if configurations %}
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>UID</th>
+                            <th>Version</th>
+                            <th>Last change</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for config in configurations %}
+                        <tr>
+                            <td>{{ config.name }}</td>
+                            <td><code>{{ config.uid }}</code></td>
+                            <td>{{ config.version }}</td>
+                            <td>{{ config.last_modified.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted">The user has no configurations</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- User rooms -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="mb-0">Rooms</h5>
+        </div>
+        <div class="card-body">
+            {% if rooms %}
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>UID</th>
+                            <th>Date of creation</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for room in rooms %}
+                        <tr>
+                            <td>{{ room.name }}</td>
+                            <td><code>{{ room.uid }}</code></td>
+                            <td>{{ room.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted">The user has no rooms</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
