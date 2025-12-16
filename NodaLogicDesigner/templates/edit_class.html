@@ -1,0 +1,1012 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+
+    <nav aria-label="breadcrumb" class="mb-4">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('dashboard') }}">{{ _('Home') }}</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('edit_config', uid=class_obj.config.uid) }}">{{ _('Configuration') }}</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{ _('Edit class') }}</li>
+        </ol>
+    </nav>
+
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-code-square"></i> {{ class_obj.name }}</h2>
+        <a href="{{ url_for('delete_class', class_id=class_obj.id) }}?tab={{ request.args.get('tab', 'classes') }}" 
+           class="btn btn-outline-danger"
+           onclick="return confirm('Delete class {{ class_obj.name }}?')">
+            <i class="bi bi-trash"></i> {{ _('Delete') }}
+        </a>
+    </div>
+
+    <!-- Class props -->
+    <!-- In the main class settings section, let's add tabs -->
+<div class="card mb-4">
+    <div class="card-header bg-light">
+        <ul class="nav nav-tabs card-header-tabs" id="classSettingsTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="general-tab" data-bs-toggle="tab" data-bs-target="#general" type="button" role="tab">
+                    <i class="bi bi-gear"></i> {{ _('General Settings') }}
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="api-tab" data-bs-toggle="tab" data-bs-target="#api" type="button" role="tab">
+                    <i class="bi bi-plug"></i> {{ _('API') }}
+                </button>
+            </li>
+        </ul>
+    </div>
+    <div class="card-body">
+        <div class="tab-content">
+            
+            <div class="tab-pane fade show active" id="general" role="tabpanel">
+                <form method="POST">
+                 <input type="hidden" name="active_tab" value="{{ request.args.get('tab', 'classes') }}">
+                <div class="mb-3">
+                    <label for="className" class="form-label">{{ _('Class name') }}</label>
+                    <input type="text" class="form-control" id="className" name="name" 
+                        value="{{ class_obj.name }}" 
+                        pattern="[a-zA-Z_][a-zA-Z0-9_]*" 
+                        title="{{ _('A class name must begin with a letter or underscore and contain only letters, numbers, and underscores.') }}"
+                        {% if class_obj.name != 'NewClass' %}readonly{% endif %}
+                        required>
+                    <small class="text-muted">
+                        {% if class_obj.name != 'NewClass' %}
+                        {{ _('The class name cannot be changed after creation') }}
+                        {% else %}
+                         {{ _('Used to create a class in Python. Must begin with a letter or underscore and contain only letters, numbers, and underscores.') }}
+                        {% endif %}
+                    </small>
+                </div>
+                <div class="mb-3">
+                    <label for="displayName" class="form-label">{{ _('Display name') }}</label>
+                    <input type="text" class="form-control" id="displayName" name="display_name" 
+                        value="{{ class_obj.display_name }}">
+                    <small class="text-muted">{{ _('Human-readable class name, can contain any characters.') }}</small>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="coverImage" class="form-label">{{ _('Cover') }}</label>
+                    <textarea class="form-control" id="coverImage" name="cover_image" 
+              rows="2" placeholder="{{ _('JSON markup for the node cover') }}">{{ class_obj.cover_image }}</textarea>
+                    <small class="text-muted">{{ _('JSON markup. For example: [[{"type":"Text","value":"@ctitle","bold":true}],[{"type":"Text","value":"@cbody"}]]') }}</small>
+                </div>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="hidden" name="hidden"
+                        {% if class_obj.hidden %}checked{% endif %}>
+                    <label class="form-check-label" for="hidden">{{ _('Hidden class') }}</label>
+                    <small class="text-muted d-block">{{ _('Hide class from user interface') }}</small>
+                </div>
+                <div class="mb-3 form-check">
+                <input type="checkbox" class="form-check-input" id="hasStorage" name="has_storage"
+                       {% if class_obj.has_storage %}checked{% endif %}>
+                <label class="form-check-label" for="hasStorage">{{ _('Autosave to _data') }}</label>
+                </div>
+                <div class="mb-3">
+                    <label for="classType" class="form-label">{{ _('Class type') }}</label>
+                    <select class="form-select" id="classType" name="class_type">
+                        <option value="">{{ _('-- Not specified --') }}</option>
+                        <option value="custom_process" {% if class_obj.class_type == 'custom_process' %}selected{% endif %}>{{ _('Custom process') }}</option>
+                        <option value="data_node" {% if class_obj.class_type == 'data_node' %}selected{% endif %}>{{ _('Data node') }}</option>
+                        <option value="custom_task" {% if class_obj.class_type == 'custom_task' %}selected{% endif %}>{{ _('User task') }}</option>
+                        <option value="background_task" {% if class_obj.class_type == 'background_task' %}selected{% endif %}>{{ _('Background task') }}</option>
+                        
+                    </select>
+                </div>
+
+
+                 
+                <div class="mb-3">
+                    <label for="sectionCode" class="form-label">{{ _('Section code') }}</label>
+                    <select class="form-select" id="sectionCode" name="section_code">
+                        <option value="">{{ _('-- Not specified --') }}</option>
+                        {% for section in class_obj.config.sections %}
+                        <option value="{{ section.code }}" 
+                                {% if class_obj.section_code == section.code %}selected{% endif %}>
+                            {{ section.code }} ({{ section.name }})
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            
+                
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-save"></i> {{ _('Save') }}
+                </button>
+                </form>
+            </div>
+
+           
+            <div class="tab-pane fade" id="api" role="tabpanel">
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle"></i> 
+        {{ _('API endpoints for working with nodes of this class') }}
+    </div>
+    
+    <div class="card bg-light">
+        <div class="card-body" id="apiEndpointsContainer">
+            
+            <div class="text-center">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p>Loading API endpoints...</p>
+            </div>
+        </div>
+    </div>
+</div>
+        </div>
+    </div>
+</div>
+
+    <!-- Methods and events -->
+<ul class="nav nav-tabs mb-3" id="classTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="methods-tab" data-bs-toggle="tab" data-bs-target="#methods" type="button" role="tab">
+            <i class="bi bi-code-slash"></i> {{ _('Methods') }} ({{ class_obj.methods|length }})
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="events-tab" data-bs-toggle="tab" data-bs-target="#events" type="button" role="tab">
+            <i class="bi bi-lightning"></i> {{ _('Events') }} ({{ class_obj.event_objs|length if class_obj.event_objs else 0 }})
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <!-- Methods -->
+    <div class="tab-pane fade show active" id="methods" role="tabpanel">
+        <div class="mb-4">
+            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addMethodModal">
+                <i class="bi bi-plus-circle"></i> {{ _('Add method') }}
+            </button>
+        </div>
+
+        {% if class_obj.methods %}
+        <div class="card">
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>{{ _('Method name') }}</th>
+                            <th>{{ _('Engine/Language') }}</th>
+                            <th class="text-end">{{ _('Actions') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for method in class_obj.methods %}
+                        <tr>
+                            <td><strong>{{ method.name }}</strong></td>
+                            <td>
+                                <span class="badge bg-{% if method.engine == 'android_python' %}success{% else %}warning{% endif %}">
+                                    {{ 'Android/Python' if method.engine == 'android_python' else 'Server/Python' }}
+                                </span>
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-primary edit-method-btn"
+                                        data-bs-toggle="modal" data-bs-target="#editMethodModal"
+                                        data-method-id="{{ method.id }}"
+                                        data-method-name="{{ method.name }}"
+                                        data-method-source="{{ method.source }}"
+                                        data-method-server="{{ method.server or '' }}"
+                                        data-method-engine="{{ method.engine }}"
+                                        data-class-id="{{ class_obj.id }}">
+                                    <i class="bi bi-pencil"></i> {{ _('Edit') }}
+                                </button>
+                                <a href="{{ url_for('delete_method', method_id=method.id) }}" 
+                                   class="btn btn-sm btn-outline-danger"
+                                   onclick="return confirm({{ _('Delete method')|tojson }} + ' ' + {{ method.name|tojson }} + '?')">
+                                    <i class="bi bi-trash"></i> {{ _('Delete') }}
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% else %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> {{ _('No methods added') }}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Event tab -->
+    <div class="tab-pane fade" id="events" role="tabpanel">
+        <div class="mb-4">
+            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#eventModal">
+                <i class="bi bi-plus-circle"></i> {{ _('Add event') }}
+            </button>
+        </div>
+
+        {% if class_obj.event_objs %}
+        <div class="card">
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>{{ _('Event') }}</th>
+                            <th>Listener</th>
+                            <th>{{ _('Actions') }}</th>
+                            <th class="text-end">{{ _('Actions') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for event in class_obj.event_objs %}
+                        <tr>
+                            <td>
+                                <span class="badge event-badge event-{{ event.event|lower }}">{{ event.event }}</span>
+                            </td>
+                            <td>{{ event.listener }}</td>
+
+                            <td>
+                                {% for action in event.actions %}
+                                    <div>
+                                        <strong>{{ action.method }}</strong>
+                                        <small class="text-muted"> ({{ action.action }}{% if action.post_execute_method %} → post: {{ action.post_execute_method }}{% endif %})</small>
+                                    </div>
+                                {% endfor %}
+                            </td>
+
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-primary edit-event-btn"
+                                        data-bs-toggle="modal" data-bs-target="#eventModal"
+                                        data-event-name="{{ event.event }}"
+                                        data-listener-name="{{ event.listener }}"
+                                        data-event-id="{{ event.id }}"
+                                        data-actions='{{ event.actions_as_dicts() | tojson | safe }}'>
+                                    <i class="bi bi-pencil"></i> {{ _('Edit') }}
+                                </button>
+
+                                <form method="POST" action="{{ url_for('delete_event', class_id=class_obj.id) }}" style="display:inline;">
+                                    <input type="hidden" name="event_name" value="{{ event.event }}">
+                                    <input type="hidden" name="listener" value="{{ event.listener }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this event?')">
+                                        <i class="bi bi-trash"></i> {{ _('Delete') }}
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% else %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> {{ _('No events added') }}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+
+<div class="modal fade" id="addMethodModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">{{ _('Add method') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="{{ url_for('add_method', class_id=class_obj.id) }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">{{ _('Method name') }}</label>
+                        <input type="text" class="form-control" name="name" required>
+                    </div>
+                    <input type="hidden" name="code" id="editMethodCodeHidden">
+                    <input type="hidden" name="source" value="internal">
+                    <div class="mb-3">
+                        <label class="form-label">{{ _('Engine/Language') }}</label>
+                        <select class="form-select" name="engine" required>
+                             <option value="android_python">Android/Python</option>
+                            <option value="server_python">Server/Python</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">{{ _('Method body') }}</label>
+                        <code-input name="function_body" language="Python" >
+# self - {{ _('Node instance') }}
+# input_data=None - {{ _('Input data') }}
+
+# {{ _('Place your code here') }}
+
+return True,{}
+                        </code-input>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+                    <button type="submit" class="btn btn-primary">{{ _('Add') }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Edit method modal -->
+<div class="modal fade" id="editMethodModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">{{ _('Edit method') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="" id="editMethodForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">{{ _('Method name') }}</label>
+                        <input type="text" class="form-control" name="name" id="editMethodName" required>
+                    </div>
+                    <input type="hidden" name="code" id="editMethodCodeHidden">
+                    <input type="hidden" name="source" id="editMethodSource" value="internal">
+                    <div class="mb-3">
+                        <label class="form-label">{{ _('Engine/Language') }}</label>
+
+                        <select class="form-select" name="engine" id="editMethodEngine" required>
+                             <option value="android_python">Android/Python</option>
+                            <option value="server_python">Server/Python</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">{{ _('Method body') }}</label>
+                        <code-input name="function_body"   id="editMethodCodeInput" language="Python"></code-input>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+                    <button type="submit" class="btn btn-primary">{{ _('Save') }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal for events -->
+<div class="modal fade" id="eventModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="eventModalTitle">{{ _('Edit event') }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="POST" id="eventForm">
+        <input type="hidden" name="old_event_name" id="oldEventName">
+        <input type="hidden" name="old_listener" id="oldListener">
+        <input type="hidden" name="actions_json" id="actionsJson">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">{{ _('Event type') }}</label>
+            <select class="form-select" name="event_name" id="eventNameSelect" required>
+              <option value="onShow">onShow</option>
+              <option value="onResume">onResume</option>
+              <option value="onInput">onInput</option>
+
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Listener</label>
+            <input type="text" class="form-control" name="listener" id="listenerInput" placeholder="{{ _('Listener name (optional)') }}">
+          </div>
+
+          <hr>
+          <h6>{{ _('Actions') }}</h6>
+          <div id="actionsContainer"></div>
+          <div class="mt-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="addActionBtn">
+              <i class="bi bi-plus-circle"></i> {{ _('Add action') }}
+            </button>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+
+          <button type="submit" class="btn btn-primary" id="saveEventBtn">{{ _('Save') }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<!--Import Prism.js-->
+    <!--For a downloaded version of Prism.js: -->
+    <!--  1. Download Prism.js with the languages you need here: https://prismjs.com/download.html-->
+    <!--  2. Replace the JavaScript imports below with one import of prism.js (prism-core.js and prism-autoloader.js are designed for online CDNs like the one currently being used).-->
+    <!--  3. Ensure the file paths of imported CSS and JavaScript files are relative from this HTML file.-->
+    <!--Guide: https://prismjs.com/#basic-usage-->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css">
+    <!--You can also choose custom themes by changing "prism" above to something like "prism-dark" from https://prismjs.com/index.html-->
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+        
+    <!--Import code-input-->
+    <!--The same goes for downloaded versions.-->
+    <script src="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/code-input.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/code-input.min.css">
+    
+    <!--Import some code-input plugins-->
+    <!--The same goes for downloaded versions.-->
+    <!--Plugin files are here: https://github.com/WebCoder49/code-input/tree/main/plugins.-->
+    <script src="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/plugins/indent.min.js"></script>
+    
+    <!--Register code-input template-->
+    <script>
+      codeInput.registerTemplate("syntax-highlighted", 
+        codeInput.templates.prism(
+          Prism, 
+          [
+            // You can add or remove plugins in this list from https://github.com/WebCoder49/code-input/blob/main/plugins/README.md.
+            // All plugins used must be imported above.
+            new codeInput.plugins.Indent(true, 2) // Allow Tab-key indentation, with 2 spaces indentation
+          ]
+        )
+      );
+      // Register templates with different names here, if needed.
+    </script>
+
+<style>
+
+.code-input {
+  width: calc(100% - 40px); /* 100% - 2*margin */
+  margin: 20px;
+  --padding: 20px;
+}
+
+
+.code-input-editor {
+    min-height: 300px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+
+code-input {
+    --code-input-color: #333;
+    --code-input-background: #f8f9fa;
+    --code-input-border-color: #dee2e6;
+    --code-input-border-radius: 4px;
+    --code-input-padding: 10px;
+}
+
+
+.modal-lg .code-input-editor {
+    min-height: 300px;
+}
+</style>
+
+<script>
+
+document.addEventListener('DOMContentLoaded', function() {
+
+codeInput.registerTemplate("syntax-highlighted", 
+        codeInput.templates.prism(
+          Prism, 
+          [
+
+            new codeInput.plugins.Indent(true, 2) // Allow Tab-key indentation, with 2 spaces indentation
+          ]
+        )
+      );
+
+
+    const addMethodModal = document.getElementById('addMethodModal');
+    if (addMethodModal) {
+        addMethodModal.addEventListener('shown.bs.modal', function() {
+            const editor = document.querySelector('#addMethodModal code-input');
+            if (editor && !editor._codeInput) {
+                codeInput.register(editor);
+            }
+        });
+    }
+
+    document.querySelector('#addMethodModal form').addEventListener('submit', function(e) {
+    const methodName = this.querySelector('[name="name"]').value;
+
+    this.querySelector('[name="code"]').value = methodName;
+});
+
+
+    const editMethodModal = document.getElementById('editMethodModal');
+    if (editMethodModal) {
+        editMethodModal.addEventListener('shown.bs.modal', function() {
+            const editor = document.querySelector('#editMethodModal code-input');
+            if (editor && !editor._codeInput) {
+                codeInput.register(editor);
+            }
+        });
+    }
+    
+
+    document.querySelectorAll('.edit-method-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const methodId = this.dataset.methodId;
+            const methodName = this.dataset.methodName;
+            const methodSource = this.dataset.methodSource;
+            const methodServer = this.dataset.methodServer;
+            const methodEngine = this.dataset.methodEngine;
+            const classId = this.dataset.classId;
+            
+            document.getElementById('editMethodName').value = methodName;
+            document.getElementById('editMethodCodeHidden').value = methodName;
+            document.getElementById('editMethodSource').value = methodSource;
+            document.getElementById('editMethodEngine').value = methodEngine;
+            document.getElementById('editMethodForm').action = `/save-method/${methodId}`;
+            
+     
+            fetch(`/get-method-body?class_id=${classId}&method_name=${methodName}&engine=${methodEngine}`)
+                .then(r => r.json())
+                .then(data => {
+                    const editor = document.querySelector("#editMethodModal code-input");
+                    if (editor) {
+                        editor.value = data.body || '';
+                        if (editor._codeInput) {
+                            editor._codeInput.editor.setValue(data.body || '');
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading method body:', error);
+                });
+        });
+    });
+
+
+    const eventModal = document.getElementById('eventModal');
+    if (eventModal) {
+        eventModal.addEventListener('show.bs.modal', function(event) {
+            const button = event.relatedTarget;
+            const isEdit = button.classList.contains('edit-event-btn');
+            
+            const form = document.getElementById('eventForm');
+            const title = eventModal.querySelector('.modal-title');
+            const sourceSelect = document.getElementById('eventSource');
+            const serverField = document.getElementById('serverField');
+            
+            if (isEdit) {
+                title.textContent = "{{ _('Edit event') }}";
+                form.action = "{{ url_for('edit_event', class_id=class_obj.id) }}";
+                document.getElementById('oldEventName').value = button.getAttribute('data-event-name');
+                document.getElementById('oldListener').value = button.getAttribute('data-listener-name') || '';
+                document.getElementById('oldMethodName').value = button.getAttribute('data-method-name');
+                document.getElementById('oldSource').value = button.getAttribute('data-source') || 'internal';
+                document.getElementById('oldServer').value = button.getAttribute('data-server') || '';
+                
+                form.querySelector('[name="event_name"]').value = button.getAttribute('data-event-name');
+                form.querySelector('[name="listener"]').value = button.getAttribute('data-listener-name') || '';
+                form.querySelector('[name="method_name"]').value = button.getAttribute('data-method-name');
+                sourceSelect.value = button.getAttribute('data-source') || 'internal';
+                form.querySelector('[name="server"]').value = button.getAttribute('data-server') || '';
+            } else {
+                title.textContent = "{{ _('Add event') }}";
+                form.action = "{{ url_for('add_event', class_id=class_obj.id) }}";
+                document.getElementById('oldEventName').value = '';
+                document.getElementById('oldListener').value = '';
+                document.getElementById('oldMethodName').value = '';
+                document.getElementById('oldSource').value = '';
+                document.getElementById('oldServer').value = '';
+                
+                form.querySelector('[name="event_name"]').value = 'onShow';
+                form.querySelector('[name="listener"]').value = '';
+                form.querySelector('[name="method_name"]').value = '';
+                sourceSelect.value = 'internal';
+                form.querySelector('[name="server"]').value = '';
+            }
+            
+
+            if (sourceSelect.value === 'external') {
+                serverField.style.display = 'block';
+            } else {
+                serverField.style.display = 'none';
+            }
+        });
+        
+
+        document.getElementById('eventSource').addEventListener('change', function() {
+            const serverField = document.getElementById('serverField');
+            if (this.value === 'external') {
+                serverField.style.display = 'block';
+            } else {
+                serverField.style.display = 'none';
+            }
+        });
+    }
+
+  
+    if (window.location.hash === '#events') {
+        const eventsTab = new bootstrap.Tab(document.getElementById('events-tab'));
+        eventsTab.show();
+    }
+});
+</script>
+
+<script>
+
+const FORBIDDEN_METHOD_NAMES = ['Show', 'PlugIn'];
+
+
+function validateMethodName(name) {
+    if (FORBIDDEN_METHOD_NAMES.includes(name)) {
+        return _('Method name "%(name)s" is not allowed to be used.', name=name);
+    }
+    
+
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+        return _('The method name must begin with a letter or underscore and contain only letters, numbers, and underscores.');
+    }
+    
+    return null; 
+}
+
+
+function showMethodNameError(input, message) {
+
+    const existingError = input.parentNode.querySelector('.method-name-error');
+    if (existingError) {
+        existingError.remove();
+    }
+    
+
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'text-danger mt-1 method-name-error';
+    errorDiv.innerHTML = `<i class="bi bi-exclamation-circle"></i> ${message}`;
+    input.parentNode.appendChild(errorDiv);
+    
+
+    input.classList.add('is-invalid');
+}
+
+
+function removeMethodNameError(input) {
+    const existingError = input.parentNode.querySelector('.method-name-error');
+    if (existingError) {
+        existingError.remove();
+    }
+    input.classList.remove('is-invalid');
+}
+
+
+document.addEventListener('DOMContentLoaded', function() {
+
+    const addMethodNameInput = document.querySelector('#addMethodModal [name="name"]');
+    if (addMethodNameInput) {
+        addMethodNameInput.addEventListener('blur', function() {
+            validateMethodNameInput(this);
+        });
+        
+        addMethodNameInput.addEventListener('input', function() {
+            removeMethodNameError(this);
+        });
+    }
+
+
+    const editMethodNameInput = document.querySelector('#editMethodModal [name="name"]');
+    if (editMethodNameInput) {
+        editMethodNameInput.addEventListener('blur', function() {
+            validateMethodNameInput(this);
+        });
+        
+        editMethodNameInput.addEventListener('input', function() {
+            removeMethodNameError(this);
+        });
+    }
+
+
+    document.querySelector('#addMethodModal form').addEventListener('submit', function(e) {
+        const methodName = this.querySelector('[name="name"]').value;
+        const error = validateMethodName(methodName);
+        
+        if (error) {
+            e.preventDefault();
+            validateMethodNameInput(this.querySelector('[name="name"]'));
+
+            this.querySelector('[name="name"]').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+            const methodName = this.querySelector('[name="name"]').value;
+
+            this.querySelector('[name="code"]').value = methodName;
+        }
+    });
+
+
+    document.querySelector('#editMethodModal form').addEventListener('submit', function(e) {
+        const methodName = this.querySelector('[name="name"]').value;
+        const error = validateMethodName(methodName);
+        
+        if (error) {
+            e.preventDefault();
+            validateMethodNameInput(this.querySelector('[name="name"]'));
+
+            this.querySelector('[name="name"]').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+            const methodName = this.querySelector('[name="name"]').value;
+
+            this.querySelector('[name="code"]').value = methodName;
+        }
+    });
+});
+
+
+function validateMethodNameInput(input) {
+    const error = validateMethodName(input.value);
+    if (error) {
+        showMethodNameError(input, error);
+        return false;
+    } else {
+        removeMethodNameError(input);
+        return true;
+    }
+}
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const METHODS = {{ class_obj.methods|map(attribute='name')|list|tojson|safe }};
+  const ACTION_TYPES = ['run','runprogress','runasync'];
+
+  function createActionRow(action = {}) {
+    const row = document.createElement('div');
+    row.className = 'action-row mb-2 p-2 border rounded';
+
+    row.innerHTML = `
+      <div class="d-flex gap-2 align-items-start">
+        <div style="width:150px">
+          <label class="form-label small">action</label>
+          <select class="form-select action-field" data-field="action">
+            ${ACTION_TYPES.map(a => `<option value="${a}" ${a===action.action?'selected':''}>${a}</option>`).join('')}
+          </select>
+        </div>
+        <div style="width:220px">
+          <label class="form-label small">method</label>
+          <select class="form-select action-field" data-field="method">
+            <option value="">-- (нет) --</option>
+            ${METHODS.map(m => `<option value="${m}" ${m===action.method?'selected':''}>${m}</option>`).join('')}
+          </select>
+        </div>
+        <div style="width:160px">
+          <label class="form-label small">postExecuteMethod</label>
+          <select class="form-select action-field" data-field="postExecuteMethod">
+            <option value="">(нет)</option>
+            ${METHODS.map(m => `<option value="${m}" ${m===action.postExecuteMethod?'selected':''}>${m}</option>`).join('')}
+          </select>
+        </div>
+        <div style="width:130px">
+          <label class="form-label small">source</label>
+          <select class="form-select action-field" data-field="source">
+            <option value="internal" ${action.source==='internal' || !action.source?'selected':''}>internal</option>
+            <option value="external" ${action.source==='external'?'selected':''}>external</option>
+          </select>
+        </div>
+        <div style="width:200px">
+          <label class="form-label small">server</label>
+          <input class="form-control action-field" data-field="server" value="${action.server || ''}" placeholder="{{ _('server alias') }}">
+        </div>
+        <div style="width:40px">
+          <label class="form-label small">&nbsp;</label>
+          <button type="button" class="btn btn-outline-danger btn-sm remove-action-btn">&times;</button>
+        </div>
+      </div>
+    `;
+
+    const removeBtn = row.querySelector('.remove-action-btn');
+    removeBtn.addEventListener('click', () => row.remove());
+
+    const sourceSelect = row.querySelector('[data-field="source"]');
+    const serverInput = row.querySelector('[data-field="server"]');
+    function toggleServer() {
+      if (sourceSelect.value === 'external') serverInput.parentElement.style.display = '';
+      else serverInput.parentElement.style.display = 'none';
+    }
+    toggleServer();
+    sourceSelect.addEventListener('change', toggleServer);
+
+    return row;
+  }
+
+  const actionsContainer = document.getElementById('actionsContainer');
+  document.getElementById('addActionBtn').addEventListener('click', ()=> {
+    actionsContainer.appendChild(createActionRow({}));
+  });
+
+  // setup modal for add
+  const addEventBtn = document.querySelector('[data-bs-target="#eventModal"][data-bs-toggle="modal"]');
+  if (addEventBtn) {
+    addEventBtn.addEventListener('click', () => {
+      document.getElementById('oldEventName').value = '';
+      document.getElementById('oldListener').value = '';
+      document.getElementById('eventNameSelect').value = 'onShow';
+      document.getElementById('listenerInput').value = '';
+      actionsContainer.innerHTML = '';
+      actionsContainer.appendChild(createActionRow({}));
+      // form action -> add-event
+      document.getElementById('eventForm').action = "{{ url_for('add_event', class_id=class_obj.id) }}";
+    });
+  }
+
+  // setup modal for edit
+  document.querySelectorAll('.edit-event-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const eventName = btn.getAttribute('data-event-name');
+      const listener = btn.getAttribute('data-listener-name') || '';
+      const actions = JSON.parse(btn.getAttribute('data-actions'));
+
+      document.getElementById('oldEventName').value = eventName;
+      document.getElementById('oldListener').value = listener;
+      document.getElementById('eventNameSelect').value = eventName;
+      document.getElementById('listenerInput').value = listener;
+      actionsContainer.innerHTML = '';
+      if (actions && actions.length) {
+        actions.forEach(a => actionsContainer.appendChild(createActionRow(a)));
+      } else {
+        actionsContainer.appendChild(createActionRow({}));
+      }
+      // form action -> edit-event
+      document.getElementById('eventForm').action = "{{ url_for('edit_event', class_id=class_obj.id) }}";
+    });
+  });
+
+  // form submit: collect actions
+  document.getElementById('eventForm').addEventListener('submit', (e) => {
+    const actions = [];
+    document.querySelectorAll('.action-row').forEach(row => {
+      const action = {};
+      row.querySelectorAll('.action-field').forEach(field => {
+        const key = field.getAttribute('data-field');
+        action[key] = field.value;
+        if (action[key] === '') delete action[key];
+      });
+      actions.push(action);
+    });
+    document.getElementById('actionsJson').value = JSON.stringify(actions);
+  });
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    function generateApiEndpoints() {
+        const baseUrl = window.location.protocol + '//' + window.location.host;
+        const configUid = '{{ class_obj.config.uid }}';
+        const className = '{{ class_obj.name }}';
+        
+        const apiEndpoints = `
+            <h6>{{ _('Adding/updating nodes') }}</h6>
+            <pre class="mb-3"><code><span class="badge bg-primary">POST</span> ${baseUrl}/api/config/${configUid}/node/${className}
+Content-Type: application/json
+
+{
+    "_id": "node_id",
+    "_data":{
+        "_id": "node_id",
+        "field1": "value1",
+        "field2": "value2"
+    }
+}</code></pre>
+
+            <h6>{{ _('Adding/updating nodes with room registration') }}</h6>
+            <pre class="mb-3"><code><span class="badge bg-primary">POST</span> ${baseUrl}/api/config/${configUid}/node/${className}?room=ID_room
+Content-Type: application/json
+
+{
+    "_id": "node_id",
+    "_data":{
+        "_id": "node_id",
+        "field1": "value1",
+        "field2": "value2"
+    }
+}</code></pre>
+
+            <h6>{{ _('Get all nodes') }}</h6>
+            <pre class="mb-3"><code><span class="badge bg-success">GET</span> ${baseUrl}/api/config/${configUid}/node/${className}</code></pre>
+
+            <h6>{{ _('Register node in room for mobile devices') }}</h6>
+            <pre class="mb-3"><code><span class="badge bg-primary">POST</span> ${baseUrl}/api/config/${configUid}/node/${className}/register/&lt;room_uid&gt;</code></pre>
+
+            <h6>{{ _('Working with specific node') }}</h6>
+            <pre class="mb-3"><code>{{ _('Get specific node') }} : <span class="badge bg-success">GET</span>    ${baseUrl}/api/config/${configUid}/node/${className}/&lt;node_id&gt;
+{{ _('Update _data in specific node') }} : <span class="badge bg-primary">PUT</span>    ${baseUrl}/api/config/${configUid}/node/${className}/&lt;node_id&gt;
+{{ _('Delete specific node') }} :  <span class="badge bg-danger">DELETE</span> ${baseUrl}/api/config/${configUid}/node/${className}/&lt;node_id&gt;</code></pre>
+
+            <h6>{{ _('Execute node method') }}</h6>
+            <pre class="mb-3"><code><span class="badge bg-primary">POST</span> ${baseUrl}/api/config/${configUid}/node/${className}/&lt;node_id&gt;/&lt;method_name&gt;
+Content-Type: application/json
+
+{
+    "param1": "value1",
+    "param2": "value2"
+}</code></pre>
+
+            <h6>{{ _('Execute method on remote device via WebSocket') }}</h6>
+            <pre class="mb-3"><code><span class="badge bg-primary">POST</span> ${baseUrl}/api/&lt;room_uid&gt;/&lt;target_user&gt;/${configUid}/remote_node/${className}/&lt;node_id&gt;/&lt;method_name&gt;</code></pre>
+
+            <h6>{{ _('Get remote method execution result') }}</h6>
+            <pre><code><span class="badge bg-success">GET</span> ${baseUrl}/api/check-response/&lt;request_id&gt;</code></pre>
+        `;
+        
+        document.getElementById('apiEndpointsContainer').innerHTML = apiEndpoints;
+        
+        
+        if (typeof Prism !== 'undefined') {
+            Prism.highlightAllUnder(document.getElementById('apiEndpointsContainer'));
+        }
+    }
+    
+    
+    generateApiEndpoints();
+    
+    
+    const apiTab = document.getElementById('api-tab');
+    if (apiTab) {
+        apiTab.addEventListener('click', function() {
+            // A short delay to ensure the tab is active
+            setTimeout(generateApiEndpoints, 100);
+        });
+    }
+});
+</script>
+
+<style>
+
+.event-badge {
+    font-size: 0.85em;
+    padding: 0.35em 0.65em;
+}
+
+.event-onshow {
+    background-color: #0d6efd;
+    color: white;
+}
+
+.event-onresume {
+    background-color: #198754;
+    color: white;
+}
+
+.event-oninput {
+    background-color: #ffc107;
+    color: black;
+}
+
+.event-onaccept {
+    background-color: #dc3545;
+    color: white;
+}
+
+
+.code-input {
+    width: calc(100% - 40px);
+    margin: 20px;
+    --padding: 20px;
+}
+
+.code-input-editor {
+    min-height: 300px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+code-input {
+    --code-input-color: #333;
+    --code-input-background: #f8f9fa;
+    --code-input-border-color: #dee2e6;
+    --code-input-border-radius: 4px;
+    --code-input-padding: 10px;
+}
+
+.modal-lg .code-input-editor {
+    min-height: 300px;
+}
+</style>
+
+</div>
+{% endblock %}

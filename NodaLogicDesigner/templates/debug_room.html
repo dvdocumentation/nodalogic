@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="mb-0">
+            <i class="bi bi-bug"></i> Debug room: {{ room.name }}
+            <small class="text-muted fs-6">UID: {{ room.uid }}</small>
+        </h1>
+        <div>
+            <a href="{{ url_for('dashboard') }}#rooms" class="btn btn-outline-secondary me-2">
+                <i class="bi bi-arrow-left"></i> To rooms list
+            </a>
+            <a href="{{ url_for('delete_room', room_uid=room.uid) }}" 
+               class="btn btn-outline-danger"
+               onclick="return confirm('Delete room {{ room.name }}?')">
+                <i class="bi bi-trash"></i> Delete
+            </a>
+        </div>
+    </div>
+
+    <!-- WebSocket Connection Card -->
+    <div class="card mb-4">
+        <div class="card-header bg-warning text-dark">
+            <h5 class="mb-0">
+                <i class="bi bi-plug"></i> Debug connection
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">WebSocket URL:</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="wsUrl" 
+                                   value="{{ ws_url }}" readonly>
+                            <button class="btn btn-outline-secondary" type="button" onclick="copyWsUrl()">
+                                <i class="bi bi-clipboard"></i> Copy
+                            </button>
+                        </div>
+                    </div>
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> Connection status: 
+                        <span id="wsStatus" class="fw-bold">Not connected</span>
+                    </div>
+                </div>
+                <div class="col-md-6 text-center">
+                    <img src="data:image/png;base64,{{ qr_img }}" class="img-fluid" style="max-width: 200px;" alt="QR Code">
+                    <p class="mt-2 text-muted">Scan QR-code for connection</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Debug Messages -->
+    <div class="card">
+        <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <i class="bi bi-terminal"></i> Debug messages
+            </h5>
+            <button class="btn btn-sm btn-outline-dark" onclick="clearDebugMessages()">
+                <i class="bi bi-trash"></i> Clear
+            </button>
+        </div>
+        <div class="card-body p-0">
+            <div id="debugMessages" style="height: 500px; overflow-y: auto; padding: 1rem;">
+                <div class="text-center text-muted py-5" id="noMessages">
+                    <i class="bi bi-chat-dots display-4 d-block mb-2"></i>
+                    Debugging messages will appear here
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// WebSocket Connection
+let socket = null;
+const wsUrl = "{{ ws_url }}";
+let messageCount = 0;
+
+function connectWebSocket() {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
+    }
+
+    updateConnectionStatus('connecting', 'Connecting...');
+    socket = new WebSocket(wsUrl);
+
+    socket.onopen = function() {
+        updateConnectionStatus('connected', 'Connected');
+        socket.send(JSON.stringify({
+            type: "connection",
+            user: "{{ current_user.email|default('anonymous') }}"
+        }));
+    };
+
+    socket.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'debug' || data.type === 'debug_connected') {
+            addDebugMessage(data);
+        }
+    };
+
+    socket.onclose = function() {
+        updateConnectionStatus('disconnected', 'Disconnected');
+    };
+
+    socket.onerror = function(error) {
+        updateConnectionStatus('error', 'Connection error');
+        console.error("WebSocket Error:", error);
+    };
+}
+
+function addDebugMessage(data) {
+    messageCount++;
+    const noMessages = document.getElementById('noMessages');
+    if (noMessages) noMessages.style.display = 'none';
+    
+    const messagesContainer = document.getElementById('debugMessages');
+    const messageDiv = document.createElement('div');
+    
+    
+    const timestamp = new Date(data.timestamp);
+    const timeString = timestamp.toLocaleTimeString();
+    
+    
+    if (data.type === 'debug_connected') {
+        messageDiv.className = 'debug-connected-message mb-3 p-3 border rounded';
+        messageDiv.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start mb-2">
+                <small class="text-muted">${timeString} • Connection</small>
+                <small class="text-muted">User: ${data.user || 'unknown'}</small>
+            </div>
+            <div class="text-success">
+                <i class="bi bi-plug"></i> <strong>${data.message}</strong>
+            </div>
+        `;
+    } else {
+        messageDiv.className = 'debug-message mb-3 p-3 border rounded';
+        
+        
+        let nodeDataHtml = '<pre class="mb-0 mt-2 small">';
+        try {
+            nodeDataHtml += JSON.stringify(data.node_data, null, 2);
+        } catch (e) {
+            nodeDataHtml += String(data.node_data);
+        }
+        nodeDataHtml += '</pre>';
+        
+        messageDiv.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start mb-2">
+                <small class="text-muted">${timeString} • Message #${messageCount}</small>
+                <small class="text-muted">User: ${data.user || 'unknown'}</small>
+            </div>
+            <div class="mb-2">
+                <strong>Info:</strong> ${data.description || 'No description'}
+            </div>
+            <div class="mb-2">
+                <strong>Node ID:</strong> <code>${data.node_id || 'Not specified'}</code>
+            </div>
+            <div>
+                <strong>Node Data:</strong>
+                ${nodeDataHtml}
+            </div>
+        `;
+    }
+    
+    messagesContainer.appendChild(messageDiv);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+function clearDebugMessages() {
+    const messagesContainer = document.getElementById('debugMessages');
+    messagesContainer.innerHTML = `
+        <div class="text-center text-muted py-5" id="noMessages">
+            <i class="bi bi-chat-dots display-4 d-block mb-2"></i>
+            Debug messages will appear here
+        </div>
+    `;
+    messageCount = 0;
+}
+
+function updateConnectionStatus(status, message) {
+    const statusElement = document.getElementById('wsStatus');
+    statusElement.textContent = message;
+    
+    statusElement.className = 'fw-bold';
+    
+    switch(status) {
+        case 'connected':
+            statusElement.classList.add('text-success');
+            break;
+        case 'error':
+            statusElement.classList.add('text-danger');
+            break;
+        case 'connecting':
+            statusElement.classList.add('text-warning');
+            break;
+        default:
+            statusElement.classList.add('text-secondary');
+    }
+}
+
+function copyWsUrl() {
+    const input = document.getElementById('wsUrl');
+    input.select();
+    document.execCommand('copy');
+    
+    const btn = event.target;
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-check"></i> Copied!';
+    setTimeout(() => {
+        btn.innerHTML = originalHtml;
+    }, 2000);
+}
+
+
+document.addEventListener('DOMContentLoaded', function() {
+    connectWebSocket();
+    
+    
+    setInterval(() => {
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            connectWebSocket();
+        }
+    }, 5000);
+});
+</script>
+
+<style>
+.debug-message {
+    background-color: #fff8e1;
+    border-color: #ffd54f !important;
+}
+.debug-connected-message {
+    background-color: #e8f5e8;
+    border-color: #28a745 !important;
+}
+.card-header.bg-warning {
+    background-color: #ffc107 !important;
+}
+</style>
+{% endblock %}

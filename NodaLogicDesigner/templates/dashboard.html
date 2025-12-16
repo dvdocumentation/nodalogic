@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-10">
+            <h2 class="text-center mb-4">NodaLogic</h2>
+            
+            <!-- Tab navigation -->
+            <ul class="nav nav-tabs mb-4 justify-content-center" id="mainTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="configs-tab" data-bs-toggle="tab" 
+                            data-bs-target="#configs" type="button" role="tab">
+                        {{ _('Configurations') }}
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="rooms-tab" data-bs-toggle="tab" 
+                            data-bs-target="#rooms" type="button" role="tab">
+                        Rooms
+                    </button>
+                </li>
+            </ul>
+
+            <!-- Tab content -->
+            <div class="tab-content" id="mainTabsContent">
+                <!-- Configuration tab -->
+                <div class="tab-pane fade show active" id="configs" role="tabpanel">
+                    <div class="text-center mb-4">
+                        <form method="POST" action="{{ url_for('create_config') }}" class="d-inline me-2">
+                            <button type="submit" class="btn btn-success">
+                                <i class="bi bi-plus-circle"></i> {{ _('Create configuration') }}
+                            </button>
+                        </form>
+                        
+                        
+                        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#importConfigModal">
+                            <i class="bi bi-upload"></i> {{ _('Upload configuration') }}
+                        </button>
+                    </div>
+
+                    {% if configs %}
+                    <div class="list-group">
+                        {% for config in configs %}
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <h5 class="mb-1">{{ config.name }}</h5>
+                                <small class="text-muted">UID: {{ config.uid }}</small>
+                            </div>
+                            <div class="btn-group">
+                                <a href="{{ url_for('edit_config', uid=config.uid) }}" 
+                                   class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-pencil"></i> {{ _('Edit') }}
+                                </a>
+                                <a href="{{ url_for('get_config', uid=config.uid) }}" 
+                                   class="btn btn-sm btn-outline-info" 
+                                   target="_blank">
+                                    <i class="bi bi-code-square"></i> API
+                                </a>
+                                <a href="{{ url_for('delete_config', uid=config.uid) }}" 
+                                   class="btn btn-sm btn-outline-danger"
+                                   onclick="return confirm('Delete configuration {{ config.name }}?')">
+                                    <i class="bi bi-trash"></i> {{ _('Delete') }}
+                                </a>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info text-center">
+                        <i class="bi bi-info-circle"></i> {{ _('You dont have any configurations yet.') }}
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Rooms tab -->
+                <div class="tab-pane fade" id="rooms" role="tabpanel">
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">{{ _('Create room') }}</h5>
+                        </div>
+                        <div class="card-body">
+                            <form method="POST" action="{{ url_for('create_room') }}" class="mb-3">
+                                <div class="input-group">
+                                    <input type="text" class="form-control" name="name" placeholder="{{ _('Room name') }}" required>
+                                    <button type="submit" class="btn btn-primary">{{ _('Create room') }}</button>
+                                </div>
+                            </form>
+                            
+                            <form method="POST" action="{{ url_for('create_debug_room') }}">
+                                <button type="submit" class="btn btn-warning">
+                                    <i class="bi bi-bug"></i> {{ _('Create debug room') }}
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    {% if rooms %}
+                    <div class="list-group">
+                        {% for room in rooms %}
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <h5 class="mb-1">{{ room.name }}</h5>
+                                <small class="text-muted">{{ _('Created ') }}: {{ room.created_at.strftime('%d.%m.%Y %H:%M') }}</small>
+                            </div>
+                            <div class="btn-group">
+                                {% if room.name == _('Debug room') or _('debug') in room.name|lower or 'debug' in room.name|lower or 'отладк' in room.name|lower %}
+                                <a href="{{ url_for('debug_room', room_uid=room.uid) }}" 
+                                   class="btn btn-sm btn-outline-warning me-2">
+                                    <i class="bi bi-bug"></i> {{ _('Debug') }}
+                                </a>
+                                {% else %}
+                                <a href="{{ url_for('room_detail', room_uid=room.uid) }}" 
+                                   class="btn btn-sm btn-outline-primary me-2">
+                                    <i class="bi bi-box-arrow-in-right"></i> {{ _('Open') }}
+                                </a>
+                                {% endif %}
+                                <a href="{{ url_for('delete_room', room_uid=room.uid) }}" 
+                                   class="btn btn-sm btn-outline-danger"
+                                   onclick="return confirm('{{ _('Delete room') }} {{ room.name }}?')">
+                                    <i class="bi bi-trash"></i> {{ _('Delete') }}
+                                </a>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info text-center">
+                        <i class="bi bi-info-circle"></i> {{ _('You dont have any rooms yet.') }}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Import Configuration Modal -->
+<div class="modal fade" id="importConfigModal" tabindex="-1" aria-labelledby="importConfigModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="importConfigModalLabel">{{ _('Import configuration') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="{{ url_for('import_config_new') }}" enctype="multipart/form-data">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="configFile" class="form-label">{{ _('Select configuration file (*.nod)') }}</label>
+                        <input class="form-control" type="file" id="configFile" name="config_file" accept=".nod" required>
+                    </div>
+                    <div class="form-text">
+                        {{ _('Configuration will be created or updated based on UID from the file. All data including handlers, classes, datasets will be imported.') }}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+                    <button type="submit" class="btn btn-primary">{{ _('Import') }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    if (window.location.hash === '#rooms') {
+        const roomsTab = new bootstrap.Tab(document.getElementById('rooms-tab'));
+        roomsTab.show();
+    }
+    
+    window.addEventListener('hashchange', function() {
+        if (window.location.hash === '#rooms') {
+            const roomsTab = new bootstrap.Tab(document.getElementById('rooms-tab'));
+            roomsTab.show();
+        } else if (window.location.hash === '#configs' || window.location.hash === '') {
+            const configsTab = new bootstrap.Tab(document.getElementById('configs-tab'));
+            configsTab.show();
+        }
+    });
+});
+</script>
+
+<style>
+.nav-tabs .nav-link {
+    font-weight: 500;
+    padding: 0.75rem 1.5rem;
+}
+.list-group-item {
+    padding: 1rem 1.25rem;
+}
+.btn-group {
+    flex-wrap: nowrap;
+}
+@media (max-width: 768px) {
+    .btn-group .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+    .nav-tabs .nav-link {
+        padding: 0.5rem 1rem;
+    }
+}
+</style>
+{% endblock %}

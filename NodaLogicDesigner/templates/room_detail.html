@@ -1,0 +1,318 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="mb-0">
+            <i class="bi bi-door-open"></i> {{ _('Room') }}: {{ room.name }}
+            <small class="text-muted fs-6">{{ _('UID') }}: {{ room.uid }}</small>
+        </h1>
+        <div>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary me-2">
+                <i class="bi bi-house"></i> {{ _('To Main') }}
+            </a>
+        </div>
+    </div>
+
+    <!-- WebSocket Connection Card -->
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">
+                <i class="bi bi-plug"></i> {{ _('Room Connection') }}
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">{{ _('WebSocket URL') }}:</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="wsUrl" 
+                                   value="{{ ws_url }}" readonly>
+                            <button class="btn btn-outline-secondary" type="button" onclick="copyWsUrl()">
+                                <i class="bi bi-clipboard"></i> {{ _('Copy') }}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> {{ _('Connection status') }}: 
+                        <span id="wsStatus" class="fw-bold">{{ _('Not connected') }}</span>
+                    </div>
+                </div>
+                <div class="col-md-6 text-center">
+                    <img src="data:image/png;base64,{{ qr_img }}" class="img-fluid" style="max-width: 200px;" alt="QR Code">
+                    <p class="mt-2 text-muted">{{ _('Scan QR code to connect') }}</p>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <h5><i class="bi bi-terminal"></i> {{ _('API Endpoints') }}</h5>
+                <div class="table-responsive">
+                    <table class="table table-bordered">
+                        <thead class="table-light">
+                            <tr>
+                                <th>{{ _('Method') }}</th>
+                                <th>{{ _('URL') }}</th>
+                                <th>{{ _('Description') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="badge bg-primary">POST</span></td>
+                                <td>/api/room/{{ room.uid }}/tasks</td>
+                                <td>{{ _('Add tasks (JSON array)') }}</td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge bg-success">GET</span></td>
+                                <td>/api/room/{{ room.uid }}/tasks/available</td>
+                                <td>{{ _('Get available task') }}</td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge bg-warning text-dark">POST</span></td>
+                                <td>/api/room/{{ room.uid }}/tasks/&lt;uid&gt;/complete</td>
+                                <td>{{ _('Mark task as completed') }}</td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge bg-danger">DELETE</span></td>
+                                <td>/api/room/{{ room.uid }}/tasks/completed</td>
+                                <td>{{ _('Delete completed tasks') }}</td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge bg-info text-dark">GET</span></td>
+                                <td>/api/room/{{ room.uid }}/task/&lt;uid&gt;</td>
+                                <td>{{ _('Get task (automatically locks)') }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Connected Users Table -->
+    <div class="card">
+        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <i class="bi bi-people"></i> {{ _('Connected Users') }}
+                <span class="badge bg-white text-success ms-2" id="usersCount">0</span>
+            </h5>
+            <div>
+                <button class="btn btn-light btn-sm" onclick="connectWebSocket()">
+                    <i class="bi bi-arrow-repeat"></i> {{ _('Refresh') }}
+                </button>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0" id="usersTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 10%">#</th>
+                            <th style="width: 45%">{{ _('User') }}</th>
+                            <th style="width: 30%">{{ _('Connection Time') }}</th>
+                            <th style="width: 15%">{{ _('Status') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTableBody">
+                        <tr>
+                            <td colspan="4" class="text-center text-muted py-4">
+                                <i class="bi bi-person-x fs-1"></i><br>
+                                {{ _('No connected users') }}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer text-muted">
+            {{ _('Total connected users') }}: <span id="totalUsersCount">0</span>
+        </div>
+    </div>
+</div>
+
+<script>
+// WebSocket Connection
+let socket = null;
+let connectedUsers = [];
+
+const wsUrl = "{{ ws_url }}";
+
+function connectWebSocket() {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
+    }
+
+    updateConnectionStatus('connecting', '{{ _("Connecting") }}...');
+    socket = new WebSocket(wsUrl);
+
+    socket.onopen = function() {
+        updateConnectionStatus('connected', '{{ _("Connected") }}');
+        socket.send(JSON.stringify({
+            type: "connection",
+            user: "{{ current_user.email|default('anonymous') }}"
+        }));
+        
+        // Request a list of users after connecting
+        setTimeout(() => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({type: "get_users"}));
+            }
+        }, 500);
+    };
+
+    socket.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+            console.log("WebSocket message:", data);
+            
+            if (data.type === 'users_update') {
+                updateUsersTable(data.users);
+            } else if (data.type === 'user_connected') {
+                // Automatically request an updated list
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({type: "get_users"}));
+                }
+            } else if (data.type === 'user_disconnected') {
+                // Automatically request an updated list
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({type: "get_users"}));
+                }
+            } else if (data.type === 'room_info') {
+                console.log("Room info:", data);
+            }
+        } catch (e) {
+            console.error("Error parsing WebSocket message:", e);
+        }
+    };
+
+    socket.onclose = function() {
+        updateConnectionStatus('disconnected', '{{ _("Disconnected") }}');
+        // Clear the user list when disconnecting
+        updateUsersTable([]);
+    };
+
+    socket.onerror = function(error) {
+        updateConnectionStatus('error', '{{ _("Connection error") }}');
+        console.error("WebSocket Error:", error);
+    };
+}
+
+function updateUsersTable(users) {
+    connectedUsers = users;
+    const tbody = document.getElementById('usersTableBody');
+    
+    console.log("Updating users table with:", users);
+    
+    if (!users || users.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="4" class="text-center text-muted py-4">
+                    <i class="bi bi-person-x fs-1"></i><br>
+                    {{ _('No connected users') }}
+                </td>
+            </tr>`;
+        updateUsersCount();
+        return;
+    }
+    
+    let html = '';
+    users.forEach((user, index) => {
+        const connectionTime = user.connection_time ? 
+            new Date(user.connection_time).toLocaleTimeString() : 
+            '{{ _("Unknown") }}';
+        
+        const userName = user.email || user.user || user.username || '{{ _("Anonymous") }}';
+        
+        html += `
+        <tr>
+            <td>${index + 1}</td>
+            <td>
+                <i class="bi bi-person-circle me-2"></i>
+                <strong>${userName}</strong>
+            </td>
+            <td>
+                <small>${connectionTime}</small>
+            </td>
+            <td>
+                <span class="badge bg-success">
+                    <i class="bi bi-check-circle"></i> {{ _("Connected") }}
+                </span>
+            </td>
+        </tr>`;
+    });
+    
+    tbody.innerHTML = html;
+    updateUsersCount();
+}
+
+function updateUsersCount() {
+    const count = connectedUsers.length;
+    document.getElementById('usersCount').textContent = count;
+    document.getElementById('totalUsersCount').textContent = count;
+}
+
+function updateConnectionStatus(status, message) {
+    const statusElement = document.getElementById('wsStatus');
+    statusElement.textContent = message;
+    
+    statusElement.className = 'fw-bold';
+    
+    switch(status) {
+        case 'connected':
+            statusElement.classList.add('text-success');
+            break;
+        case 'error':
+            statusElement.classList.add('text-danger');
+            break;
+        case 'connecting':
+            statusElement.classList.add('text-warning');
+            break;
+        default:
+            statusElement.classList.add('text-secondary');
+    }
+}
+
+function copyWsUrl() {
+    const input = document.getElementById('wsUrl');
+    input.select();
+    document.execCommand('copy');
+    
+    const btn = event.target;
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-check"></i> {{ _("Copied") }}!';
+    setTimeout(() => {
+        btn.innerHTML = originalHtml;
+    }, 2000);
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    connectWebSocket();
+    
+    // Auto refresh every 5 seconds
+    setInterval(() => {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({type: "get_users"}));
+        } else {
+            connectWebSocket();
+        }
+    }, 5000);
+});
+</script>
+
+<style>
+.table-hover tbody tr:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+.text-success { color: #28a745 !important; }
+.text-danger { color: #dc3545 !important; }
+.text-warning { color: #ffc107 !important; }
+.text-secondary { color: #6c757d !important; }
+.card-header.bg-primary {
+    background-color: #0d6efd !important;
+}
+.card-header.bg-success {
+    background-color: #198754 !important;
+}
+</style>
+{% endblock %}

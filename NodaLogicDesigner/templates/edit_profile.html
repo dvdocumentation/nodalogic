@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <h2 class="mb-4"><i class="bi bi-person-gear"></i> {{ _('Edit Profile') }}</h2>
+            
+            <form method="POST">
+                <div class="mb-3">
+                    <label for="email" class="form-label">{{ _('Email') }}</label>
+                    <input type="email" class="form-control" id="email" name="email" 
+                           value="{{ current_user.email }}" required>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="config_display_name" class="form-label">{{ _('Configuration Display Name') }}</label>
+                    <input type="text" class="form-control" id="config_display_name" 
+                           name="config_display_name" value="{{ current_user.config_display_name }}">
+                </div>
+                
+                <div class="mb-3">
+                    <label for="password" class="form-label">{{ _('New Password') }}</label>
+                    <input type="password" class="form-control" id="password" name="password">
+                    <small class="text-muted">{{ _('Leave blank if you do not want to change password') }}</small>
+                </div>
+                
+                <div class="d-flex justify-content-between">
+                    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left"></i> {{ _('Back') }}
+                    </a>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-save"></i> {{ _('Save') }}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<h4 class="mt-5"><i class="bi bi-phone"></i> {{ _('Devices') }}</h4>
+<table class="table table-bordered mt-3">
+    <thead>
+        <tr>
+            <th>{{ _('Android ID') }}</th>
+            <th>{{ _('Model') }}</th>
+            <th>{{ _('Last Connection') }}</th>
+            <th>{{ _('Token') }}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for d in devices %}
+        <tr>
+            <td>{{ d.android_id }}</td>
+            <td>{{ d.device_model }}</td>
+            <td>{{ d.last_connected.strftime('%Y-%m-%d %H:%M:%S') if d.last_connected else '-' }}</td>
+            <td>
+                <form method="POST" action="{{ url_for('update_device_token', device_id=d.id) }}">
+                    <input type="text" name="token" class="form-control form-control-sm" value="{{ d.token or '' }}">
+                    <button type="submit" class="btn btn-sm btn-primary mt-1">{{ _('Save') }}</button>
+                </form>
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-muted text-center">{{ _('No registered devices') }}</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

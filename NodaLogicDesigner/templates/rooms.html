@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>{{ _('My Rooms') }}</h1>
+        <div>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary me-2">{{ _('Home') }}</a>
+            <a href="{{ url_for('logout') }}" class="btn btn-outline-danger">{{ _('Logout') }}</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">{{ _('Create New Room') }}</h5>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('create_room') }}">
+                <div class="mb-3">
+                    <label for="roomName" class="form-label">{{ _('Room Name') }}</label>
+                    <input type="text" class="form-control" id="roomName" name="name" required>
+                </div>
+                <button type="submit" class="btn btn-primary">{{ _('Create') }}</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <h5>{{ _('My Rooms') }}</h5>
+        {% if rooms %}
+        <div class="list-group">
+            {% for room in rooms %}
+            <div class="list-group-item d-flex justify-content-between align-items-center">
+                {{ room.name }}
+                <div>
+                    <a href="{{ url_for('room_detail', room_uid=room.uid) }}" 
+                       class="btn btn-sm btn-outline-primary me-2">
+                        {{ _('Open') }}
+                    </a>
+                    <a href="{{ url_for('delete_room', room_uid=room.uid) }}" 
+                       class="btn btn-sm btn-outline-danger"
+                       onclick="return confirm('{{ _('Delete room') }} {{ room.name }}?')">
+                        {{ _('Delete') }}
+                    </a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="alert alert-info">{{ _('You have no rooms yet') }}</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

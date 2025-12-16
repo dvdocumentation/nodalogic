@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>{{ _('Admin dashboard')}}</h1>
+    
+   
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card text-white bg-primary">
+                <div class="card-body">
+                    <h4 class="card-title">{{ total_users }}</h4>
+                    <p class="card-text">{{ _('Total users') }}</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-success">
+                <div class="card-body">
+                    <h4 class="card-title">{{ active_users_count }}</h4>
+                    <p class="card-text">{{ _('Active users') }}</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-info">
+                <div class="card-body">
+                    <h4 class="card-title">{{ total_devices }}</h4>
+                    <p class="card-text">{{ _('Total devices') }}</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-warning">
+                <div class="card-body">
+                    <h4 class="card-title">{{ active_devices_count }}</h4>
+                    <p class="card-text">{{ _('Active devices') }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- User list -->
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">{{ _('Users') }}</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Email</th>
+                            <th>{{ _('Name') }}</th>
+                            <th>{{ _('Qty devices') }}</th>
+                            <th>{{ _('Status') }}</th>
+                            <th>{{ _('Actions') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user, device_count in users_with_stats %}
+                        <tr>
+                            <td>{{ user.id }}</td>
+                            <td>{{ user.email }}</td>
+                            <td>{{ user.config_display_name or 'Not set' }}</td>
+                            <td>{{ device_count }}</td>
+                            <td>
+                                {% set is_user_active = false %}
+                                {% for room_connections in active_connections.values() %}
+                                    {% if user.email in room_connections %}
+                                        {% set is_user_active = true %}
+                                    {% endif %}
+                                {% endfor %}
+                                {% if is_user_active %}
+                                    <span class="badge bg-success">{{ _('Active') }}</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ _('Unactive') }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <a href="{{ url_for('admin_user_detail', user_id=user.id) }}" 
+                                   class="btn btn-sm btn-info">{{ _('More') }}</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
