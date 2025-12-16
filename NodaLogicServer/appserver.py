@@ -177,7 +177,7 @@ app.json = CustomJSONProvider(app)
 
 active_connections = defaultdict(dict)
 
-app.config['SECRET_KEY'] = 'ferret-key-6630'
+app.config['SECRET_KEY'] = 'YOUR_KEY'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///db.sqlite'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
@@ -491,7 +491,7 @@ def edit_profile():
 @app.route('/admin')
 @login_required
 def admin_dashboard():
-    if current_user.email != 'dv1555@hotmail.com':  
+    if current_user.email != 'your_login':  
         abort(403)
     
 
@@ -525,7 +525,7 @@ def admin_dashboard():
 @login_required
 def admin_user_detail(user_id):
     
-    if current_user.email != 'dv1555@hotmail.com':
+    if current_user.email != 'your_login':
         abort(403)
     
     user = db.session.get(User, user_id)
@@ -555,7 +555,7 @@ def admin_user_detail(user_id):
 @app.route('/admin/user/<int:user_id>/toggle-active', methods=['POST'])
 @login_required
 def admin_toggle_user_active(user_id):
-    if current_user.email != 'dv1555@hotmail.com':
+    if current_user.email != 'your_login':
         abort(403)
     
     user = db.session.get(User, user_id)
