@@ -1,0 +1,157 @@
+{
+    "name": "File operations",
+    "server_name": "",
+    "uid": "885a12de-2bb5-4222-a671-9a7286902938",
+    "url": "http://nmaker.pw/api/config/885a12de-2bb5-4222-a671-9a7286902938",
+    "content_uid": "c9d0b710-3aa5-4c34-972b-d962c641d3ce",
+    "vendor": "Dmitry Vorontsov",
+    "nodes_handlers": "ZnJvbSBub2Rlc2NsaWVudCBpbXBvcnQgUmVmcmVzaFRhYixTZXRUaXRsZSxDbG9zZU5vZGUsUnVuR1BTLFN0b3BHUFMsVXBkYXRlVmlldyxEaWFsb2csU2NhbkJhcmNvZGUsR2V0TG9jYXRpb24sQWRkVGltZXIsU3RvcFRpbWVyLFNob3dQcm9ncmVzc0J1dHRvbixIaWRlUHJvZ3Jlc3NCdXR0b24sU2hvd1Byb2dyZXNzR2xvYmFsLEhpZGVQcm9ncmVzc0dsb2JhbCxDb250cm9scyxTZXRDb3ZlcixnZXRCYXNlNjRGcm9tSW1hZ2VGaWxlLGNvbnZlcnRJbWFnZUZpbGVzVG9CYXNlNjRBcnJheSxzYXZlQmFzZTY0VG9GaWxlLGNvbnZlcnRCYXNlNjRBcnJheVRvRmlsZVBhdGhzLFVwZGF0ZU1lZGlhR2FsbGVyeQ0KZnJvbSBhbmRyb2lkIGltcG9ydCAqDQpmcm9tIG5vZGVzIGltcG9ydCBOZXdOb2RlLCBEZWxldGVOb2RlLCBHZXRBbGxOb2RlcywgR2V0Tm9kZSwgR2V0QWxsTm9kZXNTdHIsIEdldFJlbW90ZUNsYXNzLCBDcmVhdGVEYXRhU2V0LCBHZXREYXRhU2V0LCBEZWxldGVEYXRhU2V0LHRvX3VpZCwgZnJvbV91aWQNCmZyb20gY29tLmR2Lm5vZGEgaW1wb3J0IERhdGFTZXQNCmZyb20gY29tLmR2Lm5vZGEgaW1wb3J0IERhdGFTZXRzDQpmcm9tIGNvbS5kdi5ub2RhIGltcG9ydCBTaW1wbGVVdGlsaXRlcyBhcyBzdQ0KZnJvbSBkYXRhc2V0cyBpbXBvcnQgR2V0RGF0YVNldERhdGENCg0KIyDQmtC+0L3RgdGC0LDQvdGC0Ysg0LrQvtC90YTQuNCz0YPRgNCw0YbQuNC4DQpjdXJyZW50X21vZHVsZV9uYW1lPSI4ODVhMTJkZS0yYmI1LTQyMjItYTY3MS05YTcyODY5MDI5MzgiDQpjdXJyZW50X2NvbmZpZ3VyYXRpb25fdXJsPSJodHRwOi8vbm1ha2VyLnB3L2FwaS9jb25maWcvODg1YTEyZGUtMmJiNS00MjIyLWE2NzEtOWE3Mjg2OTAyOTM4Ig0KX2RhdGFfZGlyID0gc3UuZ2V0X2RhdGFfZGlyKGN1cnJlbnRfbW9kdWxlX25hbWUpDQpfZG93bmxvYWRzX2RpciA9IHN1LmdldF9kb3dubG9hZHNfZGlyKGN1cnJlbnRfbW9kdWxlX25hbWUpDQoNCg0KZnJvbSBub2RlcyBpbXBvcnQgTm9kZQ0KDQpkZWYgU3RhcnRDb25mKGlucHV0X2RhdGEpOg0KICBpbXBvcnQgdGltZQ0KICANCiAgdGltZS5zbGVlcCgzKQ0KICB0b2FzdCgi0JfQsNCy0LXRgNGI0LXQvSIpDQogIHJldHVybiBUcnVlLCB7fQ0KDQpkZWYgb25KU09ORmlsZShjb250ZW50KToNCiAgICB0b2FzdChjb250ZW50KQ0KICAgIHJldHVybiBUcnVlLHt9DQpkZWYgb25UZXh0RmlsZShjb250ZW50KToNCiAgICBtZXNzYWdlKGNvbnRlbnQpDQogICAgcmV0dXJuIFRydWUse30gICAgDQogICAgDQpjbGFzcyBNeU9yZGVyKE5vZGUpOg0KICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6DQogICAgICAgIHN1cGVyKCkuX19pbml0X18obW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpDQoNCiAgICAiIiJDbGFzcyBNeU9yZGVyIiIiDQoNCg0KDQpjbGFzcyBTaGFyZShOb2RlKToNCiAgICBkZWYgX19pbml0X18oc2VsZiwgbW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpOg0KICAgICAgICBzdXBlcigpLl9faW5pdF9fKG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKQ0KDQogICAgIiIiQ2xhc3MgU2hhcmUiIiINCg0KICAgIGRlZiBPcGVuKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6DQogICAgICAgIHNlbGYuU2hvdyhbDQogICAgICAgICAgW3sidHlwZSI6IkJ1dHRvbiIsImlkIjoic2hhcmVfdGV4dCIsImNhcHRpb24iOiLQn9GA0L7RgdGC0L4g0YLQtdC60YHRgiJ9LHsidHlwZSI6IkJ1dHRvbiIsImlkIjoic2hhcmVfbm9kZSIsImNhcHRpb24iOiLQo9C30LXQuyJ9XQ0KICAgICAgICBdKQ0KICAgICAgICBzZWxmLl9kYXRhWyJzb21lX3ZhcmlhYmxlIl0gPSAiSGkgd29ybGQiDQogICAgICAgIHJldHVybiBUcnVlLCB7fQ0KICAgIGRlZiBTaGFyZShzZWxmLCBpbnB1dF9kYXRhPU5vbmUpOg0KICAgICAgICBzaGFyZV90ZXh0KCLQn9GA0LjQstC10YIg0LzQuNGAIikNCiAgICAgICAgDQogICAgICAgIHJldHVybiBUcnVlLHt9DQogICAgICAgIA0KDQogICAgZGVmIHNlbGZfc2hhcmUoc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToNCiAgICAgICAgc2VsZi5zaGFyZSgpDQogICAgICAgIA0KICAgICAgICByZXR1cm4gVHJ1ZSx7fQ0KICAgICAgICANCg==",
+    "nodes_handlers_meta": null,
+    "nodes_server_handlers": "CmZyb20gbm9kZXMgaW1wb3J0IE5vZGUKCgoKY2xhc3MgTXlPcmRlcihOb2RlKToKICAgIAogICAgZGVmIF9faW5pdF9fKHNlbGYsIG5vZGVfaWQ9Tm9uZSwgY29uZmlnX3VpZD1Ob25lKToKICAgICAgICBzdXBlcigpLl9faW5pdF9fKG5vZGVfaWQsIGNvbmZpZ191aWQpCiAgICAgICAgIyBBZGRpdGlvbmFsIGluaXRpYWxvemF0aW9uIGZvciBNeU9yZGVyCgoKCmNsYXNzIFNoYXJlKE5vZGUpOgogICAgCiAgICBkZWYgX19pbml0X18oc2VsZiwgbm9kZV9pZD1Ob25lLCBjb25maWdfdWlkPU5vbmUpOgogICAgICAgIHN1cGVyKCkuX19pbml0X18obm9kZV9pZCwgY29uZmlnX3VpZCkKICAgICAgICAjIEFkZGl0aW9uYWwgaW5pdGlhbG96YXRpb24gZm9yIFNoYXJlCg==",
+    "nodes_server_handlers_meta": null,
+    "version": "00.00.01",
+    "NodaLogicFormat": "1.1",
+    "NodaLogicType": "ANDROID_SERVER",
+    "last_modified": "2025-12-18T11:09:37.281923+03:00",
+    "provider": "Dmitry Vorontsov",
+    "classes": [
+        {
+            "name": "MyOrder",
+            "section": "Документы",
+            "section_code": "docs",
+            "has_storage": false,
+            "display_name": "MyOrder",
+            "cover_image": "[[\"@order_number\"]] ",
+            "class_type": "data_node",
+            "hidden": false,
+            "methods": [],
+            "events": []
+        },
+        {
+            "name": "Share",
+            "section": "Процессы",
+            "section_code": "processes",
+            "has_storage": false,
+            "display_name": "Примеры Share to...",
+            "cover_image": "None",
+            "class_type": "custom_process",
+            "hidden": false,
+            "methods": [
+                {
+                    "name": "Open",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "Open"
+                },
+                {
+                    "name": "Share",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "Share"
+                },
+                {
+                    "name": "self_share",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "self_share"
+                }
+            ],
+            "events": [
+                {
+                    "event": "onShow",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "Open",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "share_text",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "Share",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "share_node",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "self_share",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "datasets": [],
+    "sections": [
+        {
+            "name": "Документы",
+            "code": "docs",
+            "commands": ""
+        },
+        {
+            "name": "Процессы",
+            "code": "processes",
+            "commands": ""
+        }
+    ],
+    "servers": [],
+    "CommonEvents": [
+        {
+            "event": "onJSONFile",
+            "listener": "",
+            "actions": [
+                {
+                    "action": "run",
+                    "source": "internal",
+                    "server": "",
+                    "method": "onJSONFile",
+                    "postExecuteMethod": ""
+                }
+            ]
+        },
+        {
+            "event": "onTextFile",
+            "listener": "",
+            "actions": [
+                {
+                    "action": "run",
+                    "source": "internal",
+                    "server": "",
+                    "method": "onTextFile",
+                    "postExecuteMethod": ""
+                }
+            ]
+        },
+        {
+            "event": "onLaunch",
+            "listener": "",
+            "actions": [
+                {
+                    "action": "runasync",
+                    "source": "internal",
+                    "server": "",
+                    "method": "StartConf",
+                    "postExecuteMethod": ""
+                }
+            ]
+        }
+    ]
+}

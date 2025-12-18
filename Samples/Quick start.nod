@@ -1,0 +1,160 @@
+{
+    "name": "Quick start",
+    "server_name": "",
+    "uid": "348fa9a9-dd2f-4a76-8c73-b5c15bbb3ea1",
+    "url": "http://nmaker.pw/api/config/348fa9a9-dd2f-4a76-8c73-b5c15bbb3ea1",
+    "content_uid": "340a5f2c-767b-400b-b3ca-6e32b13e3764",
+    "vendor": "Dmitry Vorontsov",
+    "nodes_handlers": "ZnJvbSBub2Rlc2NsaWVudCBpbXBvcnQgUmVmcmVzaFRhYixTZXRUaXRsZSxDbG9zZU5vZGUsUnVuR1BTLFN0b3BHUFMsVXBkYXRlVmlldyxEaWFsb2csU2NhbkJhcmNvZGUsR2V0TG9jYXRpb24sQWRkVGltZXIsU3RvcFRpbWVyLFNob3dQcm9ncmVzc0J1dHRvbixIaWRlUHJvZ3Jlc3NCdXR0b24sU2hvd1Byb2dyZXNzR2xvYmFsLEhpZGVQcm9ncmVzc0dsb2JhbCxDb250cm9scyxTZXRDb3ZlcixnZXRCYXNlNjRGcm9tSW1hZ2VGaWxlLGNvbnZlcnRJbWFnZUZpbGVzVG9CYXNlNjRBcnJheSxzYXZlQmFzZTY0VG9GaWxlLGNvbnZlcnRCYXNlNjRBcnJheVRvRmlsZVBhdGhzLFVwZGF0ZU1lZGlhR2FsbGVyeQpmcm9tIGFuZHJvaWQgaW1wb3J0ICoKZnJvbSBub2RlcyBpbXBvcnQgTmV3Tm9kZSwgRGVsZXRlTm9kZSwgR2V0QWxsTm9kZXMsIEdldE5vZGUsIEdldEFsbE5vZGVzU3RyLCBHZXRSZW1vdGVDbGFzcywgQ3JlYXRlRGF0YVNldCwgR2V0RGF0YVNldCwgRGVsZXRlRGF0YVNldCx0b191aWQsIGZyb21fdWlkCmZyb20gY29tLmR2Lm5vZGEgaW1wb3J0IERhdGFTZXQKZnJvbSBjb20uZHYubm9kYSBpbXBvcnQgRGF0YVNldHMKZnJvbSBjb20uZHYubm9kYSBpbXBvcnQgU2ltcGxlVXRpbGl0ZXMgYXMgc3UKZnJvbSBkYXRhc2V0cyBpbXBvcnQgR2V0RGF0YVNldERhdGEKCiMg0JrQvtC90YHRgtCw0L3RgtGLINC60L7QvdGE0LjQs9GD0YDQsNGG0LjQuApjdXJyZW50X21vZHVsZV9uYW1lPSIzNDhmYTlhOS1kZDJmLTRhNzYtOGM3My1iNWMxNWJiYjNlYTEiCmN1cnJlbnRfY29uZmlndXJhdGlvbl91cmw9Imh0dHA6Ly9ubWFrZXIucHcvYXBpL2NvbmZpZy8zNDhmYTlhOS1kZDJmLTRhNzYtOGM3My1iNWMxNWJiYjNlYTEiCl9kYXRhX2RpciA9IHN1LmdldF9kYXRhX2RpcihjdXJyZW50X21vZHVsZV9uYW1lKQpfZG93bmxvYWRzX2RpciA9IHN1LmdldF9kb3dubG9hZHNfZGlyKGN1cnJlbnRfbW9kdWxlX25hbWUpCgoKZnJvbSBub2RlcyBpbXBvcnQgTm9kZQoKCgpjbGFzcyBNeURvYyhOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSkKCiAgICAiIiJDbGFzcyBNeURvYyIiIgoKICAgIGRlZiBPcGVuKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgc3ZnPSc8c3ZnIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgaGVpZ2h0PSIyNHB4IiB2aWV3Qm94PSIwIC05NjAgOTYwIDk2MCIgd2lkdGg9IjI0cHgiIGZpbGw9IiMxZjFmMWYiPjxwYXRoIGQ9Ik0yNjAtMTYwcS05MSAwLTE1NS41LTYzVDQwLTM3N3EwLTc4IDQ3LTEzOXQxMjMtNzhxMjUtOTIgMTAwLTE0OXQxNzAtNTdxMTE3IDAgMTk4LjUgODEuNVQ3NjAtNTIwcTY5IDggMTE0LjUgNTkuNVQ5MjAtMzQwcTAgNzUtNTIuNSAxMjcuNVQ3NDAtMTYwSDUyMHEtMzMgMC01Ni41LTIzLjVUNDQwLTI0MHYtMjA2bC02NCA2Mi01Ni01NiAxNjAtMTYwIDE2MCAxNjAtNTYgNTYtNjQtNjJ2MjA2aDIyMHE0MiAwIDcxLTI5dDI5LTcxcTAtNDItMjktNzF0LTcxLTI5aC02MHYtODBxMC04My01OC41LTE0MS41VDQ4MC03MjBxLTgzIDAtMTQxLjUgNTguNVQyODAtNTIwaC0yMHEtNTggMC05OSA0MXQtNDEgOTlxMCA1OCA0MSA5OXQ5OSA0MWgxMDB2ODBIMjYwWm0yMjAtMjgwWiIvPjwvc3ZnPicNCgogICAgICAgIHNlbGYuUGx1Z0luKFt7InR5cGUiOiJDYW1lcmFCYXJjb2RlU2Nhbm5lckJ1dHRvbiIsICJpZCI6ImJhcmNvZGVfY2FtIn0sDQogICAgICAgICAgeyJ0eXBlIjoiUGhvdG9CdXR0b24iLCAiaWQiOiJjYXB0dXJlX3Bob3RvIn0sDQogICAgICAgICAgeyJ0eXBlIjoiTWVkaWFHYWxsZXJ5IiwgImlkIjoicGljX2ZpbGVzIn0sDQogICAgICAgICAgeyJ0eXBlIjoiVG9vbGJhckJ1dHRvbiIsImlkIjoiYnRuX3VwbG9hZCIsImNhcHRpb24iOiJVcGxvYWQiLCJzdmciOnN2Zywic3ZnX3NpemUiOjI0LCJzdmdfY29sb3IiOiIjRkZGRkZGIn0NCiAgICAgICAgXSkNCgogICAgICAgIGlmICJzY2FubmVkIiBpbiBzZWxmLl9kYXRhOg0KICAgICAgICAgIGxpc3Rfc2Nhbm5lZCA9IHNlbGYuX2RhdGFbInNjYW5uZWQiXQ0KICAgICAgICBlbHNlOg0KICAgICAgICAgIGxpc3Rfc2Nhbm5lZCA9IFtdDQoKICAgICAgICBzZWxmLlNob3coWw0KICAgICAgICAgICAgICBbeyJ0eXBlIjoiVGV4dCIsImJvbGQiOlRydWUsInZhbHVlIjoiQHRpdGxlIn1dLA0KICAgICAgICAgICAgICBbeyJ0eXBlIjoiVGV4dCIsInZhbHVlIjoiQGluc3RydWN0aW9uIn1dLA0KICAgICAgICAgICAgICBbeyJ0eXBlIjoiVGFibGUiLCJpZCI6InQxIiwidmFsdWUiOmxpc3Rfc2Nhbm5lZCB9XQ0KICAgICAgICAgICAgXSkNCgogICAgICAgIHJldHVybiBUcnVlLHt9CiAgICBkZWYgcHJvY2Vzc19iYXJjb2RlKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgYmFyY29kZSA9IHNlbGYuX2RhdGFbImJhcmNvZGVfY2FtIl0NCiAgICAgICAgCiAgICAgICAgZ29vZHM9IEdldERhdGFTZXQoImdvb2RzIikNCiAgICAgICAgcmVzID0gZ29vZHMuZ2V0U3RyKCJiYXJjb2RlIixiYXJjb2RlKQ0KICAgICAgICAKICAgICAgICBpZiByZXMgPT0gTm9uZToNCiAgICAgICAgICBzcGVhaygiUHJvZHVjdCBub3QgZm91bmQiKQ0KICAgICAgICBlbHNlOg0KICAgICAgICAgIHJlc3VsdCA9IGpzb24ubG9hZHMocmVzKQ0KICAgICAgICAgIHNlbGYuX2RhdGFbImJhcmNvZGUiXSAgPSBiYXJjb2RlDQogICAgICAgICAgc2VsZi5fZGF0YVsic2t1Il0gID0gcmVzdWx0LmdldCgibmFtZSIpDQogICAgICAgIAogICAgICAgICAgRGlhbG9nKCJkbGdfcXR5IiwiRW50ZXIgcXVhbnRpdHkiLCJPayIsTm9uZSxbW3sidHlwZSI6IklucHV0IiwiaWQiOiJxdHlfZGlhbG9nIiwiY2FwdGlvbiI6IlF1YW50aXR5IiwiaW5wdXRfdHlwZSI6Im51bWJlciJ9XV0pICANCiAgICAgICAgCiAgICAgICAgCiAgICAgICAgcmV0dXJuIFRydWUse30NCiAgICAgICAgCgogICAgZGVmIHByb2Nlc3NfcXR5KHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgcXR5ID0gc2VsZi5fZGF0YS5nZXQoInF0eV9kaWFsb2ciKQ0KCiAgICAgICAgaWYgInNjYW5uZWQiIGluIHNlbGYuX2RhdGE6DQogICAgICAgICAgc2Nhbm5lZCA9IHNlbGYuX2RhdGFbInNjYW5uZWQiXQ0KICAgICAgICBlbHNlOg0KICAgICAgICAgIHNjYW5uZWQgPSBbXQ0KICAgICAgICBzY2FubmVkLmFwcGVuZCh7ImJhcmNvZGUiOnNlbGYuX2RhdGFbImJhcmNvZGUiXSwic2t1IjpzZWxmLl9kYXRhWyJza3UiXSwicXR5IjpxdHl9KSAgICANCiAgICAgICAgc2VsZi5fZGF0YVsic2Nhbm5lZCJdID0gc2Nhbm5lZA0KICAgICAgICAjc2F2ZSBub2RlDQogICAgICAgIHNlbGYuX3NhdmUoKQ0KICAgICAgICBzZWxmLk9wZW4oKQ0KCiAgICAgICAgcmV0dXJuIFRydWUse30KICAgIGRlZiBwcm9jZXNzX3Bob3RvKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgaWYgInBob3Rvc19iYXNlNjQiIGluIHNlbGYuX2RhdGE6DQogICAgICAgICAgcGhvdG9zX2Jhc2U2ND0gc2VsZi5fZGF0YVsicGhvdG9zX2Jhc2U2NCJdDQogICAgICAgIGVsc2U6DQogICAgICAgICAgcGhvdG9zX2Jhc2U2ND0gW10NCgogICAgICAgIGJhc2U2NCA9IGdldEJhc2U2NEZyb21JbWFnZUZpbGUoc2VsZi5fZGF0YVsicmVzdWx0X2ZpbGUiXSw1MCw1MCkgI9C90Lgg0Log0YfQtdC80YMg0L3QtSDQstC10LTQtdGCLCDQv9GA0L7RgdGC0L4g0L/QvtC70YPRh9C40LvQuCDQutGA0L7QvyDQsiBiYXNlNjQNCiAgICAgICAgcGhvdG9zX2Jhc2U2NC5hcHBlbmQoYmFzZTY0KQ0KCiAgICAgICAgc2VsZi5fZGF0YVsicGhvdG9zX2Jhc2U2NCJdID0gcGhvdG9zX2Jhc2U2NA0KICAgICAgICBzZWxmLl9zYXZlKCkNCgogICAgICAgIHRvYXN0KCJTYXZlZCB0byBwaG90b3MiKSAgDQoKICAgICAgICByZXR1cm4gVHJ1ZSx7fQogICAgZGVmIHVwbG9hZF90b19zZXJ2ZXIoc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKICAgICAgICBzdGF0dXMsZXJyb3IgPSBzZWxmLl91cGxvYWQoKQ0KICAgICAgICBpZiBzdGF0dXM6DQogICAgICAgICAgbWVzc2FnZSgiT2JqZWN0IHVwbG9hZGVkIikNCiAgICAgICAgZWxzZToNCiAgICAgICAgICB0b2FzdChlcnJvcikgIA0KICAgICAgICAKICAgICAgICByZXR1cm4gVHJ1ZSx7fQ0KICAgICAgICAK",
+    "nodes_handlers_meta": null,
+    "nodes_server_handlers": "CmZyb20gbm9kZXMgaW1wb3J0IE5vZGUKCgoKY2xhc3MgTXlEb2MoTm9kZSk6CiAgICAKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQogICAgICAgICMgQWRkaXRpb25hbCBpbml0aWFsb3phdGlvbiBmb3IgTXlEb2MK",
+    "nodes_server_handlers_meta": null,
+    "version": "00.00.01",
+    "NodaLogicFormat": "1.1",
+    "NodaLogicType": "ANDROID_SERVER",
+    "last_modified": "2025-12-11T07:32:16.358137+03:00",
+    "provider": "Dmitry Vorontsov",
+    "classes": [
+        {
+            "name": "MyDoc",
+            "section": "My documents",
+            "section_code": "MyDocuments",
+            "has_storage": false,
+            "display_name": "MyDoc",
+            "cover_image": "[[{\"type\":\"Text\",\"italic\":true,\"value\":\"@_id\"}],[{\"type\":\"Text\",\"bold\":true,\"value\":\"@title\"}],[\"@instruction\"]]]",
+            "class_type": "data_node",
+            "hidden": false,
+            "methods": [
+                {
+                    "name": "Open",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "Open"
+                },
+                {
+                    "name": "process_barcode",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "process_barcode"
+                },
+                {
+                    "name": "process_qty",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "process_qty"
+                },
+                {
+                    "name": "process_photo",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "process_photo"
+                },
+                {
+                    "name": "upload_to_server",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "upload_to_server"
+                }
+            ],
+            "events": [
+                {
+                    "event": "onShow",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "Open",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "barcode_cam",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "process_barcode",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "dlg_qty_positive",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "process_qty",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "capture_photo",
+                    "actions": [
+                        {
+                            "action": "runasync",
+                            "source": "internal",
+                            "server": "",
+                            "method": "process_photo",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "btn_upload",
+                    "actions": [
+                        {
+                            "action": "runprogress",
+                            "source": "internal",
+                            "server": "",
+                            "method": "upload_to_server",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "datasets": [
+        {
+            "name": "goods",
+            "hash_indexes": [
+                "barcode"
+            ],
+            "text_indexes": [
+                "name"
+            ],
+            "view_template": "{name}",
+            "autoload": false,
+            "created_at": "2025-12-01T12:01:01.072524",
+            "updated_at": "2025-12-01T12:01:01.072554",
+            "api_url": "http://nmaker.pw/api/config/348fa9a9-dd2f-4a76-8c73-b5c15bbb3ea1/dataset/goods/items",
+            "item_count": 4
+        }
+    ],
+    "sections": [
+        {
+            "name": "My documents",
+            "code": "MyDocuments",
+            "commands": "Add|Add document"
+        }
+    ],
+    "servers": [
+        {
+            "alias": "main",
+            "url": "https://nmaker.pw",
+            "is_default": true
+        }
+    ],
+    "CommonEvents": []
+}

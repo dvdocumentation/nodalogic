@@ -1,0 +1,74 @@
+{
+    "name": "More visual elemens",
+    "server_name": "",
+    "uid": "186b9e83-c448-429e-acad-ee7d7e302bb1",
+    "url": "http://nmaker.pw/api/config/186b9e83-c448-429e-acad-ee7d7e302bb1",
+    "content_uid": "0838cdf0-5973-489e-83ca-a0bcea904e8f",
+    "vendor": "Dmitry Vorontsov",
+    "nodes_handlers": "ZnJvbSBub2Rlc2NsaWVudCBpbXBvcnQgUmVmcmVzaFRhYixTZXRUaXRsZSxDbG9zZU5vZGUsUnVuR1BTLFN0b3BHUFMsVXBkYXRlVmlldyxEaWFsb2csU2NhbkJhcmNvZGUsR2V0TG9jYXRpb24sQWRkVGltZXIsU3RvcFRpbWVyLFNob3dQcm9ncmVzc0J1dHRvbixIaWRlUHJvZ3Jlc3NCdXR0b24sU2hvd1Byb2dyZXNzR2xvYmFsLEhpZGVQcm9ncmVzc0dsb2JhbCxDb250cm9scyxTZXRDb3ZlcixnZXRCYXNlNjRGcm9tSW1hZ2VGaWxlLGNvbnZlcnRJbWFnZUZpbGVzVG9CYXNlNjRBcnJheSxzYXZlQmFzZTY0VG9GaWxlLGNvbnZlcnRCYXNlNjRBcnJheVRvRmlsZVBhdGhzLFVwZGF0ZU1lZGlhR2FsbGVyeQpmcm9tIGFuZHJvaWQgaW1wb3J0ICoKZnJvbSBub2RlcyBpbXBvcnQgTmV3Tm9kZSwgRGVsZXRlTm9kZSwgR2V0QWxsTm9kZXMsIEdldE5vZGUsIEdldEFsbE5vZGVzU3RyLCBHZXRSZW1vdGVDbGFzcywgQ3JlYXRlRGF0YVNldCwgR2V0RGF0YVNldCwgRGVsZXRlRGF0YVNldCx0b191aWQsIGZyb21fdWlkCmZyb20gY29tLmR2Lm5vZGEgaW1wb3J0IERhdGFTZXQKZnJvbSBjb20uZHYubm9kYSBpbXBvcnQgRGF0YVNldHMKZnJvbSBjb20uZHYubm9kYSBpbXBvcnQgU2ltcGxlVXRpbGl0ZXMgYXMgc3UKZnJvbSBkYXRhc2V0cyBpbXBvcnQgR2V0RGF0YVNldERhdGEKCiMg0JrQvtC90YHRgtCw0L3RgtGLINC60L7QvdGE0LjQs9GD0YDQsNGG0LjQuApjdXJyZW50X21vZHVsZV9uYW1lPSIxODZiOWU4My1jNDQ4LTQyOWUtYWNhZC1lZTdkN2UzMDJiYjEiCmN1cnJlbnRfY29uZmlndXJhdGlvbl91cmw9Imh0dHA6Ly9ubWFrZXIucHcvYXBpL2NvbmZpZy8xODZiOWU4My1jNDQ4LTQyOWUtYWNhZC1lZTdkN2UzMDJiYjEiCl9kYXRhX2RpciA9IHN1LmdldF9kYXRhX2RpcihjdXJyZW50X21vZHVsZV9uYW1lKQpfZG93bmxvYWRzX2RpciA9IHN1LmdldF9kb3dubG9hZHNfZGlyKGN1cnJlbnRfbW9kdWxlX25hbWUpCgoKZnJvbSBub2RlcyBpbXBvcnQgTm9kZQoKCgpjbGFzcyBWZXJ0aWNhbFNjcm9sbExheW91dChOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSkKCiAgICAiIiJDbGFzcyBWZXJ0aWNhbFNjcm9sbExheW91dCIiIgoKICAgIGRlZiBPcGVuKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgbCA9IFtdDQogICAgICAgIGZvciBpIGluIHJhbmdlKDMwKToNCiAgICAgICAgICBsLmFwcGVuZCh7InR5cGUiOiJCdXR0b24iLCJjYXB0aW9uIjoiQnV0dG9uICIrc3RyKGkpLCJpZCI6Il8iK3N0cihpKSwiaGVpZ2h0IjotMiwid2lkdGgiOi0yfSkNCiAgICAgICAgc2VsZi5TaG93KFsNCiAgICAgICAgIFt7InR5cGUiOiJQYXJhbWV0ZXJzIiwiaGVpZ2h0IjotMSwidyI6MX0seyJ0eXBlIjoiVmVydGljYWxTY3JvbGwiLCJ2YWx1ZSI6bCwiaGVpZ2h0IjotMiwid2lkdGgiOi0yLCJ3IjoyfV0sDQogICAgICAgIFt7InR5cGUiOiJQYXJhbWV0ZXJzIiwiaGVpZ2h0IjotMSwidyI6MX0seyJ0eXBlIjoiSG9yaXpvbnRhbFNjcm9sbCIsInZhbHVlIjpsLCJoZWlnaHQiOi0yLCJ3aWR0aCI6LTIsInciOjF9XSAgDQoKICAgICAgICBdKSAgDQogICAgICAgIHJldHVybiBUcnVlLCB7fQoKCmNsYXNzIHNoYXJlKE5vZGUpOgogICAgZGVmIF9faW5pdF9fKHNlbGYsIG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKToKICAgICAgICBzdXBlcigpLl9faW5pdF9fKG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKQoKICAgICIiIkNsYXNzIHNoYXJlIiIiCg==",
+    "nodes_handlers_meta": null,
+    "nodes_server_handlers": "CmZyb20gbm9kZXMgaW1wb3J0IE5vZGUKCgoKY2xhc3MgVmVydGljYWxTY3JvbGxMYXlvdXQoTm9kZSk6CiAgICAKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQogICAgICAgICMgQWRkaXRpb25hbCBpbml0aWFsb3phdGlvbiBmb3IgVmVydGljYWxTY3JvbGxMYXlvdXQKCgoKY2xhc3Mgc2hhcmUoTm9kZSk6CiAgICAKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQogICAgICAgICMgQWRkaXRpb25hbCBpbml0aWFsb3phdGlvbiBmb3Igc2hhcmUK",
+    "nodes_server_handlers_meta": null,
+    "version": "00.00.01",
+    "NodaLogicFormat": "1.1",
+    "NodaLogicType": "ANDROID_SERVER",
+    "last_modified": "2025-11-28T06:35:41.636897+03:00",
+    "provider": "Dmitry Vorontsov",
+    "classes": [
+        {
+            "name": "VerticalScrollLayout",
+            "section": "Experiments",
+            "section_code": "experiments",
+            "has_storage": false,
+            "display_name": "VerticalScrollLayout",
+            "cover_image": "None",
+            "class_type": "custom_process",
+            "hidden": false,
+            "methods": [
+                {
+                    "name": "Open",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "Open"
+                }
+            ],
+            "events": [
+                {
+                    "event": "onShow",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "Open",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "share",
+            "section": "Experiments",
+            "section_code": "experiments",
+            "has_storage": false,
+            "display_name": "share",
+            "cover_image": "None",
+            "class_type": "custom_process",
+            "hidden": false,
+            "methods": [],
+            "events": []
+        }
+    ],
+    "datasets": [],
+    "sections": [
+        {
+            "name": "Experiments",
+            "code": "experiments",
+            "commands": ""
+        }
+    ],
+    "servers": [],
+    "CommonEvents": []
+}
