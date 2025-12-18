@@ -6,6 +6,11 @@ This approach enables the creation of solutions in the areas of WMS, TMS, MES, a
 
 The solution logic is contained in a configuration (.nod file), which can be created in the cloud editor https://nmaker.pw/ (or downloaded from this repository and deployed). A device can simultaneously run multiple configurations, and a server can also run multiple configurations. Configurations are updated and transferred instantly over the air or offline, as files.
 
+.. image:: static_readme/datafl.jpeg
+       :scale: 70%
+       :align: center
+
+
 The typical operating scenario assumes that the device, after receiving its configuration, operates in hybrid mode (receiving data, references, and tasks) independently of the server and supplies information as needed and available. However, it can also operate in purely online mode.
 
 NodaLogic pursues two goals:
@@ -17,13 +22,23 @@ This is facilitated by semantics, compact documentation (the full documentation 
 
 Generation is conveniently integrated into the designer – essentially, any solution can be created using prompts and clarifying prompts without touching the code. A fairly simple principle is used for this: the prompt is combined with a special documentation file, LLM.txt, from this repository (by the way, this file is designed to be continually enriched by experience from vibecoding; commits are welcome!) and the current configuration and sent to LLM. The response is then validated against NodaLogic, sent back for revision automatically if necessary, and if everything is OK, the solution is automatically integrated into the configuration, allowing you to see it in action right away.
 
+.. image:: static_readme /LLM.jpeg
+       :scale: 70%
+       :align: center
 
 
 You can deploy it locally, enter your API key, and work. You can also work with LM Studio locally via the API, but keep in mind that it's best to choose more powerful models – at least 30b parameters.
 
+.. image:: static_readme /generation.png
+       :scale: 70%
+       :align: center
 
 
 The foundation of the system and the unified approach to designing client and server solutions is the "node." This is both a storage aspect (essentially NoSQL) and a class object with methods, including methods for visualization, node display, and any logic. A node interacts with other nodes through method calls and APIs (each node class automatically has an API for remote interaction). Thus, the solution is a "network of nodes," similar to a network of neurons. A node can be a business entity, an accounting entity, or a process.
+
+.. image::  static_readme /nodes.png
+       :scale: 70%
+       :align: center
 
 Here are some examples of node classes:
 
@@ -31,13 +46,20 @@ Here are some examples of node classes:
 * A "Task" that generates subtask nodes as it executes, influencing other tasks.
 * A "Document" that has row nodes, each of which can have its own row nodes.
 
-The UI/UX approach is based on dynamically generating forms from code and subscribing to form events and general system events. Easy-to-read line markup is used. Container markup is also available.
-
-.. image:: _static/c_events.png
+.. image:: static_readme /android.png
        :scale: 70%
        :align: center
 
+The UI/UX (mobile) approach is based on dynamically generating forms from code and subscribing to form events and general system events. Easy-to-read line markup is used. Container markup is also available.
+
 Handlers are written in Python, but it is an open architecture, and there are plans to expand the list of interpreted languages ​​for handlers. At a minimum, JavaScript will be supported.
+
+.. image:: static_readme /markdown.png
+       :scale: 70%
+       :align: center
+
+
+
 
 
 
