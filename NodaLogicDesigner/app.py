@@ -44,8 +44,16 @@ logging.getLogger("geventwebsocket.handler").setLevel(logging.ERROR)
 import ast
 import inspect
 
-DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions'
+#******************************************************************
+#CHANGE IT WITH YOUR VALUES
 DEEPSEEK_API_KEY = 'YOUR_KEY'
+ADMIN_LOGIN = 'YOUR_KEY'
+FLASK_SECRET= 'YOUR_KEY'
+#******************************************************************
+
+
+DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions'
+
 LMSTUDIO_API_URL = os.environ.get("LMSTUDIO_API_URL", "http://127.0.0.1:1234/v1/chat/completions")
 LMSTUDIO_MODEL = os.environ.get("LMSTUDIO_MODEL", "local-model")
 LMSTUDIO_API_KEY = os.environ.get("LMSTUDIO_API_KEY", "") 
@@ -667,7 +675,7 @@ app.json = CustomJSONProvider(app)
 
 active_connections = defaultdict(dict)
 
-app.config['SECRET_KEY'] = 'YOUR_SECRET_KEY'
+app.config['SECRET_KEY'] = FLASK_SECRET
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///db.sqlite'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
@@ -981,7 +989,7 @@ def edit_profile():
 @app.route('/admin')
 @login_required
 def admin_dashboard():
-    if current_user.email != 'secret_email':  
+    if current_user.email != ADMIN_LOGIN:  
         abort(403)
     
 
@@ -1015,7 +1023,7 @@ def admin_dashboard():
 @login_required
 def admin_user_detail(user_id):
     
-    if current_user.email != 'secret_email':
+    if current_user.email != ADMIN_LOGIN:
         abort(403)
     
     user = db.session.get(User, user_id)
@@ -1045,7 +1053,7 @@ def admin_user_detail(user_id):
 @app.route('/admin/user/<int:user_id>/toggle-active', methods=['POST'])
 @login_required
 def admin_toggle_user_active(user_id):
-    if current_user.email != 'secret_email':
+    if current_user.email != ADMIN_LOGIN:
         abort(403)
     
     user = db.session.get(User, user_id)
@@ -2164,6 +2172,37 @@ def add_class(config_uid):
     active_tab = request.form.get("active_tab", "config")
     return redirect(url_for('edit_config', uid=config_uid, tab=active_tab))
 
+def remove_class_from_module(module_code: str, class_name: str) -> str:
+    lines = module_code.split('\n')
+
+    class_start = -1
+    class_indent = 0
+
+    # найти строку "class ClassName("
+    for i, line in enumerate(lines):
+        if line.strip().startswith(f'class {class_name}('):
+            class_start = i
+            class_indent = len(line) - len(line.lstrip())
+            break
+
+    if class_start == -1:
+        return module_code  # класс не найден — ничего не меняем
+
+    # найти конец класса: первая НЕ пустая строка с indent <= class_indent
+    class_end = len(lines)
+    for i in range(class_start + 1, len(lines)):
+        cur = lines[i]
+        if not cur.strip():
+            continue
+        cur_indent = len(cur) - len(cur.lstrip())
+        if cur_indent <= class_indent:
+            class_end = i
+            break
+
+    new_lines = lines[:class_start] + lines[class_end:]
+    return '\n'.join(new_lines)
+
+
 @app.route('/delete-class/<class_id>')
 @login_required
 def delete_class(class_id):
@@ -2171,12 +2210,43 @@ def delete_class(class_id):
     class_obj = db.session.get(ConfigClass, class_id)
     if not class_obj:
         abort(404)
-    
-    config_uid = class_obj.config.uid
-    db.session.delete(class_obj)
-    db.session.commit()
-    #active_tab = request.form.get("active_tab", "config")
+
+    cfg = class_obj.config
+    config_uid = cfg.uid
+    class_name = class_obj.name
+
+    try:
+        # ANDROID handlers
+        if cfg.nodes_handlers:
+            android_code = base64.b64decode(cfg.nodes_handlers).decode("utf-8", errors="replace")
+            android_code2 = remove_class_from_module(android_code, class_name)
+            if android_code2 != android_code:
+                cfg.nodes_handlers = base64.b64encode(android_code2.encode("utf-8")).decode("utf-8")
+
+        # SERVER handlers
+        if cfg.nodes_server_handlers:
+            server_code = base64.b64decode(cfg.nodes_server_handlers).decode("utf-8", errors="replace")
+            server_code2 = remove_class_from_module(server_code, class_name)
+            if server_code2 != server_code:
+                cfg.nodes_server_handlers = base64.b64encode(server_code2.encode("utf-8")).decode("utf-8")
+
+                handlers_dir = os.path.join('Handlers', cfg.uid)
+                os.makedirs(handlers_dir, exist_ok=True)
+                with open(os.path.join(handlers_dir, 'handlers.py'), 'w', encoding='utf-8') as f:
+                    f.write(server_code2)
+
+        # теперь можно удалять из БД
+        db.session.delete(class_obj)
+
+        cfg.update_last_modified()
+        db.session.commit()
+
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Delete class error: {e}", "danger")
+
     return redirect(url_for('edit_config', uid=config_uid, tab=active_tab))
+
 
 
 @app.route('/edit-class/<int:class_id>', methods=['GET', 'POST'])
@@ -3925,6 +3995,32 @@ def call_llm(provider: str, system_prompt: str, user_prompt: str) -> str:
     return call_deepseek(system_prompt, user_prompt)
 
 
+def extract_json_array_from_text(text: str) -> str:
+    """Extract the largest JSON array substring from an LLM response."""
+    if not text:
+        raise ValueError("Empty LLM response")
+
+    s = text.strip()
+
+    # Strip markdown fences if present
+    if s.startswith("```"):
+        first_nl = s.find("\n")
+        if first_nl != -1:
+            s = s[first_nl + 1:]
+        end_fence = s.rfind("```")
+        if end_fence != -1:
+            s = s[:end_fence].strip()
+
+    start = s.find("[")
+    end = s.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("No JSON array found in LLM response")
+
+    candidate = s[start:end + 1].strip()
+    json.loads(candidate)  # validation
+    return candidate
+
+
 def extract_json_from_text(text: str) -> str:
     if not text:
         raise ValueError("Empty LLM response")
@@ -4851,6 +4947,93 @@ def ai_generate(uid):
             "message": f"Error applying configuration: {e}"
         }), 500
 
+@app.route('/config/<uid>/ai-generate-layout', methods=['POST'])
+@login_required
+def ai_generate_layout(uid):
+    """Generate ONLY a UI layout JSON (2D array) for copy/paste.
+    Does NOT apply anything to the configuration.
+    """
+    config = db.session.execute(
+        select(Configuration).where(
+            Configuration.uid == uid,
+            Configuration.user_id == current_user.id
+        )
+    ).scalar_one_or_none()
+
+    if not config:
+        abort(404)
+
+    data = request.get_json() or {}
+    prompt = (data.get('prompt') or '').strip()
+    llm_provider = (data.get('llm') or 'deepseek').strip().lower()
+
+    if not prompt:
+        return jsonify({"status": "error", "message": "Empty prompt"}), 400
+
+    try:
+        # system prompt 
+        llm_url = "https://raw.githubusercontent.com/dvdocumentation/nodalogic/refs/heads/main/LLM.txt"
+        r = requests.get(llm_url, timeout=10)
+        if r.status_code == 200:
+            system_prompt = r.text
+        else:
+            system_prompt = "You are the NodaLogic configuration generation assistant. Always return valid JSON without any explanations."
+
+        
+        current_config_json = json.loads(get_config(config.uid))
+
+        allowed = sorted(ALLOWED_UI_TYPES_AI)
+        allowed_inputs = sorted(ALLOWED_INPUT_TYPES_AI)
+
+        user_prompt = (
+            "Generate ONLY a UI layout JSON for NodaLogic.\n"
+            "Return ONLY a JSON ARRAY, no comments, no markdown.\n\n"
+            "Format requirements:\n"
+            "- Root is a list of ROWS\n"
+            "- Each row is a list of element objects (dict)\n"
+            "- Each element MUST have a CASE-SENSITIVE field: type\n"
+            "- If you use container types (VerticalLayout/HorizontalLayout/VerticalScroll/HorizontalScroll/Card), put nested layout into value as a list of rows\n"
+            "- If you use Table, put nested layout into layout as a list of rows\n\n"
+            f"Allowed types: {allowed}\n"
+            f"Allowed Input.input_type (if present): {allowed_inputs}\n\n"
+            "User request:\n"
+            f"{prompt}\n\n"
+           # "Current configuration (for names/reference; do not return it):\n"
+           # f"{json.dumps(current_config_json, ensure_ascii=False, indent=2)}"
+        )
+
+        completion_text = call_llm(llm_provider, system_prompt, user_prompt)
+        json_arr_str = extract_json_array_from_text(completion_text)
+        layout = json.loads(json_arr_str)
+
+        # Validate basic structure + allowed UI types
+        errors = []
+        if not isinstance(layout, list):
+            errors.append("layout root must be a list")
+        else:
+            for i, row in enumerate(layout):
+                if not isinstance(row, list):
+                    errors.append(f"layout[{i}] must be a list (row)")
+
+        errors.extend(validate_layout_types_ai(layout, where="layout"))
+
+        if errors:
+            return jsonify({
+                "status": "error",
+                "message": "Generated layout failed validation:\n- " + "\n- ".join(errors),
+            }), 400
+
+        return jsonify({
+            "status": "ok",
+            "layout": layout,
+            "layout_pretty": json.dumps(layout, ensure_ascii=False, indent=2),
+        })
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"An error occurred while generating layout: {e}",
+        }), 500
 
 
 @app.route('/api/room/<room_uid>/task/<task_uid>', methods=['GET'])
