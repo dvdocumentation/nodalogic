@@ -485,11 +485,47 @@ General structure:
 - Inner list → horizontal layout (left to right)
 - Each inner list is a ROW and also acts as a CONTAINER
 
+1) Each INNER LIST is already an IMPLICIT horizontal row container.
+   You must NOT add an extra "HorizontalLayout" just to represent a row.
+
+2) Default row container parameters are:
+   - width: -1
+   - height: -2
+
+3) If row container parameters must be changed, use "Parameters" of the row,
+   NOT an explicit HorizontalLayout wrapper.
+
+WRONG:
+[
+  [
+    { "type":"HorizontalLayout", "value":[ ... ] }
+  ]
+]
+
+RIGHT:
+[
+  [
+    ...elements...
+  ]
+]
+(and set row width/height via Parameters if needed)
+
 DEFAULT RULES (important):
 - Each row width = MATCH_PARENT
 - Each row height = WRAP_CONTENT
 - Elements inside a row also default to WRAP_CONTENT
 - This behavior is equivalent to Android LinearLayout (vertical + horizontal)
+
+--------------------------------------------------------------
+PARAMETERS APPLY TO ROW CONTAINERS
+--------------------------------------------------------------
+
+In ROW-BASED (2D) layouts:
+- "Parameters" can define the implicit ROW container properties.
+- Use Parameters to override row width/height/alignment/padding if supported.
+
+Do NOT create an explicit HorizontalLayout only to apply width:-1 or height:-2:
+the implicit row already has width:-1 height:-2 by default.
 
 --------------------------------------------------------------
 6.3 SIZE CONSTANTS (ANDROID ANALOGY)
