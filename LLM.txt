@@ -415,12 +415,45 @@ CRITICAL LLM RULES
 ==============================================================
 
 This section is CRITICAL.
-All UI layouts in the system use the SAME layout model:
-- node screen
-- dialog
-- node cover
-- table row layout
-- Card content
+All UI layouts in the system use the same VISUAL sizing concepts
+(width, height, MATCH_PARENT, WRAP_CONTENT).
+
+HOWEVER, the CHILDREN STRUCTURE is NOT the same for all layouts.
+
+--------------------------------------------------------------
+CHILDREN STRUCTURE RULE (CRITICAL)
+--------------------------------------------------------------
+
+1) ROW-BASED (2D ARRAYS) are allowed ONLY for:
+- Screen / Show root layout
+- Dialog root layout
+- SetCover root layout
+- Table.layout (when nodes_source:false)
+- Card.value
+
+Row-based syntax:
+"value": [
+  [ element, element, ... ],
+  [ element, element, ... ]
+]
+
+2) CONTAINER LAYOUTS are NOT row-based.
+
+The following containers ALWAYS use a 1D array of elements:
+- VerticalLayout
+- HorizontalLayout
+- VerticalScroll
+- HorizontalScroll
+
+Container syntax:
+"value": [
+  element,
+  element,
+  element
+]
+
+NEVER use row arrays ([[...],[...]]) inside any VerticalLayout/HorizontalLayout or Scroll container.
+
 
 All layouts are JSON-like structures (Python list/dict in handlers).
 
@@ -558,6 +591,71 @@ self.Show([
 ])
 
 --------------------------------------------------------------
+CONTAINERS — CHILDREN FORMAT (STRICT)
+--------------------------------------------------------------
+
+Containers DO NOT use row-based layout.
+
+Each container defines its own stacking direction,
+but the "value" field is ALWAYS a 1D array.
+
+VerticalLayout
+- Stacks children vertically
+- "value" MUST be a 1D array:
+  "value": [ element1, element2, ... ]
+
+HorizontalLayout
+- Stacks children horizontally
+- "value" MUST be a 1D array:
+  "value": [ element1, element2, ... ]
+
+VerticalScroll
+- Scrollable vertical container
+- "value" MUST be a 1D array
+
+HorizontalScroll
+- Scrollable horizontal container
+- "value" MUST be a 1D array
+
+WRONG (never allowed inside containers):
+"value": [ [ ... ], [ ... ] ]
+
+RIGHT:
+"value": [
+  { "type": "HorizontalLayout", ... },
+  { "type": "HorizontalLayout", ... }
+]
+
+--------------------------------------------------------------
+WEIGHTS INSIDE LAYOUT CONTAINERS (STRICT)
+--------------------------------------------------------------
+
+Weights (property "w") apply to CHILD ELEMENTS inside Layout containers.
+
+HorizontalLayout:
+- "w" distributes remaining WIDTH between children
+- Each weighted child MUST use:
+  width: 0
+- Do NOT combine width:-1 with w
+
+VerticalLayout:
+- "w" distributes remaining HEIGHT between children
+- Each weighted child MUST use:
+  height: 0
+- Do NOT combine height:-1 with w
+
+Canonical proportional columns example (1 : 3 : 1):
+
+{
+  "type": "HorizontalLayout",
+  "value": [
+    { "type": "Picture", "width": 0, "w": 1 },
+    { "type": "VerticalLayout", "width": 0, "w": 3 },
+    { "type": "Text", "width": 0, "w": 1 }
+  ]
+}
+
+--------------------------------------------------------------
 6.7 CARD CONTAINER
 --------------------------------------------------------------
 
@@ -584,14 +682,13 @@ Card is used for:
 6.8 LAYOUT IS UNIVERSAL
 --------------------------------------------------------------
 
-The SAME layout rules apply to:
-- node screen (Show)
-- dialog layout (Dialog)
-- node cover (SetCover)
-- table row layout (Table.layout)
-- Card.value
+The SAME visual sizing rules apply to all UI elements
+(width, height, MATCH_PARENT, WRAP_CONTENT).
 
-LLM MUST NOT invent new layout rules per context.
+BUT the CHILDREN FORMAT differs:
+
+- Screen / Dialog / Card.value use ROW-BASED 2D arrays
+- Layout and Scroll containers use 1D arrays ONLY
 
 --------------------------------------------------------------
 6.9 COMMON MISTAKES (STRICT)
