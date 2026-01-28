@@ -1,17 +1,22 @@
-**NodaLogic** is a low-code business logic framework for creating client-server systems with mobile workstations. It implements architectural principles for creating systems of any complexity, consisting of identical blocks—nodes.
+**NodaLogic** is a low-code business logic framework for creating client-server systems with mobile devices(Android) and web-clients. It implements architectural principles for creating systems of any complexity, consisting of identical blocks—nodes.
+
+NodaLogic allows you to create both web and mobile clients using a single low-code syntax and architecture—markup principles, event handlers, etc.—that is equally convenient for both LLM generation and developer perception and support.
 
 This system of Android apps and servers (which can be downloaded from this repository) allows you to create standalone apps with independent (offline) logic and storage. These apps can optionally work with a shared server(s) or simply run independently.
 
-This approach enables the creation of solutions in the areas of WMS, TMS, MES, and more.
+Web clients work directly with the server (strictly online).
 
-The solution logic is contained in a configuration (.nod file), which can be created in the cloud editor https://nmaker.pw/ (or downloaded from this repository and deployed). A device can simultaneously run multiple configurations, and a server can also run multiple configurations. Configurations are updated and transferred instantly over the air or offline, as files.
+
+This approach enables the creation of solutions in the areas of WMS, TMS, MES, and more business solutions.
+
+The solution logic is contained in a configuration (.nod file), which can be created in the cloud editor https://nmaker.pw/ (or downloaded from this repository and deployed). A device (or web client) can simultaneously run multiple configurations, and a server can also run multiple configurations. Configurations are updated and transferred instantly over the air or offline, as files.
 
 .. image:: static_readme/datafl2.jpeg
        :scale: 70%
        :align: center
 
 
-The typical operating scenario assumes that the device, after receiving its configuration, operates in hybrid mode (receiving data, references, and tasks) independently of the server and supplies information as needed and available. However, it can also operate in purely online mode.
+The typical operating scenario for mobile clients assumes that the device, after receiving its configuration, operates in hybrid mode (receiving data, references, and tasks) independently of the server and supplies information as needed and available. However, it can also operate in purely online mode.
 
 NodaLogic pursues two goals:
 
