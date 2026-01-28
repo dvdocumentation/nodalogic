@@ -6,7 +6,7 @@ This approach enables the creation of solutions in the areas of WMS, TMS, MES, a
 
 The solution logic is contained in a configuration (.nod file), which can be created in the cloud editor https://nmaker.pw/ (or downloaded from this repository and deployed). A device can simultaneously run multiple configurations, and a server can also run multiple configurations. Configurations are updated and transferred instantly over the air or offline, as files.
 
-.. image:: static_readme/datafl.jpeg
+.. image:: static_readme/datafl2.jpeg
        :scale: 70%
        :align: center
 
