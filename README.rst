@@ -88,7 +88,7 @@ Android app (store): https://play.google.com/store/apps/details?id=com.dv.noda&p
 
 What's in this repository and installation:
 
-In this repository, you can download either the builder+server version (exactly the same as https://nmaker.pw/) or the server-only version (and configure it elsewhere).
+In this repository, you can download either **Noda Configuration Designer + NodaLogic Server + NodaLogic client (web)**   version (exactly the same as https://nmaker.pw/) or the server-only version (and configure it elsewhere).
 
 Installation is the same in either case:
 
