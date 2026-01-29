@@ -56,12 +56,6 @@
                     data-bs-target="#v-pills-servers" type="button" role="tab">
                 {{ _('Servers') }}
             </button>
-
-            <button class="nav-link {% if active_tab == 'rooms' %}active{% endif %}" 
-                    id="v-pills-rooms-tab" data-bs-toggle="pill" 
-                    data-bs-target="#v-pills-rooms" type="button" role="tab">
-                {{ _('Rooms') }}
-            </button>
             <button class="nav-link {% if active_tab == 'common-events' %}active{% endif %}" 
                 id="v-pills-common-events-tab" data-bs-toggle="pill" data-bs-target="#v-pills-common-events" type="button" role="tab">
             {{ _('Common events') }}
@@ -72,7 +66,7 @@
         data-bs-toggle="pill"
         data-bs-target="#v-pills-common-layouts"
         type="button" role="tab">
-  {{ _('Common layouts') }}
+  Общая разметка
 </button>
 
 
@@ -119,11 +113,11 @@
                                 </button>
 
                                 <button type="button" class="btn btn-outline-secondary ms-2" id="aiGenerateLayoutBtn">
-                                <i class="bi bi-braces"></i> {{ _('Generate laout only') }}
+                                <i class="bi bi-braces"></i> Сгенерировать только разметку
                                 </button>
 
                                 <div class="mt-3">
-                                <label for="aiLayoutOutput" class="form-label mb-1">JSON layout</label>
+                                <label for="aiLayoutOutput" class="form-label mb-1">JSON разметки (layout)</label>
                                 <textarea class="form-control" id="aiLayoutOutput" rows="10" spellcheck="false"
                                             placeholder='[[{"type":"Text","text":"..."}], [{"type":"Input","code":"field"}]]'></textarea>
                                 
@@ -634,81 +628,19 @@
                     </div>
                 </div>
 
-                <!-- Tab "Rooms" (room aliases) -->
-                <div class="tab-pane fade {% if active_tab == 'rooms' %}show active{% endif %}" 
-                    id="v-pills-rooms" role="tabpanel">
-
-                    <div class="card">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0">{{_("Rooms")}}</h5>
-                            <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#roomAliasModal">
-                               {{_("Add alias")}}
-                            </button>
-                        </div>
-                        <div class="card-body">
-                            <p class="text-muted small mb-3">
-                                {{_('Here you can set room aliases. An alias is selected in the class (Migration tab), and upon registration it is resolved to room_uid.')}}
-                            </p>
-
-                            <table class="table">
-                                <thead>
-                                    <tr>
-                                        <th>{{_("Alias")}}</th>
-                                        <th>{{_("Room")}}</th>
-                                        <th>room_uid</th>
-                                        <th>{{ _('Actions') }}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for a in (config.room_aliases or []) %}
-                                    <tr>
-                                        <form method="POST" action="{{ url_for('update_room_alias', alias_id=a.id) }}">
-                                            <input type="hidden" name="active_tab" value="rooms">
-                                            <td>
-                                                <input class="form-control form-control-sm" name="alias" value="{{ a.alias }}" required>
-                                            </td>
-                                            <td>
-                                                <select class="form-select form-select-sm" name="room_uid" required>
-                                                    <option value="">-- select --</option>
-                                                    {% for r in (rooms or []) %}
-                                                        <option value="{{ r.uid }}" {% if (a.room_uid or '') == (r.uid or '') %}selected{% endif %}>
-                                                            {{ r.name }}
-                                                        </option>
-                                                    {% endfor %}
-                                                </select>
-                                            </td>
-                                            <td class="text-muted small">{{ a.room_uid }}</td>
-                                            <td>
-                                                <button type="submit" class="btn btn-sm btn-outline-primary me-2">{{ _('Save') }}</button>
-                                                <a href="{{ url_for('delete_room_alias', alias_id=a.id) }}" 
-                                                   class="btn btn-sm btn-outline-danger"
-                                                   onclick="return confirm('Delete alias {{ a.alias }}?')">{{ _('Delete') }}</a>
-                                            </td>
-                                        </form>
-                                    </tr>
-                                    {% endfor %}
-                                    {% if not (config.room_aliases or []) %}
-                                    <tr>
-                                        <td colspan="4" class="text-muted">{{_("There are no aliases yet")}}</td>
-                                    </tr>
-                                    {% endif %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
                 <div class="tab-pane fade {% if active_tab == 'common_layouts' %}show active{% endif %}"
      id="v-pills-common-layouts" role="tabpanel">
 
-  <h4>{{_("Common layout")}}</h4>
+  <h4>Общая разметка</h4>
 
   <div class="d-flex gap-2 align-items-center mb-2">
     <button type="button" class="btn btn-sm btn-primary" onclick="openCommonLayoutEditor()">
-      {{ _('Add') }}
+      Добавить
     </button>
 
-
+    <button type="button" class="btn btn-sm btn-success" onclick="saveCommonLayoutsToServer()">
+      Сохранить
+    </button>
   </div>
 
   <table class="table table-sm mt-2">
@@ -722,17 +654,11 @@
       {% for l in config.common_layouts or [] %}
       <tr>
         <td>{{ l.id }}</td>
-        <td class="text-end">
-        <div class="btn-group btn-group-sm" role="group">
-            <button type="button" class="btn btn-outline-primary"
-                    onclick="editCommonLayout({{ loop.index0 }})">
-            <i class="bi bi-pencil"></i> {{ _('Edit') }}
-            </button>
-            <button type="button" class="btn btn-outline-danger"
-                    onclick="deleteCommonLayout({{ loop.index0 }})">
-            <i class="bi bi-trash"></i> {{ _('Delete') }}
-            </button>
-        </div>
+        <td>
+          <button type="button" class="btn btn-sm btn-outline-secondary"
+                  onclick="editCommonLayout({{ loop.index0 }})">✏️</button>
+          <button type="button" class="btn btn-sm btn-outline-danger"
+                  onclick="deleteCommonLayout({{ loop.index0 }})">🗑</button>
         </td>
       </tr>
       {% endfor %}
@@ -847,10 +773,6 @@
               <option value="onDialogResult">onDialogResult</option>
               <option value="onJSONFile">onJSONFile</option>
               <option value="onTextFile">onTextFile</option>
-              <option value="onStartMenuCommandWeb">onStartMenuCommandWeb</option>
-              <option value="onClassCommand">onClassCommand</option>
-              
-
             </select>
           </div>
           <div class="mb-3">
@@ -910,39 +832,6 @@
   </div>
 </div>
 
-<!-- Room alias modal -->
-<div class="modal fade" id="roomAliasModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
-    <form method="POST" action="{{ url_for('create_room_alias', config_uid=config.uid) }}">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title">{{_("Add alias")}}/h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          <input type="hidden" name="active_tab" value="rooms">
-          <div class="mb-3">
-            <label class="form-label">{{_("Alias")}}</label>
-            <input type="text" class="form-control" name="alias" required>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">{{_("Room")}}</label>
-            <select class="form-select" name="room_uid" required>
-              <option value="">-- select --</option>
-              {% for r in (rooms or []) %}
-                <option value="{{ r.uid }}">{{ r.name }} ({{ r.uid }})</option>
-              {% endfor %}
-            </select>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="submit" class="btn btn-primary">{{ _('Save') }}</button>
-        </div>
-      </div>
-    </form>
-  </div>
-</div>
-
 <!-- Sections modal -->
 <div class="modal fade" id="sectionModal" tabindex="-1" aria-labelledby="sectionModalLabel" aria-hidden="true">
     <div class="modal-dialog">
@@ -986,7 +875,7 @@
     <div class="modal-content">
 
       <div class="modal-header">
-        <h5 class="modal-title">{{_("Common layout")}}</h5>
+        <h5 class="modal-title">Общая разметка</h5>
       </div>
 
       <div class="modal-body">
@@ -995,18 +884,28 @@
         <input id="cl_id" class="form-control mb-2">
 
         <div class="mb-2 d-flex flex-wrap gap-1">
-          {% for t in (ui_tpl_buttons or []) %}
-            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTpl('{{ t.key }}')">{{ t.label }}</button>
-          {% endfor %}
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTpl('Text')">Text</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTpl('Text(tag)')">Text(tag)</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTpl('Picture')">Picture</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTpl('Button')">Button</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTpl('Switch')">Switch</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTpl('CheckBox')">CheckBox</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTpl('Input')">Input</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTpl('Table')">Table</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTpl('Tabs')">Tabs</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTpl('DatasetField')">DatasetField</button>
         </div>
 
-        <textarea id="cl_layout" rows="16" style="width:100%; font-family:monospace"></textarea>
+
+        <textarea id="cl_layout"
+                  rows="16"
+                  style="width:100%; font-family:monospace"></textarea>
       </div>
 
       <div class="modal-footer">
-        <button type="button" class="btn btn-primary" onclick="saveCommonLayoutAndPersist()">OK</button>
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{_("Cancel")}}</button>
-       </div>
+        <button class="btn btn-primary" onclick="saveCommonLayout()">OK</button>
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+      </div>
 
     </div>
   </div>
@@ -1637,7 +1536,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-  const COMMON_EVENT_TYPES = ['onLaunch', 'onBarcode', 'onStartMenuCommand', 'onTimer', 'onDialogResult','onJSONFile','onTextFile','onClassCommand','onStartMenuCommandWeb'];
+  const COMMON_EVENT_TYPES = ['onLaunch', 'onBarcode', 'onStartMenuCommand', 'onTimer', 'onDialogResult','onJSONFile','onTextFile'];
   const ACTION_TYPES = ['run','runprogress','runasync'];
 
  
@@ -1838,71 +1737,136 @@ document.getElementById('commonEventForm').addEventListener('submit', (e) => {
 </script>
 
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-    const container = document.querySelector('[data-config-uid]');
-    if (!container) return;
-    const configUid = container.dataset.configUid;
+document.addEventListener('DOMContentLoaded', () => {
+  const container = document.querySelector('[data-config-uid]');
+  if (!container) return;
+  const configUid = container.dataset.configUid;
 
-    const form = document.getElementById('aiGeneratorForm');
-    if (!form) return;
+  const currentProtocol = window.location.protocol;
+  const defaultUrl = `${currentProtocol}//${window.location.host}`;
 
-    try {
-    const saved = localStorage.getItem('nl_ai_provider');
-    const sel = document.getElementById('aiProvider');
-    if (sel && saved) sel.value = saved;
-    } catch (e) {}
-    
-    const promptInput = document.getElementById('aiPrompt');
-    const statusEl = document.getElementById('aiGeneratorStatus');
-    const errorEl = document.getElementById('aiGeneratorError');
+  // если input существует — заполним
+  const serverUrlInput = document.getElementById('serverUrlInput');
+  if (serverUrlInput && !serverUrlInput.value) {
+    serverUrlInput.value = defaultUrl;
+  }
 
-    form.addEventListener('submit', function (e) {
-        e.preventDefault();
-        const prompt = (promptInput.value || '').trim();
-        if (!prompt) {
-            alert('Enter prompt for LLM');
-            return;
+  const serverModalEl = document.getElementById('serverModal');
+  let serverModal = null;
+  if (serverModalEl) serverModal = new bootstrap.Modal(serverModalEl);
+
+  function openServerModal({ id, alias, url, is_default }) {
+    if (!serverModalEl || !serverModal) {
+      console.warn('serverModal not found');
+      return;
+    }
+
+    if (!id) {
+      alert('Not allow editing');
+      return;
+    }
+
+    const idEl = document.getElementById('server_id');
+    const aliasEl = document.getElementById('serverAlias');
+    const urlEl = document.getElementById('serverUrl');
+    const defEl = document.getElementById('serverIsDefault');
+
+    if (!idEl || !aliasEl || !urlEl || !defEl) {
+      console.warn('server modal inputs not found');
+      return;
+    }
+
+    idEl.value = id;
+    aliasEl.value = alias || '';
+    urlEl.value = url || '';
+    defEl.checked = !!is_default;
+
+    serverModal.show();
+  }
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.edit-server-btn');
+    if (!btn) return;
+
+    let id = btn.dataset.serverId || btn.getAttribute('data-server-id') || null;
+    let alias = btn.dataset.serverAlias || btn.getAttribute('data-server-alias') || null;
+    let url = btn.dataset.serverUrl || btn.getAttribute('data-server-url') || null;
+    const is_default = btn.dataset.serverDefault === '1' || btn.dataset.serverDefault === 'true';
+
+    // fallback: попробуем взять из строки таблицы
+    if (!alias || !url) {
+      const tr = btn.closest('tr');
+      if (tr) {
+        // у тебя в таблице сейчас просто td, без классов server-alias/server-url,
+        // поэтому читаем по колонкам (alias, url, ...)
+        const tds = tr.querySelectorAll('td');
+        if (tds && tds.length >= 2) {
+          alias = alias || (tds[0].textContent || '').trim();
+          url = url || (tds[1].textContent || '').trim();
         }
+      }
+    }
 
-        statusEl.textContent = 'Submitting a request to LLM...';
-        errorEl.style.display = 'none';
-        errorEl.textContent = '';
+    openServerModal({ id, alias, url, is_default });
+  });
 
-        const providerSelect = document.getElementById('aiProvider');
-        const llm = (providerSelect && providerSelect.value) ? providerSelect.value : 'deepseek';
+  // ВОТ ГЛАВНОЕ: НЕ return, а просто “если нет формы — пропускаем”
+  const serverForm = document.getElementById('serverForm');
+  if (!serverForm) {
+    console.warn('serverForm not found (skip binding submit handler)');
+    return; // <-- если хочешь вообще не обрывать этот блок, убери и эту строку
+  }
 
-        // remember the choice
-        try { localStorage.setItem('nl_ai_provider', llm); } catch (e) {}
+  serverForm.addEventListener('submit', (e) => {
+    e.preventDefault();
 
-        fetch(`/config/${configUid}/ai-generate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt, llm })
-        })
-        .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
-        .then(({ ok, status, data }) => {
-            if (!ok || data.status !== 'ok') {
-                statusEl.textContent = 'Error generating configuration';
-                errorEl.style.display = 'block';
-                errorEl.textContent = data.message || `HTTP ${status}`;
-                return;
-            }
+    const idEl = document.getElementById('server_id');
+    const aliasEl = document.getElementById('serverAlias');
+    const urlEl = document.getElementById('serverUrl');
+    const defEl = document.getElementById('serverIsDefault');
 
-            statusEl.textContent = data.message || 'Configuration updated';
-            // Reread the page to see changes in classes/handlers, etc.
-            setTimeout(() => {
-                const url = new URL(window.location);
-                url.searchParams.set('tab', 'config');
-                window.location.href = url.toString();
-            }, 1000);
-        })
-        .catch(err => {
-            statusEl.textContent = 'Request error';
-            errorEl.style.display = 'block';
-            errorEl.textContent = err.message;
-        });
+    if (!aliasEl || !urlEl || !defEl) {
+      alert('Server modal inputs not found');
+      return;
+    }
+
+    const id = (idEl && idEl.value) ? idEl.value : '';
+    const payload = {
+      alias: aliasEl.value.trim(),
+      url: urlEl.value.trim(),
+      is_default: defEl.checked
+    };
+
+    if (!payload.alias || !payload.url) {
+      alert("{{ _('Put alias and ULR') }}");
+      return;
+    }
+
+    const method = id ? 'PUT' : 'POST';
+    const endpoint = id
+      ? `/api/config/${configUid}/servers/${id}`
+      : `/api/config/${configUid}/servers`;
+
+    fetch(endpoint, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(async res => {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || err.message || `HTTP ${res.status}`);
+      }
+      return res.json();
+    })
+    .then(() => window.location.reload())
+    .catch(err => {
+      console.error(err);
+      alert('Error: ' + err.message);
     });
+  });
 });
+
 </script>
 
 
@@ -1971,75 +1935,18 @@ document.addEventListener('DOMContentLoaded', function () {
 /*** CommonLayouts editor ***/
 let _cl_edit_index = null;
 
-/*document.addEventListener('DOMContentLoaded', function () {
-  const ok = document.getElementById('cl_ok_btn');
-  if (ok) ok.addEventListener('click', () => {
-    try {
-      saveCommonLayout();
-    } catch (e) {
-      console.error('saveCommonLayout error:', e);
-      alert('saveCommonLayout error: ' + (e && e.message ? e.message : e));
-    }
-  });
-});*/
-
-function saveCommonLayoutAndPersist() {
-  
-  const id = (document.getElementById("cl_id").value || "").trim();
-  if (!id) { alert("It is necessary to specify ID"); return; }
-
-  let layout;
-  const raw = document.getElementById("cl_layout").value || "[]";
-  try { layout = JSON.parse(raw); }
-  catch (e) { alert("layout must be valid JSON"); return; }
-
-  
-  const arr = window._COMMON_LAYOUTS || [];
-  const item = { id: id, layout: layout };
-
-  if (_cl_edit_index === null) {
-    const dup = arr.find(x => (x.id || "").trim() === id);
-    if (dup) { alert("This ID already exists: " + id); return; }
-    arr.push(item);
-  } else {
-    const dup = arr.find((x, i) => i !== _cl_edit_index && (x.id || "").trim() === id);
-    if (dup) { alert("This ID already exists: " + id); return; }
-    arr[_cl_edit_index] = item;
-  }
-
-  window._COMMON_LAYOUTS = arr;
-
-  
-  fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    body: JSON.stringify({ common_layouts: arr })
-  })
-  .then(res => res.json().then(data => ({ ok: res.ok, data })))
-  .then(({ ok, data }) => {
-    if (!ok || data.status !== 'success') {
-      alert(data.message || 'Error saving common layouts');
-      return;
-    }
-
-    
-    const modalEl = document.getElementById("commonLayoutModal");
-    const inst = bootstrap.Modal.getInstance(modalEl);
-    if (inst) inst.hide();
-
-    
-    const url = new URL(window.location);
-    url.searchParams.set('tab', 'common_layouts');
-    window.location.href = url.toString();
-  })
-  .catch(err => {
-    console.error(err);
-    alert('Error: ' + err.message);
-  });
-}
-
-
-const LAYOUT_TEMPLATES = {{ (ui_tpl_map or {}) | tojson }};
+const LAYOUT_TEMPLATES = {
+  Text: '{"type":"Text","value":"my text"}',
+  "Text(tag)": '{"type":"Text","value":"my text","radius":10,"background":"#F54927"}',
+  Picture: '{"type":"Picture","value":""}',
+  Button: '{"type":"Button","id":"btn_update","caption":"Simple button"}',
+  Switch: '{"type":"Switch","caption":"Setting 1","id":"sw1","value":"@sw1"}',
+  CheckBox: '{"type":"CheckBox","caption":"My checkbox","id":"cb1","value":"@cb1"}',
+  Input: '{"type":"Input","caption":"My input","id":"my_input1","input_type":"","value":"@my_input1"}',
+  Table: '{"type":"Table","id":"my_table","value":[]}',
+  Tabs: '{"type":"Tabs","value":[{"type":"Tab","id":"tab1","caption":"My tab1","layout":[]}]}',
+  DatasetField: '{"type":"DatasetField","dataset":"","value":""}'
+};
 
 function insertTpl(name) {
   const ta = document.getElementById("cl_layout");
@@ -2075,34 +1982,19 @@ function editCommonLayout(idx) {
 function deleteCommonLayout(idx) {
   const arr = window._COMMON_LAYOUTS || [];
   if (!arr[idx]) return;
-
-  if (!confirm("Delete layout: " + (arr[idx].id || "") + " ?")) return;
+  if (!confirm("Удалить общий layout: " + (arr[idx].id || "") + " ?")) return;
 
   arr.splice(idx, 1);
-  window._COMMON_LAYOUTS = arr;
-
-  fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    body: JSON.stringify({ common_layouts: arr })
-  })
-  .then(res => res.json().then(data => ({ ok: res.ok, data })))
-  .then(({ ok, data }) => {
-    if (!ok || data.status !== 'success') {
-      alert(data.message || 'Error saving common layouts');
-      return;
-    }
-    const url = new URL(window.location);
-    url.searchParams.set('tab', 'common_layouts');
-    window.location.href = url.toString();
-  })
-  .catch(err => alert('Error: ' + err.message));
+  syncCommonLayoutsToForm(arr);
+ 
+  //document.getElementById("configForm").submit();
+  renderCommonLayoutsTable();
 }
 
 function saveCommonLayout() {
   const id = (document.getElementById("cl_id").value || "").trim();
   if (!id) {
-    alert("ID not specified");
+    alert("Нужно заполнить ID");
     return;
   }
 
@@ -2111,7 +2003,7 @@ function saveCommonLayout() {
   try {
     layout = JSON.parse(raw);
   } catch (e) {
-    alert("layout must be valid JSON");
+    alert("layout должен быть валидным JSON");
     return;
   }
 
@@ -2119,20 +2011,20 @@ function saveCommonLayout() {
   const item = { id: id, layout: layout };
 
   if (_cl_edit_index === null) {
-    
+    // добавление: запрещаем дубликаты id
     const dup = arr.find(x => (x.id || "").trim() === id);
     if (dup) {
-      alert("Such ID already exists: " + id);
+      alert("Такой ID уже существует: " + id);
       return;
     }
     arr.push(item);
   } else {
-    
+    // редактирование: если id поменяли — тоже проверим дубликат
     const old = arr[_cl_edit_index];
     if (!old) return;
     const dup = arr.find((x, i) => i !== _cl_edit_index && (x.id || "").trim() === id);
     if (dup) {
-      alert("This ID already exists.: " + id);
+      alert("Такой ID уже существует: " + id);
       return;
     }
     arr[_cl_edit_index] = item;
@@ -2141,20 +2033,22 @@ function saveCommonLayout() {
   syncCommonLayoutsToForm(arr);
   bootstrap.Modal.getInstance(document.getElementById("commonLayoutModal")).hide();
 
-  
+  // сохраняем как и остальное в edit_config
   //document.getElementById("configForm").submit();
-  //renderCommonLayoutsTable();
+  renderCommonLayoutsTable();
 }
 
 function syncCommonLayoutsToForm(arr) {
   window._COMMON_LAYOUTS = arr;
-  
+  // hidden input for POST (в форме edit_config должен быть такой инпут)
   const inp = document.getElementById("common_layouts_json");
   if (inp) inp.value = JSON.stringify(arr);
 }
 
 function renderCommonLayoutsTable() {
-  
+  // простая перерисовка через reload вкладки:
+  // (чтобы без сложного DOM, у тебя это везде приемлемо)
+  // но чтобы не терять tab:
   const url = new URL(window.location);
   url.searchParams.set('tab', 'common_layouts');
   window.history.replaceState({}, '', url);
@@ -2167,7 +2061,7 @@ function saveCommonLayoutsToServer() {
   const configUid = container.dataset.configUid;
 
   const arr = window._COMMON_LAYOUTS || [];
-  
+  // синхронизируем hidden (на всякий)
   syncCommonLayoutsToForm(arr);
 
 fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
@@ -2181,7 +2075,7 @@ fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
       alert(data.message || 'Error saving common layouts');
       return;
     }
-    
+    // остаёмся на вкладке
     const url = new URL(window.location);
     url.searchParams.set('tab', 'common_layouts');
     window.location.href = url.toString();
@@ -2217,11 +2111,6 @@ fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
     color: white;
 }
 
-.event-onstartmenucommandweb {
-    background-color: #0b815e;
-    color: white;
-}
-
 .event-ontimer {
     background-color: #e83e8c;
     color: white;
@@ -2239,11 +2128,6 @@ fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
 
 .event-ontextfile {
     background-color: #28a745; 
-    color: white;
-}
-
-.event-onclasscommand {
-    background-color: #801237;
     color: white;
 }
 

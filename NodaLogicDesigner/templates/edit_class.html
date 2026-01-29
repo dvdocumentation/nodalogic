@@ -21,125 +21,255 @@
         </a>
     </div>
 
-    <!-- Class props -->
-    <!-- In the main class settings section, let's add tabs -->
+<!-- Class props -->
 <div class="card mb-4">
-    <div class="card-header bg-light">
-        <ul class="nav nav-tabs card-header-tabs" id="classSettingsTabs" role="tablist">
-            <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="general-tab" data-bs-toggle="tab" data-bs-target="#general" type="button" role="tab">
-                    <i class="bi bi-gear"></i> {{ _('General Settings') }}
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="api-tab" data-bs-toggle="tab" data-bs-target="#api" type="button" role="tab">
-                    <i class="bi bi-plug"></i> {{ _('API') }}
-                </button>
-            </li>
-        </ul>
-    </div>
-    <div class="card-body">
-        <div class="tab-content">
-            
-            <div class="tab-pane fade show active" id="general" role="tabpanel">
-                <form method="POST">
-                 <input type="hidden" name="active_tab" value="{{ request.args.get('tab', 'classes') }}">
-                <div class="mb-3">
-                    <label for="className" class="form-label">{{ _('Class name') }}</label>
-                    <input type="text" class="form-control" id="className" name="name" 
-                        value="{{ class_obj.name }}" 
-                        pattern="[a-zA-Z_][a-zA-Z0-9_]*" 
-                        title="{{ _('A class name must begin with a letter or underscore and contain only letters, numbers, and underscores.') }}"
-                        {% if class_obj.name != 'NewClass' %}readonly{% endif %}
-                        required>
-                    <small class="text-muted">
-                        {% if class_obj.name != 'NewClass' %}
-                        {{ _('The class name cannot be changed after creation') }}
-                        {% else %}
-                         {{ _('Used to create a class in Python. Must begin with a letter or underscore and contain only letters, numbers, and underscores.') }}
-                        {% endif %}
-                    </small>
-                </div>
-                <div class="mb-3">
-                    <label for="displayName" class="form-label">{{ _('Display name') }}</label>
-                    <input type="text" class="form-control" id="displayName" name="display_name" 
-                        value="{{ class_obj.display_name }}">
-                    <small class="text-muted">{{ _('Human-readable class name, can contain any characters.') }}</small>
-                </div>
-                
-                <div class="mb-3">
-                    <label for="coverImage" class="form-label">{{ _('Cover') }}</label>
-                    <textarea class="form-control" id="coverImage" name="cover_image" 
-              rows="2" placeholder="{{ _('JSON markup for the node cover') }}">{{ class_obj.cover_image }}</textarea>
-                    <small class="text-muted">{{ _('JSON markup. For example: [[{"type":"Text","value":"@ctitle","bold":true}],[{"type":"Text","value":"@cbody"}]]') }}</small>
-                </div>
-                <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="hidden" name="hidden"
-                        {% if class_obj.hidden %}checked{% endif %}>
-                    <label class="form-check-label" for="hidden">{{ _('Hidden class') }}</label>
-                    <small class="text-muted d-block">{{ _('Hide class from user interface') }}</small>
-                </div>
-                <div class="mb-3 form-check">
-                <input type="checkbox" class="form-check-input" id="hasStorage" name="has_storage"
-                       {% if class_obj.has_storage %}checked{% endif %}>
-                <label class="form-check-label" for="hasStorage">{{ _('Autosave to _data') }}</label>
-                </div>
-                <div class="mb-3">
-                    <label for="classType" class="form-label">{{ _('Class type') }}</label>
-                    <select class="form-select" id="classType" name="class_type">
-                        <option value="">{{ _('-- Not specified --') }}</option>
-                        <option value="custom_process" {% if class_obj.class_type == 'custom_process' %}selected{% endif %}>{{ _('Custom process') }}</option>
-                        <option value="data_node" {% if class_obj.class_type == 'data_node' %}selected{% endif %}>{{ _('Data node') }}</option>
-                        <option value="custom_task" {% if class_obj.class_type == 'custom_task' %}selected{% endif %}>{{ _('User task') }}</option>
-                        <option value="background_task" {% if class_obj.class_type == 'background_task' %}selected{% endif %}>{{ _('Background task') }}</option>
-                        
-                    </select>
-                </div>
+  <div class="card-header bg-light">
+    <ul class="nav nav-tabs card-header-tabs" id="classSettingsTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="general-tab" data-bs-toggle="tab" data-bs-target="#general"
+                type="button" role="tab">
+          <i class="bi bi-gear"></i> {{ _('General Settings') }}
+        </button>
+      </li>
 
+      <!-- NEW: Display tab -->
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="display-tab" data-bs-toggle="tab" data-bs-target="#display"
+                type="button" role="tab">
+          <i class="bi bi-eye"></i> {{ _('Display') }}
+        </button>
+      </li>
 
-                 
-                <div class="mb-3">
-                    <label for="sectionCode" class="form-label">{{ _('Section code') }}</label>
-                    <select class="form-select" id="sectionCode" name="section_code">
-                        <option value="">{{ _('-- Not specified --') }}</option>
-                        {% for section in class_obj.config.sections %}
-                        <option value="{{ section.code }}" 
-                                {% if class_obj.section_code == section.code %}selected{% endif %}>
-                            {{ section.code }} ({{ section.name }})
-                        </option>
-                        {% endfor %}
-                    </select>
-                </div>
-            
-                
-                <button type="submit" class="btn btn-primary">
-                    <i class="bi bi-save"></i> {{ _('Save') }}
-                </button>
-                </form>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="api-tab" data-bs-toggle="tab" data-bs-target="#api"
+                type="button" role="tab">
+          <i class="bi bi-plug"></i> {{ _('API') }}
+        </button>
+      </li>
+
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="migration-tab" data-bs-toggle="tab" data-bs-target="#migration"
+                type="button" role="tab">
+          <i class="bi bi-arrow-left-right"></i> {{ _('Migration') }}
+        </button>
+      </li>
+    </ul>
+  </div>
+
+  <div class="card-body">
+ 
+    <form method="POST">
+      <input type="hidden" name="active_tab" value="{{ request.args.get('tab', 'classes') }}">
+
+      <div class="tab-content">
+
+        <!-- GENERAL -->
+        <div class="tab-pane fade show active" id="general" role="tabpanel">
+          <div class="mb-3">
+            <label for="className" class="form-label">{{ _('Class name') }}</label>
+            <input type="text" class="form-control" id="className" name="name"
+                   value="{{ class_obj.name }}"
+                   pattern="[a-zA-Z_][a-zA-Z0-9_]*"
+                   title="{{ _('A class name must begin with a letter or underscore and contain only letters, numbers, and underscores.') }}"
+                   {% if class_obj.name != 'NewClass' %}readonly{% endif %}
+                   required>
+            <small class="text-muted">
+              {% if class_obj.name != 'NewClass' %}
+                {{ _('The class name cannot be changed after creation') }}
+              {% else %}
+                {{ _('Used to create a class in Python. Must begin with a letter or underscore and contain only letters, numbers, and underscores.') }}
+              {% endif %}
+            </small>
+          </div>
+
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="hidden" name="hidden"
+                   {% if class_obj.hidden %}checked{% endif %}>
+            <label class="form-check-label" for="hidden">{{ _('Hidden class') }}</label>
+            <small class="text-muted d-block">{{ _('Hide class from user interface') }}</small>
+          </div>
+
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="hasStorage" name="has_storage"
+                   {% if class_obj.has_storage %}checked{% endif %}>
+            <label class="form-check-label" for="hasStorage">{{ _('Autosave to _data') }}</label>
+          </div>
+
+          <div class="mb-3">
+            <label for="classType" class="form-label">{{ _('Class type') }}</label>
+            <select class="form-select" id="classType" name="class_type">
+              <option value="">{{ _('-- Not specified --') }}</option>
+              <option value="custom_process" {% if class_obj.class_type == 'custom_process' %}selected{% endif %}>{{ _('Custom process') }}</option>
+              <option value="data_node" {% if class_obj.class_type == 'data_node' %}selected{% endif %}>{{ _('Data node') }}</option>
+              <option value="custom_task" {% if class_obj.class_type == 'custom_task' %}selected{% endif %}>{{ _('User task') }}</option>
+              <option value="background_task" {% if class_obj.class_type == 'background_task' %}selected{% endif %}>{{ _('Background task') }}</option>
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label for="sectionCode" class="form-label">{{ _('Section code') }}</label>
+            <select class="form-select" id="sectionCode" name="section_code">
+              <option value="">{{ _('-- Not specified --') }}</option>
+              {% for section in class_obj.config.sections %}
+              <option value="{{ section.code }}" {% if class_obj.section_code == section.code %}selected{% endif %}>
+                {{ section.code }} ({{ section.name }})
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <!-- DISPLAY -->
+        <div class="tab-pane fade" id="display" role="tabpanel">
+          <div class="mb-3">
+            <label for="displayName" class="form-label">{{ _('Display name') }}</label>
+            <input type="text" class="form-control" id="displayName" name="display_name"
+                   value="{{ class_obj.display_name }}">
+            <small class="text-muted">{{ _('Human-readable class name, can contain any characters.') }}</small>
+          </div>
+
+          <div class="mb-3">
+            <label for="coverImage" class="form-label">{{ _('Cover') }}</label>
+            <div class="mb-2 d-flex flex-wrap gap-1">
+              {% for t in (ui_tpl_buttons or []) %}
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('coverImage', '{{ t.key }}')">{{ t.label }}</button>
+              {% endfor %}
             </div>
+            <textarea class="form-control" id="coverImage" name="cover_image"
+                      rows="2" placeholder="{{ _('JSON markup for the node cover') }}">{{ class_obj.cover_image }}</textarea>
+            <small class="text-muted">
+              {{ _('JSON markup. For example: [[{\"type\":\"Text\",\"value\":\"@ctitle\",\"bold\":true}],[{\"type\":\"Text\",\"value\":\"@cbody\"}]]') }}
+            </small>
+          </div>
 
-           
-            <div class="tab-pane fade" id="api" role="tabpanel">
-    <div class="alert alert-info">
-        <i class="bi bi-info-circle"></i> 
-        {{ _('API endpoints for working with nodes of this class') }}
-    </div>
-    
-    <div class="card bg-light">
-        <div class="card-body" id="apiEndpointsContainer">
+          <div class="mb-3">
+            <label for="displayImageWeb" class="form-label">{{ _('Special cover for web client') }}</label>
+            <div class="mb-2 d-flex flex-wrap gap-1">
+              {% for t in (ui_tpl_buttons or []) %}
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('displayImageWeb', '{{ t.key }}')">{{ t.label }}</button>
+              {% endfor %}
+            </div>
+            <textarea class="form-control" id="displayImageWeb" name="display_image_web"
+                      rows="2">{{ class_obj.display_image_web }}</textarea>
+            <small class="text-muted">{{ _('Stored in API as display_image_web') }}</small>
+          </div>
+
+          <div class="mb-3">
+            <label for="displayImageTable" class="form-label">{{ _('Cover for table') }}</label>
+            <textarea class="form-control" id="displayImageTable" name="display_image_table"
+                      rows="2">{{ class_obj.display_image_table }}</textarea>
+            <small class="text-muted">{{ _('Stored in API as display_image_table') }}</small>
+          </div>
+
+          <div class="mb-3">
+            <label for="initScreenLayout" class="form-label">{{_('Init screen layout')}}</label>
+            <div class="d-flex gap-2">
+            <select class="form-select form-select-sm" id="initLayoutSelect">
+              <option value="">-- not selected --</option>
+              {% for l in (class_obj.config.common_layouts or []) %}
+                <option value="{{ l.id }}">{{ l.id }}</option>
+              {% endfor %}
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="initLayoutUseBtn">
+              {{ _('Use') }}
+            </button>
+          </div>
+            <div class="mt-2 mb-2 d-flex flex-wrap gap-1">
+              {% for t in (ui_tpl_buttons or []) %}
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('initScreenLayout', '{{ t.key }}')">{{ t.label }}</button>
+              {% endfor %}
+            </div>
+            <textarea class="form-control" id="initScreenLayout" name="init_screen_layout"
+                      rows="2"
+                      placeholder="^my_layout / row JSON-layout ">{{ class_obj.init_screen_layout }}</textarea>
+            <small class="text-muted">{{_('^layout_id (from Common Markup) or JSON layout directly')}}</small>
             
-            <div class="text-center">
+          </div>
+
+          <hr>
+          <h6>{{ _('Commands') }}</h6>
+
+          <div class="mb-3">
+            <label for="commands" class="form-label">{{ _('Commands') }}</label>
+            <textarea class="form-control" id="commands" name="commands"
+                      rows="3">{{ class_obj.commands }}</textarea>
+            <small class="text-muted">{{ _('Hint: Header|key') }}</small>
+          </div>
+
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="useStandardCommands" name="use_standard_commands"
+                   {% if class_obj.use_standard_commands %}checked{% endif %}>
+            <label class="form-check-label" for="useStandardCommands">{{ _('Use standard commands') }}</label>
+          </div>
+
+          <div class="mb-3">
+            <label for="svgCommands" class="form-label">{{ _('SVG commands') }}</label>
+            <textarea class="form-control" id="svgCommands" name="svg_commands"
+                      rows="3">{{ class_obj.svg_commands }}</textarea>
+            <small class="text-muted">{{ _('Hint: \"key\"|\"svg\"') }}</small>
+          </div>
+        </div>
+
+        <!-- API -->
+        <div class="tab-pane fade" id="api" role="tabpanel">
+          <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i>
+            {{ _('API endpoints for working with nodes of this class') }}
+          </div>
+
+          <div class="card bg-light">
+            <div class="card-body" id="apiEndpointsContainer">
+              <div class="text-center">
                 <div class="spinner-border" role="status">
-                    <span class="visually-hidden">Loading...</span>
+                  <span class="visually-hidden">Loading...</span>
                 </div>
                 <p>Loading API endpoints...</p>
+              </div>
             </div>
+          </div>
         </div>
-    </div>
-</div>
+
+        <!-- MIGRATION -->
+        <div class="tab-pane fade" id="migration" role="tabpanel">
+
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="migrationRegisterCommand" name="migration_register_command"
+                   {% if class_obj.migration_register_command %}checked{% endif %}>
+            <label class="form-check-label" for="migrationRegisterCommand">{{ _('Registration command') }} </label>
+            <small class="text-muted d-block">{{ _('Show the Register button in standard node commands.') }} </small>
+          </div>
+
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="migrationRegisterOnSave" name="migration_register_on_save"
+                   {% if class_obj.migration_register_on_save %}checked{% endif %}>
+            <label class="form-check-label" for="migrationRegisterOnSave">{{_('Register on save')}}</label>
+            <small class="text-muted d-block">{{_('After saving the node, register in the default room.')}}</small>
+          </div>
+
+          <div class="mb-3">
+            <label for="migrationDefaultRoomAlias" class="form-label">{{_('Default room alias')}}</label>
+            <input class="form-control" id="migrationDefaultRoomAlias" name="migration_default_room_alias"
+                   list="roomAliasList"
+                   value="{{ class_obj.migration_default_room_alias or '' }}"
+                   placeholder="for example: main_room">
+            <datalist id="roomAliasList">
+              {% for a in (room_aliases or []) %}
+                <option value="{{ a.alias }}"></option>
+              {% endfor %}
+            </datalist>
+            <small class="text-muted">{{_('The class stores an alias. The alias → room_uid mapping is set in the configuration (section "Rooms").')}} </small>
+          </div>
         </div>
-    </div>
+
+      </div>
+
+      <button type="submit" class="btn btn-primary mt-3">
+        <i class="bi bi-save"></i> {{ _('Save') }}
+      </button>
+    </form>
+  </div>
 </div>
+
 
     <!-- Methods and events -->
 <ul class="nav nav-tabs mb-3" id="classTabs" role="tablist">
@@ -285,7 +415,7 @@
 
 
 <div class="modal fade" id="addMethodModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+      <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">{{ _('Add method') }}</h5>
@@ -302,12 +432,18 @@
                     <div class="mb-3">
                         <label class="form-label">{{ _('Engine/Language') }}</label>
                         <select class="form-select" name="engine" required>
-                             <option value="android_python">Android/Python</option>
+                            <option value="android_python">Android/Python</option>
                             <option value="server_python">Server/Python</option>
+                            
                         </select>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">{{ _('Method body') }}</label>
+                        <div class="mb-2 d-flex flex-wrap gap-1">
+                          {% for t in (ui_tpl_buttons or []) %}
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-tpl="{{ t.key }}" data-target="#editMethodModal">{{ t.label }}</button>
+                          {% endfor %}
+                        </div>
                         <code-input name="function_body" language="Python" >
 # self - {{ _('Node instance') }}
 # input_data=None - {{ _('Input data') }}
@@ -329,7 +465,7 @@ return True,{}
 
 <!-- Edit method modal -->
 <div class="modal fade" id="editMethodModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">{{ _('Edit method') }}</h5>
@@ -347,12 +483,18 @@ return True,{}
                         <label class="form-label">{{ _('Engine/Language') }}</label>
 
                         <select class="form-select" name="engine" id="editMethodEngine" required>
-                             <option value="android_python">Android/Python</option>
+                            <option value="android_python">Android/Python</option>
                             <option value="server_python">Server/Python</option>
+                            <option value="server_python">Client/Python</option>
                         </select>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">{{ _('Method body') }}</label>
+                        <div class="mb-2 d-flex flex-wrap gap-1">
+                          {% for t in (ui_tpl_buttons or []) %}
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-tpl="{{ t.key }}" data-target="#editMethodModal">{{ t.label }}</button>
+                          {% endfor %}
+                        </div>
                         <code-input name="function_body"   id="editMethodCodeInput" language="Python"></code-input>
                     </div>
                 </div>
@@ -384,6 +526,9 @@ return True,{}
               <option value="onShow">onShow</option>
               <option value="onResume">onResume</option>
               <option value="onInput">onInput</option>
+              <option value="onShowWeb">onShowWeb</option>
+              <option value="onInputWeb">onInputWeb</option>
+              <option value="onAcceptServer">onAcceptServer</option>
 
             </select>
           </div>
@@ -629,6 +774,56 @@ codeInput.registerTemplate("syntax-highlighted",
 
 <script>
 
+const METHOD_LAYOUT_TEMPLATES = {{ (ui_tpl_map or {}) | tojson }};
+
+function insertMethodTpl(modalId, name) {
+  const tpl = METHOD_LAYOUT_TEMPLATES[name];
+  if (!tpl) return;
+
+  const modal = document.getElementById(modalId);
+  const ci = modal ? modal.querySelector('code-input') : null;
+  if (!ci) return;
+
+  // ensure registered
+  if (!ci._codeInput) {
+    try { codeInput.register(ci); } catch(e) {}
+  }
+
+  // Best-effort: find underlying textarea to insert at cursor
+  let ta = null;
+  try {
+    // code-input keeps a textarea in its light DOM in current lib versions
+    ta = ci.querySelector('textarea');
+    // sometimes it is stored on internal object
+    if (!ta && ci._codeInput && ci._codeInput.textarea) ta = ci._codeInput.textarea;
+    if (!ta && ci._codeInput && ci._codeInput.textareaElement) ta = ci._codeInput.textareaElement;
+  } catch(e) {}
+
+  if (ta) {
+    const p = ta.selectionStart || 0;
+    ta.value = ta.value.slice(0, p) + tpl + ta.value.slice(p);
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    // sync highlighted editor if exists
+    try {
+      if (ci._codeInput && ci._codeInput.editor && ci._codeInput.editor.setValue) {
+        ci._codeInput.editor.setValue(ta.value);
+      } else {
+        ci.value = ta.value;
+      }
+    } catch(e) {}
+    return;
+  }
+
+  // Fallback: append if cursor insert not possible
+  const cur = (ci.value || '');
+  ci.value = cur + tpl;
+  try {
+    if (ci._codeInput && ci._codeInput.editor && ci._codeInput.editor.setValue) {
+      ci._codeInput.editor.setValue(ci.value);
+    }
+  } catch(e) {}
+}  
+
 const FORBIDDEN_METHOD_NAMES = ['Show', 'PlugIn'];
 
 
@@ -643,6 +838,18 @@ function validateMethodName(name) {
     }
     
     return null; 
+}
+
+// Insert UI component JSON into a plain textarea (Cover / Web cover / Layout)
+function insertTplIntoTextarea(textareaId, name) {
+  const tpl = (window.METHOD_LAYOUT_TEMPLATES || METHOD_LAYOUT_TEMPLATES || {})[name];
+  if (!tpl) return;
+  const ta = document.getElementById(textareaId);
+  if (!ta) return;
+  const p = ta.selectionStart || 0;
+  ta.value = ta.value.slice(0, p) + tpl + ta.value.slice(p);
+  ta.focus();
+  try { ta.selectionStart = ta.selectionEnd = p + tpl.length; } catch(e) {}
 }
 
 
@@ -766,14 +973,14 @@ document.addEventListener('DOMContentLoaded', function() {
         <div style="width:220px">
           <label class="form-label small">method</label>
           <select class="form-select action-field" data-field="method">
-            <option value="">-- (нет) --</option>
+            <option value="">-- (no) --</option>
             ${METHODS.map(m => `<option value="${m}" ${m===action.method?'selected':''}>${m}</option>`).join('')}
           </select>
         </div>
         <div style="width:160px">
           <label class="form-label small">postExecuteMethod</label>
           <select class="form-select action-field" data-field="postExecuteMethod">
-            <option value="">(нет)</option>
+            <option value="">(no)</option>
             ${METHODS.map(m => `<option value="${m}" ${m===action.postExecuteMethod?'selected':''}>${m}</option>`).join('')}
           </select>
         </div>
@@ -881,33 +1088,25 @@ document.addEventListener('DOMContentLoaded', function() {
             <pre class="mb-3"><code><span class="badge bg-primary">POST</span> ${baseUrl}/api/config/${configUid}/node/${className}
 Content-Type: application/json
 
-{
-    "_id": "node_id",
-    "_data":{
-        "_id": "node_id",
-        "field1": "value1",
-        "field2": "value2"
-    }
-}</code></pre>
+[{"_id": "id1","field1": "value1","field2": "value2"},{...}]
 
-            <h6>{{ _('Adding/updating nodes with room registration') }}</h6>
-            <pre class="mb-3"><code><span class="badge bg-primary">POST</span> ${baseUrl}/api/config/${configUid}/node/${className}?room=ID_room
-Content-Type: application/json
+</code></pre>
 
-{
-    "_id": "node_id",
-    "_data":{
-        "_id": "node_id",
-        "field1": "value1",
-        "field2": "value2"
-    }
-}</code></pre>
-
+           
             <h6>{{ _('Get all nodes') }}</h6>
             <pre class="mb-3"><code><span class="badge bg-success">GET</span> ${baseUrl}/api/config/${configUid}/node/${className}</code></pre>
 
-            <h6>{{ _('Register node in room for mobile devices') }}</h6>
+            <h6>{{ _('Register all nodes in room for mobile devices') }}</h6>
             <pre class="mb-3"><code><span class="badge bg-primary">POST</span> ${baseUrl}/api/config/${configUid}/node/${className}/register/&lt;room_uid&gt;</code></pre>
+
+            <h6>{{ _('Register specific nodes in room for mobile devices') }}</h6>
+            <pre class="mb-3"><code><span class="badge bg-primary">POST</span> ${baseUrl}/api/config/${configUid}/node/${className}/register/&lt;room_uid&gt;</code>
+Content-Type: application/json
+
+["id1","id2",...]
+              
+              </pre>
+
 
             <h6>{{ _('Working with specific node') }}</h6>
             <pre class="mb-3"><code>{{ _('Get specific node') }} : <span class="badge bg-success">GET</span>    ${baseUrl}/api/config/${configUid}/node/${className}/&lt;node_id&gt;
@@ -952,6 +1151,105 @@ Content-Type: application/json
 });
 </script>
 
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('initLayoutSelect');
+  const btn = document.getElementById('initLayoutUseBtn');
+  if (!sel || !btn) return;
+
+  btn.addEventListener('click', () => {
+    const v = (sel.value || '').trim();
+    if (!v) return;
+
+    
+    const ta = document.querySelector('textarea[name="init_screen_layout"]');
+    if (!ta) {
+      alert('textarea[name="init_screen_layout"] not found');
+      return;
+    }
+
+    ta.value = '^' + v;
+    ta.focus();
+  });
+});
+
+
+window.LAYOUT_TEMPLATES = window.LAYOUT_TEMPLATES || METHOD_LAYOUT_TEMPLATES;
+
+
+document.addEventListener('mousedown', (e) => {
+  const b = e.target.closest('#addMethodModal button[data-tpl], #editMethodModal button[data-tpl]');
+  if (b) e.preventDefault();
+});
+
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-tpl][data-target]');
+  if (!b) return;
+
+  const key = b.getAttribute('data-tpl');
+  const targetSel = b.getAttribute('data-target'); // "#addMethodModal" или "#editMethodModal"
+  const modal = document.querySelector(targetSel);
+  if (!modal) return;
+
+  const tpl = (window.LAYOUT_TEMPLATES || {})[key];
+  if (!tpl) {
+    console.warn('Template not found:', key);
+    return;
+  }
+
+  const ci = modal.querySelector('code-input');
+  if (!ci) {
+    console.warn('code-input not found in modal', targetSel);
+    return;
+  }
+
+  if (!ci._codeInput) {
+    try { codeInput.register(ci); } catch(_) {}
+  }
+
+
+  let ta = null;
+  try {
+    ta = ci.querySelector('textarea');
+    if (!ta && ci._codeInput && ci._codeInput.textarea) ta = ci._codeInput.textarea;
+    if (!ta && ci._codeInput && ci._codeInput.textareaElement) ta = ci._codeInput.textareaElement;
+  } catch(_) {}
+
+  if (ta) {
+    const p = ta.selectionStart ?? ta.value.length;
+    ta.value = ta.value.slice(0, p) + tpl + ta.value.slice(p);
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+
+ 
+    try {
+      if (ci._codeInput && ci._codeInput.editor && ci._codeInput.editor.setValue) {
+        ci._codeInput.editor.setValue(ta.value);
+      } else {
+        
+        ci.value = ta.value;
+      }
+    } catch(_) {}
+
+    try { ci.focus(); } catch(_) {}
+    return;
+  }
+
+  // Fallback: append
+  ci.value = (ci.value || '') + tpl;
+  try {
+    if (ci._codeInput && ci._codeInput.editor && ci._codeInput.editor.setValue) {
+      ci._codeInput.editor.setValue(ci.value);
+    }
+  } catch(_) {}
+  try { ci.focus(); } catch(_) {}
+});
+
+
+
+</script>
+
+
 <style>
 
 .event-badge {
@@ -964,12 +1262,27 @@ Content-Type: application/json
     color: white;
 }
 
+.event-onshowweb {
+    background-color: #0d6efd;
+    color: white;
+}
+
+.event-onacceptserver {
+    background-color: #be0912;
+    color: white;
+}
+
 .event-onresume {
     background-color: #198754;
     color: white;
 }
 
 .event-oninput {
+    background-color: #ffc107;
+    color: black;
+}
+
+.event-oninputweb {
     background-color: #ffc107;
     color: black;
 }

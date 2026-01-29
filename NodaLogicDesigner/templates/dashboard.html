@@ -32,6 +32,10 @@
                                 <i class="bi bi-plus-circle"></i> {{ _('Create configuration') }}
                             </button>
                         </form>
+
+                        <a href="{{ url_for('users_manage') }}" class="btn btn-outline-secondary me-2">
+                            <i class="bi bi-people"></i> {{ _('Users') }}
+                        </a>
                         
                         
                         <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#importConfigModal">

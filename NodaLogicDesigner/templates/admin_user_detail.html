@@ -4,7 +4,7 @@
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1>{{ _('User details') }} : {{ user.email }}</h1>
-        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">Назад</a>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">{{_('Back')}}</a>
     </div>
 
     <!-- Информация о пользователе -->
@@ -119,7 +119,7 @@
         </div>
     </div>
 
-    <!-- Комнаты пользователя -->
+    
     <div class="card mt-4">
         <div class="card-header">
             <h5 class="mb-0">{{ _('Rooms') }}</h5>

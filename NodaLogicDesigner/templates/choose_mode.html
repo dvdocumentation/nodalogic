@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="text-center">
+  <h2 class="mb-4">NodaLogic</h2>
+  <div class="d-grid gap-3" style="max-width: 520px; margin: 0 auto;">
+    {% if current_user.can_designer %}
+      <a class="btn btn-lg btn-primary py-4" href="{{ url_for('dashboard') }}">
+        NodaLogic Designer
+      </a>
+    {% endif %}
+
+    {% if current_user.can_client %}
+      <a class="btn btn-lg btn-outline-primary py-4" href="{{ url_for('client.sections_home') }}">
+        NodaLogic Client
+      </a>
+    {% endif %}
+
+    {% if not current_user.can_designer and not current_user.can_client %}
+      <div class="alert alert-warning text-start">
+        {{_('        Your account does not have access to web interfaces. 
+        If you need access to Client or Designer, ask your administrator for permission.')}}
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

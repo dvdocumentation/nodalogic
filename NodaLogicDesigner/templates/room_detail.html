@@ -45,47 +45,7 @@
                 </div>
             </div>
 
-            <div class="mt-4">
-                <h5><i class="bi bi-terminal"></i> {{ _('API Endpoints') }}</h5>
-                <div class="table-responsive">
-                    <table class="table table-bordered">
-                        <thead class="table-light">
-                            <tr>
-                                <th>{{ _('Method') }}</th>
-                                <th>{{ _('URL') }}</th>
-                                <th>{{ _('Description') }}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td><span class="badge bg-primary">POST</span></td>
-                                <td>/api/room/{{ room.uid }}/tasks</td>
-                                <td>{{ _('Add tasks (JSON array)') }}</td>
-                            </tr>
-                            <tr>
-                                <td><span class="badge bg-success">GET</span></td>
-                                <td>/api/room/{{ room.uid }}/tasks/available</td>
-                                <td>{{ _('Get available task') }}</td>
-                            </tr>
-                            <tr>
-                                <td><span class="badge bg-warning text-dark">POST</span></td>
-                                <td>/api/room/{{ room.uid }}/tasks/&lt;uid&gt;/complete</td>
-                                <td>{{ _('Mark task as completed') }}</td>
-                            </tr>
-                            <tr>
-                                <td><span class="badge bg-danger">DELETE</span></td>
-                                <td>/api/room/{{ room.uid }}/tasks/completed</td>
-                                <td>{{ _('Delete completed tasks') }}</td>
-                            </tr>
-                            <tr>
-                                <td><span class="badge bg-info text-dark">GET</span></td>
-                                <td>/api/room/{{ room.uid }}/task/&lt;uid&gt;</td>
-                                <td>{{ _('Get task (automatically locks)') }}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+            
         </div>
     </div>
 

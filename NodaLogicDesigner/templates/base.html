@@ -28,6 +28,11 @@
             <a class="navbar-brand" href="{{ url_for('dashboard') }}">{{ _('Home') }}</a>
             <div class="d-flex align-items-center">
                 {% if current_user.is_authenticated %}
+
+                <a href="{{ url_for('choose_mode') }}" class="btn btn-sm btn-outline-secondary me-2">{{ _('Mode') }}</a>
+                <a href="{{ url_for('client.sections_home') }}" class="btn btn-sm btn-outline-primary me-3">{{ _('Client') }}</a>
+
+
                 <a href="{{ url_for('edit_profile') }}" class="me-3">
                     <i class="bi bi-person-circle"></i> {{ current_user.config_display_name or current_user.email }}
                 </a>
@@ -37,7 +42,7 @@
         </div>
 
         <div class="language-switcher">
-                <span>{{ _('Язык') }}:</span>
+                <span>{{ _('Language') }}:</span>
                 {% for lang_code, lang_name in LANGUAGES.items() %}
                     {% if lang_code != get_locale() %}
                         <a href="{{ url_for('set_language', lang=lang_code) }}">
@@ -79,6 +84,34 @@
 
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Auto-dismiss Bootstrap alerts (incl. node messages rendered as alerts).
+        // Defaults: success/info -> 4s, warning -> 8s, danger/error -> 12s.
+        (function () {
+            const timings = [
+                { cls: 'alert-success', ms: 4000 },
+                { cls: 'alert-info', ms: 4000 },
+                { cls: 'alert-primary', ms: 4000 },
+                { cls: 'alert-warning', ms: 8000 },
+                { cls: 'alert-danger', ms: 12000 },
+                { cls: 'alert-error', ms: 12000 },
+            ];
+            document.querySelectorAll('.alert.alert-dismissible').forEach((el) => {
+                let ms = 8000;
+                for (const t of timings) {
+                    if (el.classList.contains(t.cls)) { ms = t.ms; break; }
+                }
+                window.setTimeout(() => {
+                    try {
+                        const inst = bootstrap.Alert.getOrCreateInstance(el);
+                        inst.close();
+                    } catch (e) {
+                        // ignore
+                    }
+                }, ms);
+            });
+        })();
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

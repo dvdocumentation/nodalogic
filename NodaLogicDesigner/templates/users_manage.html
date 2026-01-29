@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">{{_('Users')}}</h2>
+    <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">{{_('Back')}}</a>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header">{{_('Create user')}}</div>
+    <div class="card-body">
+      <form method="POST" action="{{ url_for('users_create') }}">
+        <div class="row g-2">
+          <div class="col-md-4">
+            <label class="form-label">Email</label>
+            <input class="form-control" name="email" required />
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">{{_('Password')}}</label>
+            <input class="form-control" name="password" type="password" required />
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">{{_('Access')}}</label>
+            <div class="d-flex gap-3 align-items-center" style="min-height: 38px;">
+              <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_designer"> Designer</label>
+              <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_client"> Client</label>
+              <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_api"> API</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-3">
+          <label class="form-label">{{_('Available configurations')}}</label>
+          <select class="form-select" name="config_ids" multiple size="6">
+            {% for c in configs %}
+              <option value="{{ c.id }}">{{ c.name or '—' }} · {{ c.uid[:8] }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">{{_('Select the configurations you can use. The owner (you) always has access.')}}</div>
+        </div>
+
+        <div class="mt-3">
+          <button class="btn btn-primary" type="submit">{{_('Create')}}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">{{_('Your users')}}</div>
+    <div class="card-body">
+      {% if not users %}
+        <div class="text-muted">{{_('No users yet')}}</div>
+      {% else %}
+        {% for u in users %}
+          <div class="border rounded p-3 mb-3">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <div class="fw-semibold">{{ u.email }}</div>
+                <div class="text-muted small">id={{ u.id }}</div>
+              </div>
+              <form method="POST" action="{{ url_for('users_delete', user_id=u.id) }}" onsubmit="return confirm('Delete user?');">
+                <button class="btn btn-sm btn-outline-danger" type="submit">{{_('Delete')}}</button>
+              </form>
+            </div>
+
+            <form class="mt-3" method="POST" action="{{ url_for('users_update', user_id=u.id) }}">
+              <div class="row g-2">
+                <div class="col-md-4">
+                  <label class="form-label">{{_('New password(optional)')}}</label>
+                  <input class="form-control" name="password" type="password" />
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">{{_('Accesses')}}</label>
+                  <div class="d-flex gap-3 align-items-center" style="min-height: 38px;">
+                    <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_designer" {% if u.can_designer %}checked{% endif %}> Designer</label>
+                    <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_client" {% if u.can_client %}checked{% endif %}> Client</label>
+                    <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_api" {% if u.can_api %}checked{% endif %}> API</label>
+                  </div>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">{{_('Configurations')}}</label>
+                  <select class="form-select" name="config_ids" multiple size="6">
+                    {% set selected = access_map.get(u.id) or set() %}
+                    {% for c in configs %}
+                      <option value="{{ c.id }}" {% if c.id in selected %}selected{% endif %}>{{ c.name or '—' }} · {{ c.uid[:8] }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+              </div>
+              <div class="mt-3">
+                <button class="btn btn-sm btn-primary" type="submit">{{_('Save')}}</button>
+              </div>
+            </form>
+          </div>
+        {% endfor %}
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}
