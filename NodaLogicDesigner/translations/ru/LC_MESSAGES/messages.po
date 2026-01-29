@@ -1,0 +1,1663 @@
+# Russian translations for PROJECT.
+# Copyright (C) 2025 ORGANIZATION
+# This file is distributed under the same license as the PROJECT project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2025.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-01-26 15:07+0300\n"
+"PO-Revision-Date: 2025-10-11 09:42+0300\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: ru\n"
+"Language-Team: ru <LL@li.org>\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
+"n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.17.0\n"
+
+#: app.py:1334
+msgid "Profile updated successfully"
+msgstr "Профиль успешно обновлен"
+
+#: app.py:1428
+msgid "# Decoding error:"
+msgstr "# Ошибка декодирования:"
+
+#: app.py:1590
+msgid "Invalid email or password"
+msgstr "Неверный адрес электронной почты или пароль"
+
+#: app.py:1599
+msgid "Email already taken"
+msgstr "Электронная почта уже занята"
+
+#: app.py:2063
+msgid "Configuration deleted"
+msgstr "Конфигурация удалена."
+
+#: app.py:2091 app.py:2097 app.py:4304 app.py:4309 app.py:4746 app.py:4751
+msgid "File not selected"
+msgstr "Файл не выбран"
+
+#: app.py:2102
+msgid "Only .py files allowed"
+msgstr "Разрешены только файлы .py"
+
+#: app.py:2112
+msgid "Enter GitHub URL"
+msgstr "Введите URL-адрес GitHub"
+
+#: app.py:2118
+msgid "Use GitHub RAW URL"
+msgstr "Используйте URL-адрес GitHub RAW"
+
+#: app.py:2124
+msgid "Failed to load file"
+msgstr "Не удалось загрузить файл"
+
+#: app.py:2132
+msgid "Invalid upload type"
+msgstr "Неверный тип загрузки"
+
+#: app.py:2154
+msgid "Handlers loaded successfully"
+msgstr "Обработчики успешно загружены"
+
+#: app.py:2226
+msgid "Handlers cleared"
+msgstr "Обработчики очищены"
+
+#: app.py:2267
+msgid "Download error:"
+msgstr "Ошибка загрузки:"
+
+#: app.py:2754
+msgid "Configuration saved"
+msgstr "Конфигурация сохранена."
+
+#: app.py:2909
+msgid "Class saved"
+msgstr "Класс сохранен."
+
+#: app.py:3028
+msgid "Method updated successfully"
+msgstr "Метод успешно обновлен"
+
+#: app.py:3059 app.py:3138
+msgid "Invalid actions format (JSON)"
+msgstr "Неверный формат действий (JSON)"
+
+#: app.py:3063 app.py:3143
+msgid "Event type and at least one action required"
+msgstr "Тип события и хотя бы одно действие требуется"
+
+#: app.py:3074
+msgid "Method"
+msgstr "Метод"
+
+#: app.py:3074
+msgid " not found in class"
+msgstr "не найден в классе"
+
+#: app.py:3085
+msgid "Event with this event+listener already exists"
+msgstr "Событие с этим событием+прослушивателем уже существует"
+
+#: app.py:3107
+msgid "Event added"
+msgstr "Событие добавлено"
+
+#: app.py:3129
+msgid "Original event not found"
+msgstr "Исходное событие не найдено"
+
+#: app.py:3154
+#, python-format
+msgid "Method %(mname)s not found in class"
+msgstr "Метод %(mname)s не найден в классе"
+
+#: app.py:3181
+msgid "Event updated"
+msgstr "Событие обновлено"
+
+#: app.py:3202
+msgid "Event not found"
+msgstr "Событие не найдено"
+
+#: app.py:3207
+msgid "Event deleted"
+msgstr "Мероприятие удалено."
+
+#: app.py:3217
+msgid "New configuration"
+msgstr "Новая конфигурация"
+
+#: app.py:3269
+msgid "Class name not specified"
+msgstr "Имя класса не указано"
+
+#: app.py:3276
+msgid ""
+"Class name must start with a letter or underscore and contain only "
+"letters, numbers and underscores"
+msgstr ""
+"Имя класса должно начинаться с буквы или подчеркивания и содержать только"
+" буквы, цифры и подчеркивания."
+
+#: app.py:3283
+msgid "Class with this name already exists"
+msgstr "Класс с таким названием уже существует"
+
+#: app.py:3357
+msgid "Class created successfully"
+msgstr "Класс успешно создан"
+
+#: app.py:4313
+msgid "Only NOD files allowed"
+msgstr "Разрешены только файлы NOD."
+
+#: app.py:4326
+msgid "Invalid configuration file: missing UID"
+msgstr ""
+
+#: app.py:4340
+msgid "You do not have permission to update this configuration"
+msgstr "У вас пока нет конфигураций."
+
+#: app.py:4373
+msgid "Imported configuration"
+msgstr "Загрузить конфигурацию"
+
+#: app.py:4540
+msgid "Configuration updated successfully"
+msgstr "Конфигурация успешно импортирована"
+
+#: app.py:4543 app.py:4770
+msgid "Configuration imported successfully"
+msgstr "Конфигурация успешно импортирована"
+
+#: app.py:4552 app.py:4777
+#, python-brace-format
+msgid "Import error: {error}"
+msgstr "Ошибка импорта: {error}"
+
+#: app.py:4755
+msgid "Only JSON files allowed"
+msgstr "Разрешены только файлы JSON."
+
+#: app.py:6243
+msgid "Method saved successfully"
+msgstr "Метод успешно сохранен"
+
+#: app.py:6247
+msgid "Save error: "
+msgstr "Ошибка сохранения:"
+
+#: app.py:6267
+msgid "Configuration updated"
+msgstr "Конфигурация обновлена"
+
+#: app.py:6286
+msgid "Empty handler code received"
+msgstr "Получен пустой код обработчика"
+
+#: app.py:6295 app.py:6298 app.py:6846 app.py:6848
+msgid "Python syntax error"
+msgstr "Синтаксическая ошибка Python"
+
+#: app.py:6311 app.py:6314
+msgid "Syntax error after adding imports:"
+msgstr "Синтаксическая ошибка после добавления импорта:"
+
+#: app.py:6328
+msgid "Code saved successfully"
+msgstr "Код успешно сохранен"
+
+#: app.py:6332
+msgid "Save error:"
+msgstr "Ошибка сохранения:"
+
+#: app.py:6559
+msgid "Dataset updated successfully"
+msgstr "Датасет успешно обновлен."
+
+#: app.py:6766
+msgid "GitHub load error:"
+msgstr "Ошибка загрузки GitHub:"
+
+#: app.py:6785
+msgid "Server handlers loaded successfully"
+msgstr "Обработчики сервера успешно загружены"
+
+#: app.py:6795
+msgid "No server handlers available for download"
+msgstr "Нет доступных для скачивания обработчиков серверов."
+
+#: app.py:6820
+msgid "Server handlers deleted"
+msgstr "Обработчики сервера удалены"
+
+#: app.py:6838
+msgid "Empty server handler code received"
+msgstr "Получен пустой код обработчика сервера"
+
+#: app.py:6871
+msgid "Server handler code saved successfully"
+msgstr "Код обработчика сервера успешно сохранен."
+
+#: app.py:6875
+msgid "Server handler save error:"
+msgstr "Ошибка сохранения обработчика сервера:"
+
+#: app.py:6896
+msgid "Server added"
+msgstr "Сервер добавлен"
+
+#: app.py:6908
+msgid "Server deleted"
+msgstr "Сервер удален"
+
+#: app.py:6927
+msgid "Server updated"
+msgstr "Сервер обновлен"
+
+#: templates/__edit_config.html:6 templates/base.html:28
+#: templates/client/base.html:20 templates/edit_class.html:8
+#: templates/edit_config.html:6 templates/rooms.html:8
+msgid "Home"
+msgstr "Домой"
+
+#: templates/__edit_config.html:8 templates/edit_config.html:8
+msgid "Edit configuration"
+msgstr "Изменить конфигурацию"
+
+#: templates/__edit_config.html:28 templates/client/index.html:5
+#: templates/dashboard.html:14 templates/edit_config.html:28
+#: templates/users_manage.html:83
+msgid "Configurations"
+msgstr "Конфигурации"
+
+#: templates/__edit_config.html:33 templates/edit_config.html:33
+msgid "AI Generator"
+msgstr ""
+
+#: templates/__edit_config.html:38 templates/edit_config.html:38
+msgid "Classes"
+msgstr "Классы"
+
+#: templates/__edit_config.html:43 templates/edit_config.html:43
+msgid "Android/Python handlers"
+msgstr "Обработчики Android/Python"
+
+#: templates/__edit_config.html:48 templates/edit_config.html:48
+msgid "Server/Python handlers"
+msgstr "Обработчики сервера/Python"
+
+#: templates/__edit_config.html:52 templates/__edit_config.html:519
+#: templates/edit_config.html:52 templates/edit_config.html:525
+msgid "Datasets"
+msgstr "Датасет"
+
+#: templates/__edit_config.html:57 templates/__edit_config.html:591
+#: templates/edit_config.html:57 templates/edit_config.html:597
+msgid "Servers"
+msgstr "Серверы"
+
+#: templates/__edit_config.html:61 templates/__edit_config.html:683
+#: templates/edit_config.html:67 templates/edit_config.html:757
+msgid "Common events"
+msgstr "Общие события"
+
+#: templates/__edit_config.html:141 templates/edit_config.html:147
+msgid "General settings"
+msgstr "Общие настройки"
+
+#: templates/__edit_config.html:151 templates/edit_config.html:157
+msgid "Configuration API QR-code"
+msgstr "QR-код API конфигурации"
+
+#: templates/__edit_config.html:162 templates/edit_config.html:168
+msgid "Configuration name"
+msgstr "Имя конфигурации"
+
+#: templates/__edit_config.html:166 templates/admin_user_detail.html:100
+#: templates/edit_config.html:172
+msgid "Version"
+msgstr "Версия"
+
+#: templates/__edit_config.html:171 templates/edit_config.html:177
+msgid "*Server name?"
+msgstr "*Имя сервера?"
+
+#: templates/__edit_config.html:176 templates/edit_config.html:182
+msgid "Vendor"
+msgstr "Поставщик"
+
+#: templates/__edit_config.html:182 templates/edit_config.html:188
+msgid "Content UID"
+msgstr "Content UID"
+
+#: templates/__edit_config.html:187 templates/edit_config.html:193
+msgid "Last modified"
+msgstr "Последнее изменение"
+
+#: templates/__edit_config.html:191 templates/__edit_config.html:407
+#: templates/__edit_config.html:498 templates/__edit_config.html:795
+#: templates/__edit_config.html:828 templates/__edit_config.html:864
+#: templates/__edit_config.html:955 templates/client/node.html:26
+#: templates/client/node_form.html:67 templates/client/settings.html:50
+#: templates/edit_class.html:267 templates/edit_class.html:503
+#: templates/edit_class.html:553 templates/edit_config.html:197
+#: templates/edit_config.html:413 templates/edit_config.html:504
+#: templates/edit_config.html:682 templates/edit_config.html:873
+#: templates/edit_config.html:906 templates/edit_config.html:939
+#: templates/edit_config.html:975 templates/edit_config.html:1056
+#: templates/edit_profile.html:33 templates/edit_profile.html:59
+#: templates/users_manage.html:93
+msgid "Save"
+msgstr "Сохранить"
+
+#: templates/__edit_config.html:201 templates/edit_config.html:207
+msgid "Configuration uploading/downdloading"
+msgstr "Загрузка/выгрузка конфигурации"
+
+#: templates/__edit_config.html:206 templates/edit_config.html:212
+msgid "Configuration download"
+msgstr "Загрузка конфигурации"
+
+#: templates/__edit_config.html:207 templates/edit_config.html:213
+msgid "Download the full configuration in JSON format"
+msgstr "Загрузите полную конфигурацию в формате JSON."
+
+#: templates/__edit_config.html:209 templates/edit_config.html:215
+msgid "Download configuration"
+msgstr "Скачать конфигурацию"
+
+#: templates/__edit_config.html:213 templates/edit_config.html:219
+msgid "Configuration uploading"
+msgstr "Загрузка конфигурации"
+
+#: templates/__edit_config.html:214 templates/edit_config.html:220
+msgid "Load configuration from JSON file (existing data will be overwritten)"
+msgstr ""
+"Загрузить конфигурацию из файла JSON (существующие данные будут "
+"перезаписаны)"
+
+#: templates/__edit_config.html:221 templates/dashboard.html:42
+#: templates/edit_config.html:227
+msgid "Upload configuration"
+msgstr "Загрузить конфигурацию"
+
+#: templates/__edit_config.html:232 templates/client/section.html:14
+#: templates/edit_config.html:238
+msgid "Sections"
+msgstr "Разделы"
+
+#: templates/__edit_config.html:234 templates/__edit_config.html:840
+#: templates/__edit_config.html:1210 templates/edit_config.html:240
+#: templates/edit_config.html:951 templates/edit_config.html:1311
+msgid "Add section"
+msgstr "Добавить раздел"
+
+#: templates/__edit_config.html:241 templates/__edit_config.html:848
+#: templates/admin_user_detail.html:57 templates/edit_config.html:247
+#: templates/edit_config.html:959
+msgid "ID"
+msgstr "Имя(ID)"
+
+#: templates/__edit_config.html:242 templates/edit_config.html:248
+msgid "Title"
+msgstr "Заголовок"
+
+#: templates/__edit_config.html:243 templates/__edit_config.html:309
+#: templates/__edit_config.html:532 templates/__edit_config.html:603
+#: templates/__edit_config.html:695 templates/__edit_config.html:696
+#: templates/__edit_config.html:784 templates/admin_dashboard.html:58
+#: templates/edit_class.html:305 templates/edit_class.html:363
+#: templates/edit_class.html:364 templates/edit_class.html:541
+#: templates/edit_config.html:249 templates/edit_config.html:315
+#: templates/edit_config.html:538 templates/edit_config.html:609
+#: templates/edit_config.html:659 templates/edit_config.html:769
+#: templates/edit_config.html:770 templates/edit_config.html:862
+msgid "Actions"
+msgstr "Действия"
+
+#: templates/__edit_config.html:254 templates/__edit_config.html:319
+#: templates/__edit_config.html:545 templates/__edit_config.html:615
+#: templates/__edit_config.html:721 templates/dashboard.html:57
+#: templates/edit_class.html:326 templates/edit_class.html:391
+#: templates/edit_config.html:260 templates/edit_config.html:325
+#: templates/edit_config.html:551 templates/edit_config.html:621
+#: templates/edit_config.html:729 templates/edit_config.html:795
+msgid "Edit"
+msgstr "Редактировать"
+
+#: templates/__edit_config.html:259 templates/__edit_config.html:322
+#: templates/__edit_config.html:483 templates/__edit_config.html:550
+#: templates/__edit_config.html:620 templates/__edit_config.html:729
+#: templates/client/index.html:32 templates/client/node.html:27
+#: templates/client/node_form.html:76 templates/client/repos.html:184
+#: templates/dashboard.html:67 templates/dashboard.html:125
+#: templates/edit_class.html:20 templates/edit_class.html:331
+#: templates/edit_class.html:398 templates/edit_config.html:265
+#: templates/edit_config.html:328 templates/edit_config.html:489
+#: templates/edit_config.html:556 templates/edit_config.html:626
+#: templates/edit_config.html:685 templates/edit_config.html:733
+#: templates/edit_config.html:803 templates/rooms.html:43
+#: templates/users_manage.html:64
+msgid "Delete"
+msgstr "Удалить"
+
+#: templates/__edit_config.html:275 templates/edit_config.html:281
+msgid "Add class"
+msgstr "Добавить класс"
+
+#: templates/__edit_config.html:283 templates/edit_class.html:69
+#: templates/edit_config.html:289
+msgid "Class name"
+msgstr "Имя класса"
+
+#: templates/__edit_config.html:286 templates/edit_class.html:73
+#: templates/edit_config.html:292
+msgid ""
+"A class name must begin with a letter or underscore and contain only "
+"letters, numbers, and underscores."
+msgstr ""
+"Имя класса должно начинаться с буквы или подчеркивания и содержать только"
+" буквы, цифры и подчеркивания."
+
+#: templates/__edit_config.html:288 templates/edit_config.html:294
+msgid "Used to create a class in Python"
+msgstr "Используется для создания класса в Python"
+
+#: templates/__edit_config.html:295 templates/edit_config.html:301
+msgid "Create class"
+msgstr "Создать класс"
+
+#: templates/__edit_config.html:307 templates/__edit_config.html:852
+#: templates/admin_dashboard.html:55 templates/admin_user_detail.html:98
+#: templates/admin_user_detail.html:133 templates/edit_config.html:313
+#: templates/edit_config.html:963
+msgid "Name"
+msgstr "Имя"
+
+#: templates/__edit_config.html:308 templates/edit_config.html:314
+msgid "Methods count"
+msgstr "Количество методов"
+
+#: templates/__edit_config.html:337 templates/__edit_config.html:428
+#: templates/edit_config.html:343 templates/edit_config.html:434
+msgid "Handlers upload"
+msgstr "Импорт обработчиков"
+
+#: templates/__edit_config.html:340 templates/__edit_config.html:431
+#: templates/edit_config.html:346 templates/edit_config.html:437
+msgid "Code editor"
+msgstr "Редактор кода"
+
+#: templates/__edit_config.html:349 templates/edit_config.html:355
+msgid "Upload handlers"
+msgstr "Загрузить обработчики"
+
+#: templates/__edit_config.html:354 templates/edit_config.html:360
+msgid "Upload py-file"
+msgstr "Загрузите py-файл"
+
+#: templates/__edit_config.html:357 templates/edit_config.html:363
+msgid "GitHub link"
+msgstr "Ссылка на GitHub"
+
+#: templates/__edit_config.html:367 templates/edit_config.html:373
+msgid "Select py-file :"
+msgstr "Выберите py-файл:"
+
+#: templates/__edit_config.html:370 templates/__edit_config.html:380
+#: templates/__edit_config.html:460 templates/__edit_config.html:470
+#: templates/edit_config.html:376 templates/edit_config.html:386
+#: templates/edit_config.html:466 templates/edit_config.html:476
+msgid "Upload"
+msgstr "Загрузить"
+
+#: templates/__edit_config.html:377 templates/__edit_config.html:467
+#: templates/edit_config.html:383 templates/edit_config.html:473
+msgid "GitHub raw URL:"
+msgstr "Необработанный URL-адрес GitHub:"
+
+#: templates/__edit_config.html:388 templates/__edit_config.html:479
+#: templates/edit_config.html:394 templates/edit_config.html:485
+msgid "Download file"
+msgstr "Скачать файл"
+
+#: templates/__edit_config.html:392 templates/edit_config.html:398
+msgid "Delete handlers code"
+msgstr "Удалить код обработчиков"
+
+#: templates/__edit_config.html:405 templates/edit_config.html:411
+msgid "Edit handlers code"
+msgstr "Редактировать код обработчиков"
+
+#: templates/__edit_config.html:415 templates/edit_config.html:421
+msgid "No handlers code added"
+msgstr "Код обработчиков не добавлен"
+
+#: templates/__edit_config.html:440 templates/edit_config.html:446
+msgid "Upload handlers code"
+msgstr "Загрузить код обработчиков"
+
+#: templates/__edit_config.html:445 templates/edit_config.html:451
+msgid "Upload file"
+msgstr "Загрузить файл"
+
+#: templates/__edit_config.html:448 templates/edit_config.html:454
+msgid "GitHab link"
+msgstr "Ссылка на GitHub"
+
+#: templates/__edit_config.html:457 templates/edit_config.html:463
+msgid "Select py-file"
+msgstr "Выберите py-файл"
+
+#: templates/__edit_config.html:496 templates/edit_config.html:502
+msgid "Server handlers code editior"
+msgstr "Редактор кода обработчиков сервера"
+
+#: templates/__edit_config.html:506 templates/edit_config.html:512
+msgid "No added handlers"
+msgstr "Нет добавленных обработчиков"
+
+#: templates/__edit_config.html:521 templates/__edit_config.html:920
+#: templates/__edit_config.html:1128 templates/edit_config.html:527
+#: templates/edit_config.html:1021 templates/edit_config.html:1229
+msgid "Add dataset"
+msgstr "Добавить датасет"
+
+#: templates/__edit_config.html:528 templates/__edit_config.html:930
+#: templates/edit_config.html:534 templates/edit_config.html:1031
+msgid "Dataset name"
+msgstr "Имя датасета"
+
+#: templates/__edit_config.html:529 templates/__edit_config.html:934
+#: templates/edit_config.html:535 templates/edit_config.html:1035
+msgid "Hash-indexes"
+msgstr "Хэш-индексы"
+
+#: templates/__edit_config.html:530 templates/__edit_config.html:939
+#: templates/edit_config.html:536 templates/edit_config.html:1040
+msgid "Text-indexes"
+msgstr "Текстовые индексы"
+
+#: templates/__edit_config.html:531 templates/edit_config.html:537
+msgid "Records count"
+msgstr "Количество записей"
+
+#: templates/__edit_config.html:559 templates/edit_config.html:565
+msgid "API for working with datasets"
+msgstr "API для работы с датасетами"
+
+#: templates/__edit_config.html:562 templates/edit_config.html:568
+msgid "Adding/updating records"
+msgstr "Добавление/обновление записей"
+
+#: templates/__edit_config.html:571 templates/edit_config.html:577
+msgid "Getting all records"
+msgstr "Получение всех записей"
+
+#: templates/__edit_config.html:574 templates/edit_config.html:580
+msgid "Delete all records"
+msgstr "Удаление всех записей"
+
+#: templates/__edit_config.html:577 templates/edit_config.html:583
+msgid "Delete one record"
+msgstr "Удалить одну запись"
+
+#: templates/__edit_config.html:593 templates/__edit_config.html:808
+#: templates/edit_config.html:599 templates/edit_config.html:886
+msgid "Add server"
+msgstr "Добавить сервер"
+
+#: templates/__edit_config.html:600 templates/__edit_config.html:814
+#: templates/edit_config.html:606 templates/edit_config.html:656
+#: templates/edit_config.html:892 templates/edit_config.html:925
+msgid "Alias"
+msgstr "Псевдоним"
+
+#: templates/__edit_config.html:602 templates/__edit_config.html:824
+#: templates/edit_config.html:608 templates/edit_config.html:902
+msgid "By default"
+msgstr "По умолчанию"
+
+#: templates/__edit_config.html:685 templates/__edit_config.html:758
+#: templates/edit_config.html:759 templates/edit_config.html:832
+msgid "Add common event"
+msgstr "Добавить общее событие"
+
+#: templates/__edit_config.html:693 templates/edit_class.html:361
+#: templates/edit_config.html:767
+msgid "Event"
+msgstr "Событие"
+
+#: templates/__edit_config.html:694 templates/__edit_config.html:779
+#: templates/edit_config.html:768 templates/edit_config.html:857
+msgid "Listener"
+msgstr "Зарегистрироваться"
+
+#: templates/__edit_config.html:739 templates/edit_config.html:813
+msgid "No common events added"
+msgstr "События не добавлены"
+
+#: templates/__edit_config.html:767 templates/edit_class.html:524
+#: templates/edit_config.html:841
+msgid "Event type"
+msgstr "Тип события"
+
+#: templates/__edit_config.html:780 templates/edit_class.html:537
+#: templates/edit_config.html:858
+msgid "Listener name (optional)"
+msgstr "Имя слушателя (необязательно)"
+
+#: templates/__edit_config.html:788 templates/edit_class.html:545
+#: templates/edit_config.html:866
+msgid "Add action"
+msgstr "Добавить действие"
+
+#: templates/__edit_config.html:794 templates/__edit_config.html:863
+#: templates/__edit_config.html:954 templates/dashboard.html:161
+#: templates/edit_class.html:458 templates/edit_class.html:502
+#: templates/edit_class.html:551 templates/edit_config.html:872
+#: templates/edit_config.html:974 templates/edit_config.html:1008
+#: templates/edit_config.html:1055
+msgid "Cancel"
+msgstr "Отмена"
+
+#: templates/__edit_config.html:856 templates/edit_class.html:190
+#: templates/edit_class.html:193 templates/edit_config.html:967
+msgid "Commands"
+msgstr "Команды"
+
+#: templates/__edit_config.html:858 templates/__edit_config.html:859
+#: templates/edit_config.html:969 templates/edit_config.html:970
+msgid "Enter commands in the format Title|Variable"
+msgstr "Введите команды в формате Название|Переменная."
+
+#: templates/__edit_config.html:936 templates/edit_config.html:1037
+msgid "Fields for exact search separated by commas"
+msgstr "Поля для точного поиска, разделенные запятыми"
+
+#: templates/__edit_config.html:941 templates/edit_config.html:1042
+msgid "Full-text search fields (comma separated)"
+msgstr "Поля полнотекстового поиска (через запятую)"
+
+#: templates/__edit_config.html:944 templates/edit_config.html:1045
+msgid "Record template"
+msgstr "Шаблон записи"
+
+#: templates/__edit_config.html:946 templates/edit_config.html:1047
+#, python-brace-format
+msgid ""
+"HTML template for displaying dataset element in input fields. For "
+"example: {name} , {_id}"
+msgstr ""
+"HTML-шаблон для отображения элемента датасета в полях ввода.Например: "
+"{имя}, {_id}"
+
+#: templates/__edit_config.html:950 templates/edit_config.html:1051
+msgid "Autoload?*"
+msgstr "Автозагрузка? *"
+
+#: templates/__edit_config.html:1144 templates/edit_config.html:1245
+msgid "Edit dataset"
+msgstr "Редактировать датасет"
+
+#: templates/__edit_config.html:1228 templates/__edit_config.html:1240
+#: templates/edit_config.html:1329 templates/edit_config.html:1341
+msgid "Edit section"
+msgstr "Редактировать раздел"
+
+#: templates/__edit_config.html:1450 templates/__edit_config.html:1841
+#: templates/edit_config.html:1551
+msgid "Put alias and ULR"
+msgstr "Поставьте псевдоним и ULR"
+
+#: templates/__edit_config.html:1577 templates/__edit_config.html:1584
+#: templates/edit_config.html:1678 templates/edit_config.html:1685
+msgid "none"
+msgstr "нет"
+
+#: templates/__edit_config.html:1597 templates/edit_class.html:996
+#: templates/edit_config.html:1698
+msgid "server alias"
+msgstr "псевдоним сервера"
+
+#: templates/admin_dashboard.html:5
+msgid "Admin dashboard"
+msgstr "Панель администрирования"
+
+#: templates/admin_dashboard.html:13
+msgid "Total users"
+msgstr "Всего пользователей"
+
+#: templates/admin_dashboard.html:21
+msgid "Active users"
+msgstr "Активные пользователи"
+
+#: templates/admin_dashboard.html:29
+msgid "Total devices"
+msgstr "Устройства"
+
+#: templates/admin_dashboard.html:37
+msgid "Active devices"
+msgstr "Устройства"
+
+#: templates/admin_dashboard.html:46 templates/dashboard.html:37
+#: templates/users_manage.html:6
+msgid "Users"
+msgstr "Пользователи"
+
+#: templates/admin_dashboard.html:56
+msgid "Qty devices"
+msgstr "Количество устройств"
+
+#: templates/admin_dashboard.html:57 templates/admin_user_detail.html:21
+#: templates/room_detail.html:73
+msgid "Status"
+msgstr "Статус"
+
+#: templates/admin_dashboard.html:76 templates/admin_user_detail.html:23
+msgid "Active"
+msgstr "Активный"
+
+#: templates/admin_dashboard.html:78
+msgid "Unactive"
+msgstr "Активный"
+
+#: templates/admin_dashboard.html:83
+msgid "More"
+msgstr "Больше"
+
+#: templates/admin_user_detail.html:6
+msgid "User details"
+msgstr "Свойства польователя"
+
+#: templates/admin_user_detail.html:7 templates/client/node.html:7
+#: templates/client/settings.html:6 templates/edit_profile.html:30
+#: templates/users_manage.html:7
+msgid "Back"
+msgstr "Назад"
+
+#: templates/admin_user_detail.html:15
+msgid "Summary"
+msgstr "Общее"
+
+#: templates/admin_user_detail.html:20
+msgid "Name "
+msgstr "Имя"
+
+#: templates/admin_user_detail.html:25
+msgid "Inactive"
+msgstr "Активный"
+
+#: templates/admin_user_detail.html:35
+msgid "Statistics"
+msgstr "Статистика"
+
+#: templates/admin_user_detail.html:38
+msgid "Qty. devices"
+msgstr "Устройства"
+
+#: templates/admin_user_detail.html:39
+msgid "Configs"
+msgstr "Конфигурации"
+
+#: templates/admin_user_detail.html:40 templates/admin_user_detail.html:125
+#: templates/edit_config.html:63 templates/edit_config.html:643
+msgid "Rooms"
+msgstr "Rooms"
+
+#: templates/admin_user_detail.html:49 templates/edit_profile.html:40
+msgid "Devices"
+msgstr "Устройства"
+
+#: templates/admin_user_detail.html:58 templates/edit_profile.html:45
+msgid "Model"
+msgstr "Модель"
+
+#: templates/admin_user_detail.html:59
+msgid "Last connection"
+msgstr "Последнее соединение"
+
+#: templates/admin_user_detail.html:60 templates/edit_profile.html:47
+msgid "Token"
+msgstr "Токен"
+
+#: templates/admin_user_detail.html:82
+msgid "User not have devices"
+msgstr "У пользователя нет устройств"
+
+#: templates/admin_user_detail.html:90
+msgid "User configurations"
+msgstr "Конфигурации пользователя"
+
+#: templates/admin_user_detail.html:101
+msgid "Last update"
+msgstr "Последнее обновление"
+
+#: templates/admin_user_detail.html:117
+msgid "User not have configurations"
+msgstr "У пользователя нет конфигураций"
+
+#: templates/admin_user_detail.html:135
+msgid "created"
+msgstr "создан"
+
+#: templates/admin_user_detail.html:150
+msgid "User not have rooms"
+msgstr "У вас еще нет комнат"
+
+#: templates/base.html:32 templates/client/base.html:23
+msgid "Mode"
+msgstr "Режим"
+
+#: templates/base.html:33
+msgid "Client"
+msgstr "Клиент"
+
+#: templates/base.html:39 templates/client/base.html:37 templates/rooms.html:9
+msgid "Logout"
+msgstr "Выход"
+
+#: templates/base.html:45 templates/client/settings.html:24
+msgid "Language"
+msgstr "Язык"
+
+#: templates/choose_mode.html:21
+msgid ""
+"        Your account does not have access to web interfaces. \n"
+"        If you need access to Client or Designer, ask your administrator "
+"for permission."
+msgstr ""
+
+#: templates/dashboard.html:32
+msgid "Create configuration"
+msgstr "Создать конфигурацию"
+
+#: templates/dashboard.html:75
+msgid "You dont have any configurations yet."
+msgstr "У вас пока нет конфигураций."
+
+#: templates/dashboard.html:84 templates/dashboard.html:90
+msgid "Create room"
+msgstr "Создать комнату"
+
+#: templates/dashboard.html:89
+msgid "Room name"
+msgstr "Название комнаты"
+
+#: templates/dashboard.html:96
+msgid "Create debug room"
+msgstr "Создать комнату отладки"
+
+#: templates/dashboard.html:108
+msgid "Created "
+msgstr "Созданный"
+
+#: templates/dashboard.html:111
+msgid "Debug room"
+msgstr "Комната отладки"
+
+#: templates/dashboard.html:111
+msgid "debug"
+msgstr "отлаживать"
+
+#: templates/dashboard.html:114
+msgid "Debug"
+msgstr "Отлаживать"
+
+#: templates/dashboard.html:119 templates/rooms.html:38
+msgid "Open"
+msgstr "Открыть"
+
+#: templates/dashboard.html:124 templates/rooms.html:42
+msgid "Delete room"
+msgstr "Удалить комнату"
+
+#: templates/dashboard.html:133
+msgid "You dont have any rooms yet."
+msgstr "У вас пока нет комнат."
+
+#: templates/dashboard.html:147
+msgid "Import configuration"
+msgstr "Импортировать конфигурацию"
+
+#: templates/dashboard.html:153
+msgid "Select configuration file (*.nod)"
+msgstr "Выберите файл конфигурации"
+
+#: templates/dashboard.html:157
+msgid ""
+"Configuration will be created or updated based on UID from the file. All "
+"data including handlers, classes, datasets will be imported."
+msgstr ""
+
+#: templates/dashboard.html:162
+msgid "Import"
+msgstr ""
+
+#: templates/edit_class.html:9
+msgid "Configuration"
+msgstr "Конфигурация"
+
+#: templates/edit_class.html:10
+msgid "Edit class"
+msgstr "Изменить класс"
+
+#: templates/edit_class.html:31
+msgid "General Settings"
+msgstr "Общие настройки"
+
+#: templates/edit_class.html:39
+msgid "Display"
+msgstr "Отображение"
+
+#: templates/edit_class.html:46
+msgid "API"
+msgstr ""
+
+#: templates/edit_class.html:53
+msgid "Migration"
+msgstr "Миграция"
+
+#: templates/edit_class.html:78
+msgid "The class name cannot be changed after creation"
+msgstr "Имя класса нельзя изменить после создания."
+
+#: templates/edit_class.html:80
+msgid ""
+"Used to create a class in Python. Must begin with a letter or underscore "
+"and contain only letters, numbers, and underscores."
+msgstr ""
+"Используется для создания класса в Python.Должно начинаться с буквы или "
+"подчеркивания и содержать только буквы, цифры и подчеркивания."
+
+#: templates/edit_class.html:88
+msgid "Hidden class"
+msgstr "Скрытый класс"
+
+#: templates/edit_class.html:89
+msgid "Hide class from user interface"
+msgstr "Скрыть класс из пользовательского интерфейса"
+
+#: templates/edit_class.html:95
+msgid "Autosave to _data"
+msgstr "Автосохранение в _data"
+
+#: templates/edit_class.html:99
+msgid "Class type"
+msgstr "Тип класса"
+
+#: templates/edit_class.html:101 templates/edit_class.html:112
+msgid "-- Not specified --"
+msgstr "-- Не указан --"
+
+#: templates/edit_class.html:102
+msgid "Custom process"
+msgstr "Пользовательский процесс"
+
+#: templates/edit_class.html:103
+msgid "Data node"
+msgstr "Узел данных"
+
+#: templates/edit_class.html:104
+msgid "User task"
+msgstr "Задача пользователя"
+
+#: templates/edit_class.html:105
+msgid "Background task"
+msgstr "Фоновая задача"
+
+#: templates/edit_class.html:110
+msgid "Section code"
+msgstr "Код раздела"
+
+#: templates/edit_class.html:125
+msgid "Display name"
+msgstr "Отображаемое имя"
+
+#: templates/edit_class.html:128
+msgid "Human-readable class name, can contain any characters."
+msgstr "Понятное для человека имя класса, может содержать любые символы."
+
+#: templates/edit_class.html:132
+msgid "Cover"
+msgstr "Обложка"
+
+#: templates/edit_class.html:139
+msgid "JSON markup for the node cover"
+msgstr "Разметка JSON для обложки узла"
+
+#: templates/edit_class.html:141
+#, python-brace-format
+msgid ""
+"JSON markup. For example: "
+"[[{\"type\":\"Text\",\"value\":\"@ctitle\",\"bold\":true}],[{\"type\":\"Text\",\"value\":\"@cbody\"}]]"
+msgstr ""
+"JSON-разметка.Например: "
+"[[{\"type\":\"Text\",\"value\":\"@ctitle\",\"bold\":true}],[{\"type\":\"Text\",\"value\":\"@cbody\"}]]"
+
+#: templates/edit_class.html:146
+msgid "Special cover for web client"
+msgstr ""
+
+#: templates/edit_class.html:154
+msgid "Stored in API as display_image_web"
+msgstr ""
+
+#: templates/edit_class.html:158
+msgid "Cover for table"
+msgstr ""
+
+#: templates/edit_class.html:161
+msgid "Stored in API as display_image_table"
+msgstr ""
+
+#: templates/edit_class.html:165
+msgid "Init screen layout"
+msgstr ""
+
+#: templates/edit_class.html:174
+msgid "Use"
+msgstr ""
+
+#: templates/edit_class.html:185
+msgid "^layout_id (from Common Markup) or JSON layout directly"
+msgstr "^layout_id (из  Общей разметки) or JSON-разметка непосредственно"
+
+#: templates/edit_class.html:196
+msgid "Hint: Header|key"
+msgstr "Пример: Заголовок|ключ"
+
+#: templates/edit_class.html:202
+msgid "Use standard commands"
+msgstr "Использовать стандартные комманды"
+
+#: templates/edit_class.html:206
+msgid "SVG commands"
+msgstr "SVG для rjvvfyl"
+
+#: templates/edit_class.html:209
+msgid "Hint: \"key\"|\"svg\""
+msgstr ""
+
+#: templates/edit_class.html:217
+msgid "API endpoints for working with nodes of this class"
+msgstr "API для работы с узлами класса"
+
+#: templates/edit_class.html:238
+msgid "Registration command"
+msgstr "Команда Регистрация"
+
+#: templates/edit_class.html:239
+msgid "Show the Register button in standard node commands."
+msgstr "Показать команду Регистрация"
+
+#: templates/edit_class.html:245
+msgid "Register on save"
+msgstr "Зарегистрировать в комнате при сохранении"
+
+#: templates/edit_class.html:246
+msgid "After saving the node, register in the default room."
+msgstr "При сохранении, зарегистрировать в текущей комнате узла"
+
+#: templates/edit_class.html:250
+msgid "Default room alias"
+msgstr "Определить псевдоним комнаты"
+
+#: templates/edit_class.html:260
+msgid ""
+"The class stores an alias. The alias → room_uid mapping is set in the "
+"configuration (section \"Rooms\")."
+msgstr ""
+
+#: templates/edit_class.html:278
+msgid "Methods"
+msgstr "Методы"
+
+#: templates/edit_class.html:283
+msgid "Events"
+msgstr "События"
+
+#: templates/edit_class.html:293 templates/edit_class.html:421
+msgid "Add method"
+msgstr "Добавить метод"
+
+#: templates/edit_class.html:303 templates/edit_class.html:427
+#: templates/edit_class.html:477
+msgid "Method name"
+msgstr "Имя метода"
+
+#: templates/edit_class.html:304 templates/edit_class.html:433
+#: templates/edit_class.html:483
+msgid "Engine/Language"
+msgstr "Двигатель/Язык"
+
+#: templates/edit_class.html:330
+msgid "Delete method"
+msgstr "Удалить метод"
+
+#: templates/edit_class.html:342
+msgid "No methods added"
+msgstr "Методы не добавлены"
+
+#: templates/edit_class.html:351 templates/edit_class.html:733
+msgid "Add event"
+msgstr "Добавить событие"
+
+#: templates/edit_class.html:410
+msgid "No events added"
+msgstr "События не добавлены"
+
+#: templates/edit_class.html:441 templates/edit_class.html:492
+msgid "Method body"
+msgstr "Тело метода"
+
+#: templates/edit_class.html:448
+msgid "Node instance"
+msgstr "Экземпляр узла"
+
+#: templates/edit_class.html:449
+msgid "Input data"
+msgstr "Входные данные"
+
+#: templates/edit_class.html:451
+msgid "Place your code here"
+msgstr "Разместите свой код здесь"
+
+#: templates/client/index.html:13 templates/edit_class.html:459
+#: templates/edit_config.html:708
+msgid "Add"
+msgstr "Добавлять"
+
+#: templates/edit_class.html:471
+msgid "Edit method"
+msgstr "Изменить метод"
+
+#: templates/edit_class.html:515 templates/edit_class.html:719
+msgid "Edit event"
+msgstr "Редактировать событие"
+
+#: templates/edit_class.html:1087
+msgid "Adding/updating nodes"
+msgstr "Добавление/обновление записей"
+
+#: templates/edit_class.html:1096
+msgid "Get all nodes"
+msgstr "Получение всех записей"
+
+#: templates/edit_class.html:1099
+msgid "Register all nodes in room for mobile devices"
+msgstr ""
+
+#: templates/edit_class.html:1102
+msgid "Register specific nodes in room for mobile devices"
+msgstr ""
+
+#: templates/edit_class.html:1111
+msgid "Working with specific node"
+msgstr ""
+
+#: templates/edit_class.html:1112
+msgid "Get specific node"
+msgstr "Получить конкретный узел"
+
+#: templates/edit_class.html:1113
+msgid "Update _data in specific node"
+msgstr "Обновить данные в конкретном узле"
+
+#: templates/edit_class.html:1114
+msgid "Delete specific node"
+msgstr "Удалить выбранный узел"
+
+#: templates/edit_class.html:1116
+msgid "Execute node method"
+msgstr "Выполнить метод узла"
+
+#: templates/edit_class.html:1125
+msgid "Execute method on remote device via WebSocket"
+msgstr "Выполнить метод на удаленном устройстве через WebSocket"
+
+#: templates/edit_class.html:1128
+msgid "Get remote method execution result"
+msgstr "Получить результат выполнения удаленного метода"
+
+#: templates/edit_config.html:75
+msgid "Common layouts"
+msgstr "Общая разметка"
+
+#: templates/edit_config.html:122
+msgid "Generate laout only"
+msgstr "Генерировать только разметку"
+
+#: templates/edit_config.html:645 templates/edit_config.html:919
+msgid "Add alias"
+msgstr "Добавить комнату"
+
+#: templates/edit_config.html:650
+msgid ""
+"Here you can set room aliases. An alias is selected in the class "
+"(Migration tab), and upon registration it is resolved to room_uid."
+msgstr "Здесь можно задать псевдонимы комнат. Псевдоним выбирается в классе."
+
+#: templates/edit_config.html:657 templates/edit_config.html:929
+#: templates/room_detail.html:7
+msgid "Room"
+msgstr "Комната"
+
+#: templates/edit_config.html:692
+msgid "There are no aliases yet"
+msgstr "Пока нет псевдонимов"
+
+#: templates/edit_config.html:704 templates/edit_config.html:989
+msgid "Common layout"
+msgstr "Общая разметка"
+
+#: templates/edit_profile.html:7
+msgid "Edit Profile"
+msgstr "Редактировать профиль"
+
+#: templates/edit_profile.html:11 templates/index.html:28
+#: templates/index.html:41
+msgid "Email"
+msgstr "Электронная почта"
+
+#: templates/edit_profile.html:17
+msgid "Configuration Display Name"
+msgstr "Отображаемое имя конфигурации"
+
+#: templates/edit_profile.html:23
+msgid "New Password"
+msgstr "Новый пароль"
+
+#: templates/edit_profile.html:25
+msgid "Leave blank if you do not want to change password"
+msgstr "Оставьте пустым, если не хотите менять пароль"
+
+#: templates/edit_profile.html:44
+msgid "Android ID"
+msgstr "Идентификатор Android"
+
+#: templates/edit_profile.html:46
+msgid "Last Connection"
+msgstr "Последнее соединение"
+
+#: templates/edit_profile.html:64
+msgid "No registered devices"
+msgstr "Нет зарегистрированных устройств"
+
+#: templates/client/base.html:39 templates/index.html:11
+#: templates/index.html:33
+msgid "Login"
+msgstr "Авторизоваться"
+
+#: templates/client/node_form.html:72 templates/index.html:16
+#: templates/index.html:46
+msgid "Register"
+msgstr "Зарегистрироваться"
+
+#: templates/index.html:31 templates/index.html:44
+#: templates/users_manage.html:20
+msgid "Password"
+msgstr "Пароль"
+
+#: templates/room_detail.html:8
+msgid "UID"
+msgstr "UID"
+
+#: templates/room_detail.html:12
+msgid "To Main"
+msgstr "На главную"
+
+#: templates/room_detail.html:21
+msgid "Room Connection"
+msgstr "Соединение номеров"
+
+#: templates/room_detail.html:28
+msgid "WebSocket URL"
+msgstr "URL-адрес веб-сокета"
+
+#: templates/room_detail.html:33
+msgid "Copy"
+msgstr "Копировать"
+
+#: templates/room_detail.html:38
+msgid "Connection status"
+msgstr "Статус подключения"
+
+#: templates/room_detail.html:39
+msgid "Not connected"
+msgstr "Не подключено"
+
+#: templates/room_detail.html:44
+msgid "Scan QR code to connect"
+msgstr "Сканируйте QR-код для подключения"
+
+#: templates/room_detail.html:56
+msgid "Connected Users"
+msgstr "Подключеные пользователи"
+
+#: templates/client/section.html:29 templates/room_detail.html:61
+msgid "Refresh"
+msgstr "Обновить"
+
+#: templates/room_detail.html:71
+msgid "User"
+msgstr "Пользователь"
+
+#: templates/room_detail.html:72
+msgid "Connection Time"
+msgstr "Время соедеинения"
+
+#: templates/room_detail.html:80 templates/room_detail.html:171
+msgid "No connected users"
+msgstr "Нет подключенных пользователей"
+
+#: templates/room_detail.html:88
+msgid "Total connected users"
+msgstr "Всего подключено"
+
+#: templates/room_detail.html:105
+msgid "Connecting"
+msgstr "Подключение"
+
+#: templates/room_detail.html:109 templates/room_detail.html:198
+msgid "Connected"
+msgstr "Подключено"
+
+#: templates/room_detail.html:149
+msgid "Disconnected"
+msgstr "Отключено"
+
+#: templates/room_detail.html:155
+msgid "Connection error"
+msgstr "Ошибка подключения"
+
+#: templates/room_detail.html:182
+msgid "Unknown"
+msgstr "Неизвестный"
+
+#: templates/room_detail.html:184
+msgid "Anonymous"
+msgstr ""
+
+#: templates/room_detail.html:242
+msgid "Copied"
+msgstr "Скопировано"
+
+#: templates/rooms.html:6 templates/rooms.html:29
+msgid "My Rooms"
+msgstr "Мои комнаты"
+
+#: templates/rooms.html:15
+msgid "Create New Room"
+msgstr "Создать новую комнату"
+
+#: templates/rooms.html:20
+msgid "Room Name"
+msgstr "Название комнаты"
+
+#: templates/rooms.html:23 templates/users_manage.html:44
+msgid "Create"
+msgstr "Создавать"
+
+#: templates/rooms.html:50
+msgid "You have no rooms yet"
+msgstr "У вас еще нет комнат"
+
+#: templates/users_manage.html:11
+msgid "Create user"
+msgstr "Создать пользователя"
+
+#: templates/users_manage.html:24
+msgid "Access"
+msgstr ""
+
+#: templates/users_manage.html:34
+msgid "Available configurations"
+msgstr "Доступные конфигурации"
+
+#: templates/users_manage.html:40
+msgid "Select the configurations you can use. The owner (you) always has access."
+msgstr "Выберите доступные вам настройки. Владелец (вы) всегда имеет доступ."
+
+#: templates/users_manage.html:51
+msgid "Your users"
+msgstr "Ваши пользователи"
+
+#: templates/users_manage.html:54
+msgid "No users yet"
+msgstr "Пока нет пользователей"
+
+#: templates/users_manage.html:71
+msgid "New password(optional)"
+msgstr "Новый пароль(необязательно)"
+
+#: templates/users_manage.html:75
+msgid "Accesses"
+msgstr "Доступы"
+
+#: templates/client/base.html:25
+msgid "Designer"
+msgstr "Конфигуратор"
+
+#: templates/client/base.html:28 templates/client/section.html:6
+msgid "Repo"
+msgstr "Репозиторий"
+
+#: templates/client/base.html:29 templates/client/settings.html:5
+msgid "Settings"
+msgstr "Настройки"
+
+#: templates/client/base.html:32 templates/client/repos.html:6
+msgid "Update configurations"
+msgstr "Обновить конфигурации"
+
+#: templates/client/base.html:36
+msgid "Profile"
+msgstr "Редактировать профиль"
+
+#: templates/client/index.html:37
+msgid "No configurations yet..."
+msgstr "Пока нет конфигураций"
+
+#: templates/client/node_form.html:19
+msgid "Back to list"
+msgstr "Назад к списку"
+
+#: templates/client/node_form.html:66
+msgid "Save and close"
+msgstr "Сохранить и закрыть"
+
+#: templates/client/node_form.html:77 templates/client/repos.html:79
+msgid "Close"
+msgstr "Классы"
+
+#: templates/client/repo.html:19
+msgid "Info"
+msgstr "Инфо"
+
+#: templates/client/repos.html:3
+msgid "User configurations (Repo)"
+msgstr "Пользовательские конфигураци"
+
+#: templates/client/repos.html:14
+msgid "Add from local server"
+msgstr "Добавить с локального сервера"
+
+#: templates/client/repos.html:20
+msgid "Add via link"
+msgstr "Добавить через ссылку"
+
+#: templates/client/repos.html:31
+msgid "Configuration link"
+msgstr "Ссылка конфигурации"
+
+#: templates/client/repos.html:39
+msgid "External URL. Under development."
+msgstr ""
+
+#: templates/client/repos.html:46
+msgid "Select configurations"
+msgstr "Изменить конфигурацию"
+
+#: templates/client/repos.html:49
+msgid "Adding the current database configuration to the repository."
+msgstr "Добавить конфигурацию в репозиторий"
+
+#: templates/client/repos.html:59
+msgid "Selecting the current server configuration"
+msgstr "Выбор конфигурации этого сервера"
+
+#: templates/client/repos.html:66
+msgid "Update"
+msgstr "Обновить"
+
+#: templates/client/repos.html:70
+msgid "Loading..."
+msgstr ""
+
+#: templates/client/repos.html:77
+msgid "Add selected"
+msgstr "Добавить выбранные"
+
+#: templates/client/repos.html:226
+msgid "No Configurations yet"
+msgstr "Пока нет конфигураций"
+
+#: templates/client/section.html:5
+msgid "No configurations added. Open the repository."
+msgstr "КОнфигурации не добавлены. Откройте репозиторий"
+
+#: templates/client/section.html:7
+msgid "and add a link to "
+msgstr "и добавьте конфигурацию "
+
+#: templates/client/section.html:33
+msgid "auto refresh"
+msgstr "Автообновление"
+
+#: templates/client/section.html:38
+msgid "Table"
+msgstr "Таблица"
+
+#: templates/client/section.html:39
+msgid "Grid"
+msgstr "Карточки"
+
+#: templates/client/section.html:328
+msgid "New"
+msgstr "Новый"
+
+#: templates/client/section.html:407
+msgid "Delete selected"
+msgstr "Удалить выбранные"
+
+#: templates/client/settings.html:11
+msgid "Interface language"
+msgstr "Язык интерфейса"
+
+#: templates/client/settings.html:34
+msgid "Barcode scanner"
+msgstr "Сканер штрихкода"
+
+#: templates/client/settings.html:36
+msgid "External utility"
+msgstr "Внешняя утилита"
+
+#: templates/client/settings.html:36
+msgid "starts a local WS-server, and the browser connects to it."
+msgstr "запускает локальный WS-сервер, и браузер коннектиться к ней"
+
+#: templates/client/settings.html:42
+msgid "Enable connection to scanner"
+msgstr "Включить соединение со сканером штрихкода"
+
+#: templates/client/settings.html:45
+msgid "URL WebSocket"
+msgstr "URL-адрес веб-сокета"
+
+#: templates/client/settings.html:47
+msgid "Example"
+msgstr "Пример"
+
+#: templates/client/settings.html:51
+msgid "Check connection"
+msgstr "Проверить соединение"
+
+#~ msgid ""
+#~ "\n"
+#~ "class {class_name}(Node):\n"
+#~ "    \"\"\"Class {class_name}\"\"\"\n"
+#~ "    \n"
+#~ "    def __init__(self, node_id=None, config_uid=None):\n"
+#~ "        super().__init__(node_id, config_uid)\n"
+#~ "        # Additional initialization for {class_name}\n"
+#~ msgstr ""
+#~ "класс {имя_класса}(Узел):\n"
+#~ "\"\"\"Класс {class_name}\"\"\"\n"
+#~ "\n"
+#~ "def __init__(self, node_id=None, config_uid=None):\n"
+#~ "super().__init__(node_id, config_uid)\n"
+#~ "# Дополнительная инициализация для {class_name}"
+
+#~ msgid "Doenload file"
+#~ msgstr "Скачать файл"
+
+#~ msgid "API Endpoints"
+#~ msgstr "Конечные точки API"
+
+#~ msgid "URL"
+#~ msgstr "URL-адрес"
+
+#~ msgid "Description"
+#~ msgstr "Описание"
+
+#~ msgid "Add tasks (JSON array)"
+#~ msgstr "Добавить задачи (массив JSON)"
+
+#~ msgid "Get available task"
+#~ msgstr "Получить доступную задачу"
+
+#~ msgid "Mark task as completed"
+#~ msgstr "Отметить задачу как выполненную"
+
+#~ msgid "Delete completed tasks"
+#~ msgstr "Удалить выполненные задачи"
+
+#~ msgid "Get task (automatically locks)"
+#~ msgstr "Получить задачу (автоматически блокируется)"
+
+#~ msgid "Tasks in room"
+#~ msgstr "Задачи в комнате"
+
+#~ msgid "Active only"
+#~ msgstr "Только активный"
+
+#~ msgid "Completed"
+#~ msgstr "Завершенный"
+
+#~ msgid "In progress"
+#~ msgstr "В ходе выполнения"
+
+#~ msgid "Available"
+#~ msgstr "Доступный"
+
+#~ msgid "Язык"
+#~ msgstr "Язык"
+
+#~ msgid ""
+#~ "В классе хранится псевдоним. Сопоставление "
+#~ "псевдонима и room_uid задается в "
+#~ "конфигурации (секция \"Rooms\")."
+#~ msgstr ""
+
