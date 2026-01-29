@@ -1,9 +1,12 @@
-from flask import Flask, render_template, redirect, url_for, request, flash, jsonify, abort
+from flask import Flask, render_template, redirect, url_for, request, flash, jsonify, abort, after_this_request
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+
+from collections import OrderedDict
 from werkzeug.security import generate_password_hash, check_password_hash
 import uuid
 from sqlalchemy import select, text
+import sqlalchemy as sa
 import base64
 import requests
 from urllib.parse import urlparse
@@ -24,6 +27,50 @@ import pytz
 from ast import parse, FunctionDef, fix_missing_locations
 import ast
 import inspect
+
+# ==================================================================
+# Handlers loading (server): file-first, DB blob fallback
+# Used to replace direct base64+exec blocks without changing endpoint logic.
+# ==================================================================
+def _handlers_file_path(config_uid: str) -> str:
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(root_dir, "Handlers", str(config_uid), "handlers.py")
+
+
+def _load_server_handlers_ns(config_uid, config):
+    """Return an isolated namespace with server node handlers.
+
+    Priority:
+      1) Handlers/<config_uid>/handlers.py (same as client approach)
+      2) config.nodes_server_handlers (base64 blob) as fallback
+    Returns an empty dict if nothing is available.
+    """
+    isolated_globals = {}
+
+    fp = _handlers_file_path(config_uid)
+    try:
+        if os.path.isfile(fp):
+            with open(fp, "r", encoding="utf-8") as f:
+                code = f.read()
+            compiled = compile(code, fp, "exec")
+            exec(compiled, isolated_globals)
+            return isolated_globals
+    except Exception:
+        # Keep old behavior: endpoints will fall back to DB blob (or 404)
+        pass
+
+    try:
+        if getattr(config, "nodes_server_handlers", None):
+            code = base64.b64decode(config.nodes_server_handlers).decode("utf-8")
+            compiled = compile(code, f"<db_handlers:{config_uid}>", "exec")
+            exec(compiled, isolated_globals)
+            return isolated_globals
+    except Exception:
+        # Keep old behavior: endpoints will handle errors as they did before
+        pass
+
+    return isolated_globals
+
 import base64
 from flask.json.provider import DefaultJSONProvider
 import os
@@ -35,19 +82,21 @@ from urllib.parse import parse_qs
 import logging
 from flask_babel import Babel, _,format_datetime,format_date
 import re
+from nodes import extract_internal_id 
+import nodes as _nodes_mod
+
+from extensions import db, login_manager
 
 
 
 logging.getLogger("geventwebsocket.handler").setLevel(logging.ERROR)
-
-
 import ast
 import inspect
 
 #******************************************************************
 #CHANGE IT WITH YOUR VALUES
 DEEPSEEK_API_KEY = 'YOUR_KEY'
-ADMIN_LOGIN = 'YOUR_KEY'
+ADMIN_LOGIN = 'YOUR_LOGIN'
 FLASK_SECRET= 'YOUR_KEY'
 #******************************************************************
 
@@ -63,7 +112,7 @@ NL_FORMAT = "1.1"
 
 
 NODE_CLASS_CODE = '''
-from nodes import Node
+from nodes import Node, message, Dialog, to_uid, from_uid
 '''
 
 NODE_CLASS_CODE_ANDROID = '''
@@ -95,8 +144,20 @@ def api_auth_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         auth = request.authorization
-        if not auth or not check_api_auth(auth.username, auth.password):
+        user = None
+        if auth:
+            user = check_api_auth(auth.username, auth.password)
+        if not user:
             return jsonify({'error': 'Unauthorized'}), 401
+
+        if not bool(getattr(user, 'can_api', False)):
+            return jsonify({'error': 'Forbidden'}), 403
+
+        cfg_uid = kwargs.get('config_uid') or kwargs.get('uid')
+        if cfg_uid and not user_can_access_config(user, str(cfg_uid)):
+            return jsonify({'error': 'Forbidden'}), 403
+
+        g.api_user = user
         return f(*args, **kwargs)
     return decorated_function
 
@@ -107,8 +168,29 @@ def check_api_auth(username, password):
     ).scalar_one_or_none()
     
     if user and check_password_hash(user.password, password):
+        return user
+    return None
+
+
+def user_can_access_config(user: 'User', config_uid: str) -> bool:
+    """Config is accessible if user owns it or it is explicitly shared to them."""
+    if not user or not config_uid:
+        return False
+    cfg = db.session.execute(
+        select(Configuration).where(Configuration.uid == str(config_uid))
+    ).scalar_one_or_none()
+    if not cfg:
+        return False
+    if cfg.user_id == user.id:
         return True
-    return False
+    return bool(
+        db.session.execute(
+            select(UserConfigAccess).where(
+                UserConfigAccess.user_id == user.id,
+                UserConfigAccess.config_id == cfg.id,
+            )
+        ).scalar_one_or_none()
+    )
 
 def extract_method_body_from_code(module_code, class_name, method_name):
     
@@ -593,14 +675,63 @@ def get_timezone():
 app = Flask(__name__)
 app.config['BABEL_DEFAULT_LOCALE'] = 'en'
 
+# -----------------------------------------------------------------------------
+# UI template snippets (used in multiple editors)
+# -----------------------------------------------------------------------------
+
+UI_COMPONENT_TEMPLATES = OrderedDict([
+    ('Text', '{"type":"Text","value":"my text"}'),
+    ('Text(tag)', '{"type":"Text","value":"my text","radius":10,"background":"#F54927"}'),
+    ('Picture', '{"type":"Picture","value":""}'),
+    ('Button', '{"type":"Button","id":"btn_update","caption":"Simple button"}'),
+    ('Switch', '{"type":"Switch","caption":"Setting 1","id":"sw1","value":"@sw1"}'),
+    ('CheckBox', '{"type":"CheckBox","caption":"My checkbox","id":"cb1","value":"@cb1"}'),
+    ('Input', '{"type":"Input","caption":"My input","id":"my_input1","input_type":"","value":"@my_input1"}'),
+    ('Table', '{"type":"Table","id":"my_table","value":[]}'),
+    ('Tabs', '{"type":"Tabs","value":[{"type":"Tab","id":"tab1","caption":"My tab1","layout":[]}]}'),
+    ('DatasetField', '{"type":"DatasetField","dataset":"","value":""}'),
+])
+
+
+def get_ui_component_templates():
+    """Return (buttons, map) for UI component templates used by editors."""
+    buttons = [{'key': k, 'label': k} for k in UI_COMPONENT_TEMPLATES.keys()]
+    return buttons, dict(UI_COMPONENT_TEMPLATES)
+
 
 sockets = Sockets(app)
 
 
+@app.before_request
+def _enforce_web_access_modes():
+    """Restrict Designer (server UI) for users without can_designer.
+
+    Client UI is handled in client_app blueprint.
+    API uses basic auth decorators.
+    """
+    if not getattr(current_user, "is_authenticated", False):
+        return
+
+    # allow landing / mode switch / logout
+    if request.endpoint in {"index", "logout", "choose_mode", "static"}:
+        return
+
+    # allow API routes (their own auth)
+    if (request.path or "").startswith("/api/"):
+        return
+
+    # allow client blueprint routes (blueprint has its own guard)
+    if (request.path or "").startswith("/client"):
+        return
+
+    # everything else is Designer/Server UI
+    if not bool(getattr(current_user, "can_designer", False)):
+        abort(403)
+
+
 LANGUAGES = {
     'en': 'English', 
-    'ru': 'Русский',
-    'de': 'Deutsch'
+    'ru': 'Русский'
 }
 
 def get_locale():
@@ -675,8 +806,109 @@ app.json = CustomJSONProvider(app)
 
 active_connections = defaultdict(dict)
 
+#Node client
+
+# Node browser WebSocket connections (separate channel from Rooms)
+# Each item: {"ws": ws, "config_uid": str, "classes": set[str] | None}
+node_ws_connections = []
+
+def _cleanup_node_ws():
+    """Remove closed/broken node WS connections."""
+    global node_ws_connections
+    alive = []
+    for c in node_ws_connections:
+        ws = c.get("ws")
+        try:
+            if ws is not None and not ws.closed:
+                alive.append(c)
+        except Exception:
+            pass
+    node_ws_connections = alive
+
+def broadcast_node_change(config_uid: str, class_name: str, node_id: str | None = None, event: str = "changed"):
+    """Broadcast a lightweight invalidation event to all subscribed node browser clients."""
+    _cleanup_node_ws()
+    payload = {
+        "type": f"node.{event}",   # node.created / node.updated / node.deleted
+        "config_uid": config_uid,
+        "class": class_name,
+        "id": node_id,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+
+    dead = []
+    for c in node_ws_connections:
+        ws = c.get("ws")
+        if ws is None:
+            dead.append(c)
+            continue
+
+        # subscription filter
+        sub_cfg = c.get("config_uid")
+        sub_classes = c.get("classes")  # None -> all
+        if sub_cfg and sub_cfg != config_uid:
+            continue
+        if sub_classes is not None and class_name not in sub_classes:
+            continue
+
+        try:
+            ws.send(json.dumps(payload))
+        except Exception:
+            dead.append(c)
+
+    if dead:
+        node_ws_connections[:] = [c for c in node_ws_connections if c not in dead]
+
+def handle_nodes_websocket(ws):
+    """
+    WebSocket channel for node browser.
+    Client sends:
+      {"type":"subscribe","config_uid":"...","classes":["A","B"]}  (classes optional)
+    Server sends:
+      {"type":"node.updated|node.created|node.deleted", ...}
+    """
+    subscription = {"ws": ws, "config_uid": None, "classes": None}
+    node_ws_connections.append(subscription)
+
+    while not ws.closed:
+        try:
+            msg = ws.receive()
+            if msg is None:
+                break
+            data = json.loads(msg) if isinstance(msg, str) else msg
+            mtype = data.get("type")
+
+            if mtype == "subscribe":
+                subscription["config_uid"] = data.get("config_uid")
+                classes = data.get("classes")
+                if classes is None:
+                    subscription["classes"] = None
+                else:
+                    subscription["classes"] = set(classes)
+
+                ws.send(json.dumps({
+                    "type": "subscribed",
+                    "config_uid": subscription["config_uid"],
+                    "classes": list(subscription["classes"]) if subscription["classes"] is not None else None
+                }))
+
+            elif mtype == "ping":
+                ws.send(json.dumps({"type": "pong"}))
+        except Exception:
+            break
+
+    _cleanup_node_ws()
+
+
+
 app.config['SECRET_KEY'] = FLASK_SECRET
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///db.sqlite'
+
+app.config['SQLALCHEMY_BINDS'] = {
+    # stored near db.sqlite by default
+    'client': 'sqlite:///client.sqlite',
+}
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
 app.config['USER_TIMEZONE'] = 'Europe/Moscow'
@@ -685,9 +917,303 @@ app.config['JSON_AS_ASCII'] = False
 
 TASKS_DB_PATH = 'tasks.db'
 
-db = SQLAlchemy(app)
-login_manager = LoginManager(app)
+db.init_app(app)
+login_manager.init_app(app)
 login_manager.login_view = 'index'
+
+
+# ---------------------------------------------------------------
+# Lightweight SQLite schema migration
+#
+# The project doesn't use Alembic. When we add new SQLAlchemy columns,
+# existing sqlite DB files won't have them and the app can crash even on
+# simple SELECTs (because SQLAlchemy selects all mapped columns).
+#
+# To keep upgrades zero-touch, we add missing columns with ALTER TABLE
+# at startup, before any queries happen.
+
+def _ensure_sqlite_schema():
+    """
+    Lightweight SQLite schema migration without Alembic.
+
+    IMPORTANT:
+    - db.create_all() does NOT add missing columns on SQLite.
+    - SQLAlchemy selects all mapped columns; if a column is missing -> crash on SELECT.
+    - This function must run BEFORE any queries.
+    """
+    try:
+        inspector = sa.inspect(db.engine)
+    except Exception as e:
+        print("Could not create inspector:", e)
+        return
+
+    # 1) Ensure base tables exist (creates missing tables only)
+    try:
+        db.create_all()
+    except Exception as e:
+        print("Could not create_all:", e)
+
+    # Client bind tables (optional)
+    try:
+        db.create_all(bind="client")
+    except Exception:
+        pass
+
+    def _table_exists(name: str) -> bool:
+        try:
+            return name in inspector.get_table_names()
+        except Exception:
+            return False
+
+    def _get_cols(table: str) -> set[str]:
+        try:
+            return {c["name"] for c in inspector.get_columns(table)}
+        except Exception:
+            return set()
+
+    def _add_col(table: str, col_sql: str, col_name: str):
+        # refresh cols lazily
+        cols = _get_cols(table)
+        if col_name in cols:
+            return
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(sa.text(f"ALTER TABLE {table} ADD COLUMN {col_sql}"))
+            print(f"Migration: {table} add column {col_name}")
+        except Exception as e:
+            print(f"Could not add column {table}.{col_name}:", e)
+
+    def _create_index(sql: str, label: str):
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(sa.text(sql))
+            print(f"Migration: {label}")
+        except Exception as e:
+            # indexes may already exist; keep silent-ish
+            print(f"Could not create index ({label}):", e)
+
+    # ------------------------------------------------------------
+    # user table migrations
+    # ------------------------------------------------------------
+    if _table_exists("user"):
+        ucols = _get_cols("user")
+        if "config_display_name" not in ucols:
+            _add_col("user", 'config_display_name VARCHAR(100) DEFAULT ""', "config_display_name")
+
+        # Backward compatible defaults: existing users keep access
+        if "can_designer" not in ucols:
+            _add_col("user", "can_designer BOOLEAN DEFAULT TRUE", "can_designer")
+        if "can_client" not in ucols:
+            _add_col("user", "can_client BOOLEAN DEFAULT TRUE", "can_client")
+        if "can_api" not in ucols:
+            _add_col("user", "can_api BOOLEAN DEFAULT TRUE", "can_api")
+        if "parent_user_id" not in ucols:
+            _add_col("user", "parent_user_id INTEGER", "parent_user_id")
+
+    # ------------------------------------------------------------
+    # config_section migrations
+    # ------------------------------------------------------------
+    if _table_exists("config_section"):
+        scols = _get_cols("config_section")
+        if "commands" not in scols:
+            _add_col("config_section", "commands TEXT", "commands")
+
+    # ------------------------------------------------------------
+    # dataset migrations
+    # ------------------------------------------------------------
+    if _table_exists("dataset"):
+        dcols = _get_cols("dataset")
+        if "view_template" not in dcols:
+            _add_col("dataset", "view_template TEXT", "view_template")
+        if "autoload" not in dcols:
+            _add_col("dataset", "autoload BOOLEAN DEFAULT FALSE", "autoload")
+
+    # ------------------------------------------------------------
+    # configuration migrations
+    # ------------------------------------------------------------
+    if _table_exists("configuration"):
+        ccols = _get_cols("configuration")
+
+        if "content_uid" not in ccols:
+            _add_col("configuration", "content_uid VARCHAR(100)", "content_uid")
+        if "vendor" not in ccols:
+            _add_col("configuration", "vendor TEXT", "vendor")
+
+        # common_layouts JSON
+        if "common_layouts" not in ccols:
+            _add_col("configuration", "common_layouts JSON", "common_layouts")
+
+        if "user_id" not in ccols:
+            _add_col("configuration", "user_id INTEGER", "user_id")
+            # best-effort fill for old rows
+            try:
+                first_user = db.session.execute(select(User)).scalar()
+                if first_user:
+                    with db.engine.begin() as conn:
+                        conn.execute(
+                            sa.text("UPDATE configuration SET user_id = :uid WHERE user_id IS NULL"),
+                            {"uid": first_user.id},
+                        )
+                _create_index(
+                    "CREATE INDEX IF NOT EXISTS ix_configuration_user_id ON configuration (user_id)",
+                    "configuration.user_id index",
+                )
+            except Exception as e:
+                print("Could not backfill configuration.user_id:", e)
+
+        if "server_name" not in ccols:
+            _add_col("configuration", 'server_name VARCHAR(100) DEFAULT ""', "server_name")
+
+        if "nodes_handlers" not in ccols:
+            _add_col("configuration", "nodes_handlers TEXT", "nodes_handlers")
+        if "nodes_handlers_meta" not in ccols:
+            _add_col("configuration", "nodes_handlers_meta JSON", "nodes_handlers_meta")
+
+        if "nodes_server_handlers" not in ccols:
+            _add_col("configuration", "nodes_server_handlers TEXT", "nodes_server_handlers")
+        if "nodes_server_handlers_meta" not in ccols:
+            _add_col("configuration", "nodes_server_handlers_meta JSON", "nodes_server_handlers_meta")
+
+        if "version" not in ccols:
+            _add_col("configuration", 'version VARCHAR(20) DEFAULT "00.00.01"', "version")
+
+        if "last_modified" not in ccols:
+            _add_col("configuration", "last_modified DATETIME", "last_modified")
+            # fill nulls
+            try:
+                with db.engine.begin() as conn:
+                    conn.execute(sa.text(
+                        "UPDATE configuration SET last_modified = CURRENT_TIMESTAMP "
+                        "WHERE last_modified IS NULL"
+                    ))
+            except Exception as e:
+                print("Could not backfill configuration.last_modified:", e)
+
+        # best-effort normalize existing rows (content_uid/vendor)
+        try:
+            for cfg in Configuration.query.all():
+                if not getattr(cfg, "content_uid", None):
+                    cfg.content_uid = str(uuid.uuid4())
+                if not getattr(cfg, "vendor", None):
+                    # keep existing behavior
+                    cfg.vendor = (cfg.user.config_display_name or cfg.user.email) if cfg.user else ""
+            db.session.commit()
+        except Exception as e:
+            print("Could not normalize configuration rows:", e)
+            db.session.rollback()
+
+    # ------------------------------------------------------------
+    # config_class migrations (this is where your crash came from)
+    # ------------------------------------------------------------
+    if _table_exists("config_class"):
+        cols = _get_cols("config_class")
+
+        # legacy / structural fields
+        if "has_storage" not in cols:
+            _add_col("config_class", "has_storage BOOLEAN DEFAULT FALSE", "has_storage")
+        if "class_type" not in cols:
+            _add_col("config_class", "class_type VARCHAR(50)", "class_type")
+        if "hidden" not in cols:
+            _add_col("config_class", "hidden BOOLEAN DEFAULT FALSE", "hidden")
+
+        if "section" not in cols:
+            _add_col("config_class", "section VARCHAR(100)", "section")
+        if "section_code" not in cols:
+            _add_col("config_class", "section_code VARCHAR(100)", "section_code")
+
+        if "display_name" not in cols:
+            _add_col("config_class", "display_name VARCHAR(100)", "display_name")
+        if "cover_image" not in cols:
+            _add_col("config_class", "cover_image TEXT", "cover_image")
+
+        # JSON/events column
+        if "events" not in cols:
+            _add_col("config_class", "events TEXT", "events")
+
+        # display/layout fields
+        if "display_image_web" not in cols:
+            _add_col("config_class", 'display_image_web TEXT DEFAULT ""', "display_image_web")
+        if "display_image_table" not in cols:
+            _add_col("config_class", 'display_image_table TEXT DEFAULT ""', "display_image_table")
+        if "init_screen_layout" not in cols:
+            _add_col("config_class", 'init_screen_layout TEXT DEFAULT ""', "init_screen_layout")
+
+        # commands UI fields
+        if "commands" not in cols:
+            _add_col("config_class", 'commands TEXT DEFAULT ""', "commands")
+        if "use_standard_commands" not in cols:
+            _add_col("config_class", "use_standard_commands BOOLEAN DEFAULT TRUE", "use_standard_commands")
+        if "svg_commands" not in cols:
+            _add_col("config_class", 'svg_commands TEXT DEFAULT ""', "svg_commands")
+
+        # Migration tab fields
+        if "migration_register_command" not in cols:
+            _add_col("config_class", "migration_register_command BOOLEAN DEFAULT 0", "migration_register_command")
+        if "migration_register_on_save" not in cols:
+            _add_col("config_class", "migration_register_on_save BOOLEAN DEFAULT 0", "migration_register_on_save")
+        if "migration_default_room_uid" not in cols:
+            _add_col("config_class", 'migration_default_room_uid VARCHAR(36) DEFAULT ""', "migration_default_room_uid")
+        if "migration_default_room_alias" not in cols:
+            _add_col("config_class", 'migration_default_room_alias VARCHAR(100) DEFAULT ""', "migration_default_room_alias")
+
+    # ------------------------------------------------------------
+    # class_method migrations
+    # ------------------------------------------------------------
+    if _table_exists("class_method"):
+        mcols = _get_cols("class_method")
+        if "source" not in mcols:
+            _add_col("class_method", 'source VARCHAR(100) DEFAULT "internal"', "source")
+        if "server" not in mcols:
+            _add_col("class_method", 'server VARCHAR(255) DEFAULT "internal"', "server")
+
+    # ------------------------------------------------------------
+    # room_objects migrations
+    # ------------------------------------------------------------
+    if _table_exists("room_objects"):
+        rocols = _get_cols("room_objects")
+        if "acknowledged_by" not in rocols:
+            _add_col("room_objects", 'acknowledged_by JSON DEFAULT "[]"', "acknowledged_by")
+
+    # ------------------------------------------------------------
+    # config_event / config_event_action migrations (tables might be missing on old DB)
+    # ------------------------------------------------------------
+    # ensure tables exist
+    try:
+        if not _table_exists("config_event") or not _table_exists("config_event_action"):
+            db.create_all()
+    except Exception as e:
+        print("Could not ensure config_event tables:", e)
+
+    if _table_exists("config_event"):
+        ecol = _get_cols("config_event")
+        if "config_id" not in ecol:
+            _add_col("config_event", "config_id INTEGER", "config_id")
+            _create_index(
+                "CREATE INDEX IF NOT EXISTS ix_config_event_config_id ON config_event (config_id)",
+                "config_event.config_id index",
+            )
+
+    if _table_exists("config_event_action"):
+        eacols = _get_cols("config_event_action")
+        if "event_id" not in eacols:
+            _add_col("config_event_action", "event_id INTEGER", "event_id")
+            _create_index(
+                "CREATE INDEX IF NOT EXISTS ix_config_event_action_event_id ON config_event_action (event_id)",
+                "config_event_action.event_id index",
+            )
+
+# Run schema check immediately on import (works for `flask run` too)
+try:
+    with app.app_context():
+        _ensure_sqlite_schema()
+except Exception as _e:
+    print('SQLite schema ensure skipped:', _e)
+
+try:
+    from client_app.routes import client_bp
+    app.register_blueprint(client_bp)
+except Exception as _e:
+    print('Client blueprint not loaded:', _e)
 
 
 class Dataset(db.Model):
@@ -726,13 +1252,54 @@ class Room(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
 
+
+class RoomAlias(db.Model):
+    """Room aliases bound to a configuration.
+
+    Used by the web-client migration/registration commands.
+    Stores mapping: alias -> Room.uid
+    """
+
+    __tablename__ = 'room_alias'
+
+    id = db.Column(db.Integer, primary_key=True)
+    alias = db.Column(db.String(100), nullable=False)
+    room_uid = db.Column(db.String(36), nullable=False, default="")
+
+    config_id = db.Column(db.Integer, db.ForeignKey('configuration.id', ondelete='CASCADE'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+
+    __table_args__ = (
+        db.UniqueConstraint('config_id', 'alias', name='uq_room_alias_config_alias'),
+        db.Index('idx_room_alias_config', 'config_id'),
+    )
+
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(100), unique=True)
     password = db.Column(db.String(100))
     config_display_name = db.Column(db.String(100), default="")
 
+    # Access flags
+    can_designer = db.Column(db.Boolean, default=False)  # Configurator/Designer
+    can_client = db.Column(db.Boolean, default=False)    # Web Client
+    can_api = db.Column(db.Boolean, default=False)       # HTTP API (basic auth)
+
+    # User who created/owns this account ("admin" scope)
+    parent_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    parent_user = db.relationship('User', remote_side=[id], backref=db.backref('children', lazy=True))
+
     configurations = db.relationship('Configuration', backref='user', lazy=True)
+
+
+class UserConfigAccess(db.Model):
+    __tablename__ = 'user_config_access'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
+    config_id = db.Column(db.Integer, db.ForeignKey('configuration.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    user = db.relationship('User', backref=db.backref('config_access', cascade='all, delete-orphan', lazy=True))
+    config = db.relationship('Configuration', backref=db.backref('user_access', cascade='all, delete-orphan', lazy=True))
 
 class UserDevice(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -814,7 +1381,9 @@ class Configuration(db.Model):
     datasets = db.relationship('Dataset', backref='config', cascade='all, delete-orphan')
     sections = db.relationship('ConfigSection', backref='config', cascade='all, delete-orphan')
     servers = db.relationship('Server', backref='config', cascade='all, delete-orphan')
+    room_aliases = db.relationship('RoomAlias', backref='config', cascade='all, delete-orphan')
     config_events = db.relationship('ConfigEvent', backref='config', cascade='all, delete-orphan')
+    common_layouts = db.Column(db.JSON, default=list)
     
     def update_last_modified(self):
         self.last_modified = datetime.now()
@@ -848,6 +1417,24 @@ class ConfigClass(db.Model):
     events = db.Column(db.JSON, default={})
     hidden = db.Column(db.Boolean, default=False)
     event_objs = db.relationship('ClassEvent', backref='class_obj', cascade='all, delete-orphan')
+    # Display-related images / layouts
+    display_image_web = db.Column(db.Text, default="")
+    display_image_table = db.Column(db.Text, default="")
+    init_screen_layout = db.Column(db.Text, default="")
+
+    # Commands UI (string formats described in UI hints)
+    commands = db.Column(db.Text, default="")
+    use_standard_commands = db.Column(db.Boolean, default=True)
+    svg_commands = db.Column(db.Text, default="")
+
+    # Migration / registration helpers (used by web-client)
+    migration_register_command = db.Column(db.Boolean, default=False)
+    migration_register_on_save = db.Column(db.Boolean, default=False)
+    # Stores Room.uid (string)
+    migration_default_room_uid = db.Column(db.String(36), default="")
+    # Stores RoomAlias.alias (string)
+    migration_default_room_alias = db.Column(db.String(100), default="")
+    
 
 class ClassMethod(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -1074,10 +1661,151 @@ def b64decode_filter(s):
             return _("# Decoding error:")+ str(e)
     return ""
 
+@app.route('/choose-mode')
+@login_required
+def choose_mode():
+    return render_template('choose_mode.html')
+
+
+@app.route('/users', methods=['GET'])
+@login_required
+def users_manage():
+    # only Designer accounts can manage users
+    if not bool(getattr(current_user, 'can_designer', False)):
+        abort(403)
+
+    # users created under current_user
+    users = db.session.execute(
+        select(User).where(User.parent_user_id == current_user.id).order_by(User.email)
+    ).scalars().all()
+
+    # configs owned by current_user (only these can be shared)
+    cfgs = db.session.execute(
+        select(Configuration).where(Configuration.user_id == current_user.id).order_by(Configuration.name)
+    ).scalars().all()
+
+    # map: user_id -> set(config_id)
+    access_map = {}
+    for u in users:
+        ids = set()
+        for a in (u.config_access or []):
+            try:
+                ids.add(int(a.config_id))
+            except Exception:
+                pass
+        access_map[u.id] = ids
+
+    return render_template('users_manage.html', users=users, configs=cfgs, access_map=access_map)
+
+
+@app.route('/users/create', methods=['POST'])
+@login_required
+def users_create():
+    if not bool(getattr(current_user, 'can_designer', False)):
+        abort(403)
+
+    email = (request.form.get('email') or '').strip()
+    password = (request.form.get('password') or '').strip()
+    if not email or not password:
+        flash('Email и пароль обязательны', 'error')
+        return redirect(url_for('users_manage'))
+
+    exists = db.session.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if exists:
+        flash('Такой email уже существует', 'error')
+        return redirect(url_for('users_manage'))
+
+    u = User(
+        email=email,
+        password=generate_password_hash(password),
+        parent_user_id=current_user.id,
+        can_designer=bool(request.form.get('can_designer')),
+        can_client=bool(request.form.get('can_client')),
+        can_api=bool(request.form.get('can_api')),
+    )
+    db.session.add(u)
+    db.session.commit()
+
+    # config access (only configs owned by current_user)
+    cfg_ids = request.form.getlist('config_ids')
+    owned_cfgs = db.session.execute(select(Configuration.id).where(Configuration.user_id == current_user.id)).scalars().all()
+    owned_set = set(int(x) for x in owned_cfgs)
+    for cid in cfg_ids:
+        try:
+            icid = int(cid)
+        except Exception:
+            continue
+        if icid not in owned_set:
+            continue
+        db.session.add(UserConfigAccess(user_id=u.id, config_id=icid))
+    db.session.commit()
+
+    flash('Пользователь создан', 'success')
+    return redirect(url_for('users_manage'))
+
+
+@app.route('/users/<int:user_id>/update', methods=['POST'])
+@login_required
+def users_update(user_id: int):
+    if not bool(getattr(current_user, 'can_designer', False)):
+        abort(403)
+
+    u = db.session.get(User, user_id)
+    if not u or u.parent_user_id != current_user.id:
+        abort(404)
+
+    u.can_designer = bool(request.form.get('can_designer'))
+    u.can_client = bool(request.form.get('can_client'))
+    u.can_api = bool(request.form.get('can_api'))
+
+    new_pwd = (request.form.get('password') or '').strip()
+    if new_pwd:
+        u.password = generate_password_hash(new_pwd)
+
+    # rewrite config access set
+    cfg_ids = request.form.getlist('config_ids')
+    owned_cfgs = db.session.execute(select(Configuration.id).where(Configuration.user_id == current_user.id)).scalars().all()
+    owned_set = set(int(x) for x in owned_cfgs)
+    wanted = set()
+    for cid in cfg_ids:
+        try:
+            icid = int(cid)
+        except Exception:
+            continue
+        if icid in owned_set:
+            wanted.add(icid)
+
+    # delete old
+    db.session.execute(
+        sa.delete(UserConfigAccess).where(UserConfigAccess.user_id == u.id)
+    )
+    db.session.commit()
+
+    for icid in sorted(wanted):
+        db.session.add(UserConfigAccess(user_id=u.id, config_id=icid))
+    db.session.commit()
+
+    flash('Права обновлены', 'success')
+    return redirect(url_for('users_manage'))
+
+
+@app.route('/users/<int:user_id>/delete', methods=['POST'])
+@login_required
+def users_delete(user_id: int):
+    if not bool(getattr(current_user, 'can_designer', False)):
+        abort(403)
+    u = db.session.get(User, user_id)
+    if not u or u.parent_user_id != current_user.id:
+        abort(404)
+    db.session.delete(u)
+    db.session.commit()
+    flash('Пользователь удален', 'success')
+    return redirect(url_for('users_manage'))
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('choose_mode'))
     
     if request.method == 'POST':
         form_type = request.form.get('form_type')
@@ -1091,7 +1819,7 @@ def index():
             
             if user and check_password_hash(user.password, password):
                 login_user(user)
-                return redirect(url_for('dashboard'))
+                return redirect(url_for('choose_mode'))
             flash(_('Invalid email or password'), 'error')
 
         elif form_type == 'register':
@@ -1105,12 +1833,15 @@ def index():
             else:
                 new_user = User(
                     email=email,
-                    password=generate_password_hash(password)
+                    password=generate_password_hash(password),
+                    can_designer=True,
+                    can_client=True,
+                    can_api=True,
                 )
                 db.session.add(new_user)
                 db.session.commit()
                 login_user(new_user)
-                return redirect(url_for('dashboard'))
+                return redirect(url_for('choose_mode'))
     
     return render_template('index.html')
 
@@ -1773,7 +2504,23 @@ def download_handlers(uid):
 #API
 @app.route('/api/config/<uid>')
 def get_config(uid):
-    import json
+    #import json
+    # Access control:
+    # - if basic auth provided: require can_api and config access
+    # - else if user logged in: require (can_client OR can_designer) and config access
+    #auth = request.authorization
+    #if auth:
+    #    user = check_api_auth(auth.username, auth.password)
+    #    if not user or not bool(getattr(user, 'can_api', False)) or not user_can_access_config(user, uid):
+    #        return jsonify({'error': 'Forbidden'}), 403
+    #else:
+    #    if not getattr(current_user, 'is_authenticated', False):
+    #        return jsonify({'error': 'Unauthorized'}), 401
+    #    if not (bool(getattr(current_user, 'can_client', False)) or bool(getattr(current_user, 'can_designer', False))):
+    #        return jsonify({'error': 'Forbidden'}), 403
+    #    if not user_can_access_config(current_user, uid) and not db.session.execute(select(Configuration).where(Configuration.uid==uid, Configuration.user_id==current_user.id)).scalar_one_or_none():
+    #        return jsonify({'error': 'Forbidden'}), 403
+
     config = db.session.execute(
         select(Configuration).where(Configuration.uid == uid)
     ).scalar_one_or_none()
@@ -1809,6 +2556,18 @@ def get_config(uid):
                 'has_storage': c.has_storage,
                 'display_name': c.display_name,
                 'cover_image': c.cover_image,
+                'display_image_web': getattr(c, 'display_image_web', '') or '',
+                'display_image_table': getattr(c, 'display_image_table', '') or '',
+                'init_screen_layout': getattr(c, 'init_screen_layout', '') or '',
+
+                'commands': getattr(c, 'commands', '') or '',
+                'use_standard_commands': bool(getattr(c, 'use_standard_commands', True)),
+                'svg_commands': getattr(c, 'svg_commands', '') or '',
+                # Migration tab
+                'migration_register_command': bool(getattr(c, 'migration_register_command', False)),
+                'migration_register_on_save': bool(getattr(c, 'migration_register_on_save', False)),
+                'migration_default_room_uid': getattr(c, 'migration_default_room_uid', '') or '',
+                'migration_default_room_alias': getattr(c, 'migration_default_room_alias', '') or '',
                 'class_type': c.class_type,
                 'hidden': c.hidden,
                 'methods': [{
@@ -1860,6 +2619,10 @@ def get_config(uid):
             {"alias": s.alias, "url": s.url, "is_default": s.is_default}
             for s in config.servers
         ],
+        "rooms": [
+            {"alias": ra.alias, "room_id": ra.room_uid}
+            for ra in (getattr(config, 'room_aliases', None) or [])
+        ],
         'CommonEvents': [
             {
                 'event': e.event,
@@ -1904,14 +2667,29 @@ def method_exists_in_code(module_code, class_name, method_name):
 def get_config_methods():
     config_uid = request.args.get('config_uid')
     config = Configuration.query.filter_by(uid=config_uid).first()
-    
+
     if not config:
         return jsonify({"methods": []})
-    
-    
-    methods = extract_functions_from_handlers(config.nodes_handlers)
-    
+
+    methods = []
+
+    # Android handlers
+    try:
+        methods.extend(extract_functions_from_handlers(getattr(config, "nodes_handlers", None)))
+    except Exception:
+        pass
+
+    # Server handlers (Handlers/<uid>/handlers.py)
+    try:
+        methods.extend(extract_functions_from_handlers(getattr(config, "nodes_server_handlers", None)))
+    except Exception:
+        pass
+
+    # unique + sorted
+    methods = sorted({m for m in methods if m})
+
     return jsonify({"methods": methods})
+
 
 
 @app.route('/config/<config_uid>/add-event', methods=['POST'])
@@ -2074,6 +2852,55 @@ def get_config_event_json():
 
 
 
+@app.route('/config/<config_uid>/common-layouts', methods=['POST'])
+@login_required
+def save_common_layouts(config_uid):
+    config = Configuration.query.filter_by(uid=config_uid).first()
+    if not config or config.user_id != current_user.id:
+        return jsonify({"status": "error", "message": "Configuration not found"}), 404
+
+    layouts = None
+
+    # preferred: JSON from fetch()
+    if request.is_json:
+        body = request.get_json(silent=True) or {}
+        layouts = body.get("common_layouts", None)
+
+    # fallback: form submit style
+    if layouts is None:
+        raw = request.form.get("common_layouts_json", "")
+        if raw:
+            try:
+                layouts = json.loads(raw)
+            except Exception:
+                layouts = None
+
+    if not isinstance(layouts, list):
+        return jsonify({"status": "error", "message": "common_layouts must be a list"}), 400
+
+    # minimal sanitize (same spirit as your other handlers: don't crash, keep stable)
+    cleaned = []
+    for it in layouts:
+        if not isinstance(it, dict):
+            continue
+        _id = str(it.get("id", "")).strip()
+        if not _id:
+            continue
+        cleaned.append({
+            "id": _id,
+            "layout": it.get("layout", [])
+        })
+
+    config.common_layouts = cleaned
+    db.session.commit()
+
+    return jsonify({
+        "status": "success",
+        "message": "CommonLayouts saved",
+        "redirect_url": url_for('edit_config', uid=config_uid, tab='common_layouts')
+    })
+
+
 def extract_functions_from_handlers(handlers_code):
     
     if not handlers_code:
@@ -2147,13 +2974,27 @@ def edit_config(uid):
             abort(404)    
     
     if request.method == 'POST':
+
+        raw = request.form.get("common_layouts_json", "")
+        if raw:
+            try:
+                config.common_layouts = json.loads(raw)
+            except Exception:
+                pass
         config.name = request.form.get('name')
         config.server_name = request.form.get('server_name')
         db.session.commit()
         flash(_('Configuration saved'), 'success')
         return redirect(url_for('dashboard'))
     
-    return render_template('edit_config.html', config=config, base64=base64)
+    rooms = Room.query.filter_by(user_id=current_user.id).order_by(Room.name.asc()).all()
+    ui_tpl_buttons, ui_tpl_map = get_ui_component_templates()
+    return render_template('edit_config.html',
+                           config=config,
+                           base64=base64,
+                           rooms=rooms,
+                           ui_tpl_buttons=ui_tpl_buttons,
+                           ui_tpl_map=ui_tpl_map)
 
 
 @app.route('/add-class/<config_uid>', methods=['POST'])
@@ -2262,8 +3103,26 @@ def edit_class(class_id):
     
     if request.method == 'POST':
         class_obj.name = request.form.get('name')
+        # Display tab
         class_obj.display_name = request.form.get('display_name')
         class_obj.cover_image = request.form.get('cover_image')
+        class_obj.display_image_web = request.form.get('display_image_web')
+        class_obj.display_image_table = request.form.get('display_image_table')
+        class_obj.init_screen_layout = request.form.get('init_screen_layout') or ""
+
+        # Commands tab/group
+        class_obj.commands = request.form.get('commands')
+        class_obj.use_standard_commands = 'use_standard_commands' in request.form
+        class_obj.svg_commands = request.form.get('svg_commands')
+
+        # Migration tab
+        class_obj.migration_register_command = 'migration_register_command' in request.form
+        class_obj.migration_register_on_save = 'migration_register_on_save' in request.form
+        class_obj.migration_default_room_alias = (request.form.get('migration_default_room_alias') or '').strip()
+        # Backward compatibility: keep old UID if it's still posted
+        if 'migration_default_room_uid' in request.form:
+            class_obj.migration_default_room_uid = (request.form.get('migration_default_room_uid') or '').strip()
+
         class_obj.has_storage = 'has_storage' in request.form
         class_obj.class_type = request.form.get('class_type')
         class_obj.hidden = 'hidden' in request.form 
@@ -2283,10 +3142,19 @@ def edit_class(class_id):
         flash(_('Class saved'), 'success')
         active_tab = request.form.get("active_tab", "config")
         return redirect(url_for('edit_config', uid=class_obj.config.uid, tab=active_tab))
-    
-    return render_template('edit_class.html', 
+
+    rooms = Room.query.filter_by(user_id=current_user.id).order_by(Room.name.asc()).all()
+    room_aliases = RoomAlias.query.filter_by(config_id=class_obj.config_id).order_by(RoomAlias.alias.asc()).all()
+
+    ui_tpl_buttons, ui_tpl_map = get_ui_component_templates()
+
+    return render_template('edit_class.html',
                          class_obj=class_obj,
-                         event_types=['onShow', 'onInput', 'onChange'])
+                         rooms=rooms,
+                         room_aliases=room_aliases,
+                         ui_tpl_buttons=ui_tpl_buttons,
+                         ui_tpl_map=ui_tpl_map,
+                         event_types=['onShow', 'onInput', 'onChange', 'onShowWeb', 'onInputWeb',"onAcceptServer"])
 
 
 @app.route('/add-method/<int:class_id>', methods=['POST'])
@@ -2724,6 +3592,33 @@ class {class_name}(Node):
     return redirect(url_for('edit_class', class_id=new_class.id, tab=active_tab))
 
 
+def _build_runtime_parsed_config(config: Configuration) -> dict:
+    """Build minimal parsed config dict needed for class events dispatch."""
+    classes = {}
+    try:
+        for c in (config.classes or []):
+            events = []
+            event_objs = getattr(c, "event_objs", None) or getattr(c, "events", None) or []
+            for e in (event_objs or []):
+                actions = []
+                for a in (getattr(e, "actions", None) or []):
+                    actions.append({
+                        "action": getattr(a, "action", ""),
+                        "source": getattr(a, "source", ""),
+                        "server": getattr(a, "server", None),
+                        "method": getattr(a, "method", ""),
+                        "postExecuteMethod": getattr(a, "post_execute_method", "") or getattr(a, "postExecuteMethod", ""),
+                    })
+                events.append({
+                    "event": getattr(e, "event", ""),
+                    "listener": getattr(e, "listener", "") or "",
+                    "actions": actions,
+                })
+            classes[getattr(c, "name", "")] = {"events": events}
+    except Exception:
+        pass
+    return {"classes": classes}
+
 @app.route('/api/config/<config_uid>/node/<class_name>/<node_id>/<method_name>', methods=['POST'])
 @api_auth_required
 def execute_node_method(config_uid, class_name, node_id, method_name):
@@ -2734,14 +3629,18 @@ def execute_node_method(config_uid, class_name, node_id, method_name):
     
     if not config:
         abort(404)
+    runtime_parsed = _build_runtime_parsed_config(config)
+    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed)
+
+    @after_this_request
+    def _reset_ctx(resp):
+        _nodes_mod.reset_runtime_context(_ctx_tokens)
+        return resp
+
     
     try:
-        if config.nodes_server_handlers:
-            handlers_code = base64.b64decode(config.nodes_server_handlers).decode('utf-8')
-            
-            # Create an isolated namespace
-            isolated_globals = {}
-            exec(handlers_code, isolated_globals)
+        if os.path.isfile(_handlers_file_path(config_uid)) or config.nodes_server_handlers:
+            isolated_globals = _load_server_handlers_ns(config_uid, config)
             
             # Check that the class exists and is a subclass of Node
             if (class_name in isolated_globals and 
@@ -2778,6 +3677,10 @@ def execute_node_method(config_uid, class_name, node_id, method_name):
                             'status': True,
                             'result': result
                         })
+                    except _nodes_mod.AcceptRejected as e:
+
+                        return jsonify({'status': False, 'data': e.payload}), 200
+
                     except Exception as e:
                         return jsonify({
                             'status': False,
@@ -2793,6 +3696,7 @@ def execute_node_method(config_uid, class_name, node_id, method_name):
                             if input_data:
                                 node._data_cache = input_data
                             result = node._save()
+
                             return jsonify({
                                 'status': result,
                                 'node': node.to_dict()
@@ -2800,11 +3704,12 @@ def execute_node_method(config_uid, class_name, node_id, method_name):
                         else:
                             result = getattr(node, method_name)(input_data)
                             if isinstance(result, tuple) and len(result) == 2:
+
                                 success, data = result
-                                return jsonify({
-                                    'status': success,
-                                    'data': data
-                                })
+                                if hasattr(node, "_ui_layout") and node._ui_layout is not None:
+                                    data["_ui_layout"] = node._ui_layout
+
+                                return jsonify({'status': success, 'data': data})
                             else:
                                 return jsonify(result)
                     except Exception as e:
@@ -2952,14 +3857,20 @@ def node_api(config_uid, class_name, node_id):
     
     if not config:
         abort(404)
+    runtime_parsed = _build_runtime_parsed_config(config)
+    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed)
+
+    @after_this_request
+    def _reset_ctx(resp):
+        _nodes_mod.reset_runtime_context(_ctx_tokens)
+        return resp
+
+
+    internal_id = extract_internal_id(node_id)    
     
     try:
-        if config.nodes_server_handlers:
-            handlers_code = base64.b64decode(config.nodes_server_handlers).decode('utf-8')
-            
-            # Create an isolated namespace
-            isolated_globals = {}
-            exec(handlers_code, isolated_globals)
+        if os.path.isfile(_handlers_file_path(config_uid)) or config.nodes_server_handlers:
+            isolated_globals = _load_server_handlers_ns(config_uid, config)
             
             # We check that the class exists and is a subclass of Node from this space
             if (class_name in isolated_globals and 
@@ -2969,26 +3880,35 @@ def node_api(config_uid, class_name, node_id):
                 node_class = isolated_globals[class_name]
                 
                 if request.method == 'GET':
-                    node = node_class.get(node_id, config_uid)
+                    node = node_class.get(internal_id , config_uid)
                     if node:
                         return jsonify(node.to_dict())
                     abort(404)
                 
                 elif request.method == 'PUT':
                     data = request.get_json()
-                    node = node_class(node_id, config_uid)
+                    node = node_class(internal_id , config_uid)
                     if data:
                         node.update_data(data)
+
+    
                     return jsonify(node.to_dict())
                 
                 elif request.method == 'DELETE':
-                    node = node_class.get(node_id, config_uid)
+                    node = node_class.get(internal_id , config_uid)
                     if node:
                         node.delete()
+
                         return jsonify({"status": "deleted"})
                     abort(404)
         
         abort(404)
+        
+    except _nodes_mod.AcceptRejected as e:
+
+        
+        return jsonify({'status': False, 'data': e.payload}), 200
+
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -3015,12 +3935,8 @@ def register_nodes(config_uid, class_name, room_uid):
                 # If the JSON is invalid, we assume that the body is empty.
                 node_ids = []
         
-        if config.nodes_server_handlers:
-            handlers_code = base64.b64decode(config.nodes_server_handlers).decode('utf-8')
-            
-            # Create an isolated namespace
-            isolated_globals = {}
-            exec(handlers_code, isolated_globals)
+        if os.path.isfile(_handlers_file_path(config_uid)) or config.nodes_server_handlers:
+            isolated_globals = _load_server_handlers_ns(config_uid, config)
             
             # Checking that the class exists
             if (class_name in isolated_globals and 
@@ -3037,7 +3953,9 @@ def register_nodes(config_uid, class_name, room_uid):
                         node = node_class.get(node_id, config_uid)
                         if node:
                             node_dict = node.to_dict()
-                            node_dict['_id'] = node_id
+                            #node_dict['_id'] = node_id
+                            node_dict = node.to_dict()
+                            node_dict['_id'] = node_dict.get('_data', {}).get('_id') or node_id
                             nodes_data.append(node_dict)
                     
                     message = f"Registered {len(nodes_data)} selected nodes"
@@ -3047,7 +3965,9 @@ def register_nodes(config_uid, class_name, room_uid):
                     nodes_data = []
                     for node_id, node in nodes.items():
                         node_dict = node.to_dict()
-                        node_dict['_id'] = node_id
+                        #node_dict['_id'] = node_id
+                        node_dict = node.to_dict()
+                        node_dict['_id'] = node_dict.get('_data', {}).get('_id') or node_id
                         nodes_data.append(node_dict)
                     
                     message = f"Registered all {len(nodes_data)} nodes"
@@ -3069,111 +3989,259 @@ def register_nodes(config_uid, class_name, room_uid):
 @api_auth_required
 def nodes_api(config_uid, class_name):
     """API for working with all class nodes"""
+    import nodes as _nodes_mod
+
     config = db.session.execute(
         select(Configuration).where(Configuration.uid == config_uid)
     ).scalar_one_or_none()
-    
+
     if not config:
         abort(404)
 
-    room_uid = request.args.get('room')  
+    # --- runtime context for onAcceptServer ---
+    runtime_parsed = _build_runtime_parsed_config(config)
+    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed)
 
-    if room_uid and request.method == 'POST':
-        # Processing through the room instead of direct creation
-        data = request.get_json() or {}
+    @after_this_request
+    def _reset_ctx(resp):
+        _nodes_mod.reset_runtime_context(_ctx_tokens)
+        return resp
 
-        if config.nodes_server_handlers:
-            try:
-                handlers_code = base64.b64decode(config.nodes_server_handlers).decode('utf-8')
-                isolated_globals = {}
-                exec(handlers_code, isolated_globals)
-                
-                if (class_name in isolated_globals and 
-                    hasattr(isolated_globals[class_name], '__bases__') and
-                    any(base.__name__ == 'Node' for base in isolated_globals[class_name].__bases__)):
-                    
-                    node_class = isolated_globals[class_name]
-                    created_nodes = []
-                    
-                    # Processing both an array and a single object
-                    objects_data = data if isinstance(data, list) else [data]
-                    
-                    for item_data in objects_data:
-                        node_id = item_data.get('_id') or str(uuid.uuid4())
-                        
-                        # Removing system fields from user data
-                        user_data = {k: v for k, v in item_data.items() if not k.startswith('_')}
-                        
-                        # CREATING A NODE ON THE SERVER
-                        node = node_class(node_id, config_uid)
-                        if user_data:
-                            node.update_data(user_data)
-                        
-                        created_nodes.append(node.to_dict())
+    room_uid = request.args.get('room')
 
-                        return handle_room_objects(config_uid, class_name, room_uid,data)  
-            except Exception as e:
-                return jsonify({"error": str(e)}), 500        
-        
-    
     try:
-        if config.nodes_server_handlers:
-            handlers_code = base64.b64decode(config.nodes_server_handlers).decode('utf-8')
-            
-            # Create an isolated namespace
-            isolated_globals = {}
-            exec(handlers_code, isolated_globals)
-            
-            # We check that the class exists and is a subclass of Node from this space
-            if (class_name in isolated_globals and 
-                hasattr(isolated_globals[class_name], '__bases__') and
-                any(base.__name__ == 'Node' for base in isolated_globals[class_name].__bases__)):
-                
-                node_class = isolated_globals[class_name]
-                
-                if request.method == 'GET':
-                    nodes = node_class.get_all(config_uid)
-                    result = {node_id: node.to_dict() for node_id, node in nodes.items()}
-                    return jsonify(result)
-                
-                elif request.method == 'POST':
-                    data = request.get_json() or {}
-                    
-                    # Supports both single object and array of objects
-                    if isinstance(data, list):
-                        # Processing an array of objects
-                        created_nodes = []
-                        for item_data in data:
-                            node_id = item_data.get('_id') or str(uuid.uuid4())
-                            
-                            # Removing system fields from user data
-                            user_data = {k: v for k, v in item_data.items() if not k.startswith('_')}
-                            
-                            node = node_class(node_id, config_uid)
-                            if user_data:
-                                node.update_data(user_data)
-                            
-                            created_nodes.append(node.to_dict())
-                        
-                        return jsonify(created_nodes), 201
-                    
-                    else:
-                        # Processing a single object (old logic)
-                        node_id = data.get('_id') or str(uuid.uuid4())
-                        
-                        # Removing system fields from user data
-                        user_data = {k: v for k, v in data.items() if not k.startswith('_')}
-                        
-                        node = node_class(node_id, config_uid)
-                        if user_data:
-                            node.update_data(user_data)
-                        
-                        return jsonify(node.to_dict()), 201
-        
+        # ============================================================
+        # ROOM MODE (special create path)
+        # ============================================================
+        if room_uid and request.method == 'POST':
+            data = request.get_json() or {}
+
+            if not (os.path.isfile(_handlers_file_path(config_uid)) or config.nodes_server_handlers):
+                abort(404)
+
+            isolated_globals = _load_server_handlers_ns(config_uid, config)
+
+            if (
+                class_name not in isolated_globals or
+                not hasattr(isolated_globals[class_name], '__bases__') or
+                not any(base.__name__ == 'Node'
+                        for base in isolated_globals[class_name].__bases__)
+            ):
+                abort(404)
+
+            node_class = isolated_globals[class_name]
+
+            objects_data = data if isinstance(data, list) else [data]
+
+            for item_data in objects_data:
+                raw_id = item_data.get('_id')
+                node_id = extract_internal_id(raw_id) if raw_id else str(uuid.uuid4())
+
+                user_data = dict(item_data)
+
+                node = node_class(node_id, config_uid)
+                if user_data:
+                    node.update_data(user_data)   # <-- AcceptRejected here
+
+            return handle_room_objects(config_uid, class_name, room_uid, data)
+
+        # ============================================================
+        # NORMAL MODE
+        # ============================================================
+        if not (os.path.isfile(_handlers_file_path(config_uid)) or config.nodes_server_handlers):
+            abort(404)
+
+        isolated_globals = _load_server_handlers_ns(config_uid, config)
+
+        if (
+            class_name not in isolated_globals or
+            not hasattr(isolated_globals[class_name], '__bases__') or
+            not any(base.__name__ == 'Node'
+                    for base in isolated_globals[class_name].__bases__)
+        ):
+            abort(404)
+
+        node_class = isolated_globals[class_name]
+
+        # ---------------- GET ----------------
+        if request.method == 'GET':
+            nodes = node_class.get_all(config_uid)
+            result = {node_id: node.to_dict() for node_id, node in nodes.items()}
+            return jsonify(result)
+
+        # ---------------- POST ----------------
+        if request.method == 'POST':
+            data = request.get_json() or {}
+
+            # ----- array -----
+            if isinstance(data, list):
+                created_nodes = []
+
+                for item_data in data:
+                    raw_id = item_data.get('_id')
+                    node_id = extract_internal_id(raw_id) if raw_id else str(uuid.uuid4())
+
+                    user_data = dict(item_data)
+
+                    node = node_class(node_id, config_uid)
+                    if user_data:
+                        node.update_data(user_data)   # <-- AcceptRejected here
+
+                    created_nodes.append(node.to_dict())
+
+                return jsonify(created_nodes), 201
+
+            # ----- single -----
+            raw_id = data.get('_id')
+            node_id = extract_internal_id(raw_id) if raw_id else str(uuid.uuid4())
+
+            user_data = dict(data)
+
+            node = node_class(node_id, config_uid)
+            if user_data:
+                node.update_data(user_data)   # <-- AcceptRejected here
+
+            return jsonify(node.to_dict()), 201
+
         abort(404)
-        
+
+    # ============================================================
+    # ACCEPT REJECT (EXPECTED BUSINESS ERROR)
+    # ============================================================
+    except _nodes_mod.AcceptRejected as e:
+        return jsonify({
+            'status': False,
+            'data': e.payload
+        }), 200
+
+    # ============================================================
+    # REAL ERROR
+    # ============================================================
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "error": str(e)
+        }), 500
+
+
+@app.route('/api/config/<config_uid>/node/<class_name>/page', methods=['GET'])
+@api_auth_required
+def nodes_api_page(config_uid, class_name):
+    """
+    Fast paged nodes list from sqlitedict storage (no exec, no Node instantiation).
+
+    Query:
+      offset (int), limit (int), q (str)
+    Sorting:
+      prefers _data._sort_string_desc, then _data._sort_string, else _id
+    Search:
+      if q -> substring search in _data values (stringified)
+    """
+    # validate config exists
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == config_uid)
+    ).scalar_one_or_none()
+    if not config:
+        abort(404)
+
+    import os, sqlite3, pickle
+
+    offset = int(request.args.get("offset", 0) or 0)
+    limit = int(request.args.get("limit", 50) or 50)
+    q = (request.args.get("q") or "").strip().lower()
+
+    storage_key = f"{class_name}_{config_uid}"
+    db_path = os.path.join("node_storage", f"{storage_key}.sqlite")
+    if not os.path.exists(db_path):
+        return jsonify({"total": 0, "offset": offset, "limit": limit, "items": []})
+
+    # sqlitedict default table name is "unnamed" unless specified
+    table = "unnamed"
+
+    def unpack(blob):
+        try:
+            return pickle.loads(blob)
+        except Exception:
+            return None
+
+    # FAST PATH: no search -> return page ordered by key, without scanning whole DB
+    # (Sorting by _sort_string would require unpickling everything anyway.)
+    if not q:
+        conn = sqlite3.connect(db_path)
+        try:
+            cur = conn.cursor()
+            # total count
+            cur.execute(f"SELECT COUNT(1) FROM {table}")
+            total = int(cur.fetchone()[0] or 0)
+
+            # page
+            cur.execute(
+                f"SELECT value FROM {table} ORDER BY key LIMIT ? OFFSET ?",
+                (limit, offset),
+            )
+            rows = cur.fetchall()
+
+            items = []
+            for (val_blob,) in rows:
+                obj = unpack(val_blob)
+                if obj is not None:
+                    items.append(obj)
+
+            return jsonify({"total": total, "offset": offset, "limit": limit, "items": items})
+        finally:
+            conn.close()
+
+    # SLOW PATH: q present -> scan + filter + sort (pickle prevents SQL filtering)
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(f"SELECT COUNT(1) FROM {table}")
+        total_all = int(cur.fetchone()[0] or 0)
+
+        cur.execute(f"SELECT value FROM {table}")
+        rows = cur.fetchall()
+
+        all_items = []
+        for (val_blob,) in rows:
+            obj = unpack(val_blob)
+            if obj is None:
+                continue
+            all_items.append(obj)
+
+        # filter by q
+        def match(item: dict) -> bool:
+            data = (item or {}).get("_data") or {}
+            for v in data.values():
+                try:
+                    if q in str(v).lower():
+                        return True
+                except Exception:
+                    pass
+            return False
+
+        filtered = [it for it in all_items if match(it)]
+
+        # sort
+        def sort_key(item: dict):
+            data = (item or {}).get("_data") or {}
+            if "_sort_string_desc" in data:
+                return str(data.get("_sort_string_desc") or "")
+            if "_sort_string" in data:
+                return str(data.get("_sort_string") or "")
+            return str((item or {}).get("_id") or "")
+
+        # if any item has _sort_string_desc -> sort descending
+        has_desc = any("_sort_string_desc" in ((it or {}).get("_data") or {}) for it in filtered)
+        filtered.sort(key=sort_key, reverse=bool(has_desc))
+
+        total = len(filtered)
+        sliced = filtered[offset: offset + limit]
+
+        return jsonify({"total": total, "offset": offset, "limit": limit, "items": sliced, "total_all": total_all})
+    finally:
+        conn.close()
+
+
+
 
 def handle_room_objects(config_uid, class_name, room_uid,data):
     """Processing objects across the room"""
@@ -3301,12 +4369,8 @@ def search_nodes(config_uid, class_name):
         abort(404)
     
     try:
-        if config.nodes_server_handlers:
-            handlers_code = base64.b64decode(config.nodes_server_handlers).decode('utf-8')
-            
-            # Create an isolated namespace
-            isolated_globals = {}
-            exec(handlers_code, isolated_globals)
+        if os.path.isfile(_handlers_file_path(config_uid)) or config.nodes_server_handlers:
+            isolated_globals = _load_server_handlers_ns(config_uid, config)
             
             # We check that the class exists and is a subclass of Node from this space
             if (class_name in isolated_globals and 
@@ -3372,6 +4436,7 @@ def export_config(uid):
         "NodaLogicType": "ANDROID_SERVER",
         'last_modified': local_time.isoformat(),
         'provider': provider,
+        "CommonLayouts": config.common_layouts or [],
         'classes': [
             {
                 'name': c.name,
@@ -3430,6 +4495,10 @@ def export_config(uid):
         "servers": [
             {"alias": s.alias, "url": s.url, "is_default": s.is_default}
             for s in config.servers
+        ],
+        "rooms": [
+            {"alias": r.alias, "room_id": r.room_uid}
+            for r in (getattr(config, 'room_aliases', None) or [])
         ],
         'CommonEvents': [
             {
@@ -6091,6 +7160,75 @@ def update_server(server_id):
     flash(_("Server updated"), "success")
     return redirect(url_for('edit_config', uid=server.config.uid, tab="servers"))
 
+
+# --- Room aliases (per configuration) ---
+
+@app.route('/config/<config_uid>/rooms/create', methods=['POST'])
+@login_required
+def create_room_alias(config_uid):
+    config = Configuration.query.filter_by(uid=config_uid, user_id=current_user.id).first_or_404()
+    alias = (request.form.get('alias') or '').strip()
+    room_uid = (request.form.get('room_uid') or '').strip()
+    if not alias or not room_uid:
+        flash('Alias and room are required', 'danger')
+        return redirect(url_for('edit_config', uid=config_uid, tab='rooms'))
+
+    # Validate room exists and belongs to user
+    room = Room.query.filter_by(uid=room_uid, user_id=current_user.id).first()
+    if not room:
+        flash('Room not found', 'danger')
+        return redirect(url_for('edit_config', uid=config_uid, tab='rooms'))
+
+    # Upsert-ish: if alias exists -> update mapping
+    existing = RoomAlias.query.filter_by(config_id=config.id, alias=alias).first()
+    if existing:
+        existing.room_uid = room_uid
+    else:
+        db.session.add(RoomAlias(alias=alias, room_uid=room_uid, config_id=config.id))
+    db.session.commit()
+    flash('Room alias saved', 'success')
+    return redirect(url_for('edit_config', uid=config_uid, tab='rooms'))
+
+
+@app.route('/config/rooms/<int:alias_id>/update', methods=['POST'])
+@login_required
+def update_room_alias(alias_id):
+    ra = RoomAlias.query.join(Configuration).filter(
+        RoomAlias.id == alias_id,
+        Configuration.user_id == current_user.id
+    ).first_or_404()
+
+    alias = (request.form.get('alias') or '').strip()
+    room_uid = (request.form.get('room_uid') or '').strip()
+    if not alias or not room_uid:
+        flash('Alias and room are required', 'danger')
+        return redirect(url_for('edit_config', uid=ra.config.uid, tab='rooms'))
+
+    room = Room.query.filter_by(uid=room_uid, user_id=current_user.id).first()
+    if not room:
+        flash('Room not found', 'danger')
+        return redirect(url_for('edit_config', uid=ra.config.uid, tab='rooms'))
+
+    ra.alias = alias
+    ra.room_uid = room_uid
+    db.session.commit()
+    flash('Room alias updated', 'success')
+    return redirect(url_for('edit_config', uid=ra.config.uid, tab='rooms'))
+
+
+@app.route('/config/rooms/<int:alias_id>/delete')
+@login_required
+def delete_room_alias(alias_id):
+    ra = RoomAlias.query.join(Configuration).filter(
+        RoomAlias.id == alias_id,
+        Configuration.user_id == current_user.id
+    ).first_or_404()
+    cfg_uid = ra.config.uid
+    db.session.delete(ra)
+    db.session.commit()
+    flash('Room alias deleted', 'success')
+    return redirect(url_for('edit_config', uid=cfg_uid, tab='rooms'))
+
 from sqlalchemy.orm import joinedload
 
 def migrate_events_json_to_tables(dry_run=False, commit=True):
@@ -6183,12 +7321,31 @@ def get_ws_scheme():
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-        #print(migrate_events_json_to_tables(dry_run=False))
-
+        
+        print(migrate_events_json_to_tables(dry_run=False))
+        try:
+            db.create_all(bind='client')
+        except Exception as e:
+            print('Could not init client bind:', e)
 
 
         inspector = db.inspect(db.engine)
         columns = inspector.get_columns('config_class')
+
+        # --- lightweight sqlite migration for new ConfigClass fields (Migration tab) ---
+        try:
+            col_names = [c.get('name') for c in (columns or [])]
+            with db.engine.begin() as conn:
+                if 'migration_register_command' not in col_names:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN migration_register_command BOOLEAN DEFAULT 0'))
+                if 'migration_register_on_save' not in col_names:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN migration_register_on_save BOOLEAN DEFAULT 0'))
+                if 'migration_default_room_uid' not in col_names:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN migration_default_room_uid VARCHAR(36) DEFAULT ""'))
+                if 'migration_default_room_alias' not in col_names:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN migration_default_room_alias VARCHAR(100) DEFAULT ""'))
+        except Exception as e:
+            print('Could not migrate config_class Migration fields:', e)
 
          
         if 'config_event' not in inspector.get_table_names():
@@ -6269,7 +7426,9 @@ if __name__ == '__main__':
             
             if 'cover_image' not in columns:
                 with db.engine.begin() as conn:
-                    conn.execute(text('ALTER TABLE config_class ADD COLUMN cover_image TEXT'))           
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN cover_image TEXT'))  
+                    
+                             
         
         
         if 'config_section' not in inspector.get_table_names():
@@ -6290,6 +7449,22 @@ if __name__ == '__main__':
                 with db.engine.begin() as conn:
                     conn.execute(text('ALTER TABLE user ADD COLUMN config_display_name VARCHAR(100) DEFAULT ""'))
 
+            # Backward compatible defaults: existing users keep access to everything
+            if 'can_designer' not in user_columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE user ADD COLUMN can_designer BOOLEAN DEFAULT TRUE'))
+            if 'can_client' not in user_columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE user ADD COLUMN can_client BOOLEAN DEFAULT TRUE'))
+            if 'can_api' not in user_columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE user ADD COLUMN can_api BOOLEAN DEFAULT TRUE'))
+            if 'parent_user_id' not in user_columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE user ADD COLUMN parent_user_id INTEGER'))
+
+            db.create_all()
+
         if 'dataset' in inspector.get_table_names():
             dataset_columns = [col['name'] for col in inspector.get_columns('dataset')]
             if 'view_template' not in dataset_columns:
@@ -6309,7 +7484,20 @@ if __name__ == '__main__':
                     conn.execute(text('ALTER TABLE configuration ADD COLUMN content_uid VARCHAR(100)'))
             if 'vendor' not in config_columns:
                 with db.engine.begin() as conn:
-                    conn.execute(text('ALTER TABLE configuration ADD COLUMN vendor TEXT'))        
+                    conn.execute(text('ALTER TABLE configuration ADD COLUMN vendor TEXT'))   
+
+            insp = sa.inspect(db.engine)
+            if Configuration.__tablename__ in insp.get_table_names():
+                columns = [c["name"] for c in insp.get_columns(Configuration.__tablename__)]
+                if "common_layouts" not in columns:
+                    print("Migration: add Configuration.common_layouts")
+                    with db.engine.begin() as con:
+                        con.execute(
+                            sa.text(
+                                f'ALTER TABLE {Configuration.__tablename__} '
+                                'ADD COLUMN common_layouts JSON'
+                            )
+                        )            
 
             if 'user_id' not in config_columns:
                 with db.engine.begin() as conn:
@@ -6358,6 +7546,30 @@ if __name__ == '__main__':
             if 'events' not in columns:
                 with db.engine.begin() as conn:
                     conn.execute(text('ALTER TABLE config_class ADD COLUMN events TEXT'))
+            if 'display_image_web' not in columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN display_image_web TEXT DEFAULT ""'))
+
+            if 'display_image_table' not in columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN display_image_table TEXT DEFAULT ""'))
+
+            if 'commands' not in columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN commands TEXT DEFAULT ""'))
+
+            if 'use_standard_commands' not in columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN use_standard_commands BOOLEAN DEFAULT TRUE'))
+
+            if 'svg_commands' not in columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN svg_commands TEXT DEFAULT ""'))
+
+            if 'init_screen_layout' not in columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN init_screen_layout TEXT DEFAULT ""'))
+               
 
         if 'configuration' in inspector.get_table_names():
             columns = [col['name'] for col in inspector.get_columns('configuration')]
@@ -6380,6 +7592,13 @@ if __name__ == '__main__':
             query_string = environ.get('QUERY_STRING', '')
             parsed_params = parse_qs(query_string)
 
+            channel = parsed_params.get('channel', [''])[0]
+
+            # Node browser channel (separate from Rooms channel)
+            if channel == 'nodes':
+                handle_nodes_websocket(ws)
+                return []
+
             room_uid = parsed_params.get('room', [''])[0]
             android_id = parsed_params.get('android_id', [''])[0]
             device_model = parsed_params.get('device_model', [''])[0]
@@ -6399,4 +7618,4 @@ if __name__ == '__main__':
     print("HTTP: http://0.0.0.0:5000")
     print("WebSocket: ws://0.0.0.0:5000/ws?room=ROOM_UID")
 
-    server.serve_forever()
+    server.serve_forever()#test
