@@ -1,0 +1,41 @@
+
+{% extends "client/base.html" %}
+{% block body %}
+<div style="padding: 12px;">
+  <h2 style="margin: 0 0 10px 0;">{{_('Configurations')}}</h2>
+
+  <form method="post" action="{{ url_for('client.add_repo') }}" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom: 14px;">
+    <input type="text" name="name" placeholder="Name (opt.)"/>
+    <input type="text" name="base_url" placeholder="Base URL (ex. http://localhost:5000)" required/>
+    <input type="text" name="config_uid" placeholder="config_uid" required/>
+    <input type="text" name="username" placeholder="Basic user (opt.)"/>
+    <input type="text" name="password" placeholder="Basic pass (opt.)"/>
+    <button class="btn primary" type="submit">{{_('Add')}}</button>
+  </form>
+
+  <div class="list">
+    {% for m in repos %}
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
+          <div>
+            <h3 style="margin:0 0 6px 0;">
+              <a href="{{ url_for('client.repo_view', repo_id=m.repo.id) }}">{{ m.repo.name }}</a>
+            </h3>
+            <div class="muted">{{ m.repo.base_url }} · config: {{ m.repo.config_uid }}</div>
+            <div style="margin-top:6px; display:flex; gap:8px; flex-wrap:wrap;">
+              {% if m.vendor %}<span class="pill">vendor: {{ m.vendor }}</span>{% endif %}
+              {% if m.version %}<span class="pill">version: {{ m.version }}</span>{% endif %}
+              {% if m.display_name %}<span class="pill">{{ m.display_name }}</span>{% endif %}
+            </div>
+          </div>
+          <form method="post" action="{{ url_for('client.remove_repo', repo_id=m.repo.id) }}">
+            <button class="btn" type="submit">{{_('Delete')}}</button>
+          </form>
+        </div>
+      </div>
+    {% else %}
+      <div class="muted">{{_('No configurations yet...')}}</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

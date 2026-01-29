@@ -1,0 +1,779 @@
+{% extends "client/base.html" %}
+{% block content %}
+{% if no_repos %}
+  <div class="alert alert-info">
+    {{_('No configurations added. Open the repository.')}}
+    <a href="{{ url_for('client.repos_manage') }}" class="alert-link">{{_('Repo')}}</a>
+    {{_('and add a link to ')}} <code>/api/config/&lt;uid&gt;</code>.
+  </div>
+{% endif %}
+
+<div class="row">
+  <div class="col-lg-3 mb-3">
+    <div class="list-group">
+      <div class="list-group-item text-muted small">{{_('Sections')}}</div>
+      {% for s in sections %}
+        {% set scode = s.code if s.code != '' else '__empty__' %}
+        {% set active = (s.code == section_code) %}
+        <a class="list-group-item list-group-item-action {% if active %}active{% endif %}"
+           href="{{ url_for('client.section_view', section_code=scode) }}">
+          <div class="fw-semibold">{{ s.name }}</div>
+          {% if s.code %}<div class="small opacity-75">{{ s.code }}</div>{% endif %}
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="col-lg-9">
+    <div class="d-flex gap-2 flex-wrap align-items-center mb-3">
+      <button id="btnRefresh" class="btn btn-primary" type="button">{{_('Refresh')}}</button>
+
+      <label class="form-check-label ms-2">
+        <input id="autoToggle" class="form-check-input me-1" type="checkbox" checked>
+        {{_('auto refresh')}} ({{ auto_refresh }}s)
+      </label>
+
+      <input id="q" class="form-control" style="max-width: 360px;" type="text" placeholder="Search...">
+
+      <button id="btnTable" class="btn btn-outline-secondary" type="button">{{_('Table')}}</button>
+      <button id="btnGrid" class="btn btn-outline-secondary" type="button">{{_('Grid')}}</button>
+
+      <span id="status" class="text-muted small"></span>
+    </div>
+
+    <div id="classCmds" class="d-flex gap-2 flex-wrap mb-3"></div>
+
+  
+
+    <div id="viewTable" style="display:none;">
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered align-middle">
+          <thead id="thead"></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="viewGrid" class="row g-2"></div>
+  </div>
+</div>
+
+<style id="nlCss"></style>
+
+<script>
+const sectionCode = {{ section_code | tojson }};
+const autoSeconds = {{ auto_refresh | tojson }};
+
+const apiSection    = {{ url_for('client.api_section_data')|tojson }};
+const apiCreate     = {{ url_for('client.api_node_create')|tojson }};
+const apiDelete     = {{ url_for('client.api_node_delete')|tojson }};
+const apiBulkDelete = {{ url_for('client.api_node_bulk_delete')|tojson }};
+const apiEventWeb   = {{ url_for('client.api_node_event_web')|tojson }};
+const apiCommonEventWeb = {{ url_for('client.api_common_event_web')|tojson }};
+const apiClassEventWeb  = {{ url_for('client.api_class_event_web')|tojson }};
+
+const clientBase = {{ url_for('client.home')|tojson }}; // обычно "/client/"
+
+let mode = "grid";
+let timer = null;
+let inFlight = false;
+
+let selected = new Set();
+let lastItems = []; // key = `${repo_id}:${class}:${id}`
+let stdMap = new Map();   // key `${repo_id}:${class}` -> true/false
+let repoIdToUid = new Map();
+
+function nodeFormUrl(repo_id, class_name, node_id) {
+  const uid = repoIdToUid.get(Number(repo_id)) || String(repo_id);
+  return `${clientBase}node/${encodeURIComponent(uid)}/${encodeURIComponent(class_name)}/${encodeURIComponent(node_id)}`;
+}
+
+function _winSafe(s){
+  return String(s ?? "").replaceAll(/[^a-zA-Z0-9_]/g, "_").slice(0, 80);
+}
+function nodeWinName(repo_id, class_name, node_id){
+  const uid = repoIdToUid.get(Number(repo_id)) || String(repo_id);
+  return "nf_" + _winSafe(uid) + "__" + _winSafe(class_name) + "__" + _winSafe(node_id);
+}
+function openNodeForm(repo_id, class_name, node_id){
+  const url = nodeFormUrl(repo_id, class_name, node_id);
+  const name = nodeWinName(repo_id, class_name, node_id);
+
+
+  const w = window.open(url, name);
+  if (w) { try { w.focus(); } catch(_){} }
+  return false;
+}
+
+
+function setStatus(text) {
+  document.getElementById("status").textContent = text || "";
+}
+function escapeHtml(str) {
+  return (str || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+function previewData(obj) {
+  const keys = Object.keys(obj || {});
+  keys.sort();
+  const take = keys.slice(0, 6);
+  const parts = take.map(k => {
+    let v = obj[k];
+    let s = "";
+    try { s = (typeof v === "string") ? v : JSON.stringify(v); } catch(e) { s = String(v); }
+    if (s.length > 80) s = s.slice(0, 77) + "...";
+    return `<div class="small"><span class="text-muted">${escapeHtml(k)}:</span> ${escapeHtml(s)}</div>`;
+  });
+  return parts.join("");
+}
+
+function stdKey(repo_id, class_name){ return `${repo_id}:${class_name}`; }
+function isStd(repo_id, class_name){ return !!stdMap.get(stdKey(repo_id, class_name)); }
+
+// --- nodalayout interactions inside covers ---
+async function fireNodeEvent(repo_id, class_name, node_id, event_name, payload){
+  const r = await fetch(apiEventWeb, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({repo_id, class_name, node_id, event: event_name, payload: payload || {}})
+  });
+  const j = await r.json();
+  try {
+    if (j && j.message) {
+      const showOne = (m) => {
+        if (!window.message) return;
+        if (m && typeof m === "object") window.message(m.text || JSON.stringify(m), m.level);
+        else window.message(String(m));
+      };
+      if (Array.isArray(j.message)) j.message.forEach(showOne);
+      else showOne(j.message);
+    }
+    if (j && j.dialog && window.Dialog) {
+      window.Dialog(j.dialog, (p) => fireNodeEvent(repo_id, class_name, node_id, "onInputWeb", p));
+    }
+  } catch(_) {}
+  return j;
+}
+
+function wireCoverInteractions(root){
+  if(!root) return;
+
+  // Clicks
+  root.querySelectorAll('.nodalayout-cover [data-nl-click]').forEach(el => {
+    el.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const card = el.closest('.node-card');
+      if(!card) return;
+      const repo_id = Number(card.dataset.repo);
+      const class_name = card.dataset.class;
+      const node_id = card.dataset.node;
+      const listener = (el.getAttribute('data-nl-listener') || el.getAttribute('data-id') || el.id || '').trim();
+      const payload = {listener: listener, element_tag: el.tagName || ''};
+      await fireNodeEvent(repo_id, class_name, node_id, 'onInputWeb', payload);
+      // refresh list to show updated cover/data
+      await loadSection();
+    }, {passive:false});
+  });
+
+  // Inputs (checkbox/switch and other inputs)
+  root.querySelectorAll('.nodalayout-cover [data-path]').forEach(inp => {
+    if (!(inp.tagName === 'INPUT' || inp.tagName === 'TEXTAREA' || inp.tagName === 'SELECT')) return;
+    const send = async () => {
+      const card = inp.closest('.node-card');
+      if(!card) return;
+      const repo_id = Number(card.dataset.repo);
+      const class_name = card.dataset.class;
+      const node_id = card.dataset.node;
+      const path = (inp.getAttribute('data-path') || '').trim();
+      const listener = (inp.getAttribute('data-id') || inp.id || path || '').trim();
+      let value;
+      if (inp.type === 'checkbox') value = !!inp.checked; else value = inp.value;
+      await fireNodeEvent(repo_id, class_name, node_id, 'onInputWeb', {listener, id: listener, path, value});
+      await loadSection();
+    };
+
+    if (inp.type === 'checkbox' || inp.tagName === 'SELECT' || inp.getAttribute('data-nl-date') === '1') {
+      inp.addEventListener('change', (e) => { e.stopPropagation(); send(); }, {passive:false});
+    } else {
+      // Only fire on blur/change for text inputs in covers
+      inp.addEventListener('change', (e) => { e.stopPropagation(); send(); }, {passive:false});
+    }
+  });
+}
+
+async function doCreate(repo_id, class_name) {
+  const r = await fetch(apiCreate, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({repo_id, class_name})
+  });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || "create failed");
+  const url = nodeFormUrl(repo_id, class_name, j.node_id);
+  //window.open(url, "_blank");
+  //window.open(url, "_blank");
+  openNodeForm(repo_id, class_name, j.node_id);
+}
+
+async function doDelete(repo_id, class_name, node_id) {
+  if (!confirm(`Delete ${class_name}/${node_id}?`)) return;
+  const r = await fetch(apiDelete, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({repo_id, class_name, node_id})
+  });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || "delete failed");
+}
+
+async function doBulkDelete() {
+  const itemByKey = new Map((lastItems||[]).map(it => [`${it.repo_id}:${it.class}:${it.id}`, it]));
+  const arr = Array.from(selected.values()).map(k => k.split(":"))
+    .filter(([repo_id, cls, id]) => {
+      const it = itemByKey.get(`${repo_id}:${cls}:${id}`);
+      return it && !it.is_custom_process && isStd(it.repo_id, it.class) && !!it.use_standard_commands;
+    });
+  if (!arr.length) return;
+
+  if (!confirm(`Delete selected (${arr.length})?`)) return;
+
+  // группируем по (repo_id, class)
+  const by = new Map();
+  for (const [repo_id, cls, id] of arr) {
+    const key = `${repo_id}:${cls}`;
+    if (!by.has(key)) by.set(key, []);
+    by.get(key).push(id);
+  }
+
+  let deleted = 0, failed = 0;
+  for (const [key, ids] of by.entries()) {
+    const [repo_id, class_name] = key.split(":");
+    const r = await fetch(apiBulkDelete, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({repo_id: Number(repo_id), class_name, ids})
+    });
+    const j = await r.json();
+    if (j.ok) deleted += (j.deleted || 0);
+    else failed += ids.length;
+  }
+  selected.clear();
+  document.getElementById("bulkStatus").textContent = `deleted=${deleted}, failed=${failed}`;
+}
+
+function render(items, meta) {
+  lastItems = items || [];
+
+  
+
+  // --- meta maps ---
+  stdMap = new Map();
+  repoIdToUid = new Map();
+
+  const classes = (meta && meta.classes_ui) ? meta.classes_ui : [];
+  classes.forEach(c => {
+    stdMap.set(stdKey(c.repo_id, c.class), !!c.use_standard_commands);
+    if (c.repo_id && c.repo_uid) repoIdToUid.set(Number(c.repo_id), String(c.repo_uid));
+  });
+
+  // --- bulk bar (ВАЖНО: до любых вызовов updateBulkBar) ---
+  //const bulkBar = document.getElementById("bulkBar");
+  //const bulkStatus = document.getElementById("bulkStatus");
+
+  let bulkBtn = null;
+  let bulkStatus = null;
+
+  function bindBulkDeleteButton() {
+  const bulkBtn = document.getElementById('btnBulkDelete');
+  const bulkStatus = document.getElementById('bulkStatus');
+
+  if (!bulkBtn) return;
+
+  bulkBtn.onclick = async () => {
+    try {
+      if (bulkStatus) bulkStatus.textContent = 'Deleting...';
+      await doBulkDelete();
+      await loadSection();
+      if (bulkStatus) bulkStatus.textContent = '';
+    } catch (e) {
+      alert(e.message || String(e));
+      if (bulkStatus) bulkStatus.textContent = '';
+    }
+  };
+}
+
+  function updateBulkBar(currentItems){
+    let deletable = 0;
+    const itemByKey = new Map((currentItems||[]).map(it => [`${it.repo_id}:${it.class}:${it.id}`, it]));
+    selected.forEach(k => {
+      const it = itemByKey.get(k);
+      if (!it) return;
+      if (canDel) deletable += 1;
+    });
+    //bulkBar.style.display = (deletable > 0) ? "" : "none";
+    
+    if (bulkBtn) bulkBtn.disabled = !(deletable > 0);
+    if (bulkStatus) bulkStatus.textContent = deletable > 0 ? `to be deleted: ${deletable}` : "";
+  }
+
+  /*document.getElementById("btnBulkDelete").onclick = async () => {
+    try { await doBulkDelete(); await loadSection(); }
+    catch(e){ alert(e.message || String(e)); }
+  };*/
+
+  // --- class commands bar ---
+  const newText = "{{ _('New') }}";
+  const cc = document.getElementById("classCmds");
+  cc.innerHTML = classes.map(c => {
+    const addBtn = c.use_standard_commands
+      ? `<button class="btn btn-sm btn-success" data-act="add"
+                 data-repo="${c.repo_id}" data-class="${escapeHtml(c.class)}">
+           ${newText} ${escapeHtml(c.display_name || c.class)}
+         </button>`
+      : "";
+
+    const cmds = (c.commands || "").split(",")
+  .map(s => s.trim())
+  .filter(Boolean)
+  .map(p => {
+    const [t, k] = p.includes("|") ? p.split("|", 2) : [p, p];
+    const title = (t || "").trim();
+    const key = (k || "").trim();
+    if (!title || !key) return "";
+
+    return `<button class="btn btn-sm btn-outline-primary"
+                    data-act="cmd"
+                    data-repo="${c.repo_id}"
+                    data-class="${escapeHtml(c.class)}"
+                    data-cmd="${escapeHtml(key)}"
+                    title="${escapeHtml((c.class || "") + ":" + key)}">
+              ${escapeHtml(title)}
+            </button>`;
+  }).join("");
+
+    if (!addBtn && !cmds) return "";
+    return `<div class="d-flex gap-1 flex-wrap align-items-center">
+              ${addBtn}
+              ${cmds}
+            </div>`;
+  }).join("");
+
+  // --- start menu commands (section.commands) ---
+  const startMenu = (meta && meta.start_menu_cmds_ui) ? meta.start_menu_cmds_ui : [];
+  if (startMenu.length) {
+    const startWrap = document.createElement('div');
+    
+    startWrap.className = 'd-flex gap-1 align-items-center ms-auto';
+
+    startWrap.innerHTML = startMenu.map(x => `
+      <button class="btn btn-sm btn-outline-secondary"
+              data-act="startmenu"
+              data-repo="${x.repo_id}"
+              data-key="${escapeHtml(x.key)}"
+              title="${escapeHtml(x.repo + ':' + x.key)}">
+        ${escapeHtml(x.title)}
+      </button>
+    `).join("");
+
+    cc.appendChild(startWrap);
+
+    startWrap.querySelectorAll("button[data-act='startmenu']").forEach(b => {
+      b.addEventListener("click", async () => {
+        const repo_id = Number(b.dataset.repo);
+        const key = (b.dataset.key || "").trim();
+        if (!repo_id || !key) return;
+
+        
+        await fireCommonEvent(repo_id, "onStartMenuCommandWeb", {
+          listener: key,
+          command: key,
+          section_code: sectionCode
+        });
+
+        await loadSection();
+      });
+    });
+  }
+
+  
+  const bulkWrap = document.createElement('div');
+  
+  bulkWrap.className = 'd-flex gap-2 align-items-center';
+  bulkWrap.innerHTML = `
+    <button id="btnBulkDelete" class="btn btn-danger btn-sm" type="button" disabled>
+      {{_('Delete selected')}}
+    </button>
+    <span id="bulkStatus" class="text-muted small"></span>
+  `;
+  cc.appendChild(bulkWrap);
+
+bulkBtn = document.getElementById('btnBulkDelete');
+bulkStatus = document.getElementById('bulkStatus');
+if (bulkBtn) bulkBtn.onclick = async () => {
+  try { await doBulkDelete(); await loadSection(); }
+  catch(e){ alert(e.message || String(e)); }
+};
+
+  cc.querySelectorAll("button[data-act='add']").forEach(b => {
+    b.addEventListener("click", async () => {
+      try { await doCreate(Number(b.dataset.repo), b.dataset.class); }
+      catch(e){ alert(e.message || String(e)); }
+    });
+  });
+  
+
+  cc.querySelectorAll("button[data-act='cmd']").forEach(b => {
+  b.addEventListener("click", async () => {
+    if (b.disabled) return;
+    b.disabled = true;
+    try {
+      const class_name = (b.dataset.class || "").trim();
+      const command = (b.dataset.cmd || "").trim();
+      const repo_id = Number(b.closest("[data-repo]")?.dataset.repo);
+      if (!repo_id || !class_name || !command) return;
+
+      await fireCommonEvent(repo_id, "onClassCommandWeb", {
+        listener: class_name,
+        class_name,
+        command
+      });
+
+      await loadSection();
+    } catch(e) {
+      if (window.showMessage) window.showMessage(String(e?.message || e), "danger");
+      else alert(e?.message || String(e));
+    } finally {
+      b.disabled = false;
+    }
+  });
+});
+
+  // --- render table/grid ---
+  if (mode === "table") {
+    document.getElementById("viewTable").style.display = "";
+    document.getElementById("viewGrid").style.display = "none";
+
+    const headers = (meta && meta.table_headers) ? meta.table_headers : [];
+
+    document.getElementById("thead").innerHTML = `
+      <tr>
+        <th style="width:32px;"><input id="chkAll" type="checkbox"></th>
+        <th>Repo</th><th>Class</th><th>Id</th>
+        ${headers.map(h => `<th>${escapeHtml(h)}</th>`).join("")}
+            <!-- per-node delete removed (bulk delete only) -->
+      </tr>
+    `;
+
+    const tbody = document.getElementById("tbody");
+    tbody.innerHTML = items.map(it => {
+      const key = `${it.repo_id}:${it.class}:${it.id}`;
+      const checked = selected.has(key) ? "checked" : "";
+      const cols = headers.map(h => escapeHtml((it.table_values && it.table_values[h]) ? String(it.table_values[h]) : ""));
+
+      return `
+        <tr class="${it.is_custom_process ? 'table-warning' : ''}">
+          <td><input class="chkRow" type="checkbox" data-key="${escapeHtml(key)}" ${checked}></td>
+          <td>${escapeHtml(it.repo || "")}</td>
+          <td>${escapeHtml(it.class || "")}</td>
+          <td><a href="${escapeHtml(nodeFormUrl(it.repo_id, it.class, it.id))}" target="${escapeHtml(nodeWinName(it.repo_id, it.class, it.id))}">${escapeHtml(it.id || "")} rel="noopener"</a></td>
+          ${cols.map(c => `<td>${c}</td>`).join("")}
+        </tr>
+      `;
+    }).join("");
+
+    updateBulkBar(items);
+
+    document.getElementById("chkAll").addEventListener("change", (e) => {
+      const all = tbody.querySelectorAll("input.chkRow");
+      all.forEach(ch => {
+        ch.checked = e.target.checked;
+        if (ch.checked) selected.add(ch.dataset.key);
+        else selected.delete(ch.dataset.key);
+      });
+      updateBulkBar(items);
+    });
+
+    tbody.querySelectorAll("input.chkRow").forEach(ch => {
+      ch.addEventListener("change", () => {
+        if (ch.checked) selected.add(ch.dataset.key);
+        else selected.delete(ch.dataset.key);
+        updateBulkBar(items);
+      });
+    });
+
+    wireCoverInteractions(tbody);
+
+  } else {
+    document.getElementById("viewTable").style.display = "none";
+    document.getElementById("viewGrid").style.display = "";
+    const grid = document.getElementById("viewGrid");
+
+    grid.innerHTML = items.map(it => {
+      const extra = it.is_custom_process ? "border border-3 border-dark" : "";
+      const cover = (it.display_image_html || "").trim();
+      const key = `${it.repo_id}:${it.class}:${it.id}`;
+      const checked = selected.has(key) ? "checked" : "";
+      // per-node delete removed (bulk delete only)
+
+      const top = `
+        <div class="d-flex justify-content-between align-items-start">
+          <div class="d-flex gap-1 flex-wrap mb-2">
+            <span class="badge text-bg-light border">${escapeHtml(it.repo || "")}</span>
+            <span class="badge text-bg-light border">${escapeHtml(it.class || "")}</span>
+          </div>
+          <input class="chkCard" type="checkbox" data-key="${escapeHtml(key)}" ${checked}>
+        </div>
+      `;
+
+      // per-node delete removed (bulk delete only)
+
+      if (cover) {
+        return `
+          <div class="col-md-6 col-xl-4">
+            <div class="card h-100 overflow-hidden ${extra} node-card"
+                 data-url="${escapeHtml(nodeFormUrl(it.repo_id, it.class, it.id))}"
+                 data-repo="${it.repo_id}" data-class="${escapeHtml(it.class)}" data-node="${escapeHtml(it.id)}">
+              <div class="card-body p-2">
+                ${top}
+                <div class="nodalayout-cover">${cover}</div>
+                
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="col-md-6 col-xl-4">
+          <div class="card h-100 ${extra} node-card"
+               data-url="${escapeHtml(nodeFormUrl(it.repo_id, it.class, it.id))}"
+               data-repo="${it.repo_id}" data-class="${escapeHtml(it.class)}" data-node="${escapeHtml(it.id)}">
+            <div class="card-body">
+              ${top}
+              <div class="fw-semibold mb-2">
+                <a href="${escapeHtml(nodeFormUrl(it.repo_id, it.class, it.id))}" target="${escapeHtml(nodeWinName(it.repo_id, it.class, it.id))}">${escapeHtml(it.id || "")} rel="noopener"</a>
+              </div>
+              ${previewData(it.data || {})}
+              
+            </div>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    updateBulkBar(items);
+
+    grid.querySelectorAll("input.chkCard").forEach(ch => {
+      ch.addEventListener("change", () => {
+        if (ch.checked) selected.add(ch.dataset.key);
+        else selected.delete(ch.dataset.key);
+        updateBulkBar(items);
+      });
+    });
+
+    wireCardClicks();
+    wireCoverInteractions(grid);
+  }
+
+  setStatus(`Shown: ${items.length}`);
+}
+
+async function loadSection() {
+  if (inFlight) return;
+  inFlight = true;
+  setStatus("Loading...");
+
+  const q = (document.getElementById("q").value || "").trim();
+
+  try {
+    const url = new URL(apiSection, window.location.origin);
+    url.searchParams.set("section_code", sectionCode === "__empty__" ? "" : sectionCode);
+    if (q) url.searchParams.set("q", q);
+
+    const r = await fetch(url.toString(), {method:"GET"});
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || "load failed");
+
+    document.getElementById("nlCss").textContent = (j.nl_css || "");
+    render(j.items || [], j.meta || {});
+  } catch(e) {
+    console.error(e);
+    setStatus("Error");
+  } finally {
+    inFlight = false;
+  }
+}
+
+// --- UI wiring ---
+document.getElementById("btnRefresh").addEventListener("click", loadSection);
+
+document.getElementById("btnTable").addEventListener("click", () => {
+  mode = "table";
+  loadSection();
+});
+document.getElementById("btnGrid").addEventListener("click", () => {
+  mode = "grid";
+  loadSection();
+});
+
+document.getElementById("q").addEventListener("input", () => {
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(loadSection, 250);
+});
+
+function startAuto() {
+  stopAuto();
+  timer = setInterval(() => {
+    if (document.getElementById("autoToggle").checked) loadSection();
+  }, Math.max(1, Number(autoSeconds) || 5) * 1000);
+}
+function stopAuto() {
+  if (timer) clearInterval(timer);
+  timer = null;
+}
+
+document.getElementById("autoToggle").addEventListener("change", () => {
+  if (document.getElementById("autoToggle").checked) startAuto();
+  else stopAuto();
+});
+
+// init
+loadSection();
+startAuto();
+
+// If a node form is opened in a new tab/window, it can ask us to refresh.
+let _lastFocusRefresh = 0;
+function refreshIfStale(){
+  const now = Date.now();
+  if (now - _lastFocusRefresh < 300) return; // debounce
+  _lastFocusRefresh = now;
+  loadSection();
+}
+
+window.addEventListener("message", (ev) => {
+  try {
+    if (ev.origin !== window.location.origin) return;
+    if (ev.data && ev.data.type === "nodes_refresh") refreshIfStale();
+  } catch(_) {}
+});
+
+// Also refresh when user comes back to this tab (covers cases where opener isn't available).
+window.addEventListener("focus", refreshIfStale);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshIfStale(); });
+
+function wireCardClicks() {
+  document.querySelectorAll(".node-card").forEach(card => {
+    card.addEventListener("click", (e) => {
+      if (e.target.closest("button") || e.target.closest("a") || e.target.closest("input")) return;
+      const url = card.dataset.url;
+      const repo_id = Number(card.dataset.repo);
+const class_name = card.dataset.class;
+const node_id = card.dataset.node;
+      //if (url) window.open(url, "_blank");
+      if (repo_id && class_name && node_id) openNodeForm(repo_id, class_name, node_id);
+    });
+  });
+}
+wireCardClicks();
+</script>
+
+<script>
+async function fireCommonEvent(repo_id, event_name, payload){
+  const r = await fetch(apiCommonEventWeb, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      repo_id: repo_id,
+      event: event_name,
+      payload: payload || {}
+    })
+  });
+
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || "common event failed");
+
+  //message
+  if (j.message && Array.isArray(j.message)) {
+    for (const m of j.message) {
+      if (window.showMessage) window.showMessage(m.text, m.level || "info");
+    }
+  }
+
+  //Dialog
+  if (j.dialog && window.Dialog) {
+    window.Dialog(j.dialog, async (dlgResult) => {
+      try {
+        const result = dlgResult?.positive ? "result_positive" : "result_negative";
+
+        // ВАЖНО: dialog_values приходит именно в dlgResult
+        const result_data = dlgResult?.dialog_values || {};
+
+        await fireCommonEvent(repo_id, "onDialogResult", {
+          listener: j.dialog.id,      // dialog_id
+          result: result,
+          result_data: result_data
+        });
+      } catch(e) {
+        console.error(e);
+        if (window.showMessage) window.showMessage(String(e), "danger");
+      }
+    });
+  }
+
+  return j;
+}
+
+
+async function fireClassEvent(repo_id, class_name, event_name, payload){
+  const r = await fetch(apiClassEventWeb, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      repo_id: repo_id,
+      class_name: class_name,
+      event: event_name,
+      payload: payload || {}
+    })
+  });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || "class event failed");
+
+  if (j.message && Array.isArray(j.message)) {
+    for (const m of j.message) {
+      if (window.showMessage) window.showMessage(m.text, m.level || "info");
+    }
+  }
+
+  if (j.dialog && window.Dialog) {
+    window.Dialog(j.dialog, async (dlgResult) => {
+      //DialogResult?
+    });
+  }
+
+  return j;
+}
+
+
+
+</script>
+
+<script>
+// Barcode stub: later we can route scans into section-level logic.
+window.addEventListener('nl-barcode', (e) => {
+  try {
+    const code = e?.detail?.code;
+    if(code && window.message) window.message('Bercode : ' + code, 'info');
+  } catch(_) {}
+});
+</script>
+
+
+<style>
+.node-card { cursor: pointer; }
+.node-card:hover { box-shadow: 0 0.5rem 1rem rgba(0,0,0,.15); }
+</style>
+
+{% endblock %}

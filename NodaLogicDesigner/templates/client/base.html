@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ title }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+  {{ nl_css | safe }}
+
+  /* top message stack */
+  #nlMessages{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2000;display:flex;flex-direction:column;gap:8px;max-width:min(920px, 94vw);width:fit-content}
+  .nl-msg{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:12px;box-shadow:0 0.5rem 1.25rem rgba(0,0,0,.12);background:#fff;border:1px solid rgba(0,0,0,.12)}
+  .nl-msg-text{white-space:pre-wrap;line-height:1.25}
+  .nl-msg-close{border:0;background:transparent;cursor:pointer;opacity:.6;line-height:1}
+  .nl-msg-close:hover{opacity:.9}
+</style>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-light bg-light border-bottom">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="{{ url_for('client.home') }}">{{ _('Home') }}</a>
+    <div class="d-flex gap-2 align-items-center">
+      {% if current_user.is_authenticated %}
+        <a href="{{ url_for('choose_mode') }}" class="btn btn-sm btn-outline-secondary me-2">{{ _('Mode') }}</a>
+        {% if current_user.can_designer %}
+          <a href="{{ url_for('dashboard') }}" class="btn btn-sm btn-outline-primary me-3">{{ _('Designer') }}</a>
+        {% endif %}
+
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('client.repos_manage') }}">{{_('Repo')}}</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('client.client_settings') }}">{{_('Settings')}}</a>
+        <form method="post" action="{{ url_for('client.repos_refresh_all') }}" class="d-inline">
+         <button type="button" class="btn btn-outline-primary btn-sm" id="btn-refresh-configs">
+  {{_('Update configurations')}}
+</button>
+<!-- message moved to toast / temporary button label -->
+        </form>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('edit_profile') }}">{{ _('Profile') }}</a>
+        <a class="btn btn-sm btn-outline-danger" href="{{ url_for('logout') }}">{{_('Logout')}}</a>
+      {% else %}
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('login') }}">{{_('Login')}}</a>
+      {% endif %}
+    </div>
+  </div>
+</nav>
+
+<div class="container mt-4">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ 'danger' if category=='error' else ('success' if category=='success' else 'info') }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+</div>
+
+<!-- message stack -->
+<div id="nlMessages" aria-live="polite" aria-atomic="true"></div>
+
+<!-- Dialog (Bootstrap modal) -->
+<div class="modal fade" id="nlDialogModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="nlDialogTitle">Dialog</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="nlDialogBody"></div>
+      <div class="modal-footer" id="nlDialogFooter">
+        <button type="button" class="btn btn-outline-secondary" data-nl-dialog-action="negative">Cancel</button>
+        <button type="button" class="btn btn-primary" data-nl-dialog-action="positive">OK</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+// --- message(text[, level]) ---
+// level: info|success|warning|danger (optional, defaults to info)
+window.message = function(text, level){
+  const box = document.getElementById('nlMessages');
+  if(!box) return;
+  const lvl = (level || 'info').toString().toLowerCase();
+  const el = document.createElement('div');
+  el.className = 'nl-msg';
+  // simple level tint (bootstrap-like)
+  const border = {info:'#0dcaf0', success:'#198754', warning:'#ffc107', danger:'#dc3545'}[lvl];
+  if(border) el.style.borderLeft = '6px solid ' + border;
+  el.innerHTML = '<div class="nl-msg-text"></div>' +
+                 '<button class="nl-msg-close" title="Close" aria-label="Close">&#10005;</button>';
+  el.querySelector('.nl-msg-text').textContent = (text == null ? '' : String(text));
+  el.querySelector('.nl-msg-close').addEventListener('click', () => el.remove());
+  box.appendChild(el);
+  // auto-dismiss
+  const dur = ({info:4000, success:4000, warning:8000, danger:12000}[lvl] || 5000);
+  setTimeout(() => { try { el.remove(); } catch(e){} }, dur);
+  // auto-trim
+  while(box.children.length > 5) box.removeChild(box.firstChild);
+};
+
+window.showMessage = window.message;
+
+// --- Dialog(spec, onResult) ---
+// spec: {id,title,positive,negative,layout_html}
+// onResult: (resultPayload) => void
+window.Dialog = function(spec, onResult){
+  spec = spec || {};
+  const modalEl = document.getElementById('nlDialogModal');
+  if(!modalEl || !window.bootstrap) return;
+  const titleEl = document.getElementById('nlDialogTitle');
+  const bodyEl = document.getElementById('nlDialogBody');
+  const footerEl = document.getElementById('nlDialogFooter');
+
+  const dlgId = (spec.id || 'dialog').toString();
+  titleEl.textContent = spec.title || 'Dialog';
+  bodyEl.innerHTML = spec.layout_html || spec.html || '';
+
+  // Bind inputs inside dialog body (reuse same rules as node_form if present)
+  try {
+    if (typeof window.bindClicks === 'function') window.bindClicks();
+    if (typeof window.bindInputs === 'function') window.bindInputs();
+  } catch(_) {}
+
+  const posBtn = footerEl.querySelector('[data-nl-dialog-action="positive"]');
+  const negBtn = footerEl.querySelector('[data-nl-dialog-action="negative"]');
+  if(posBtn) posBtn.textContent = spec.positive || 'OK';
+  if(negBtn) negBtn.textContent = spec.negative || 'Cancel';
+
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl, {backdrop:'static'});
+
+  const collect = () => {
+    const out = {};
+    const inputs = bodyEl.querySelectorAll('[data-path]');
+    inputs.forEach(i => {
+      const p = (i.getAttribute('data-path') || '').trim();
+      if(!p) return;
+      let v;
+      if(i.type === 'checkbox') v = !!i.checked; else v = i.value;
+      out[p] = v;
+    });
+    return out;
+  };
+
+  const cleanup = () => {
+    footerEl.querySelectorAll('[data-nl-dialog-action]').forEach(b => {
+      b.replaceWith(b.cloneNode(true));
+    });
+  };
+
+  const hook = (which) => {
+    const payload = {
+      listener: dlgId + '_' + which,
+      dialog_id: dlgId,
+      dialog_result: which,
+      dialog_values: collect(),
+    };
+    try { if(typeof onResult === 'function') onResult(payload); } catch(_) {}
+    modal.hide();
+    cleanup();
+  };
+
+  // Re-query after clone cleanup pattern above
+  setTimeout(() => {
+    const f = document.getElementById('nlDialogFooter');
+    const p = f.querySelector('[data-nl-dialog-action="positive"]');
+    const n = f.querySelector('[data-nl-dialog-action="negative"]');
+    if(p) p.addEventListener('click', () => hook('positive'));
+    if(n) n.addEventListener('click', () => hook('negative'));
+  }, 0);
+
+  modal.show();
+};
+</script>
+
+<script>
+(function () {
+  const btn = document.getElementById('btn-refresh-configs');
+  if (!btn) return;
+
+  const originalLabel = btn.innerHTML;
+  let restoreTimer = null;
+
+  function show(ok, text) {
+    try {
+      if (window.message) window.message(String(text || ''), ok ? 'success' : 'danger');
+    } catch(_) {}
+
+    // keep navbar height stable: show status in the button for a short time
+    const prefix = ok ? '✓ ' : '⚠ ';
+    btn.innerHTML = prefix + String(text || '');
+
+    if (restoreTimer) clearTimeout(restoreTimer);
+    restoreTimer = setTimeout(() => { btn.innerHTML = originalLabel; }, 2500);
+  }
+
+  
+  function getCsrf() {
+    const el = document.querySelector('input[name="csrf_token"]');
+    return el ? el.value : null;
+  }
+
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.innerHTML = 'Обновляю…';
+    try {
+      const csrf = getCsrf();
+      const headers = { 'Accept': 'application/json' };
+      let body = null;
+
+      
+      if (csrf) {
+        headers['Content-Type'] = 'application/x-www-form-urlencoded;charset=UTF-8';
+        body = new URLSearchParams({ csrf_token: csrf }).toString();
+      }
+
+      const resp = await fetch('{{ url_for("client.repos_refresh_all") }}', {
+        method: 'POST',
+        headers,
+        body
+      });
+
+      
+      const ct = resp.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        const data = await resp.json();
+        show(!!data.ok, data.message || (resp.ok ? 'Confiurations updated' : 'Error'));
+      } else {
+        show(resp.ok, resp.ok ? 'Confiurations updated' : 'Update error');
+      }
+    } catch (e) {
+      show(false, 'Network error while updating configurations');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
+
+<script>
+// ---- Barcode scanner WS bridge (optional) ----
+// The external utility runs locally and exposes ws://... that we connect to.
+(function(){
+  const COMMON_EVENT_WEB = "/client/api/common/event_web";
+  const enabled = {{ 'true' if scanner_ws_enabled else 'false' }};
+  const url = {{ (scanner_ws_url or '')|tojson }};
+  if(!enabled || !url) return;
+
+  let ws = null;
+  let retryMs = 800;
+  let closing = false;
+
+  function handleBarcode(code){
+    code = String(code||'').trim();
+    if(!code) return;
+
+    // 1) CommonEvents: onBarcode (always)
+    try {
+      const repoId = window.NL?.repo_id;
+      if(repoId){
+        fetch(COMMON_EVENT_WEB, {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({
+            repo_id: repoId,
+            event: "onBarcode",
+            payload: { input_data: { barcode: code } }
+          })
+        }).then(r => r.json()).then(j => {
+          if(j && j.message && window.message){
+            const showOne = (m) => window.message(m.text || JSON.stringify(m), m.level || "info");
+            if(Array.isArray(j.message)) j.message.forEach(showOne); else showOne(j.message);
+          }
+          if(j && j.dialog){
+            try { window.Dialog && window.Dialog(j.dialog, (p)=>{}); } catch(_){}
+          }
+        }).catch(()=>{});
+      }
+    } catch(_){}
+
+    // 2) Node plugin listeners: BarcodeScanner -> onInputWeb(listener=id)
+    try {
+      const ctx = window.NL || {};
+      const api = ctx.api_node_event_web;
+      const repoId = ctx.repo_id;
+      const className = ctx.class_name;
+      const nodeId = ctx.node_id;
+      const listeners = ctx.barcode_listeners;
+      if(api && repoId && className && nodeId && listeners && listeners.length){
+        listeners.forEach((listenerId) => {
+          fetch(api, {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({
+              repo_id: repoId,
+              class_name: className,
+              node_id: nodeId,
+              event: "onInputWeb",
+              payload: {
+                listener: listenerId,
+                id: listenerId,
+                input_data: { barcode: code },
+                barcode: code
+              }
+            })
+          }).then(r=>r.json()).then(j=>{
+            // node_form already applies patches/messages for local events; here we only show messages
+            if(j && j.message && window.message){
+              const showOne = (m) => window.message(m.text || JSON.stringify(m), m.level || "info");
+              if(Array.isArray(j.message)) j.message.forEach(showOne); else showOne(j.message);
+            }
+          }).catch(()=>{});
+        });
+      }
+    } catch(_){}
+  }
+
+  function connect(){
+    if(closing) return;
+    try {
+      ws = new WebSocket(url);
+    } catch(e) {
+      scheduleReconnect();
+      return;
+    }
+    ws.onopen = () => {
+      retryMs = 800;
+      // Quiet connect; uncomment if you want visible message
+      // if(window.message) window.message('The scanner is connected', 'info');
+    };
+    ws.onmessage = (ev) => {
+      let data = null;
+      try { data = JSON.parse(ev.data); } catch(_) {}
+      if(data && (data.type === 'barcode') && data.code){
+        const code = String(data.code);
+        handleBarcode(code);
+      }
+    };
+    ws.onerror = () => {
+      // will lead to close
+    };
+    ws.onclose = () => {
+      ws = null;
+      scheduleReconnect();
+    };
+  }
+
+  function scheduleReconnect(){
+    if(closing) return;
+    const t = retryMs;
+    retryMs = Math.min(15000, Math.floor(retryMs * 1.6));
+    setTimeout(connect, t);
+  }
+
+  // Start
+  connect();
+
+  // Safety: close on page unload
+  window.addEventListener('beforeunload', () => {
+    closing = true;
+    try { if(ws) ws.close(); } catch(_) {}
+  });
+})();
+</script>
+
+</body>
+</html>

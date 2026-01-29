@@ -1,0 +1,1302 @@
+{% extends "client/base.html" %}
+{% block content %}
+
+<style>
+  /* Dark green button for "Save and close" */
+  .btn-save-close{
+    background-color:#0b5d1e;
+    border-color:#0b5d1e;
+    color:#fff;
+  }
+  .btn-save-close:hover{filter:brightness(0.95);}
+
+
+
+</style>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <a id="btnBack" class="btn btn-sm btn-outline-secondary" href="{{ url_for('client.sections_home') }}">{{_('Back to list')}}</a>
+    <span class="badge text-bg-light border">{{ repo.display_name or repo.name }}</span>
+    <span class="badge text-bg-light border">{{ class_name }}</span>
+  </div>
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <span class="badge text-bg-light border">id: {{ node_id }}</span>
+  </div>
+</div>
+
+{% if error %}
+  <div class="alert alert-danger"><b>Error:</b> {{ error }}</div>
+{% endif %}
+
+<div class="d-flex gap-3">
+  {#
+    IMPORTANT: the main content column is a flex item next to the right-side sticky panel.
+    Flex items default to min-width:auto (min-content). When Table(table=true) is shown,
+    the underlying <table> can increase the min-content width, so the left pane starts
+    "pushing" under the right panel and looks wider when switching tabs.
+    Setting min-width:0 allows the flex item to shrink to the available space.
+  #}
+  <div class="flex-grow-1" style="min-width:0;">
+
+    {% if layout_html %}
+  <!-- onShowWeb / onShow layout -->
+  <div id="webRoot">
+    {{ layout_html | safe }}
+  </div>
+{% else %}
+  <!-- raw _data editor (fallback / when no layout) -->
+  <div class="mb-2 text-muted small">_data (JSON)</div>
+  <textarea id="dataJson" class="form-control font-monospace" rows="20">{{ data_json | e }}</textarea>
+  <div class="text-muted small mt-2">
+    {% if not use_standard_commands %}
+      There are no standard commands for this class, only JSON editing is available.
+    {% else %}
+      If the form is not specified, you can edit the JSON directly.
+    {% endif %}
+  </div>
+{% endif %}
+
+  </div>
+
+  {% if use_standard_commands %}
+  <div style="width:260px; flex:0 0 260px; flex-shrink:0; position:sticky; top:12px; align-self:flex-start;">
+    <div>
+      <div class="d-grid gap-2">
+        <button id="btnSaveClose" class="btn btn-sm btn-save-close" type="button">{{_('Save and close')}}</button>
+        <button id="btnSave" class="btn btn-sm btn-outline-secondary" type="button">{{_('Save')}}</button>
+
+        {% if show_register_command %}
+          <button id="btnRegister" class="btn btn-sm btn-outline-primary" type="button"
+                  {% if not default_room_uid %}disabled title="No Room specified"{% endif %}>
+            {{_('Register')}}
+          </button>
+        {% endif %}
+
+        {% if not is_custom_process %}<button id="btnDelete" class="btn btn-danger btn-sm" type="button">{{_('Delete')}}</button>{% endif %}
+        <button id="btnClose" class="btn btn-sm btn-outline-secondary" type="button">{{_('Close')}}</button>
+      </div>
+      <div id="sideStatus" class="text-muted small mt-2"></div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+const REPO_ID = {{ repo_id|tojson }};
+const CLASS_NAME = {{ class_name|tojson }};
+const NODE_ID = {{ node_id|tojson }};
+const API_EVENT_WEB = {{ api_event_web|tojson }};
+const API_SAVE = {{ api_save_url|tojson }};
+
+// Scanner WS context (used by base.html)
+window.NL = window.NL || {};
+window.NL.repo_id = {{ repo_id|tojson }};
+window.NL.class_name = {{ class_name|tojson }};
+window.NL.node_id = {{ node_id|tojson }};
+window.NL.api_node_event_web = API_EVENT_WEB;
+
+// initial BarcodeScanner listeners from PlugIn()
+(function(){
+  const plugins = {{ (ui_plugins or [])|tojson }};
+  const ids = [];
+  try {
+    for (const p of plugins) {
+      if (p && (p.type === "BarcodeScanner") && (p.id || p.listener)) {
+        ids.push(String(p.id || p.listener));
+      }
+    }
+  } catch(_){}
+  window.NL.barcode_listeners = ids;
+})();
+const API_DELETE = {{ api_delete_url|tojson }};
+const API_REGISTER = {{ api_register_url|tojson }};
+const DEFAULT_ROOM_UID = {{ (default_room_uid or "") | tojson }};
+const SECTIONS_HOME = {{ url_for('client.sections_home')|tojson }};
+const API_CLASS_NODES = "/client/api/class_nodes";
+const API_DATASET_ITEMS = "/client/api/dataset_items";
+
+function _winSafe(s){
+  return String(s ?? "").replaceAll(/[^a-zA-Z0-9_]/g, "_").slice(0, 80);
+}
+function nodeWinNameByParts(config_uid, class_name, node_id){
+  return "nf_" + _winSafe(config_uid) + "__" + _winSafe(class_name) + "__" + _winSafe(node_id);
+}
+
+
+function openUrlMaybeNodeForm(url){
+  const u = String(url || "").trim();
+  if (!u) return false;
+
+  // Try to get /client/node/<cfg>/<class>/<id> from URL
+  const m = u.match(/\/(?:client\/)?node\/([^\/]+)\/([^\/]+)\/([^\/\?#]+)/);
+  if (m) {
+    const cfg = decodeURIComponent(m[1]);
+    const cls = decodeURIComponent(m[2]);
+    const id  = decodeURIComponent(m[3]);
+    const name = nodeWinNameByParts(cfg, cls, id);
+
+    
+    const w = window.open(u, name);
+    if (w) { try { w.focus(); } catch(_){} }
+    return true;
+  }
+
+  
+  const w = window.open(u, "_blank");
+  if (w) { try { w.focus(); } catch(_){} }
+  return true;
+}
+
+
+
+
+// Local "source of truth" for the form data. We update this object on any user input,
+// and we send it to the backend only on _save (unless element has explicit events).
+const NODE_DATA_INITIAL = {{ (node_data if node_data is mapping else {})|tojson }};
+let _data = JSON.parse(JSON.stringify(NODE_DATA_INITIAL || {}));
+
+function setSideStatus(t){
+  const el = document.getElementById("sideStatus");
+  if(el) el.textContent = t || "";
+}
+
+/* Back button: prefer real referrer to return to the list if possible */
+(function(){
+  const backBtn = document.getElementById("btnBack");
+  if(!backBtn) return;
+  backBtn.addEventListener("click", (e) => {
+    try {
+      const ref = document.referrer || "";
+      if (ref.includes("/client/section/") || ref.includes("/client/sections") || ref.includes("/client/")) {
+        e.preventDefault();
+        window.location.href = ref;
+      }
+    } catch(_) {}
+  });
+})();
+
+/* --- Web form (layout) input -> onInputWeb event --- */
+let inputTimer = null;
+
+function collectChanged(el){
+  const path = (el.getAttribute("data-path") || "").trim();
+  if(!path) return null;
+
+  const listener = (el.getAttribute("data-id") || el.getAttribute("data-nl-listener") || el.id || path || "").trim();
+
+  let v = null;
+
+if (el.type === "checkbox") {
+  v = !!el.checked;
+
+} else if (el.type === "number") {
+  const s = String(el.value ?? "").trim();
+  if (s === "") v = null;
+  else {
+    
+    const isFloat = s.includes(".") || s.includes("e") || s.includes("E");
+    const num = Number(s);
+    v = Number.isFinite(num) ? (isFloat ? num : parseInt(s, 10)) : null;
+  }
+
+} else {
+  v = el.value;
+}
+
+  return { listener: listener, id: listener, path: path, value: v };
+}
+
+// Supports paths like:
+//   field
+//   a.b.c
+//   items[0].name
+function parsePathTokens(path){
+  const tokens = [];
+  let cur = "";
+  let i = 0;
+
+  const pushCur = () => {
+    if(cur.length){
+      tokens.push(cur);
+      cur = "";
+    }
+  };
+
+  while(i < path.length){
+    const ch = path[i];
+    if(ch === "."){
+      pushCur();
+      i += 1;
+      continue;
+    }
+    if(ch === "["){
+      pushCur();
+      const end = path.indexOf("]", i+1);
+      if(end === -1){
+        // broken path, keep rest as a single token
+        tokens.push(path.slice(i));
+        return tokens;
+      }
+      const inside = path.slice(i+1, end).trim();
+      const idx = Number(inside);
+      tokens.push(Number.isFinite(idx) ? idx : inside);
+      i = end + 1;
+      continue;
+    }
+    cur += ch;
+    i += 1;
+  }
+  pushCur();
+  return tokens;
+}
+
+function setByPath(obj, path, value){
+  if(!obj || typeof obj !== "object") return;
+  const tokens = parsePathTokens(path);
+  if(!tokens.length) return;
+  let cur = obj;
+  for(let i=0;i<tokens.length-1;i++){
+    const k = tokens[i];
+    if(cur[k] == null || typeof cur[k] !== "object"){
+      // next token decides whether to create array or object
+      const next = tokens[i+1];
+      cur[k] = (typeof next === "number") ? [] : {};
+    }
+    cur = cur[k];
+  }
+  cur[tokens[tokens.length-1]] = value;
+}
+
+function isFullNodeData(obj){
+  return !!(obj && typeof obj === "object" && (("_id" in obj) || ("_class" in obj)));
+}
+
+
+function deepMerge(dst, src){
+  if (!src || typeof src !== "object") return dst;
+  if (!dst || typeof dst !== "object") dst = {};
+  for (const k of Object.keys(src)) {
+    const sv = src[k];
+    const dv = dst[k];
+    if (sv && typeof sv === "object" && !Array.isArray(sv) && dv && typeof dv === "object" && !Array.isArray(dv)) {
+      dst[k] = deepMerge(dv, sv);
+    } else {
+      dst[k] = sv;
+    }
+  }
+  return dst;
+}
+
+function updateLocalDataFromElement(el){
+  const p = collectChanged(el);
+  if(!p) return null;
+
+  
+  setByPath(_data, p.path, p.value);
+
+  
+  p.extra = [];
+
+  // Spinner: *_data and *_view
+  if (el && el.tagName === "SELECT" && el.getAttribute("data-nl-spinner") === "1") {
+    try {
+      const sid = String(p.listener || p.path || "").trim();
+      const dsRaw = el.getAttribute("data-nl-dataset") || "[]";
+      const ds = JSON.parse(dsRaw);
+      const selectedId = String(el.value || "").trim();
+
+      let found = null;
+      if (Array.isArray(ds)) {
+        for (const it of ds) {
+          if (it && typeof it === "object" && String(it._id || "").trim() === selectedId) {
+            found = it;
+            break;
+          }
+        }
+      }
+
+      const view = found ? String(found._view || found._id || "") : selectedId;
+
+      if (sid) {
+        setByPath(_data, `${sid}_data`, found || null);
+        setByPath(_data, `${sid}_view`, view || null);
+
+        p.extra.push({ path: `${sid}_data`, value: found || null });
+        p.extra.push({ path: `${sid}_view`, value: view || null });
+      }
+    } catch (e) {
+      console.warn("spinner parse/set failed", e);
+    }
+  }
+
+  // DATE: and _d<id> = ISO (YYYY-MM-DD)
+  const isDate = (el.type === "date") || (el.getAttribute("data-nl-date") === "1");
+  if (isDate) {
+    const lid = String(p.listener || "").trim();
+    if (lid) {
+      const iso = String(el.value || "").trim();
+      setByPath(_data, `_d${lid}`, iso || null);
+      p.extra.push({ path: `_d${lid}`, value: iso || null });
+    }
+  }
+
+  return p;
+}
+
+
+
+function shouldSendWebEvent(el){
+  // Explicit events in layout JSON -> data-nl-events="1"
+  if(el.getAttribute("data-nl-events") === "1") return true;
+  // Toggles should update UI immediately
+  if(el.type === "checkbox") return true;
+  // Selects (dropdowns) typically need UI reaction
+  if(el.tagName === "SELECT") return true;
+  // Date input can affect other fields
+  if(el.getAttribute("data-nl-date") === "1") return true;
+  return false;
+}
+
+async function fireOnInputWeb(payload){
+  try{
+    const r = await fetch(API_EVENT_WEB, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        repo_id: REPO_ID,
+        class_name: CLASS_NAME,
+        node_id: NODE_ID,
+        event: "onInputWeb",
+        payload: payload
+      })
+    });
+    try{
+      const j = await r.json();
+      if (j && j.node_data && typeof j.node_data === "object") {
+        
+        let base;
+        try { base = JSON.parse(JSON.stringify(_data || {})); }
+        catch(_) { base = _data || {}; }
+
+        
+        try {
+          if (isFullNodeData(j.node_data)) {
+            base = JSON.parse(JSON.stringify(j.node_data || {}));
+          } else {
+            base = deepMerge(base, j.node_data || {});
+          }
+        } catch(_) {}
+
+        
+        try {
+          if (payload && payload.path) setByPath(base, payload.path, payload.value);
+        } catch(_) {}
+
+        
+        try {
+          if (payload && Array.isArray(payload.extra)) {
+            payload.extra.forEach((e) => {
+              if (e && e.path) setByPath(base, e.path, e.value);
+            });
+          }
+        } catch(_) {}
+
+        _data = base;
+      }
+      if (j && j.message) {
+        try {
+          const showOne = (m) => {
+            if (!window.message) return;
+            if (m && typeof m === "object") window.message(m.text || JSON.stringify(m), m.level || "info");
+            else window.message(m, "info");
+          }
+          if (Array.isArray(j.message)) j.message.forEach(showOne);
+          else showOne(j.message);
+        } catch(_){ }
+      }
+
+      // Update plugins (one-shot) returned by node code via self.PlugIn(...)
+      if (j && j.plugins) {
+        try {
+          const ids = [];
+          for (const p of (j.plugins || [])) {
+            if (p && (p.type === "BarcodeScanner") && (p.id || p.listener)) {
+              ids.push(String(p.id || p.listener));
+            }
+          }
+          window.NL = window.NL || {};
+          window.NL.barcode_listeners = ids;
+        } catch(_){}
+      }
+
+      if (j && j.dialog) {
+        try { window.Dialog && window.Dialog(j.dialog, (p) => fireOnClickWeb(p)); } catch(_){ }
+      }
+      if (j && j.open) {
+        try {
+          const u = j.open;
+          if (u.config_uid && u.class_name && u.node_id) {
+            const targetUrl = `/client/node/${encodeURIComponent(u.config_uid)}/${encodeURIComponent(u.class_name)}/${encodeURIComponent(u.node_id)}`;
+
+            if (u.new_tab) {
+              const winName = nodeWinNameByParts(u.config_uid, u.class_name, u.node_id);
+              const w = window.open(targetUrl, winName);   
+              if (w) { try { w.focus(); } catch(_){} }
+            } else {
+              window.location.href = targetUrl;
+            }
+                        return;
+          }
+        } catch(_){}
+      }
+
+      if (j && j.close) {
+        try { window.history.back(); } catch(_){}
+        return;
+      }
+      if (j && j.layout_html !== undefined) {
+        const root = document.getElementById("webRoot");
+        if (root) {
+          root.innerHTML = j.layout_html || "";
+          bindClicks();
+          bindInputs();
+          initDatasetTables();
+        }
+      }
+    } catch(_){}
+  } catch(e){
+    console.warn("event_web failed", e);
+  }
+}
+
+
+
+// NOTE: we keep the function name for backward compatibility inside this template,
+// but the backend event name must remain "onInputWeb" (as in config events).
+async function fireOnClickWeb(payload, target_class = "", target_node = "") {
+  const reqBody = {
+    repo_id: REPO_ID,
+
+    // current opened form
+    class_name: CLASS_NAME,
+    node_id: NODE_ID,
+
+    // target node
+    target_class_name: target_class || "",
+    target_node_id: target_node || "",
+
+    event: "onInputWeb",
+    payload: payload || {},
+  };
+
+  let r, j;
+  try {
+    
+    r = await fetch(API_EVENT_WEB, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(reqBody),
+      credentials: "same-origin",
+    });
+    j = await r.json();
+  } catch (e) {
+    console.error("fireOnClickWeb fetch/json error", e);
+    return;
+  }
+
+  if (!j || j.ok !== true) {
+    console.warn("fireOnClickWeb bad response", j);
+
+    
+    try {
+      const text = (j && (j.error || (j.message && j.message.text))) ? (j.error || j.message.text) : "Handler error";
+      if (window.message) window.message(text, "error");
+    } catch(_) {}
+
+    return;
+  }
+
+  
+  if (j && j.message) {
+    try {
+      const showOne = (m) => {
+        if (!window.message) return;
+        if (m && typeof m === "object") window.message(m.text || JSON.stringify(m), m.level || "info");
+        else window.message(m, "info");
+      }
+      if (Array.isArray(j.message)) j.message.forEach(showOne);
+      else showOne(j.message);
+    } catch(_){}
+  }
+
+  // Dialog
+  if (j && j.dialog) {
+    try { window.Dialog && window.Dialog(j.dialog, (p) => fireOnClickWeb(p)); } catch(_){ }
+  }
+
+  // open
+  if (j && j.open) {
+    try {
+      const u = j.open;
+      if (u.config_uid && u.class_name && u.node_id) {
+        const targetUrl = `/client/node/${encodeURIComponent(u.config_uid)}/${encodeURIComponent(u.class_name)}/${encodeURIComponent(u.node_id)}`;
+        if (u.new_tab) {
+          const winName = nodeWinNameByParts(u.config_uid, u.class_name, u.node_id);
+          const w = window.open(targetUrl, winName);
+          if (w) { try { w.focus(); } catch(_){} }
+        } else {
+          window.location.href = targetUrl;
+        }
+        return;
+      }
+    } catch(_){}
+  }
+
+  // close
+  if (j && j.close) {
+    try { window.history.back(); } catch(_){}
+    return;
+  }
+
+  
+  if (Array.isArray(j.patches)) {
+    for (const p of j.patches) {
+      if (!p || p.type !== "cover") continue;
+      const c = String(p.class_name || "").trim();
+      const n = String(p.node_id || "").trim();
+      if (!c || !n) continue;
+
+      const sel =
+        `[data-nl-target-class="${CSS.escape(c)}"]` +
+        `[data-nl-target-node="${CSS.escape(n)}"]`;
+
+      const hosts = document.querySelectorAll(sel);
+      hosts.forEach((host) => {
+        if (host && p.html !== undefined) host.innerHTML = p.html || "";
+      });
+    }
+  }
+
+  
+  if (j && j.layout_html !== undefined) {
+    const root = document.getElementById("webRoot");
+    if (root) {
+      root.innerHTML = j.layout_html || "";
+  
+      bindClicks();
+      bindInputs();
+      initDatasetTables();
+    }
+  }
+
+  
+  if (
+    j.node_data && typeof j.node_data === "object" &&
+    j.handled &&
+    String(j.handled.class_name || "") === String(CLASS_NAME) &&
+    String(j.handled.node_id || "") === String(NODE_ID)
+  ) {
+    //try { _data = JSON.parse(JSON.stringify(j.node_data || {})); }
+    //catch(_){ _data = j.node_data || {}; }
+
+    let base;
+    try { base = JSON.parse(JSON.stringify(_data || {})); } catch(_){ base = _data || {}; }
+    try {
+      if (isFullNodeData(j.node_data)) base = JSON.parse(JSON.stringify(j.node_data || {}));
+      else base = deepMerge(base, j.node_data || {});
+    } catch(_){}
+    _data = base;
+
+  }
+}
+
+
+function bindClicks() {
+  
+  const root = document.getElementById("webRoot") || document;
+  if (!root) return;
+
+  
+  if (root.__nl_clicks_bound) return;
+  root.__nl_clicks_bound = true;
+
+  root.addEventListener("click", async (e) => {
+    const t = e.target;
+    if (!t || !t.closest) return;
+
+    const isInteractive = !!t.closest("button,input,textarea,select,label");
+
+  
+    const clickEl = t.closest('[data-nl-click="1"]');
+    if (clickEl) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const listener = String(clickEl.getAttribute("data-nl-listener") || "").trim();
+
+  
+      const owner = clickEl.closest('[data-nl-target-class][data-nl-target-node]');
+      const target_class = owner ? String(owner.getAttribute("data-nl-target-class") || "").trim() : "";
+      const target_node  = owner ? String(owner.getAttribute("data-nl-target-node") || "").trim() : "";
+
+      await fireOnClickWeb({ listener, element_tag: clickEl.tagName }, target_class, target_node);
+      return;
+    }
+
+    const dsPick = t.closest('[data-nl-datasetpick="1"]');
+    if (dsPick) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const fieldId = String(dsPick.getAttribute("data-nl-listener") || "").trim();
+      const dsName = String(dsPick.getAttribute("data-nl-dataset-name") || "").trim();
+      await openDatasetPickDialog(fieldId, dsName);
+      return;
+    }
+
+    const pickBtn = t.closest('[data-nl-nodepick="1"]');
+    if (pickBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const fieldId = String(pickBtn.getAttribute("data-nl-listener") || "").trim(); 
+      const kind = String(pickBtn.getAttribute("data-nl-ds-kind") || "").trim();
+      const dsRaw = pickBtn.getAttribute("data-nl-ds") || "";
+
+      await openNodePickDialog(fieldId, kind, dsRaw);
+      return;
+    }
+
+    const clr = t.closest('[data-nl-clear="1"]');
+    if (clr) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const fieldId = String(clr.getAttribute("data-nl-clear-target") || "").trim();
+      if (!fieldId) return;
+
+      // clear local data
+      setByPath(_data, fieldId, null);
+      setByPath(_data, `${fieldId}_data`, null);
+      setByPath(_data, `${fieldId}_view`, null);
+
+      // update UI (readonly input)
+      const inp =
+        document.querySelector(`input[data-nl-nodeinput="1"][data-id="${CSS.escape(fieldId)}"],` +
+                               `input[data-nl-datasetinput="1"][data-id="${CSS.escape(fieldId)}"]`);
+      if (inp) inp.value = "";
+
+      // notify server (as onInputWeb)
+      const payload = {
+        listener: fieldId,
+        id: fieldId,
+        path: fieldId,
+        value: null,
+        extra: [
+          { path: `${fieldId}_data`, value: null },
+          { path: `${fieldId}_view`, value: null }
+        ]
+      };
+      await fireOnInputWeb(payload);
+      return;
+    }
+
+    
+    const openEl = t.closest('[data-nl-open="1"]');
+    if (openEl && !isInteractive) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      let url = String(openEl.getAttribute("data-nl-open-url") || "").trim();
+      if (!url) {
+        const a = t.closest("a[href]");
+        if (a) url = String(a.getAttribute("href") || "").trim();
+      }
+      if (!url && openEl.tagName === "A") {
+        url = String(openEl.getAttribute("href") || "").trim();
+      }
+      if (!url) return;
+
+    
+      openUrlMaybeNodeForm(url);
+      return;
+    }
+  }, { passive: false });
+}
+bindClicks();
+
+function bindInputs(){
+  const root = document.getElementById("webRoot");
+  if(!root) return;
+
+  // Delegated input/change handling (works inside any container and after re-render)
+  if (root.__nlInputsBound) return;
+  root.__nlInputsBound = true;
+
+  const handle = (el, kind) => {
+    if (!el) return;
+    if (!(el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT")) return;
+    const path = (el.getAttribute("data-path") || "").trim();
+    if (!path) return;
+
+    const hasEvents = (el.getAttribute("data-nl-events") === "1");
+    const isCheckbox = (el.type === "checkbox");
+    const isSelect = (el.tagName === "SELECT");
+    const isDate = (el.getAttribute("data-nl-date") === "1");
+
+    const p = updateLocalDataFromElement(el);
+    if (!p) return;
+
+    // input: only for text typing (throttle if has events)
+    if (kind === "input") {
+      if (hasEvents) {
+        if (inputTimer) clearTimeout(inputTimer);
+        inputTimer = setTimeout(() => fireOnInputWeb(p), 250);
+      }
+      return;
+    }
+
+    // change: checkboxes/selects/dates always can affect layout
+    if (kind === "change") {
+      if (shouldSendWebEvent(el)) fireOnInputWeb(p);
+      return;
+    }
+  };
+
+  root.addEventListener("input", (e) => {
+    const el = e.target;
+    handle(el, "input");
+  });
+
+  root.addEventListener("change", (e) => {
+    const el = e.target;
+    handle(el, "change");
+  });
+}
+bindInputs();
+
+/* --- Save/Delete (standard commands) --- */
+function getDataFromTextarea(){
+  const ta = document.getElementById("dataJson");
+  if(!ta) return null;
+  const s = (ta.value || "").trim();
+  if(!s) return {};
+  return JSON.parse(s);
+}
+
+async function doSave(){
+  //fireOnClickWeb({listener:"btnSave"});
+  setSideStatus("saving...");
+  let data = {};
+  try{
+    const ta = document.getElementById("dataJson");
+    // If there is a textarea (raw JSON editor), save its JSON.
+    // Otherwise save the local in-memory _data that is kept in sync with the web form.
+    data = ta ? getDataFromTextarea() : (_data || {});
+  }catch(e){
+    setSideStatus("");
+    alert("JSON error: " + e);
+    return false;
+  }
+
+  try{
+    const r = await fetch(API_SAVE, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({repo_id: REPO_ID, class_name: CLASS_NAME, node_id: NODE_ID, data: data})
+    });
+    const j = await r.json();
+    if(!j.ok){
+      setSideStatus("");
+      if(j.message && window.message) window.message(j.message.text || j.error || "save failed", j.message.level || "danger");
+      else alert(j.error || "save failed");
+      return false;
+    }
+    setSideStatus("saved");
+
+    if(j.message && window.message) window.message(j.message.text || "saved", j.message.level || "success");
+
+    // Notify the section list (opener tab) to refresh.
+    try {
+      if (window.opener && !window.opener.closed) {
+        // Same-origin: try direct call first
+        if (typeof window.opener.loadSection === "function") window.opener.loadSection();
+        // Also send a message (works even if loadSection isn't global)
+        window.opener.postMessage({type:"nodes_refresh"}, window.location.origin);
+      }
+    } catch(_) {}
+    return true;
+  }catch(e){
+    setSideStatus("");
+    alert("save failed: " + e);
+    return false;
+  }
+}
+
+async function doSaveClose(){
+  const ok = await doSave();
+  if(ok) doClose();
+}
+
+async function doRegister(){
+  try{ if(typeof fireOnClickWeb === "function") fireOnClickWeb({listener:"btnRegister"}); }catch(_){}
+  if(!API_REGISTER) return;
+  if(!DEFAULT_ROOM_UID){
+    if(window.message) window.message("Room not specified", "warning");
+    else alert("Room not specified");
+    return;
+  }
+  setSideStatus("registering...");
+  try{
+    const r = await fetch(API_REGISTER, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({repo_id: REPO_ID, class_name: CLASS_NAME, node_id: NODE_ID, room_uid: DEFAULT_ROOM_UID})
+    });
+    const j = await r.json();
+    if(!j.ok){
+      setSideStatus("");
+      if(j.message && window.message) window.message(j.message.text || j.error || "register failed", j.message.level || "danger");
+      else alert(j.error || "register failed");
+      return;
+    }
+    setSideStatus("registered");
+    if(j.message && window.message) window.message(j.message.text || "registered", j.message.level || "success");
+  }catch(e){
+    setSideStatus("");
+    alert("register failed: " + e);
+  }
+}
+
+async function doDelete(){
+  fireOnClickWeb({listener:"btnDelete"});
+  if(!confirm("Delete node?")) return;
+  setSideStatus("deleting...");
+  try{
+    const r = await fetch(API_DELETE, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({repo_id: REPO_ID, class_name: CLASS_NAME, node_id: NODE_ID})
+    });
+    const j = await r.json();
+    if(!j.ok){ setSideStatus(""); alert(j.error || "delete failed"); return; }
+    setSideStatus("deleted");
+    window.close();
+  }catch(e){
+    setSideStatus("");
+    alert("delete failed: " + e);
+  }
+}
+
+function doClose(){
+  fireOnClickWeb({listener:"btnClose"});
+
+  // 1) If this form was opened from the section list (window.open), refresh opener and close.
+  try {
+    if (window.opener && !window.opener.closed) {
+      if (typeof window.opener.loadSection === "function") window.opener.loadSection();
+      window.opener.postMessage({type:"nodes_refresh"}, window.location.origin);
+      try { window.opener.focus(); } catch(_) {}
+      window.close();
+      return;
+    }
+  } catch(_) {}
+
+  // 2) Otherwise navigate back to the previous page; add a hint to refresh.
+  try {
+    const ref = (document.referrer || "").trim();
+    if (ref) {
+      const u = new URL(ref, window.location.origin);
+      u.searchParams.set("refresh", "1");
+      window.location.href = u.toString();
+      return;
+    }
+  } catch(_) {}
+
+  // 3) Final fallback
+  window.location.href = SECTIONS_HOME;
+}
+
+const bSC = document.getElementById("btnSaveClose");
+if (bSC) bSC.addEventListener("click", doSaveClose);
+
+const bS = document.getElementById("btnSave");
+if (bS) bS.addEventListener("click", doSave);
+
+const bR = document.getElementById("btnRegister");
+if (bR) bR.addEventListener("click", doRegister);
+
+const bD = document.getElementById("btnDelete");
+if(bD) bD.addEventListener("click", doDelete);
+
+const bC = document.getElementById("btnClose");
+if(bC) bC.addEventListener("click", doClose);
+
+/* Ctrl+S in JSON editor -> Save */
+const ta = document.getElementById("dataJson");
+if(ta){
+  ta.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      if (bS) doSave();
+    }
+  });
+}
+</script>
+<script>
+const INITIAL_MESSAGE = {{ (initial_message or None) | tojson }};
+
+window.addEventListener("DOMContentLoaded", () => {
+  try {
+    if (!INITIAL_MESSAGE) return;
+
+    const showOne = (m) => {
+      if (!window.message) return;
+      if (m && typeof m === "object") window.message(m.text || JSON.stringify(m), m.level || "info");
+      else window.message(String(m), "info");
+    };
+
+    if (Array.isArray(INITIAL_MESSAGE)) INITIAL_MESSAGE.forEach(showOne);
+    else showOne(INITIAL_MESSAGE);
+  } catch(_) {}
+});
+
+
+function ensureNodePickModal(){
+  let m = document.getElementById("nlNodePickModal");
+  if (m) return m;
+
+  const html = `
+<div class="modal fade" id="nlNodePickModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Select node</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <input id="nlNodePickSearch" class="form-control" type="text" placeholder="Search..."/>
+        <div id="nlNodePickList" class="mt-3 d-flex flex-column gap-2"></div>
+      </div>
+    </div>
+  </div>
+</div>`;
+  document.body.insertAdjacentHTML("beforeend", html);
+  return document.getElementById("nlNodePickModal");
+}
+
+async function fetchNodesForPicker(kind, dsRaw, q){
+  q = String(q || "").trim();
+
+  
+  if (kind === "uids") {
+    let arr = [];
+    try { arr = JSON.parse(dsRaw || "[]"); } catch(_) { arr = []; }
+
+    // normalize to [{uid, _view, data}]
+    const out = [];
+    for (const r of arr) {
+      if (typeof r === "string") {
+        const uid = r;
+        if (q && !uid.toLowerCase().includes(q.toLowerCase())) continue;
+        out.push({ uid, _view: uid, data: null });
+      } else if (r && typeof r === "object") {
+        const cls = String(r._class || r.class || "").trim();
+        const id  = String(r._id || r.id || "").trim();
+        const uid = (r.uid ? String(r.uid) : (cls && id ? `${cls}$${id}` : "")).replace("$$","$");
+        if (!uid) continue;
+        const view = String(r._view || uid);
+        const hay = (view + " " + uid).toLowerCase();
+        if (q && !hay.includes(q.toLowerCase())) continue;
+        out.push({ uid, _view: view, data: r });
+      }
+    }
+    return out;
+  }
+
+  
+  if (kind === "class") {
+    const className = String(dsRaw || "").trim();
+    if (!className) return [];
+    const url = new URL(API_CLASS_NODES, window.location.origin);
+    url.searchParams.set("repo_id", String(REPO_ID));
+    url.searchParams.set("class_name", className);
+    url.searchParams.set("q", q);
+    url.searchParams.set("limit", "80");
+
+    const r = await fetch(url.toString(), { credentials: "same-origin" });
+   const j = await r.json();
+  if (!j || !j.ok) {
+    try {
+      const txt = (j && (j.error || (j.message && j.message.text))) ? (j.error || j.message.text) : "API error";
+      if (window.message) window.message(txt, "error");
+    } catch(_){}
+    return [];
+  }
+    return (j.items || []).map(it => ({
+      uid: String(it.uid || ""),
+      _view: String(it._view || it.uid || ""),
+      data: it.data || null
+    }));
+  }
+
+  return [];
+}
+
+async function openNodePickDialog(fieldId, kind, dsRaw){
+  const modalEl = ensureNodePickModal();
+  const searchEl = document.getElementById("nlNodePickSearch");
+  const listEl = document.getElementById("nlNodePickList");
+
+  const bsModal = new bootstrap.Modal(modalEl);
+  bsModal.show();
+
+  const render = (items) => {
+    listEl.innerHTML = "";
+    items.forEach(it => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn btn-outline-secondary text-start";
+      btn.textContent = it._view || it.uid;
+      btn.addEventListener("click", async () => {
+        const uid = String(it.uid || "").trim();
+        const view = String(it._view || uid).trim();
+
+  
+        setByPath(_data, fieldId, uid);
+        setByPath(_data, `${fieldId}_data`, it.data || null);
+        setByPath(_data, `${fieldId}_view`, view);
+
+  
+        const inp = document.querySelector(`input[data-nl-nodeinput="1"][data-id="${CSS.escape(fieldId)}"]`);
+        if (inp) inp.value = view;
+
+  
+        const payload = {
+          listener: fieldId,
+          id: fieldId,
+          path: fieldId,
+          value: uid,
+          extra: [
+            { path: `${fieldId}_data`, value: it.data || null },
+            { path: `${fieldId}_view`, value: view }
+          ]
+        };
+        await fireOnInputWeb(payload);
+
+        bsModal.hide();
+      });
+      listEl.appendChild(btn);
+    });
+  };
+
+  // initial load
+  let curItems = await fetchNodesForPicker(kind, dsRaw, "");
+  render(curItems);
+
+  // search
+  searchEl.value = "";
+  let timer = null;
+  searchEl.oninput = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const q = searchEl.value || "";
+      curItems = await fetchNodesForPicker(kind, dsRaw, q);
+      render(curItems);
+    }, 200);
+  };
+}
+
+async function fetchDatasetItems(dsName, q){
+  const url = new URL(API_DATASET_ITEMS, window.location.origin);
+  url.searchParams.set("repo_id", String(REPO_ID));
+  url.searchParams.set("dataset", String(dsName || ""));
+  url.searchParams.set("q", String(q || ""));
+  url.searchParams.set("limit", "100");
+  const r = await fetch(url.toString(), { credentials:"same-origin" });
+  const j = await r.json();
+  if (!j || !j.ok) return [];
+  return (j.items || []).map(it => ({
+    key: String(it.key || it.uid || ""),
+    view: String(it._view || it.key || it.uid || ""),
+    data: it.data || null
+  }));
+}
+
+async function openDatasetPickDialog(fieldId, dsName){
+  const modalEl = ensureNodePickModal();   
+  const searchEl = document.getElementById("nlNodePickSearch");
+  const listEl = document.getElementById("nlNodePickList");
+
+  // title
+  const title = modalEl.querySelector(".modal-title");
+  if (title) title.textContent = `Выбор: ${dsName}`;
+
+  const bsModal = new bootstrap.Modal(modalEl);
+  bsModal.show();
+
+  const render = (items) => {
+    listEl.innerHTML = "";
+    items.forEach(it => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn btn-outline-secondary text-start";
+      btn.textContent = it.view || it.key;
+      btn.addEventListener("click", async () => {
+        const key = String(it.key || "").trim();           // dataset$id
+        const view = String(it.view || key).trim();
+
+        setByPath(_data, fieldId, key);
+        setByPath(_data, `${fieldId}_data`, it.data || null);
+        setByPath(_data, `${fieldId}_view`, view);
+
+        const inp = document.querySelector(`input[data-nl-datasetinput="1"][data-id="${CSS.escape(fieldId)}"]`);
+        if (inp) inp.value = view;
+
+        const payload = {
+          listener: fieldId, id: fieldId, path: fieldId, value: key,
+          extra: [
+            { path: `${fieldId}_data`, value: it.data || null },
+            { path: `${fieldId}_view`, value: view }
+          ]
+        };
+        await fireOnInputWeb(payload);
+
+        bsModal.hide();
+      });
+      listEl.appendChild(btn);
+    });
+  };
+
+  // initial load
+  searchEl.value = "";
+  render(await fetchDatasetItems(dsName, ""));
+
+  let timer = null;
+  searchEl.oninput = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(async () => {
+      render(await fetchDatasetItems(dsName, searchEl.value || ""));
+    }, 200);
+  };
+}
+
+function initDatasetTables(){
+  const roots = document.querySelectorAll('[data-nl-dataset-table="1"]');
+  roots.forEach((root) => {
+    if (root.__nlDatasetInit) return;
+    root.__nlDatasetInit = true;
+
+    const tableId = String(root.getAttribute("data-nl-table-id") || "").trim();
+    const dsName = String(root.getAttribute("data-nl-dataset-name") || "").trim();
+    const asTable = (root.getAttribute("data-nl-as-table") === "1");
+
+    const searchEl = root.querySelector('[data-nl-dataset-search="1"]');
+    const bodyEl = root.querySelector('[data-nl-dataset-body="1"]');
+
+    const render = (items) => {
+      bodyEl.innerHTML = "";
+      if (asTable) {
+        const tbl = document.createElement("table");
+        tbl.className = "nl-table-el";
+        const thead = document.createElement("thead");
+        thead.innerHTML = "<tr><th>Item</th></tr>";
+        tbl.appendChild(thead);
+        const tb = document.createElement("tbody");
+
+        items.forEach((it, idx) => {
+          const tr = document.createElement("tr");
+          tr.className = "nl-tr nl-clickable";
+          tr.setAttribute("data-nl-ds-row", "1");
+          tr.setAttribute("data-nl-ds-key", it.key);
+          tr.setAttribute("data-nl-ds-pos", String(it.position ?? (idx+1)));
+          tr.setAttribute("data-nl-ds-data", JSON.stringify(it.data || null));
+          tr.innerHTML = `<td>${escapeHtml(it._view || it.key)}</td>`;
+          tb.appendChild(tr);
+        });
+
+        tbl.appendChild(tb);
+        bodyEl.appendChild(tbl);
+      } else {
+        // cards
+        items.forEach((it, idx) => {
+          const div = document.createElement("div");
+          div.className = "nl-node-row nl-clickable";
+          div.setAttribute("data-nl-ds-row", "1");
+          div.setAttribute("data-nl-ds-key", it.key);
+          div.setAttribute("data-nl-ds-pos", String(it.position ?? (idx+1)));
+          div.setAttribute("data-nl-ds-data", JSON.stringify(it.data || null));
+          div.innerHTML = `<div class="nl-text">${escapeHtml(it._view || it.key)}</div>`;
+          bodyEl.appendChild(div);
+        });
+      }
+    };
+
+    const load = async (q) => {
+      const url = new URL(API_DATASET_ITEMS, window.location.origin);
+      url.searchParams.set("repo_id", String(REPO_ID));
+      url.searchParams.set("dataset", dsName);
+      url.searchParams.set("q", String(q || ""));
+      url.searchParams.set("limit", "200");
+      const r = await fetch(url.toString(), { credentials: "same-origin" });
+      const j = await r.json();
+      render((j && j.ok && j.items) ? j.items : []);
+    };
+
+    // click handler
+    root.addEventListener("click", async (e) => {
+      const row = e.target.closest('[data-nl-ds-row="1"]');
+      if (!row) return;
+
+      const key = String(row.getAttribute("data-nl-ds-key") || "").trim(); // dataset$id
+      const pos = Number(row.getAttribute("data-nl-ds-pos") || "0") || 0;
+
+      let data = null;
+      try { data = JSON.parse(row.getAttribute("data-nl-ds-data") || "null"); } catch(_) { data = null; }
+
+      // store variables in _data
+      setByPath(_data, tableId, key);
+      setByPath(_data, `${tableId}_selected_key`, key);
+      setByPath(_data, `${tableId}_selected_data`, data);
+      setByPath(_data, `${tableId}_selected_position`, pos);
+
+      const payload = {
+        listener: tableId,
+        id: tableId,
+        path: tableId,
+        value: key,
+        extra: [
+          { path: `${tableId}_selected_key`, value: key },
+          { path: `${tableId}_selected_data`, value: data },
+          { path: `${tableId}_selected_position`, value: pos }
+        ]
+      };
+      await fireOnInputWeb(payload);
+    });
+
+    // search
+    let timer = null;
+    searchEl.addEventListener("input", () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => load(searchEl.value || ""), 200);
+    });
+
+    // initial load
+    load("");
+  });
+}
+
+// helper for safe text into innerHTML
+function escapeHtml(s){
+  return String(s ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+}
+
+</script>
+
+{% endblock %}

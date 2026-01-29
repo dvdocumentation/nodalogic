@@ -1,0 +1,231 @@
+{% extends "client/base.html" %}
+{% block content %}
+<h2 class="mb-3">{{_('User configurations (Repo)')}}</h2>
+
+<form method="post" action="{{ url_for('client.repos_refresh_all') }}" class="mb-3">
+  <button class="btn btn-outline-primary btn-sm" type="submit">{{_('Update configurations')}}</button>
+</form>
+
+
+<ul class="nav nav-tabs mb-3" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="tab-server" data-bs-toggle="tab" data-bs-target="#pane-server"
+            type="button" role="tab" aria-controls="pane-server" aria-selected="true">
+      {{_('Add from local server')}}
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-link" data-bs-toggle="tab" data-bs-target="#pane-link"
+            type="button" role="tab" aria-controls="pane-link" aria-selected="false">
+      {{_('Add via link')}}
+    </button>
+  </li>
+  
+</ul>
+
+<div class="tab-content mb-4">
+  <!-- Tab 1: add by URL -->
+  <div class="tab-pane fade" id="pane-link" role="tabpanel" aria-labelledby="tab-link">
+    <form method="post" action="{{ url_for('client.repos_add') }}" class="row g-2 align-items-end">
+      <div class="col-lg-11">
+        <label class="form-label">{{_('Configuration link')}}</label>
+        <input type="text" name="config_url" class="form-control" placeholder="https://host/api/config/UID" required>
+      </div>
+      <div class="col-lg-1">
+        <button class="btn btn-primary w-100" type="submit">+</button>
+      </div>
+    </form>
+    <div class="form-text mt-2">
+      {{_('External URL. Under development.')}}
+    </div>
+  </div>
+
+  
+  <div class="tab-pane fade show active" id="pane-server" role="tabpanel" aria-labelledby="tab-server">
+    <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#pickConfigModal">
+       {{_('Select configurations')}}
+    </button>
+    <div class="form-text mt-2">
+      {{_('Adding the current database configuration to the repository.')}}
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal fade" id="pickConfigModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">{{_('Selecting the current server configuration')}}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="d-flex gap-2 mb-2">
+          <input id="cfgFilter" class="form-control" placeholder="Filter by name/uid...">
+          <button id="cfgReload" class="btn btn-outline-secondary" type="button">{{_('Update')}}</button>
+        </div>
+
+        <div class="list-group" id="cfgList">
+          <div class="text-muted small">{{_('Loading...')}}</div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <form id="addLocalForm" method="post" action="{{ url_for('client.repos_add_local') }}">
+          <input type="hidden" name="config_uid" id="pickedUid">
+          <button type="submit" class="btn btn-primary" disabled id="addLocalBtn">{{_('Add selected')}}</button>
+        </form>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{_('Close')}}</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script>
+(async function () {
+  const listEl = document.getElementById('cfgList');
+  const filterEl = document.getElementById('cfgFilter');
+  const reloadBtn = document.getElementById('cfgReload');
+  const pickedUid = document.getElementById('pickedUid');
+  const addBtn = document.getElementById('addLocalBtn');
+
+  let items = [];
+
+  function render() {
+    const q = (filterEl.value || '').trim().toLowerCase();
+    const filtered = !q ? items : items.filter(x =>
+      (x.name || '').toLowerCase().includes(q) ||
+      (x.uid || '').toLowerCase().includes(q)
+    );
+
+    listEl.innerHTML = '';
+    if (!filtered.length) {
+      listEl.innerHTML = '<div class="text-muted small">Nothing found</div>';
+      return;
+    }
+
+    filtered.forEach(x => {
+      const a = document.createElement('button');
+      a.type = 'button';
+      a.className = 'list-group-item list-group-item-action';
+      a.innerHTML = `
+        <div class="d-flex justify-content-between">
+          <div>
+            <div class="fw-semibold">${(x.name || '(no name)')}</div>
+            <div class="small text-muted">${x.uid}</div>
+          </div>
+          <div class="text-end small text-muted">
+            ${(x.version || '')}<br>
+            ${(x.vendor || '')}
+          </div>
+        </div>
+      `;
+      a.onclick = () => {
+        pickedUid.value = x.uid;
+        addBtn.disabled = false;
+        
+        [...listEl.querySelectorAll('.active')].forEach(e => e.classList.remove('active'));
+        a.classList.add('active');
+      };
+      listEl.appendChild(a);
+    });
+  }
+
+  async function load() {
+    listEl.innerHTML = '<div class="text-muted small">Loading...</div>';
+    pickedUid.value = '';
+    addBtn.disabled = true;
+
+    const resp = await fetch('{{ url_for("client.api_available_configs") }}');
+    items = await resp.json();
+    render();
+  }
+
+  filterEl.addEventListener('input', render);
+  reloadBtn.addEventListener('click', load);
+
+  await load();
+})();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+
+<div class="d-flex flex-column gap-3">
+{% for r in repos %}
+  {% set is_server_config = not r.base_url %}
+  <div class="card shadow-sm">
+    <div class="card-body">
+
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <div class="fw-semibold">{{ r.name }}</div>
+          <div class="text-muted small">{{ r.config_url }}</div>
+
+          <div class="mt-2 d-flex gap-2 flex-wrap">
+            {% if r.vendor %}
+              <span class="badge text-bg-light border">vendor: {{ r.vendor }}</span>
+            {% endif %}
+            {% if r.version %}
+              <span class="badge text-bg-light border">version: {{ r.version }}</span>
+            {% endif %}
+            {% if r.display_name %}
+              <span class="badge text-bg-light border">{{ r.display_name }}</span>
+            {% endif %}
+            {% if is_server_config %}
+              <span class="badge text-bg-success">server</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <form method="post" action="{{ url_for('client.repos_remove', repo_id=r.id) }}">
+          <button class="btn btn-sm btn-outline-danger" type="submit">{{_('Delete')}}</button>
+        </form>
+      </div>
+
+      {% if not is_server_config %}
+        <!-- API overrides (horizontal) -->
+        <form method="post"
+              action="{{ url_for('client.repo_update_api', repo_id=r.id) }}"
+              class="mt-3">
+          <div class="row g-2 align-items-end">
+            <div class="col-lg-5">
+              <label class="form-label mb-1 small text-muted">Base API URL</label>
+              <input name="base_url" class="form-control"
+                     placeholder="Base API URL"
+                     value="{{ r.base_url or '' }}">
+            </div>
+            <div class="col-lg-3">
+              <label class="form-label mb-1 small text-muted">API user</label>
+              <input name="username" class="form-control"
+                     placeholder="API user"
+                     value="{{ r.username or '' }}">
+            </div>
+            <div class="col-lg-3">
+              <label class="form-label mb-1 small text-muted">API password</label>
+              <input name="password" class="form-control"
+                     placeholder="API password"
+                     value="{{ r.password or '' }}">
+            </div>
+            <div class="col-lg-1">
+              <button class="btn btn-outline-primary w-100" type="submit">OK</button>
+            </div>
+          </div>
+        </form>
+      {% else %}
+        <div class="mt-3 text-muted small">
+          Использует текущий сервер.
+        </div>
+      {% endif %}
+
+    </div> <!-- /.card-body -->
+  </div>   <!-- /.card -->
+{% else %}
+  <div class="text-muted">{{_('No Configurations yet')}}</div>
+{% endfor %}
+</div>
+
+
+{% endblock %}

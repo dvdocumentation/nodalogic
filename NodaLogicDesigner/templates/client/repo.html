@@ -1,0 +1,31 @@
+
+{% extends "client/base.html" %}
+{% block body %}
+<div class="wrap">
+  <aside>
+    <div class="muted" style="margin-bottom:8px;">Sections</div>
+    <div class="list">
+      {% for s in sections %}
+        {% set scode = s.code if s.code != '' else '__empty__' %}
+        <a class="navitem" href="{{ url_for('section_view', repo_id=repo.id, section_code=scode) }}">
+          {{ s.name }}
+          {% if s.code %}<div class="muted" style="font-size:12px;">{{ s.code }}</div>{% endif %}
+        </a>
+      {% endfor %}
+    </div>
+  </aside>
+  <main>
+    <div class="card">
+      <h3 style="margin:0 0 8px 0;">{{_('Info')}}</h3>
+      <div class="kv">
+        <div><span class="k">Base:</span> {{ repo.base_url }}</div>
+        <div><span class="k">config_uid:</span> {{ repo.config_uid }}</div>
+        {% if cfg.vendor %}<div><span class="k">vendor:</span> {{ cfg.vendor }}</div>{% endif %}
+        {% if cfg.version %}<div><span class="k">version:</span> {{ cfg.version }}</div>{% endif %}
+        {% if cfg.display_name %}<div><span class="k">display_name:</span> {{ cfg.display_name }}</div>{% endif %}
+      </div>
+      <div class="muted" style="margin-top:8px;"></div>
+    </div>
+  </main>
+</div>
+{% endblock %}
