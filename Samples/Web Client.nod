@@ -1,0 +1,449 @@
+{
+    "name": "Web Client",
+    "server_name": "",
+    "uid": "91f4d6e8-9bba-4254-af91-793b68d59670",
+    "url": "http://192.168.1.133:5000/api/config/91f4d6e8-9bba-4254-af91-793b68d59670",
+    "content_uid": "95d3ccd4-fab2-454a-8c4b-bbe233618ba8",
+    "vendor": "Dmitry Vorontsov",
+    "nodes_handlers": "ZnJvbSBub2Rlc2NsaWVudCBpbXBvcnQgUmVmcmVzaFRhYixTZXRUaXRsZSxDbG9zZU5vZGUsUnVuR1BTLFN0b3BHUFMsVXBkYXRlVmlldyxEaWFsb2csU2NhbkJhcmNvZGUsR2V0TG9jYXRpb24sQWRkVGltZXIsU3RvcFRpbWVyLFNob3dQcm9ncmVzc0J1dHRvbixIaWRlUHJvZ3Jlc3NCdXR0b24sU2hvd1Byb2dyZXNzR2xvYmFsLEhpZGVQcm9ncmVzc0dsb2JhbCxDb250cm9scyxTZXRDb3ZlcixnZXRCYXNlNjRGcm9tSW1hZ2VGaWxlLGNvbnZlcnRJbWFnZUZpbGVzVG9CYXNlNjRBcnJheSxzYXZlQmFzZTY0VG9GaWxlLGNvbnZlcnRCYXNlNjRBcnJheVRvRmlsZVBhdGhzLFVwZGF0ZU1lZGlhR2FsbGVyeQpmcm9tIGFuZHJvaWQgaW1wb3J0ICoKZnJvbSBub2RlcyBpbXBvcnQgTmV3Tm9kZSwgRGVsZXRlTm9kZSwgR2V0QWxsTm9kZXMsIEdldE5vZGUsIEdldEFsbE5vZGVzU3RyLCBHZXRSZW1vdGVDbGFzcywgQ3JlYXRlRGF0YVNldCwgR2V0RGF0YVNldCwgRGVsZXRlRGF0YVNldCx0b191aWQsIGZyb21fdWlkCmZyb20gY29tLmR2Lm5vZGEgaW1wb3J0IERhdGFTZXQKZnJvbSBjb20uZHYubm9kYSBpbXBvcnQgRGF0YVNldHMKZnJvbSBjb20uZHYubm9kYSBpbXBvcnQgU2ltcGxlVXRpbGl0ZXMgYXMgc3UKZnJvbSBkYXRhc2V0cyBpbXBvcnQgR2V0RGF0YVNldERhdGEKCiMgQ29uZmlndXJhdGlvbiBjb25zdGFudHMKY3VycmVudF9tb2R1bGVfbmFtZT0iOTFmNGQ2ZTgtOWJiYS00MjU0LWFmOTEtNzkzYjY4ZDU5NjcwIgpjdXJyZW50X2NvbmZpZ3VyYXRpb25fdXJsPSJodHRwOi8vMTkyLjE2OC4xLjEzMzo1MDAwL2FwaS9jb25maWcvOTFmNGQ2ZTgtOWJiYS00MjU0LWFmOTEtNzkzYjY4ZDU5NjcwIgpfZGF0YV9kaXIgPSBzdS5nZXRfZGF0YV9kaXIoY3VycmVudF9tb2R1bGVfbmFtZSkKX2Rvd25sb2Fkc19kaXIgPSBzdS5nZXRfZG93bmxvYWRzX2RpcihjdXJyZW50X21vZHVsZV9uYW1lKQoKCmZyb20gbm9kZXMgaW1wb3J0IE5vZGUKCgoKY2xhc3MgQmFzZVVuaXRzKE5vZGUpOgogICAgZGVmIF9faW5pdF9fKHNlbGYsIG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKToKICAgICAgICBzdXBlcigpLl9faW5pdF9fKG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKQoKICAgICIiIkNsYXNzIEJhc2VVbml0cyIiIgoKICAgIGRlZiBPcGVuKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgY2FyZF9sYXlvdXQgPVsNCiAgICAgICAgICBbeyJ0eXBlIjoiVGV4dCIsInZhbHVlIjoiQHNrdSJ9XSwNCiAgICAgICAgICBbIlF1YW50aXR5IDoiLHsidHlwZSI6IlRleHQiLCJ2YWx1ZSI6IkBza3UiLCJib2xkIjpUcnVlfV0sDQogICAgICAgICAgW3sidHlwZSI6IlRleHQiLCJ2YWx1ZSI6IkBza3UiLCJib2xkIjpUcnVlLCJzaXplIjoyMH1dDQoKICAgICAgICBdIA0KCiAgICAgICAgbGlzdF9zY2FubmVkID0gW3sic2t1IjoiSXRlbSAxIiwgInVuaXQiOiJQY3MuIiwicXR5Ijo1MCwicHJpY2UiOjUwMH0seyJza3UiOiJJdGVtIDMxIiwgInVuaXQiOiJQY3MuIiwicXR5IjoxMCwicHJpY2UiOjcwMH0seyJza3UiOiJJdGVtIDIzMSIsICJ1bml0IjoiUGNzLiIsInF0eSI6NDAsInByaWNlIjo1MDB9XQ0KCiAgICAgICAgc2VsZi5TaG93KFsNCiAgICAgICAgICAgICAgW3sidHlwZSI6IkJ1dHRvbiIsImNhcHRpb24iOiLQmtC90L7Qv9C60LAgMSIsImlkIjoiYnRuMSJ9LHsidHlwZSI6IkJ1dHRvbiIsImNhcHRpb24iOiLQmtC90L7Qv9C60LAgMiIsImlkIjoiYnRuMiJ9XSwNCiAgICAgICAgICAgICAgW3sidHlwZSI6IlRleHQiLCJib2xkIjpUcnVlLCJ2YWx1ZSI6IkB0aXRsZSJ9XSwNCiAgICAgICAgICAgICAgW3sidHlwZSI6IlRleHQiLCJ2YWx1ZSI6IkBpbnN0cnVjdGlvbiJ9XSwNCiAgICAgICAgICAgICAgW3sidHlwZSI6IlRhYmxlIiwiaWQiOiJ0MSIsInZhbHVlIjpsaXN0X3NjYW5uZWQgLCJsYXlvdXQiOmNhcmRfbGF5b3V0IH1dDQogICAgICAgICAgICBdKQ0KCgogICAgICAgIHJldHVybiBUcnVlLHt9CgoKY2xhc3MgTXlPcmRlcihOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSkKCiAgICAiIiJDbGFzcyBNeU9yZGVyIiIiCgoKCiAgICBkZWYgYWRkX2NoaWxkKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgbmV3X2xpbmUgPSBzZWxmLkFkZENoaWxkKCJNeU9yZGVyTGluZSIpDQogICAgICAgIAogICAgICAgIHJldHVybiBUcnVlLHt9DQogICAgICAgIAoKY2xhc3MgTm90ZShOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSkKCiAgICAiIiJDbGFzcyBOb3RlIiIiCgoKCiAgICBkZWYgT3BlbihzZWxmLCBpbnB1dF9kYXRhPU5vbmUpOgogICAgICAgIHNlbGYuU2hvdyhbDQogICAgICAgICAgW3sidHlwZSI6IkJ1dHRvbiIsImlkIjoiYnRuX3VwZGF0ZSIsImNhcHRpb24iOiLQktGL0LPRgNGD0LfQuNGC0YwifV0sDQogICAgICAgICAgW3sidHlwZSI6IklucHV0IiwiaWQiOiJ0aXRsZSIsImNhcHRpb24iOiLQotC10LzQsCIsInZhbHVlIjoiQHRpdGxlIiwid2lkdGgiOi0xfV0sDQogICAgICAgICAgW3sidHlwZSI6IlBhcmFtZXRlcnMiLCJ3IjoxfSx7InR5cGUiOiJJbnB1dCIsImhlaWdodCI6LTEsImlkIjoiYm9keSIsImNhcHRpb24iOiJUZXh0IiwidmFsdWUiOiJAYm9keSIsImlucHV0X3R5cGUiOiJtdWx0aWxpbmUifV0NCiAgICAgICAgXSkNCgogICAgICAgIHJldHVybiBUcnVlLHt9CiAgICBkZWYgVXBsb2FkKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgc2VsZi5fdXBsb2FkKCkNCgogICAgICAgIHJldHVybiBUcnVlLHt9CiAgICBkZWYgYmVmb3JlX3NhdmUoc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKICAgICAgICBtZXNzYWdlKGlucHV0X2RhdGEpDQogICAgICAgIAogICAgICAgIHJldHVybiBUcnVlLHt9DQogICAgICAgIAoKY2xhc3MgTXlPcmRlckxpbmUoTm9kZSk6CiAgICBkZWYgX19pbml0X18oc2VsZiwgbW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpOgogICAgICAgIHN1cGVyKCkuX19pbml0X18obW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpCgogICAgIiIiQ2xhc3MgTXlPcmRlckxpbmUiIiIKCgoKY2xhc3MgU29tZUlucHV0cyhOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSkKCiAgICAiIiJDbGFzcyBTb21lSW5wdXRzIiIiCgogICAgZGVmIE9wZW4oc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKCiAgICAgICAgcmV0dXJuIFRydWUse30=",
+    "nodes_handlers_meta": null,
+    "nodes_server_handlers": "DQpmcm9tIG5vZGVzIGltcG9ydCBOb2RlLCBtZXNzYWdlLCBEaWFsb2csIHRvX3VpZCwgZnJvbV91aWQNCg0KZGVmIHJ1bl9kaWFsb2dfd2ViKGlucHV0X2RhdGE9Tm9uZSk6DQogIERpYWxvZygiZGxnIiwiRW50ZXIgdGFnIiwiQWRkIiwiQ2FuY2VsIixbW3sidHlwZSI6IklucHV0IiwiaWQiOiJwb3NpdGlvbl9kaWFsb2ciLCJjYXB0aW9uIjoiUG9zaXRpb24ifV1dKQ0KICBtZXNzYWdlKCJkbGciKQ0KICByZXR1cm4gVHJ1ZSx7fQ0KICANCmRlZiBkaWFsb2dfcmVzdWx0KGlucHV0X2RhdGE9Tm9uZSk6DQogIG1lc3NhZ2Uoc3RyKGlucHV0X2RhdGEuZ2V0KCJyZXN1bHQiKSkrc3RyKGlucHV0X2RhdGEuZ2V0KCJyZXN1bHRfZGF0YSIpKSkNCiAgbWVzc2FnZSgicmVzIikNCiAgcmV0dXJuIFRydWUse30gIA0KDQpjbGFzcyBCYXNlVW5pdHMoTm9kZSk6DQogICAgDQogICAgZGVmIF9faW5pdF9fKHNlbGYsIG5vZGVfaWQ9Tm9uZSwgY29uZmlnX3VpZD1Ob25lKToNCiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQ0KICAgICAgICAjIEFkZGl0aW9uYWwgaW5pdGlhbG96YXRpb24gZm9yIEJhc2VVbml0cw0KDQogICAgZGVmIE9wZW4oc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToNCiAgICAgICAgY2FyZF9sYXlvdXQgPVsNCiAgICAgICAgICBbeyJ0eXBlIjoiVGV4dCIsInZhbHVlIjoiQHNrdSJ9XSwNCiAgICAgICAgICBbIlF1YW50aXR5IDoiLHsidHlwZSI6IlRleHQiLCJ2YWx1ZSI6IkBza3UiLCJib2xkIjpUcnVlfV0sDQogICAgICAgICAgW3sidHlwZSI6IlRleHQiLCJ2YWx1ZSI6IkBza3UiLCJib2xkIjpUcnVlLCJzaXplIjoyMH1dDQoNCiAgICAgICAgXSANCg0KICAgICAgICBsaXN0X3NjYW5uZWQgPSBbeyJza3UiOiJJdGVtIDEiLCAidW5pdCI6IlBjcy4iLCJxdHkiOjUwLCJwcmljZSI6NTAwfSx7InNrdSI6Ikl0ZW0gMzEiLCAidW5pdCI6IlBjcy4iLCJxdHkiOjEwLCJwcmljZSI6NzAwfSx7InNrdSI6Ikl0ZW0gMjMxIiwgInVuaXQiOiJQY3MuIiwicXR5Ijo0MCwicHJpY2UiOjUwMH1dDQoNCiAgICAgICAgc2VsZi5TaG93KFsNCg0KICAgICAgICAgICAgICBbeyJ0eXBlIjoiQnV0dG9uIiwiY2FwdGlvbiI6ItCa0L3QvtC/0LrQsCAxIiwiaWQiOiJidG4xIn0seyJ0eXBlIjoiQnV0dG9uIiwiY2FwdGlvbiI6ItCa0L3QvtC/0LrQsCAyIiwiaWQiOiJidG4yIn1dLA0KICAgICAgICAgICAgICBbeyJ0eXBlIjoiU3dpdGNoIiwidmFsdWUiOiJAc3cxIiwiaWQiOiJzdzEifV0sDQogICAgICAgICAgICAgIFt7InR5cGUiOiJUZXh0IiwiYm9sZCI6VHJ1ZSwidmFsdWUiOiJAdGl0bGUifV0sDQogICAgICAgICAgICAgIFt7InR5cGUiOiJUZXh0IiwidmFsdWUiOiJAaW5zdHJ1Y3Rpb24ifV0sDQogICAgICAgICAgICAgIFt7InR5cGUiOiJUYWJsZSIsImlkIjoidDEiLCJ2YWx1ZSI6bGlzdF9zY2FubmVkICwibGF5b3V0IjpjYXJkX2xheW91dCB9XQ0KICAgICAgICAgICAgXSkNCg0KDQogICAgICAgIHJldHVybiBUcnVlLHt9DQpjbGFzcyBNeU9yZGVyKE5vZGUpOg0KICAgIA0KICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6DQogICAgICAgIHN1cGVyKCkuX19pbml0X18obm9kZV9pZCwgY29uZmlnX3VpZCkNCiAgICAgICAgIyBBZGRpdGlvbmFsIGluaXRpYWxvemF0aW9uIGZvciBNeU9yZGVyDQoNCiAgICBkZWYgT3BlbihzZWxmLCBpbnB1dF9kYXRhPU5vbmUpOg0KICAgICAgICB0YWIxID0gWw0KICAgICAgICAgIFt7InR5cGUiOiJDaGVja0JveCIsImlkIjoiY2xvc2VkIiwiY2FwdGlvbiI6IkRvbmUiLCJjbG9zZWQiOiJAdGl0bGUifV0sDQogICAgICAgICAgW3sidHlwZSI6IkJ1dHRvbiIsImlkIjoiYnRuX2FkZF9jaGlsZCIsImNhcHRpb24iOiJBZGQgbGluZSJ9XSwNCiAgICAgICAgICBbeyJ0eXBlIjoiTm9kZUNoaWxkcmVuIn1dDQogICAgICAgIF0NCgogICAgICAgIG1lc3NhZ2UodG9fdWlkKHNlbGYuR2V0Q2hpbGRyZW4oKSkpDQoKICAgICAgICB0YWIyID0gWw0KICAgICAgICAgICAgW3sidHlwZSI6IlRhYmxlIiwiaWQiOiJ0YWIxIiwibm9kZXNfc291cmNlIjpUcnVlLCJ2YWx1ZSI6dG9fdWlkKHNlbGYuR2V0Q2hpbGRyZW4oKSl9XQ0KICAgICAgICBdDQoKICAgICAgICB0YWIyXzIgPSBbDQogICAgICAgICAgICBbeyJ0eXBlIjoiVGFibGUiLCJpZCI6InRhYjIiLCJub2Rlc19zb3VyY2UiOlRydWUsInZhbHVlIjp0b191aWQoc2VsZi5HZXRDaGlsZHJlbigpKSwidGFibGUiOlRydWUsDQogICAgICAgICAgICAidGFibGVfaGVhZGVyIjpbInVpZHxfaWR8MSIsIlBvc2l0aW9ufHBvc2l0aW9ufDUiLCJRdHl8cXR5fDEiXX1dDQogICAgICAgIF0NCgogICAgICAgIGxpbmVzID0gW10NCiAgICAgICAgaWYgImxpbmVzIiBpbiBzZWxmLl9kYXRhOg0KICAgICAgICAgIGxpbmVzID0gc2VsZi5fZGF0YVsibGluZXMiXQ0KCiAgICAgICAgbj0wICANCiAgICAgICAgZm9yIGxpbmUgaW4gbGluZXM6DQogICAgICAgICAgbis9MQ0KICAgICAgICAgIGxpbmVbIm4iXSA9IG4gDQoKICAgICAgICB0YWIzID0gWw0KICAgICAgICAgICAgW3sidHlwZSI6IkJ1dHRvbiIsImlkIjoiYWRkX2xpbmVfZGlhbG9nIiwiY2FwdGlvbiI6IkFkZC4uLiJ9XSwNCiAgICAgICAgICAgIFt7InR5cGUiOiJUYWJsZSIsImlkIjoidGFiMyIsInZhbHVlIjpsaW5lc31dDQogICAgICAgIF0NCgogICAgICAgIHRhYjNfMiA9IFsNCgogICAgICAgICAgICBbeyJ0eXBlIjoiVGFibGUiLCJpZCI6InRhYjQiLCJ2YWx1ZSI6bGluZXMsInRhYmxlIjpUcnVlLA0KICAgICAgICAgICAgInRhYmxlX2hlYWRlciI6WyIjfG4iLCJQb3NpdGlvbnxwb3NpdGlvbiIsIlF0eXxxdHkiXX1dDQogICAgICAgIF0NCgogICAgICAgIHNlbGYuU2hvdyhbW3sidHlwZSI6IlRhYnMiLCJ2YWx1ZSI6Ww0KICAgICAgICAgIHsidHlwZSI6IlRhYiIsImlkIjoiY2hpbGRyZW4iLCJjYXB0aW9uIjoi0JLQsNGA0LjQsNC90YIg0YEgQWRkQ2hpbGQvTm9kZUNoaWRyZW4iLCJsYXlvdXQiOnRhYjF9LA0KICAgICAgICAgIHsidHlwZSI6IlRhYiIsImlkIjoiY2hpbGRyZW5fdGFibGUiLCJjYXB0aW9uIjoi0JLQsNGA0LjQsNC90YIg0YEg0KPQt9C70Ysv0JrQsNGA0YLQvtGH0LrQuCIsImxheW91dCI6dGFiMn0sDQogICAgICAgICAgeyJ0eXBlIjoiVGFiIiwiaWQiOiJjaGlsZHJlbl90YWJsZV8yIiwiY2FwdGlvbiI6ItCS0LDRgNC40LDQvdGCINGBINCj0LfQu9GLL9Ci0LDQsdC70LjRhtCwIiwibGF5b3V0Ijp0YWIyXzJ9LA0KICAgICAgICAgIHsidHlwZSI6IlRhYiIsImlkIjoic2ltcGxlX3RhYmxlIiwiY2FwdGlvbiI6ItCf0YDQvtGB0YLQviDRgtCw0LHQu9C40YbQsCIsImxheW91dCI6dGFiM30sDQogICAgICAgICAgeyJ0eXBlIjoiVGFiIiwiaWQiOiJzaW1wbGVfdGFibGVfMiIsImNhcHRpb24iOiLQn9GA0L7RgdGC0L4g0YLQsNCx0LvQuNGG0LAo0L/Qu9C+0YHQutCw0Y8pIiwibGF5b3V0Ijp0YWIzXzJ9DQogICAgICAgIF19XV0pDQoKCgogICAgICAgIHJldHVybiBUcnVlLHt9CiAgICBkZWYgYWRkX2NoaWxkKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6DQogICAgICAgIG5ld19saW5lID0gc2VsZi5BZGRDaGlsZCgiTXlPcmRlckxpbmUiKQ0KICAgICAgICBuZXdfbGluZS5fb3BlbigpIA0KDQogICAgICAgIHJldHVybiBUcnVlLHt9DQogICAgZGVmIHJ1bl9kaWFsb2coc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToNCiAgICAgICAgRGlhbG9nKCJkbGciLCJFbnRlciBwb3NpdGlvbiBhbmQgcXVhbnRpdHkiLCJBZGQiLCJDYW5jZWwiLFtbeyJ0eXBlIjoiSW5wdXQiLCJpZCI6InBvc2l0aW9uX2RpYWxvZyIsImNhcHRpb24iOiJQb3NpdGlvbiJ9XSxbeyJ0eXBlIjoiSW5wdXQiLCJpZCI6InF0eV9kaWFsb2ciLCJjYXB0aW9uIjoiUXVhbnRpdHkiLCJpbnB1dF90eXBlIjoibnVtYmVyIn1dXSkNCg0KICAgICAgICByZXR1cm4gVHJ1ZSx7fQ0KICAgIGRlZiBhZGRfbGluZV9kaWFsb2coc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToNCiAgICAgICAgaWYgImxpbmVzIiBpbiBzZWxmLl9kYXRhOg0KICAgICAgICAgIGxpbmVzID0gc2VsZi5fZGF0YVsibGluZXMiXQ0KICAgICAgICBlbHNlOg0KICAgICAgICAgIGxpbmVzID0gW10gIA0KDQogICAgICAgIGxpbmVzLmFwcGVuZCh7InBvc2l0aW9uIjpzZWxmLl9kYXRhLmdldCgicG9zaXRpb25fZGlhbG9nIiksInF0eSI6c2VsZi5fZGF0YS5nZXQoInF0eV9kaWFsb2ciKX0pICANCg0KICAgICAgICBzZWxmLl9kYXRhWyJsaW5lcyJdID0gbGluZXMNCiAgICAgICAgc2VsZi5fc2F2ZSgpDQoNCiAgICAgICAgbWVzc2FnZSgibmV3IGxpbmUgYWRkZWQuLi4iKQ0KDQoNCiAgICAgICAgcmV0dXJuIFRydWUse30NCmNsYXNzIE5vdGUoTm9kZSk6DQogICAgDQogICAgZGVmIF9faW5pdF9fKHNlbGYsIG5vZGVfaWQ9Tm9uZSwgY29uZmlnX3VpZD1Ob25lKToNCiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQ0KICAgICAgICAjIEFkZGl0aW9uYWwgaW5pdGlhbG96YXRpb24gZm9yIE5vdGUNCg0KICAgIGRlZiBPcGVuV2ViKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6DQogICAgICAgICNzZWxmLlNob3coWw0KICAgICAgICAjICBbeyJ0eXBlIjoiQ2hlY2tCb3giLCJpZCI6ImNsb3NlZCIsImNhcHRpb24iOiJEb25lIiwiY2xvc2VkIjoiQHRpdGxlIn1dLA0KICAgICAgICAjICBbeyJ0eXBlIjoiQnV0dG9uIiwiaWQiOiJhZGRfdGFnIiwiY2FwdGlvbiI6IkFkZCB0YWcifV0sDQogICAgICAgICMgIFt7InR5cGUiOiJJbnB1dCIsImlkIjoidGl0bGUiLCJjYXB0aW9uIjoiU3ViamVjdCIsInZhbHVlIjoiQHRpdGxlIiwid2lkdGgiOi0xfV0sDQogICAgICAgICMgIFt7InR5cGUiOiJQYXJhbWV0ZXJzIiwidyI6MX0seyJ0eXBlIjoiSW5wdXQiLCJoZWlnaHQiOi0xLCJpZCI6ImJvZHkiLCJjYXB0aW9uIjoiVGV4dCIsInZhbHVlIjoiQGJvZHkiLCJpbnB1dF90eXBlIjoibXVsdGlsaW5lIn1dDQogICAgICAgICNdKQ0KICAgICAgICBtZXNzYWdlKCJvblNob3ciKQ0KICAgICAgICByZXR1cm4gVHJ1ZSx7fQogICAgZGVmIGFsbF9pbnB1dChzZWxmLCBpbnB1dF9kYXRhPU5vbmUpOg0KICAgICAgICBkZWYgdG9nZ2xlX3NfdGFncyh0ZXh0LCBjb25kaXRpb24pOg0KICAgICAgICAgICAgaWYgY29uZGl0aW9uOg0KICAgICAgICAgICAgICAgICMg0JTQvtCx0LDQstC70Y/QtdC8INGC0LXQs9C4LCDQtdGB0LvQuCDQuNGFINC10YnQtSDQvdC10YINCiAgICAgICAgICAgICAgICBpZiB0ZXh0LnN0YXJ0c3dpdGgoJzxzPicpIGFuZCB0ZXh0LmVuZHN3aXRoKCc8L3M+Jyk6DQogICAgICAgICAgICAgICAgICAgIHJldHVybiB0ZXh0DQogICAgICAgICAgICAgICAgcmV0dXJuIGYnPHM+e3RleHR9PC9zPicNCiAgICAgICAgICAgIGVsc2U6DQogICAgICAgICAgICAgICAgIyDQo9C00LDQu9GP0LXQvCDRgtC10LPQuCwg0LXRgdC70Lgg0L7QvdC4INC10YHRgtGMDQogICAgICAgICAgICAgICAgaWYgdGV4dC5zdGFydHN3aXRoKCc8cz4nKSBhbmQgdGV4dC5lbmRzd2l0aCgnPC9zPicpOg0KICAgICAgICAgICAgICAgICAgICByZXR1cm4gdGV4dFszOi00XSAgIyDQo9Cx0LjRgNCw0LXQvCA8cz4gKDMg0YHQuNC80LLQvtC70LApINC4IDwvcz4gKDQg0YHQuNC80LLQvtC70LApDQogICAgICAgICAgICAgICAgcmV0dXJuIHRleHQNCg0KICAgICAgICBtZXNzYWdlKHNlbGYuX2RhdGEuZ2V0KCJsaXN0ZW5lciIpKQ0KICAgICAgICBpZiBzZWxmLl9kYXRhLmdldCgibGlzdGVuZXIiKT09ImNsb3NlZCI6DQogICAgICAgICAgI21lc3NhZ2Uoc2VsZi5fZGF0YS5nZXQoImNsb3NlZCIpKQ0KICAgICAgICAgIHNlbGYuX2RhdGFbInRpdGxlIl0gPSB0b2dnbGVfc190YWdzKHNlbGYuX2RhdGFbInRpdGxlIl0sIHNlbGYuX2RhdGEuZ2V0KCJjbG9zZWQiKSkNCiAgICAgICAgICBzZWxmLl9kYXRhWyJib2R5Il0gPSB0b2dnbGVfc190YWdzKHNlbGYuX2RhdGFbImJvZHkiXSwgc2VsZi5fZGF0YS5nZXQoImNsb3NlZCIpKQ0KICAgICAgICAgIHNlbGYuX3NhdmUoKQ0KDQogICAgICAgIHJldHVybiBUcnVlLHt9DQoNCg0KICAgIGRlZiBiZWZvcmVfc2F2ZShzZWxmLCBpbnB1dF9kYXRhPU5vbmUpOgogICAgICAgIHByaW50KCJzZXJ2IikNCiAgICAgICAgc2VsZi5fZGF0YVsnUFJPQ0VTU0VELVNFUlZFUiddPVRydWUNCiAgICAgICAgbWVzc2FnZShpbnB1dF9kYXRhLmdldCgiX3NhdmVkX3N0YXRlIikpDQoKICAgICAgICByZXR1cm4gVHJ1ZSx7fQogICAgZGVmIHNlcnZlcl9tZXRob2Qoc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKICAgICAgICBwcmludCgic2VydmVyIikNCiAgICAgICAgCiAgICAgICAgcmV0dXJuIFRydWUse30NCiAgICAgICAgCgpjbGFzcyBNeU9yZGVyTGluZShOb2RlKToNCiAgICANCiAgICBkZWYgX19pbml0X18oc2VsZiwgbm9kZV9pZD1Ob25lLCBjb25maWdfdWlkPU5vbmUpOg0KICAgICAgICBzdXBlcigpLl9faW5pdF9fKG5vZGVfaWQsIGNvbmZpZ191aWQpDQogICAgICAgICMgQWRkaXRpb25hbCBpbml0aWFsb3phdGlvbiBmb3IgTXlPcmRlckxpbmUNCg0KICAgIGRlZiBhbGxfaW5wdXQoc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKICAgICAgICBpZiBub3QgInF0eSIgaW4gc2VsZi5fZGF0YToNCiAgICAgICAgICBzZWxmLl9kYXRhWyJxdHkiXT0wDQoKICAgICAgICBpZiBpc2luc3RhbmNlKHNlbGYuX2RhdGFbInF0eSJdLCBzdHIpIGFuZCBzZWxmLl9kYXRhWyJxdHkiXS5pc2RpZ2l0KCk6DQogICAgICAgICAgc2VsZi5fZGF0YVsicXR5Il0gPSBpbnQoc2VsZi5fZGF0YVsicXR5Il0pDQoKICAgICAgICBpZiBzZWxmLl9kYXRhLmdldCgibGlzdGVuZXIiKT09ImJ0bl9wbHVzIjoNCiAgICAgICAgICBzZWxmLl9kYXRhWyJxdHkiXSs9MQ0KICAgICAgICAgIHNlbGYuX3NhdmUoKQ0KICAgICAgICAgIG1lc3NhZ2UoIisxIikNCiAgICAgICAgZWxpZiBzZWxmLl9kYXRhLmdldCgibGlzdGVuZXIiKT09ImJ0bl9taW51cyI6DQogICAgICAgICAgc2VsZi5fZGF0YVsicXR5Il0tPTENCiAgICAgICAgICBzZWxmLl9zYXZlKCkNCiAgICAgICAgICBtZXNzYWdlKCItMSIpDQoKICAgICAgICByZXR1cm4gVHJ1ZSx7fQoKCmNsYXNzIFNvbWVJbnB1dHMoTm9kZSk6CiAgICAKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQogICAgICAgICMgQWRkaXRpb25hbCBpbml0aWFsb3phdGlvbiBmb3IgU29tZUlucHV0cwo=",
+    "nodes_server_handlers_meta": null,
+    "version": "00.00.01",
+    "NodaLogicFormat": "1.1",
+    "NodaLogicType": "ANDROID_SERVER",
+    "last_modified": "2026-01-29T07:56:38.669235+03:00",
+    "provider": "Dmitry Vorontsov",
+    "CommonLayouts": [
+        {
+            "id": "note_common",
+            "layout": [
+                [
+                    {
+                        "type": "CheckBox",
+                        "id": "closed",
+                        "caption": "Done",
+                        "closed": "@title"
+                    }
+                ],
+                [
+                    {
+                        "type": "Button",
+                        "id": "add_tag",
+                        "caption": "Add tag"
+                    }
+                ],
+                [
+                    {
+                        "type": "Input",
+                        "id": "title",
+                        "caption": "Subject",
+                        "value": "@title",
+                        "width": -1
+                    }
+                ],
+                [
+                    {
+                        "type": "Parameters",
+                        "w": 1
+                    },
+                    {
+                        "type": "Input",
+                        "height": -1,
+                        "id": "body",
+                        "caption": "Text",
+                        "value": "@body",
+                        "input_type": "multiline"
+                    }
+                ]
+            ]
+        }
+    ],
+    "classes": [
+        {
+            "name": "BaseUnits",
+            "section": "UI - элементы",
+            "section_code": "base",
+            "has_storage": false,
+            "display_name": "BaseUnits",
+            "cover_image": "[[{\"type\":\"Text\",\"bold\":true,\"value\":\"Примеры базовых элементов\"}],[\"Примеры работы с кнопками, таблицей, полями ввода, чекбоксами, надписями\"]]",
+            "class_type": "custom_process",
+            "hidden": false,
+            "methods": [
+                {
+                    "name": "Open",
+                    "source": "internal",
+                    "engine": "server_python",
+                    "code": "Open"
+                },
+                {
+                    "name": "Open",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "Open"
+                }
+            ],
+            "events": [
+                {
+                    "event": "onShowWeb",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "Open",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "MyOrder",
+            "section": "Документы",
+            "section_code": "documents",
+            "has_storage": false,
+            "display_name": "MyOrder",
+            "cover_image": "None",
+            "class_type": "data_node",
+            "hidden": false,
+            "methods": [
+                {
+                    "name": "Open",
+                    "source": "internal",
+                    "engine": "server_python",
+                    "code": "Open"
+                },
+                {
+                    "name": "add_child",
+                    "source": "internal",
+                    "engine": "server_python",
+                    "code": "add_child"
+                },
+                {
+                    "name": "add_child",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "add_child"
+                },
+                {
+                    "name": "run_dialog",
+                    "source": "internal",
+                    "engine": "server_python",
+                    "code": "run_dialog"
+                },
+                {
+                    "name": "add_line_dialog",
+                    "source": "internal",
+                    "engine": "server_python",
+                    "code": "add_line_dialog"
+                }
+            ],
+            "events": [
+                {
+                    "event": "onShowWeb",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "Open",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInputWeb",
+                    "listener": "btn_add_child",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "add_child",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInputWeb",
+                    "listener": "add_line_dialog",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "run_dialog",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInputWeb",
+                    "listener": "dlg_positive",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "add_line_dialog",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Note",
+            "section": "Заметки",
+            "section_code": "notes",
+            "has_storage": false,
+            "display_name": "Note",
+            "cover_image": "[[{\"type\":\"Text\",\"value\":\"@_id\",\"bold\":true}],[{\"type\":\"Text\",\"bold\":true,\"value\":\"@title\"}],[{\"type\":\"Text\",\"value\":\"@body\"}]]",
+            "class_type": "data_node",
+            "hidden": false,
+            "methods": [
+                {
+                    "name": "OpenWeb",
+                    "source": "internal",
+                    "engine": "server_python",
+                    "code": "OpenWeb"
+                },
+                {
+                    "name": "all_input",
+                    "source": "internal",
+                    "engine": "server_python",
+                    "code": "all_input"
+                },
+                {
+                    "name": "Open",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "Open"
+                },
+                {
+                    "name": "Upload",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "Upload"
+                },
+                {
+                    "name": "before_save",
+                    "source": "internal",
+                    "engine": "server_python",
+                    "code": "before_save"
+                },
+                {
+                    "name": "before_save",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "before_save"
+                },
+                {
+                    "name": "server_method",
+                    "source": "internal",
+                    "engine": "server_python",
+                    "code": "server_method"
+                }
+            ],
+            "events": [
+                {
+                    "event": "onInputWeb",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "all_input",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onShow",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "Open",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "btn_update",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "Upload",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onAcceptServer",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "before_save",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "MyOrderLine",
+            "section": "",
+            "section_code": "",
+            "has_storage": false,
+            "display_name": "MyOrderLine",
+            "cover_image": "[[{\"type\":\"Text\",\"value\":\"@position\"},{\"type\":\"Text\",\"value\":\"@qty\"},{\"type\":\"Button\",\"id\":\"btn_plus\"}]]",
+            "class_type": "data_node",
+            "hidden": true,
+            "methods": [
+                {
+                    "name": "all_input",
+                    "source": "internal",
+                    "engine": "server_python",
+                    "code": "all_input"
+                }
+            ],
+            "events": [
+                {
+                    "event": "onInputWeb",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "all_input",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "SomeInputs",
+            "section": "UI - элементы",
+            "section_code": "base",
+            "has_storage": false,
+            "display_name": "SomeInputs",
+            "cover_image": "None",
+            "class_type": "data_node",
+            "hidden": false,
+            "methods": [
+                {
+                    "name": "Open",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "Open"
+                }
+            ],
+            "events": [
+                {
+                    "event": "onShow",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "Open",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "datasets": [
+        {
+            "name": "goods",
+            "hash_indexes": [
+                "barcode",
+                "article"
+            ],
+            "text_indexes": [
+                "name"
+            ],
+            "view_template": "{name}, {article}",
+            "autoload": false,
+            "created_at": "2026-01-09T08:27:29.906715",
+            "updated_at": "2026-01-09T08:27:29.906715",
+            "api_url": "http://192.168.1.133:5000/api/config/91f4d6e8-9bba-4254-af91-793b68d59670/dataset/goods/items",
+            "item_count": 4
+        }
+    ],
+    "sections": [
+        {
+            "name": "UI - элементы",
+            "code": "base",
+            "commands": ""
+        },
+        {
+            "name": "Документы",
+            "code": "documents",
+            "commands": ""
+        },
+        {
+            "name": "Заметки",
+            "code": "notes",
+            "commands": "Run dialog|run_dialog"
+        }
+    ],
+    "servers": [
+        {
+            "alias": "main",
+            "url": "http://192.168.1.133:5000",
+            "is_default": true
+        }
+    ],
+    "rooms": [
+        {
+            "alias": "main_room",
+            "room_id": "3f6e1947-2bf4-4101-9080-4ef0d8e2bc0d"
+        }
+    ],
+    "CommonEvents": [
+        {
+            "event": "onStartMenuCommandWeb",
+            "listener": "run_dialog",
+            "actions": [
+                {
+                    "action": "run",
+                    "source": "internal",
+                    "server": "",
+                    "method": "run_dialog_web",
+                    "postExecuteMethod": ""
+                }
+            ]
+        },
+        {
+            "event": "onDialogResult",
+            "listener": "dlg",
+            "actions": [
+                {
+                    "action": "run",
+                    "source": "internal",
+                    "server": "",
+                    "method": "dialog_result",
+                    "postExecuteMethod": ""
+                }
+            ]
+        }
+    ]
+}
