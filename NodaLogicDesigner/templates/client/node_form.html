@@ -452,9 +452,33 @@ async function fireOnInputWeb(payload){
       }
 
       if (j && j.close) {
-        try { window.history.back(); } catch(_){}
-        return;
-      }
+ 
+  try {
+    // 1) Если это попап
+    if (window.opener && !window.opener.closed) {
+      if (typeof window.opener.loadSection === "function") window.opener.loadSection();
+      window.opener.postMessage({type:"nodes_refresh"}, window.location.origin);
+      try { window.opener.focus(); } catch(_) {}
+      window.close(); // <-- ТАК ЖЕ КАК В doClose()
+      return;
+    }
+  } catch(_) {}
+
+  // 2) Иначе навигация назад
+  try {
+    const ref = (document.referrer || "").trim();
+    if (ref) {
+      const u = new URL(ref, window.location.origin);
+      u.searchParams.set("refresh", "1");
+      window.location.href = u.toString();
+      return;
+    }
+  } catch(_) {}
+
+  // 3) Fallback
+  window.location.href = SECTIONS_HOME;
+  return;
+}
       if (j && j.layout_html !== undefined) {
         const root = document.getElementById("webRoot");
         if (root) {
@@ -471,10 +495,32 @@ async function fireOnInputWeb(payload){
 }
 
 
+function snapshotWebFormIntoData(){
+  const root = document.getElementById("webRoot");
+  if(!root) return;
+
+  const els = root.querySelectorAll("[data-path]");
+  els.forEach(el => {
+    const p = collectChanged(el);
+    if(!p) return;
+    // обновим локальный _data по path текущим значением
+    try { setByPath(_data, p.path, p.value); } catch(_){}
+  });
+}
 
 // NOTE: we keep the function name for backward compatibility inside this template,
 // but the backend event name must remain "onInputWeb" (as in config events).
 async function fireOnClickWeb(payload, target_class = "", target_node = "") {
+    try {
+      
+      const l = String(payload?.listener || payload?.id || "");
+      //if (l === "_save" || l === "btnSave" || l === "btnSaveClose") {
+        snapshotWebFormIntoData();
+        payload = payload || {};
+        payload.full_data = JSON.parse(JSON.stringify(_data || {}));
+     // }
+    } catch(_){}
+
   const reqBody = {
     repo_id: REPO_ID,
 
@@ -555,9 +601,30 @@ async function fireOnClickWeb(payload, target_class = "", target_node = "") {
 
   // close
   if (j && j.close) {
-    try { window.history.back(); } catch(_){}
-    return;
-  }
+  // close like doClose(), but without sending another event
+  try {
+    if (window.opener && !window.opener.closed) {
+      if (typeof window.opener.loadSection === "function") window.opener.loadSection();
+      window.opener.postMessage({type:"nodes_refresh"}, window.location.origin);
+      try { window.opener.focus(); } catch(_) {}
+      window.close();
+      return;
+    }
+  } catch(_) {}
+
+  try {
+    const ref = (document.referrer || "").trim();
+    if (ref) {
+      const u = new URL(ref, window.location.origin);
+      u.searchParams.set("refresh", "1");
+      window.location.href = u.toString();
+      return;
+    }
+  } catch(_) {}
+
+  try { window.history.back(); } catch(_){}
+  return;
+}
 
   
   if (Array.isArray(j.patches)) {
