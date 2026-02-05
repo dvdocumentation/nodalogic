@@ -46,6 +46,60 @@ _SERVER_NODE_CLASS_MEM: Dict[Tuple[str, str, str], Any] = {}
 
 # -------- client settings (stored in client.sqlite) --------
 
+def _get_dataset_item_direct(config_uid: str, ds_name: str, item_id: str) -> Optional[Dict[str, Any]]:
+    """Directly get dataset item from database without HTTP."""
+    try:
+        # Find configuration
+        Configuration = main.Configuration
+        cfg = Configuration.query.filter_by(uid=config_uid).first()
+        if not cfg:
+            return None
+        
+        # Find dataset
+        Dataset = main.Dataset
+        ds = Dataset.query.filter_by(config_id=cfg.id, name=ds_name).first()
+        if not ds:
+            return None
+        
+        # Find item
+        DatasetItem = main.DatasetItem
+        item = DatasetItem.query.filter_by(dataset_id=ds.id, item_id=item_id).first()
+        if not item:
+            return None
+        
+        # Get data
+        data = item.data or {}
+        if not isinstance(data, dict):
+            data = {}
+        
+        # Apply view template
+        view = None
+        tpl = (ds.view_template or "").strip()
+        if tpl:
+            import re
+            pattern = r'{([A-Za-z0-9_]+)}'
+            
+            def repl(match):
+                field_name = match.group(1)
+                value = data.get(field_name, "")
+                return str(value) if value is not None else ""
+            
+            view = re.sub(pattern, repl, tpl).strip()
+        
+        # Fallback
+        if not view:
+            view = data.get("title") or data.get("name") or item_id
+        
+        return {
+            "_id": item_id,
+            "_view": view,
+            "_data": data,
+            "_dataset": ds_name
+        }
+    except Exception as e:
+        print(f"Error getting dataset item: {e}")
+        return None
+
 def _get_setting(key: str, default: str = "") -> str:
     """Get per-user client setting."""
     if not current_user.is_authenticated:
@@ -189,59 +243,127 @@ def _node_cover_html(repo: models.Repo, class_name: str, node_id: str, mode: str
 
 
 def _node_children_tree(repo: models.Repo, class_name: str, node_id: str) -> List[Dict[str, Any]]:
-    """Build recursive tree for NodeChildren renderer. UID format supported: 'Class$Id'."""
+    """Build recursive tree for NodeChildren renderer. Supports both old and new formats."""
     visited: set[tuple[str, str]] = set()
-
+    
     def _parse_uid(s: str):
         s = str(s or "").strip()
         if "$" in s:
-            c, i = s.split("$", 1)
-            return c.strip(), i.strip()
+            parts = s.split("$")
+            if len(parts) >= 3:
+                # cfg$Class$Id
+                return parts[-2], parts[-1]
+            if len(parts) == 2:
+                # Class$Id
+                return parts[0], parts[1]
         return "", s
-
+    
+    def _get_children_from_node_data(data: Dict[str, Any]) -> List[Dict[str, str]]:
+        """Extract children from node data in both formats"""
+        children_data = data.get("_children") or []
+        result = []
+        
+        # New format (dict)
+        if isinstance(children_data, dict):
+            for key, value in children_data.items():
+                # key: "ClassName$nodeId", value: "config_uid$ClassName$nodeId"
+                config_uid, child_class, child_id = None, None, None
+                
+                # Try to parse from key
+                key_parts = key.split("$")
+                if len(key_parts) >= 2:
+                    child_class, child_id = key_parts[0], key_parts[1]
+                
+                # If not successful, try from value
+                if not child_class or not child_id:
+                    value_parts = value.split("$")
+                    if len(value_parts) >= 3:
+                        child_class, child_id = value_parts[-2], value_parts[-1]
+                
+                if child_class and child_id:
+                    result.append({
+                        "class": child_class,
+                        "id": child_id,
+                        "uid": value
+                    })
+        
+        # Old format (list)
+        elif isinstance(children_data, list):
+            for child in children_data:
+                if isinstance(child, dict):
+                    child_class = child.get("class") or child.get("_class")
+                    child_id = child.get("id") or child.get("_id")
+                    if child_class and child_id:
+                        result.append({
+                            "class": child_class,
+                            "id": child_id,
+                            "uid": child.get("uid")
+                        })
+        
+        return result
+    
     def build(cn: str, nid: str) -> List[Dict[str, Any]]:
         key = (cn, nid)
         if key in visited:
             return []
         visited.add(key)
-
+        
         data = _fetch_node_data_for_repo(repo, cn, nid)
-        children = data.get("_children") or []
+        children_list = _get_children_from_node_data(data)
         out: List[Dict[str, Any]] = []
-
-        if isinstance(children, list):
-            for ch in children:
-                cc = ""
-                ci = ""
-
-                if isinstance(ch, dict):
-                    cc = str(ch.get("class") or ch.get("_class") or "").strip()
-                    ci = str(ch.get("id") or ch.get("_id") or "").strip()
-                    if (not cc or not ci) and ch.get("uid"):
-                        cc2, ci2 = _parse_uid(ch.get("uid"))
-                        cc, ci = cc2, ci2
-
-                elif isinstance(ch, str):
-                    cc, ci = _parse_uid(ch)
-
-                if not cc or not ci:
-                    
-                    continue
-
-                out.append({
-                    "class": cc,
-                    "id": ci,
-                    "cover_html": _node_cover_html(repo, cc, ci),
-                    "open_url": url_for("client.node_form_redirect", repo_id=repo.id, class_name=cc, node_id=ci),
-                    "children": build(cc, ci),
-                })
-
+        
+        for child in children_list:
+            cc = str(child.get("class") or "").strip()
+            ci = str(child.get("id") or "").strip()
+            
+            if not cc or not ci:
+                # Try to parse from uid
+                uid = child.get("uid")
+                if uid:
+                    cc2, ci2 = _parse_uid(uid)
+                    cc, ci = cc2, ci2
+            
+            if not cc or not ci:
+                continue
+            
+            out.append({
+                "class": cc,
+                "id": ci,
+                "cover_html": _node_cover_html(repo, cc, ci),
+                "open_url": url_for("client.node_form_redirect", repo_id=repo.id, class_name=cc, node_id=ci),
+                "children": build(cc, ci),
+            })
+        
         return out
-
+    
     return build(class_name, node_id)
 
 
 def _nl_context(repo: models.Repo, *, class_name: str, node_id: str) -> Dict[str, Any]:
+    def get_dataset_item_view(ds_name: str, item_uid: str) -> str:
+        """Get dataset item view for display."""
+        try:
+            # Parse UID
+            item_id = item_uid
+            if "$" in item_uid:
+                parts = item_uid.split("$", 1)
+                if len(parts) == 2:
+                    # If dataset name not provided, extract from UID
+                    if not ds_name:
+                        ds_name = parts[0]
+                    item_id = parts[1]
+            
+            if not ds_name or not item_id:
+                return item_uid
+            
+            # Get item directly
+            item_data = _get_dataset_item_direct(repo.config_uid, ds_name, item_id)
+            if item_data:
+                return item_data.get("_view", item_id)
+            
+            return item_id
+        except Exception:
+            return item_uid
     def uid_resolve(uid: str):
         try:
             lst = _nodes_mod.from_uid([str(uid)], config_uid=str(repo.config_uid))
@@ -287,7 +409,8 @@ def _nl_context(repo: models.Repo, *, class_name: str, node_id: str) -> Dict[str
         "node_cover": lambda c, i: _node_cover_html(repo, c, i),
         "node_cover_table": lambda cls, nid: _node_cover_html(repo, cls, nid, mode="table"),
         "node_children_tree": lambda c, i: _node_children_tree(repo, c, i),
-         "uid_resolve": uid_resolve,
+        "get_dataset_item_view": get_dataset_item_view,
+        "uid_resolve": uid_resolve,
     }
 
 
@@ -2155,7 +2278,7 @@ def node_form(config_uid: str, class_name: str, node_id: str):
             data_json = json.dumps(editable_data, ensure_ascii=False, indent=2)
         except Exception:
             data_json = "{}"
-
+        ui_message = str(e)
         return render_template(
             "client/node_form.html",
             title=f"{class_name}/{node_id}",
@@ -2176,8 +2299,8 @@ def node_form(config_uid: str, class_name: str, node_id: str):
             is_custom_process=is_custom_process,
             show_register_command=bool(cls.get("migration_register_command")) and bool(use_std),
             default_room_uid=_resolve_class_default_room_uid(parsed, cls),
-            initial_message=ui_message,
-            ui_plugins=ui_plugins
+            initial_message=ui_message
+            
         )
 
     # --- NEW: default screen layout sources (do NOT break existing Show/onShowWeb) ---
@@ -2363,6 +2486,23 @@ def _apply_web_payload_to_node_data(node, payload: dict):
         if "date_iso" in payload:
             base["_d" + str(el_id)] = payload.get("date_iso")
 
+    
+    try:
+        p = payload.get("path")
+        if isinstance(p, str) and p.strip() and ("value" in payload):
+            _set_by_path(base, p.strip(), payload.get("value"))
+    except Exception:
+        pass
+
+    
+    fd = payload.get("full_data")
+    if isinstance(fd, dict):
+        try:
+            # это именно "данные формы", лучше класть в base (который _data_cache)
+            for k, v in fd.items():
+                base[k] = v
+        except Exception:
+            pass
     dv = payload.get("dialog_values")
     if isinstance(dv, dict):
         for p, v in dv.items():

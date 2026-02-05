@@ -12,6 +12,68 @@ Layout = Union[str, List[List[Dict[str, Any]]]]
 
 _VAR_RE = re.compile(r"@([A-Za-z0-9_]+)")
 
+# Добавим в nodalayout.py функции для работы с детьми в новом формате
+
+def _parse_child_uid(child_uid: str):
+    """
+    Разбирает uid ребенка в формате "config_uid$Class$Id" или "Class$Id"
+    Возвращает (config_uid, class_name, node_id)
+    """
+    if not child_uid:
+        return None, None, None
+    
+    parts = str(child_uid).split("$")
+    if len(parts) >= 3:
+        # config_uid$Class$Id
+        return parts[0], parts[-2], parts[-1]
+    elif len(parts) == 2:
+        # Class$Id
+        return None, parts[0], parts[1]
+    else:
+        # Только Id
+        return None, None, parts[0]
+
+def _get_children_from_data(data: Dict[str, Any]) -> List[Dict[str, str]]:
+    """
+    Извлекает список детей из данных узла, поддерживая оба формата
+    Возвращает список словарей с ключами class и id
+    """
+    children_data = data.get("_children") or []
+    result = []
+    
+    # Новый формат (dict)
+    if isinstance(children_data, dict):
+        for key, value in children_data.items():
+            # key: "ClassName$nodeId", value: "config_uid$ClassName$nodeId"
+            config_uid, class_name, node_id = _parse_child_uid(key)
+            if not class_name or not node_id:
+                # Если не удалось разобрать ключ, пробуем значение
+                config_uid, class_name, node_id = _parse_child_uid(value)
+            
+            if class_name and node_id:
+                result.append({
+                    "class": class_name,
+                    "id": node_id,
+                    "_config_uid": config_uid,
+                    "_uid": value if value != key else None
+                })
+    
+    # Старый формат (list)
+    elif isinstance(children_data, list):
+        for child in children_data:
+            if isinstance(child, dict):
+                class_name = child.get("class") or child.get("_class")
+                node_id = child.get("id") or child.get("_id")
+                uid = child.get("uid")
+                
+                if class_name and node_id:
+                    result.append({
+                        "class": class_name,
+                        "id": node_id,
+                        "_uid": uid
+                    })
+    
+    return result
 
 def _coerce_layout(layout: Layout) -> List[List[Dict[str, Any]]]:
     """Normalize layout into 2D rows."""
@@ -481,31 +543,56 @@ def render_nodalayout_html(
 
                 # DatasetInput (readonly input + pick + clear, value is "dataset$Id")
         
-        if t == "DatasetInput":
-            fid = str(el.get("id") or "").strip() or "dataset_input"
+        if t in ("DatasetInput", "DatasetField"):
+            fid = str(el.get("id") or "").strip() or "dataset_field"
             iid = escape(fid)
             path = escape(fid)
-
+            
             caption_raw = _resolve_vars(str(el.get("caption") or ""), node_data)
             show_label = bool(caption_raw.strip())
             label_html = f'<div class="nl-label">{escape(caption_raw)}</div>' if show_label else ""
-
-            # what to show: prefer <id>_view, else value
+            
+            # Получаем значение для отображения
+            display = ""
+            raw_val = el.get("value")
+            
+            # 1. Пробуем получить view из node_data (<id>_view)
             view_key = f"{fid}_view"
             display = node_data.get(view_key)
+            
+            # 2. Если нет view, обрабатываем raw value
             if display is None:
-                raw_val = el.get("value")
                 if isinstance(raw_val, str) and raw_val.startswith("@"):
-                    display = node_data.get(raw_val[1:], "")
+                    # Переменная
+                    var_name = raw_val[1:]
+                    raw_val = node_data.get(var_name, "")
+                
+                raw_val_str = str(raw_val or "")
+                
+                # Если это UID формата "dataset$item_id"
+                if raw_val_str:
+                    ds_name = str(el.get("dataset") or "").strip()
+                    
+                    # Пробуем получить представление через контекстную функцию
+                    get_view_fn = (context or {}).get("get_dataset_item_view")
+                    if callable(get_view_fn) and ds_name:
+                        try:
+                            display = get_view_fn(ds_name, raw_val_str)
+                        except Exception:
+                            display = raw_val_str
+                    else:
+                        display = raw_val_str
                 else:
-                    display = _resolve_vars(str(raw_val or ""), node_data)
+                    display = _resolve_vars(raw_val_str, node_data)
+            
             display = "" if display is None else str(display)
-
-            ds_name = str(el.get("dataset") or "").strip()  # e.g. "goods"
-
+            
+            ds_name = str(el.get("dataset") or "").strip()
+            
             style_attr_input = _style_attr(el, extra_css=extra_css, default_full_width=True)
             btn_style = _style_attr({"width": -2, "height": -2}, extra_css=None)
-
+            
+            # Всегда рендерим с кнопками для обоих типов
             return (
                 f'<div class="nl-field nl-field-row">'
                 f'{label_html}'
@@ -1097,7 +1184,6 @@ def render_nodalayout_html(
             f"<tbody>{''.join(rows_html)}</tbody></table></div>"
         )
 
-
     def render_node_children(el: Dict[str, Any]) -> str:
         """Recursive child cards with indentation, using node_children_tree() context if available."""
         nid = escape(str(el.get("id") or "children"))
@@ -1105,11 +1191,11 @@ def render_nodalayout_html(
         tree_fn: Optional[Callable[[str, str], List[Dict[str, Any]]]] = (context or {}).get("node_children_tree")
         if not callable(tree_fn):
             return f'<div class="nl-stub" data-type="NodeChildren">NodeChildren (no provider)</div>'
-
+        
         class_name = str(ctx_target.get("class_name") or "")
         node_id = str(ctx_target.get("node_id") or "")
         tree = tree_fn(class_name, node_id) or []
-
+        
         def render_tree(nodes: List[Dict[str, Any]], depth: int) -> str:
             if not nodes:
                 return ""
@@ -1119,6 +1205,7 @@ def render_nodalayout_html(
                 i = str(n.get("id") or "")
                 cover = str(n.get("cover_html") or n.get("cover") or "")
                 url = str(n.get("open_url") or "")
+                
                 if (not url) and c and i:
                     url_fn = (context or {}).get("node_url")
                     if callable(url_fn):
@@ -1126,24 +1213,29 @@ def render_nodalayout_html(
                             url = str(url_fn(c, i))
                         except Exception:
                             url = ""
+                
                 children = n.get("children") or []
                 indent_px = depth * 18
+                
                 if depth > 0:
                     parts.append(f'<div class="nl-child-item" style="margin-left:{indent_px}px">'
-                                 f'<div class="nl-child-line" style="left:{indent_px - 10}px"></div>')
+                                f'<div class="nl-child-line" style="left:{indent_px - 10}px"></div>')
                 else:
                     parts.append(f'<div class="nl-child-item" style="margin-left:{indent_px}px">')
+                
                 parts.append(
                     f'<div class="nl-child-card nl-clickable" data-nl-open="1" '
                     f'data-nl-open-url="{escape(url)}" data-nl-target-class="{escape(c)}" data-nl-target-node="{escape(i)}">'
                     f'{cover}</div>'
                 )
+                
                 if children:
                     parts.append(render_tree(children, depth + 1))
                 parts.append("</div>")
             return "".join(parts)
-
+    
         return f'<div class="nl-node-children" data-nl-id="{nid}"{style_attr}>' + render_tree(tree, 0) + "</div>"
+
 
     # Render row-based root layout
     for r_i, row in enumerate(rows):
