@@ -112,7 +112,7 @@ NL_FORMAT = "1.1"
 
 
 NODE_CLASS_CODE = '''
-from nodes import Node, message, Dialog, to_uid, from_uid
+from nodes import Node, message, Dialog, to_uid, from_uid, CloseNode
 '''
 
 NODE_CLASS_CODE_ANDROID = '''
@@ -4528,6 +4528,200 @@ def export_config(uid):
         download_name=f'config_{config.name}.nod',
         mimetype='application/json'
     )
+
+
+def _api_coerce_number(x):
+    if isinstance(x, (int, float)):
+        return x
+    if isinstance(x, str):
+        try:
+            if "." in x:
+                return float(x)
+            return int(x)
+        except Exception:
+            return None
+    return None
+
+def _api_like(pattern: str, value: str) -> bool:
+    pat = re.escape(pattern).replace(r"\%", ".*")
+    return re.fullmatch(pat, value or "", flags=re.IGNORECASE) is not None
+
+def _api_eval_leaf(node_data: dict, leaf: dict) -> bool:
+    key = leaf.get("key")
+    exp = leaf.get("exp")
+    wanted = leaf.get("value")
+
+    actual = (node_data or {}).get(key)
+
+    if exp == "~":
+        return _api_like(str(wanted or ""), str(actual or ""))
+
+    a_num = _api_coerce_number(actual)
+    w_num = _api_coerce_number(wanted)
+    if a_num is not None and w_num is not None and exp in ("<", ">", "=", "!="):
+        if exp == "<":
+            return a_num < w_num
+        if exp == ">":
+            return a_num > w_num
+        if exp == "=":
+            return a_num == w_num
+        if exp == "!=":
+            return a_num != w_num
+
+    a = str(actual) if actual is not None else ""
+    w = str(wanted) if wanted is not None else ""
+
+    if exp == "=":
+        return a == w
+    if exp == "!=":
+        return a != w
+    if exp == "<":
+        return a < w
+    if exp == ">":
+        return a > w
+
+    return False
+
+def _api_eval_condition(node_data: dict, cond) -> bool:
+    if cond is None:
+        return True
+
+    if isinstance(cond, dict):
+        if "&&" in cond:
+            return all(_api_eval_condition(node_data, c) for c in (cond.get("&&") or []))
+        if "||" in cond:
+            return any(_api_eval_condition(node_data, c) for c in (cond.get("||") or []))
+        if "!" in cond:
+            inner = cond.get("!")
+            if isinstance(inner, list):
+                return not all(_api_eval_condition(node_data, c) for c in inner)
+            return not _api_eval_condition(node_data, inner)
+        if "key" in cond and "exp" in cond:
+            return _api_eval_leaf(node_data, cond)
+
+    return False
+
+@app.route('/api/config/<config_uid>/node/<class_name>/query', methods=['POST'])
+@api_auth_required
+def nodes_api_query(config_uid, class_name):
+    import nodes as _nodes_mod
+
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == config_uid)
+    ).scalar_one_or_none()
+    if not config:
+        abort(404)
+
+    runtime_parsed = _build_runtime_parsed_config(config)
+    ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed)
+
+    @after_this_request
+    def _reset_ctx(resp):
+        _nodes_mod.reset_runtime_context(ctx_tokens)
+        return resp
+
+    if not (os.path.isfile(_handlers_file_path(config_uid)) or config.nodes_server_handlers):
+        abort(404)
+
+    isolated_globals = _load_server_handlers_ns(config_uid, config)
+
+    if (
+        class_name not in isolated_globals or
+        not hasattr(isolated_globals[class_name], '__bases__') or
+        not any(base.__name__ == 'Node'
+                for base in isolated_globals[class_name].__bases__)
+    ):
+        abort(404)
+
+    node_class = isolated_globals[class_name]
+
+    try:
+        payload = request.get_json(silent=True)
+        nodes = node_class.get_all(config_uid)
+
+        # ["uid1","uid2",...]
+        if isinstance(payload, list):
+            wanted = set(str(x) for x in payload if x is not None)
+            out = {}
+            for node_id, node in nodes.items():
+                d = node.to_dict()
+                public_id = d.get("_data", {}).get("_id") or node_id
+                if str(node_id) in wanted or str(public_id) in wanted:
+                    out[node_id] = d
+            return jsonify(out)
+
+        # condition object
+        if isinstance(payload, dict):
+            out = {}
+            for node_id, node in nodes.items():
+                d = node.to_dict()
+                data = d.get("_data", {}) or {}
+                if _api_eval_condition(data, payload):
+                    out[node_id] = d
+            return jsonify(out)
+
+        return jsonify({"error": "Body must be array of ids or condition object"}), 400
+
+    except _nodes_mod.AcceptRejected as e:
+        return jsonify({"status": False, "data": e.payload}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/catalog', methods=['GET'])
+@api_auth_required
+def api_catalog():
+    user = getattr(g, "api_user", None)
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    owned = db.session.execute(
+        select(Configuration).where(Configuration.user_id == user.id)
+    ).scalars().all()
+
+    shared = db.session.execute(
+        select(Configuration)
+        .join(UserConfigAccess, UserConfigAccess.config_id == Configuration.id)
+        .where(UserConfigAccess.user_id == user.id)
+    ).scalars().all()
+
+    configs = {c.id: c for c in owned + shared}
+
+    result = []
+    for cfg in configs.values():
+        cfg_uid = cfg.uid
+
+        base_url = url_for('get_config', uid=cfg_uid, _external=True).replace('/api/config/', '/api/config/')
+
+
+        classes = []
+        for c in (cfg.classes or []):
+            name = c.name
+            classes.append({
+                "name": name,
+                "display_name": c.display_name or name,
+                "urls": {
+                    "get": f"{base_url}/node/{name}",
+                    "post": f"{base_url}/node/{name}",
+                    "query": f"{base_url}/node/{name}/query",
+                }
+            })
+
+        datasets = []
+        for d in (cfg.datasets or []):
+            datasets.append({
+                "name": d.name,
+                "url": f"{base_url}/dataset/{d.name}/items"
+            })
+
+        result.append({
+            "name": cfg.name,
+            "uid": cfg_uid,
+            "classes": classes,
+            "datasets": datasets
+        })
+
+    return jsonify(result)
+
 
 @app.route('/import-config-new', methods=['POST'])
 @login_required

@@ -530,29 +530,31 @@ class Node:
     def delete(self):
         """Recursively delete a node and all its descendants"""
         with self._lock:
-            # First, we recursively delete all descendants
-            children = self.GetChildren()
-            for child in children:
+            # Сначала получаем всех детей (поддерживаем оба формата)
+            children_nodes = self.GetChildren()
+            
+            # Рекурсивно удаляем всех потомков
+            for child in children_nodes:
                 child.delete()
             
-            # Then we delete the node itself
+            # Затем удаляем узел сам
             if self._id in self._storage:
                 del self._storage[self._id]
-                # Remove the instance lock
                 if self._id in Node._instance_locks:
                     del Node._instance_locks[self._id]
             
-            # Delete the connection with the parent if there is one
-            parent_info = self._data.get('_parent')
+            # Удаляем связь с родителем, если она есть
+            parent_info = self._data.get("_parent")
             if parent_info:
                 try:
-                    parent_class_name = parent_info['class']
-                    parent_id = parent_info['id']
-                    parent_class = globals().get(parent_class_name)
-                    if parent_class and issubclass(parent_class, Node):
-                        parent_node = parent_class.get(parent_id, self._config_uid)
-                        if parent_node:
-                            parent_node.RemoveChild(self._id)
+                    parent_class_name = parent_info.get("class", parent_info.get("_class"))
+                    parent_id = parent_info.get("id", parent_info.get("_id"))
+                    if parent_class_name and parent_id:
+                        parent_cls = self._resolve_node_class(parent_class_name)
+                        if parent_cls and issubclass(parent_cls, Node):
+                            parent_node = parent_cls.get(parent_id, self._config_uid)
+                            if parent_node:
+                                parent_node.RemoveChild(self._id)
                 except Exception as e:
                     print(f"Error removing from parent: {e}")
     
@@ -817,41 +819,52 @@ class Node:
         child_class: Node class OR string (logical class name from config)
         """
         with self._lock:
-           
             child_cls = self._resolve_node_class(child_class)
             if child_cls is None:
                 raise ValueError(
                     f"Unknown child class: {child_class!r}. Known: {sorted(_NODE_CLASS_REGISTRY.keys())}"
                 )
-
             
             child_node = child_cls(child_id, self._config_uid)
-
-           
+            
             schema_name = None
             if isinstance(child_class, str) and child_class.strip():
                 schema_name = child_class.strip()
                 child_node._schema_class_name = schema_name
-
             
-            children = self._data.setdefault("_children", [])
-            children.append({
-                "class": child_cls.__name__,          # python-class
-                "id": child_node._id,                 # uid
-                "schema_class_name": schema_name,     # логическое имя (как в конфиге)
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            })
-
+            # Получаем текущий список детей в нужном формате
+            children_data = self._data.setdefault("_children", {})
             
+            # Если children_data - список (старый формат), конвертируем в новый формат
+            if isinstance(children_data, list):
+                # Конвертируем старый формат в новый
+                new_children = {}
+                for child in children_data:
+                    if isinstance(child, dict):
+                        child_class_name = child.get("class", child.get("_class", ""))
+                        child_id_value = child.get("id", child.get("_id", ""))
+                        if child_class_name and child_id_value:
+                            key = f"{child_class_name}${child_id_value}"
+                            # Значение - полный uid в новом формате
+                            value = normalize_own_uid(self._config_uid, child_class_name, child_id_value)
+                            new_children[key] = value
+                children_data = new_children
+                self._data["_children"] = children_data
+            
+            # Добавляем нового ребенка в новом формате
+            key = f"{child_cls.__name__}${child_node._id}"
+            value = normalize_own_uid(child_node._config_uid, child_cls.__name__, child_node._id)
+            children_data[key] = value
+            
+            # Устанавливаем родителя в данных ребенка
             child_node._data["_parent"] = {
                 "class": self.__class__.__name__,
                 "id": self._id
             }
-
             
             if child_data:
                 child_node.update_data(child_data)
-
+            
             self._save()
             child_node._save()
             return child_node
@@ -860,65 +873,92 @@ class Node:
 
 
     def RemoveChild(self, child_id):
-       
         with self._lock:
-            children = self._data.get('_children', [])
+            children_data = self._data.get("_children", [])
             
+            # Новый формат (dict)
+            if isinstance(children_data, dict):
+                # Ищем ключи, которые заканчиваются на указанный child_id
+                keys_to_remove = []
+                for key in children_data.keys():
+                    if key.endswith(f"${child_id}"):
+                        keys_to_remove.append(key)
+                
+                # Удаляем найденные ключи
+                for key in keys_to_remove:
+                    del children_data[key]
+                
+                self._data["_children"] = children_data
             
-            child_to_remove = None
-            for child in children:
-                if child['id'] == child_id:
-                    child_to_remove = child
-                    break
+            # Старый формат (list)
+            elif isinstance(children_data, list):
+                # Фильтруем список, оставляя только тех детей, у которых id не совпадает
+                children_data = [
+                    child for child in children_data 
+                    if isinstance(child, dict) and 
+                    child.get("id") != child_id and 
+                    child.get("_id") != child_id
+                ]
+                self._data["_children"] = children_data
             
-            if child_to_remove:
-                children.remove(child_to_remove)
-                self._data['_children'] = children
-                
-                
-                child_class_name = child_to_remove['class']
-                
-                
-                try:
-                    
-                    child_class = globals().get(child_class_name)
-                    if child_class and issubclass(child_class, Node):
-                        child_node = child_class.get(child_id)
-                        if child_node:
-                            child_node.delete()
-                except Exception:
-                    
-                    storage_key = f"{child_class_name}_{self._config_uid}" if self._config_uid else child_class_name
-                    if storage_key in Node._class_storages and child_id in Node._class_storages[storage_key]:
-                        del Node._class_storages[storage_key][child_id]
-                
-                self._save()
+            self._save()
 
     def GetChildren(self, level=None):
-
         with self._lock:
             children_data = self._data.get("_children", []) or []
             children_nodes = []
-
-            for child_info in children_data:
-                child_id = child_info.get("id")
-                child_class_name = child_info.get("class")  
-
-                if not child_id:
-                    continue
-
-                child_cls = self._resolve_node_class(child_class_name)
-                if child_cls is None:
-                    
-                    continue
-
-                child_node = child_cls.get(child_id, self._config_uid)
-                if child_node is not None:
-                    
-                    children_nodes.append(child_node)
-
-            return children_nodes
             
+            # Обработка нового формата (dict)
+            if isinstance(children_data, dict):
+                for key, value in children_data.items():
+                    # key: "ClassName$nodeId"
+                    # value: "config_uid$ClassName$nodeId"
+                    
+                    # Разбираем ключ или значение
+                    parts = key.split("$")
+                    if len(parts) >= 2:
+                        child_class_name = parts[0]
+                        child_id = parts[1]
+                    else:
+                        # Пробуем разобрать значение
+                        value_parts = value.split("$")
+                        if len(value_parts) >= 3:
+                            child_class_name = value_parts[-2]
+                            child_id = value_parts[-1]
+                        else:
+                            continue
+                    
+                    child_cls = self._resolve_node_class(child_class_name)
+                    if child_cls is None:
+                        continue
+                    
+
+                    child_node = child_cls.get(child_id, self._config_uid)
+                    if child_node is not None:
+                        children_nodes.append(child_node)
+            
+            # Обработка старого формата (list)
+            elif isinstance(children_data, list):
+                for child_info in children_data:
+                    if not isinstance(child_info, dict):
+                        continue
+                        
+                    child_id = child_info.get("id") or child_info.get("_id")
+                    child_class_name = child_info.get("class") or child_info.get("_class")
+                    
+                    if not child_id or not child_class_name:
+                        continue
+                    
+                    child_cls = self._resolve_node_class(child_class_name)
+                    if child_cls is None:
+                        continue
+                    
+                    child_node = child_cls.get(child_id, self._config_uid)
+                    if child_node is not None:
+                        children_nodes.append(child_node)
+            
+            return children_nodes
+                
 
     
     def PlugIn(self, plugins):
