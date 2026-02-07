@@ -230,7 +230,109 @@ class Node:
 
         raise TypeError(f"Invalid class spec: {class_or_name!r}")
 
+    @staticmethod
+    def _resolve_room_uid(alias_or_uid: str, config_uid: str) -> str:
+        alias = str(alias_or_uid or "").strip()
+        if not alias:
+            return ""
+
+        # uid passed directly
+        if len(alias) >= 32 and ("-" in alias):
+            return alias
+
+        try:
+            import __main__ as main
+            Configuration = getattr(main, "Configuration", None)
+            RoomAlias = getattr(main, "RoomAlias", None)
+            db = getattr(main, "db", None)
+            if Configuration is None or RoomAlias is None or db is None:
+                return ""
+
+            cfg_obj = db.session.query(Configuration).filter(Configuration.uid == config_uid).first()
+            if not cfg_obj:
+                return ""
+
+            ra = (
+                db.session.query(RoomAlias)
+                .filter(RoomAlias.config_id == cfg_obj.id, RoomAlias.alias == alias)
+                .first()
+            )
+            return str(ra.room_uid or "").strip() if ra else ""
+        except Exception:
+            return ""
     
+    @classmethod
+    def Register(cls, uids: list, room_alias: str, config_uid: str = None) -> dict:
+        """
+        Bulk register nodes of THIS class into a room.
+        Call like: ReceiptPosition.Register([uid1, uid2, ...], "kitchen")
+
+        Returns: {"ok": bool, "room_uid": str, "count": int, "errors": [..]}
+        """
+        # 1) determine config uid
+        cfg_uid = str(config_uid or "").strip()
+        if not cfg_uid:
+            # try to derive from first uid
+            try:
+                first = (uids or [None])[0]
+                uid_cfg, _, _ = parse_uid_any(first)
+                cfg_uid = str(uid_cfg or "").strip()
+            except Exception:
+                cfg_uid = ""
+
+        if not cfg_uid:
+            return {"ok": False, "room_uid": "", "count": 0, "errors": ["config_uid is empty"]}
+
+        # 2) resolve room uid ONCE (alias -> room_uid via DB)
+        room_uid = cls._resolve_room_uid(room_alias, cfg_uid) if hasattr(cls, "_resolve_room_uid") else ""
+        if not room_uid:
+            # if you kept resolver as Node._resolve_room_uid, call it explicitly
+            try:
+                room_uid = Node._resolve_room_uid(room_alias, cfg_uid)
+            except Exception:
+                room_uid = ""
+
+        if not room_uid:
+            return {"ok": False, "room_uid": "", "count": 0, "errors": [f"room alias not found: {room_alias}"]}
+
+        # 3) build objects (use cls.get(uid) so it understands composite IDs)
+        objs = []
+        errors = []
+        for raw_uid in (uids or []):
+            try:
+                n = cls.get(raw_uid, None)  # ✅ let get() parse any uid format
+                if not n:
+                    errors.append(f"not found: {raw_uid}")
+                    continue
+
+                try:
+                    d = n.to_dict() if hasattr(n, "to_dict") else {}
+                except Exception:
+                    d = {}
+                if not isinstance(d, dict):
+                    d = {}
+                d.setdefault("_id", getattr(n, "_id", None) or str(raw_uid))
+                objs.append(d)
+
+            except Exception as e:
+                errors.append(f"{raw_uid}: {e}")
+
+        if not objs:
+            return {"ok": False, "room_uid": room_uid, "count": 0, "errors": (errors or ["no nodes"])}
+
+        # 4) one write + one send
+        try:
+            import __main__ as main
+            class_name = str(getattr(cls, "_schema_class_name", "") or cls.__name__)
+            main.handle_room_objects(cfg_uid, class_name, room_uid, objs)
+
+            return {"ok": True, "room_uid": room_uid, "count": len(objs), "errors": errors}
+        except Exception as e:
+            errors.append(str(e))
+            return {"ok": False, "room_uid": room_uid, "count": 0, "errors": errors}
+
+
+
     def __init__(self, node_id=None, config_uid=None):
         self._id = node_id or str(uuid.uuid4())
         self._config_uid = config_uid
@@ -369,6 +471,91 @@ class Node:
                 return True
             return False
         
+    def _register(self, room_alias: str) -> bool:
+        """
+        Register this node into a room by alias.
+        Alias -> room_uid is stored in DB (RoomAlias), not in parsed_config.
+        """
+        alias = str(room_alias or "").strip()
+        if not alias:
+            try: self.Message("Room alias is empty", "warning")
+            except Exception: pass
+            try: push_message("Room alias is empty", "warning")
+            except Exception: pass
+            return False
+
+        cfg_uid = str(getattr(self, "_config_uid", "") or "").strip()
+        class_name = str(getattr(self, "_schema_class_name", "") or self.__class__.__name__).strip()
+
+        # 1) If user passed room_uid directly (36 chars uuid) — accept
+        room_uid = ""
+        if len(alias) >= 32 and ("-" in alias):
+            room_uid = alias
+
+        # 2) Resolve alias via DB RoomAlias for this Configuration.uid
+        if not room_uid:
+            try:
+                import __main__ as main
+
+                Configuration = getattr(main, "Configuration", None)
+                RoomAlias = getattr(main, "RoomAlias", None)
+                db = getattr(main, "db", None)
+
+                if Configuration is None or RoomAlias is None or db is None:
+                    raise RuntimeError("DB models not available in __main__")
+
+                cfg_obj = db.session.query(Configuration).filter(Configuration.uid == cfg_uid).first()
+                if cfg_obj:
+                    ra = (
+                        db.session.query(RoomAlias)
+                        .filter(RoomAlias.config_id == cfg_obj.id, RoomAlias.alias == alias)
+                        .first()
+                    )
+                    if ra:
+                        room_uid = str(ra.room_uid or "").strip()
+            except Exception as e:
+                try: self.Message(f"Room alias resolve failed: {e}", "danger")
+                except Exception: pass
+                try: push_message(f"Room alias resolve failed: {e}", "danger")
+                except Exception: pass
+                return False
+
+        if not room_uid:
+            msg = f"Room alias not found in DB: {alias}"
+            try: self.Message(msg, "warning")
+            except Exception: pass
+            try: push_message(msg, "warning")
+            except Exception: pass
+            return False
+
+        # 3) Prepare object payload like standard registration
+        try:
+            d = self.to_dict() if hasattr(self, "to_dict") else {}
+        except Exception:
+            d = {}
+        if not isinstance(d, dict):
+            d = {}
+        d.setdefault("_id", self._id)
+
+        # 4) Queue into room via the same server helper
+        try:
+            import __main__ as main
+            main.handle_room_objects(cfg_uid, class_name, room_uid, [d])
+
+            msg = f"Registered in room: {room_uid}"
+            try: self.Message(msg, "success")
+            except Exception: pass
+            try: push_message(msg, "success")
+            except Exception: pass
+            return True
+        except Exception as e:
+            msg = f"Register failed: {e}"
+            try: self.Message(msg, "danger")
+            except Exception: pass
+            try: push_message(msg, "danger")
+            except Exception: pass
+            return False
+
     def _open(self, *, new_tab: bool = True):
         
         try:
@@ -560,34 +747,46 @@ class Node:
     
     @classmethod
     def get(cls, node_id, config_uid=None):
-        storage_key = f"{cls.__name__}_{config_uid}" if config_uid else cls.__name__
-        
+        # ✅ accept composite ids: "cfg$Class$Id" | "Class$Id" | "Id"
+        uid_cfg, uid_cls, internal_id = parse_uid_any(node_id)
+        effective_config_uid = config_uid or uid_cfg
+
+        # If uid contains another class name and we can resolve it -> delegate
+        # (useful when someone calls Node.get("cfg$Warehouse$123") or wrong class)
+        try:
+            if uid_cls and uid_cls != cls.__name__:
+                parsed = CURRENT_PARSED_CONFIG.get()
+                if isinstance(parsed, dict):
+                    real_cls = _resolve_node_class(parsed, uid_cls)
+                    if real_cls and isinstance(real_cls, type) and issubclass(real_cls, Node):
+                        return real_cls.get(internal_id, effective_config_uid)
+        except Exception:
+            pass
+
+        # For normal calls (called on correct class), just use internal id
+        storage_key = f"{cls.__name__}_{effective_config_uid}" if effective_config_uid else cls.__name__
+
         # Make sure the storage is initialized
         if storage_key not in cls._class_storages:
-            # Lock for loading storage
             if storage_key not in cls._storage_locks:
                 cls._storage_locks[storage_key] = threading.RLock()
-            
+
             with cls._storage_locks[storage_key]:
-                # Double check after getting blocked
                 if storage_key not in cls._class_storages:
                     db_path = os.path.join(STORAGE_BASE_PATH, f"{storage_key}.sqlite")
-                    
                     if not os.path.exists(db_path):
                         return None
-                    
-                    # Load an existing repository
                     try:
                         cls._class_storages[storage_key] = SqliteDict(db_path, autocommit=True)
                     except Exception:
                         return None
-        
+
         storage = cls._class_storages[storage_key]
-        
-        if node_id in storage:
-            return cls(node_id, config_uid)
-        else:
-            return None
+
+        # ✅ lookup by internal id
+        if internal_id in storage:
+            return cls(internal_id, effective_config_uid)
+        return None
     
     @classmethod
     def get_all(cls, config_uid=None):
