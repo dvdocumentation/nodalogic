@@ -232,11 +232,16 @@ async function doDelete(repo_id, class_name, node_id) {
 async function doBulkDelete() {
   const itemByKey = new Map((lastItems||[]).map(it => [`${it.repo_id}:${it.class}:${it.id}`, it]));
   const arr = Array.from(selected.values()).map(k => k.split(":"))
-    .filter(([repo_id, cls, id]) => {
-      const it = itemByKey.get(`${repo_id}:${cls}:${id}`);
-      return it && !it.is_custom_process && isStd(it.repo_id, it.class) && !!it.use_standard_commands;
-    });
-  if (!arr.length) return;
+  .filter(([repo_id, cls, id]) => {
+    const it = itemByKey.get(`${repo_id}:${cls}:${id}`);
+    
+    return it && !it.is_custom_process;
+  });
+
+if (!arr.length) {
+  alert("No deletable items selected (custom_process cannot be deleted).");
+  return;
+}
 
   if (!confirm(`Delete selected (${arr.length})?`)) return;
 
@@ -306,18 +311,19 @@ function render(items, meta) {
 }
 
   function updateBulkBar(currentItems){
-    let deletable = 0;
-    const itemByKey = new Map((currentItems||[]).map(it => [`${it.repo_id}:${it.class}:${it.id}`, it]));
-    selected.forEach(k => {
-      const it = itemByKey.get(k);
-      if (!it) return;
-      if (canDel) deletable += 1;
-    });
-    //bulkBar.style.display = (deletable > 0) ? "" : "none";
-    
-    if (bulkBtn) bulkBtn.disabled = !(deletable > 0);
-    if (bulkStatus) bulkStatus.textContent = deletable > 0 ? `to be deleted: ${deletable}` : "";
-  }
+  let deletable = 0;
+  const itemByKey = new Map((currentItems||[]).map(it => [`${it.repo_id}:${it.class}:${it.id}`, it]));
+  selected.forEach(k => {
+    const it = itemByKey.get(k);
+    if (!it) return;
+    const canDel = !!it && !it.is_custom_process; 
+    if (canDel) deletable += 1;
+  });
+
+  if (bulkBtn) bulkBtn.disabled = !(deletable > 0);
+  if (bulkStatus) bulkStatus.textContent = deletable > 0 ? `to be deleted: ${deletable}` : "";
+}
+
 
   /*document.getElementById("btnBulkDelete").onclick = async () => {
     try { await doBulkDelete(); await loadSection(); }

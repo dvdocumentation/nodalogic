@@ -1104,6 +1104,7 @@ async function fetchNodesForPicker(kind, dsRaw, q){
     return (j.items || []).map(it => ({
       uid: String(it.uid || ""),
       _view: String(it._view || it.uid || ""),
+      cover_html: String(it.cover_html || ""),
       data: it.data || null
     }));
   }
@@ -1125,7 +1126,10 @@ async function openNodePickDialog(fieldId, kind, dsRaw){
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "btn btn-outline-secondary text-start";
-      btn.textContent = it._view || it.uid;
+      const cov = String(it.cover_html || "").trim();
+      if (cov) btn.innerHTML = cov;
+      else btn.textContent = it._view || it.uid;
+      //btn.textContent = it._view || it.uid;
       btn.addEventListener("click", async () => {
         const uid = String(it.uid || "").trim();
         const view = String(it._view || uid).trim();
