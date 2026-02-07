@@ -3177,6 +3177,8 @@ def api_class_nodes():
 
     nodes = _fetch_nodes_for_class(repo, config_uid=repo.config_uid, class_name=class_name, q=q, limit=limit) or []
 
+   
+
     items = []
     for n in nodes:
         data = n.get("_data") or {}
@@ -3184,11 +3186,17 @@ def api_class_nodes():
         if not nid:
             continue
         view = data.get("_view") or data.get("title") or nid
+        cover_html = ""
+        try:
+            cover_html = _node_cover_html(repo, class_name, str(nid), mode="table")
+        except Exception:
+            cover_html = ""
         items.append({
             "uid": f"{class_name}${nid}",
             "_id": str(nid),
             "_class": class_name,
             "_view": str(view),
+            "cover_html": cover_html,
             "data": data,
         })
 
