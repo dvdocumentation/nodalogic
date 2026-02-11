@@ -1303,7 +1303,7 @@ msgstr "Авторизоваться"
 #: templates/client/node_form.html:72 templates/index.html:16
 #: templates/index.html:46
 msgid "Register"
-msgstr "Зарегистрироваться"
+msgstr "Зарегистрировать"
 
 #: templates/index.html:31 templates/index.html:44
 #: templates/users_manage.html:20
@@ -1480,7 +1480,7 @@ msgstr "Сохранить и закрыть"
 
 #: templates/client/node_form.html:77 templates/client/repos.html:79
 msgid "Close"
-msgstr "Классы"
+msgstr "Закрыть"
 
 #: templates/client/repo.html:19
 msgid "Info"
@@ -1508,7 +1508,7 @@ msgstr ""
 
 #: templates/client/repos.html:46
 msgid "Select configurations"
-msgstr "Изменить конфигурацию"
+msgstr "Выбрать конфигурацию"
 
 #: templates/client/repos.html:49
 msgid "Adding the current database configuration to the repository."
