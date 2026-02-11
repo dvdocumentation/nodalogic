@@ -271,8 +271,10 @@ def _node_children_tree(repo: models.Repo, class_name: str, node_id: str) -> Lis
                 
                 # Try to parse from key
                 key_parts = key.split("$")
-                if len(key_parts) >= 2:
-                    child_class, child_id = key_parts[0], key_parts[1]
+                if len(key_parts) == 2:
+                    child_class_name, child_id = key_parts[0], key_parts[1]
+                elif len(key_parts) == 3:
+                    child_class_name, child_id = key_parts[1], key_parts[2]
                 
                 # If not successful, try from value
                 if not child_class or not child_id:
@@ -337,6 +339,105 @@ def _node_children_tree(repo: models.Repo, class_name: str, node_id: str) -> Lis
         return out
     
     return build(class_name, node_id)
+
+def _walk_layout_find_nodeinputs(layout_obj):
+    """Yield NodeInput elements (dicts) from layout (2d/1d/json str)."""
+    import json
+    if layout_obj is None:
+        return
+    if isinstance(layout_obj, str):
+        try:
+            layout_obj = json.loads(layout_obj)
+        except Exception:
+            return
+
+    def walk(x):
+        if isinstance(x, dict):
+            t = x.get("type") or x.get("t")
+            if t == "NodeInput":
+                yield x
+            # walk common nested places
+            for k in ("layout", "tabs", "rows", "cols", "items", "children"):
+                v = x.get(k)
+                if isinstance(v, list):
+                    for it in v:
+                        yield from walk(it)
+                elif isinstance(v, dict):
+                    yield from walk(v)
+        elif isinstance(x, list):
+            for it in x:
+                yield from walk(it)
+
+    yield from walk(layout_obj)
+
+def _fill_nodeinput_views(repo, parsed, layout, node_data):
+    """
+    For each NodeInput in layout:
+      - read its value from node_data (usually via @field)
+      - if it's like cfg$Class$Id (or Class$Id), load node and set <id>_view
+    """
+    import nodes as _nodes_mod
+
+    cache = {}  # uid -> view
+
+    for el in _walk_layout_find_nodeinputs(layout):
+        nid = str(el.get("id") or "").strip()
+        if not nid:
+            continue
+
+        view_key = f"{nid}_view"
+        if view_key in node_data:
+            continue  # already provided
+
+        raw_val = el.get("value")
+        ref = ""
+
+        # value обычно "@field"
+        if isinstance(raw_val, str) and raw_val.startswith("@"):
+            ref = node_data.get(raw_val[1:], "") or ""
+        elif isinstance(raw_val, str):
+            ref = raw_val
+        else:
+            continue
+
+        ref = str(ref).strip()
+        if "$" not in ref:
+            continue
+
+        if ref in cache:
+            node_data[view_key] = cache[ref]
+            continue
+
+        try:
+            cfg_uid, cls_name, internal_id = _nodes_mod.parse_uid_any(ref)
+            if not internal_id:
+                continue
+
+            eff_cfg = cfg_uid or repo.config_uid
+
+            # класс берём из handlers (как ты и хотел)
+            if cls_name:
+                node_cls = _load_server_node_class(eff_cfg, cls_name)
+            else:
+                # если вдруг "Id" без класса — смысла резолвить нет
+                continue
+
+            n = node_cls.get(internal_id, eff_cfg)
+            if not n:
+                continue
+
+            d = {}
+            try:
+                d = n.get_data() or {}
+            except Exception:
+                d = {}
+
+            view = str(d.get("_view") or internal_id)
+            cache[ref] = view
+            node_data[view_key] = view
+        except Exception:
+            # молча: если не смогли — остаётся как есть (будет показан id)
+            pass
 
 
 def _nl_context(repo: models.Repo, *, class_name: str, node_id: str) -> Dict[str, Any]:
@@ -2313,6 +2414,10 @@ def node_form(config_uid: str, class_name: str, node_id: str):
 
     # Resolve '^layout_id' via CommonLayouts
     layout = resolve_common_layout(parsed, layout)
+
+    if layout is not None and isinstance(node_data, dict):
+        _fill_nodeinput_views(repo, parsed, layout, node_data)
+
 
     layout_html = ""
     if layout is not None:
