@@ -7,6 +7,7 @@ import hashlib
 import json
 import hashlib
 import copy
+import inspect
 
 from contextvars import ContextVar
 
@@ -21,6 +22,30 @@ RUNTIME_MESSAGES = ContextVar("RUNTIME_MESSAGES", default=None)
 # during a single logical operation (e.g. setter -> update_data -> _save).
 ACCEPT_GUARD = ContextVar("ACCEPT_GUARD", default=None)
 
+# Guard to avoid running onAfterAcceptServer multiple times for the same node
+# during a single logical operation (e.g. setter -> update_data -> _save).
+AFTER_ACCEPT_GUARD = ContextVar("AFTER_ACCEPT_GUARD", default=None)
+
+# per-runtime/request cache
+DATASET_VIEW_CACHE = ContextVar("DATASET_VIEW_CACHE", default=None)   # (cfg_uid, ds_name, item_id) -> str(view)
+DATASET_OBJ_CACHE  = ContextVar("DATASET_OBJ_CACHE", default=None)    # (cfg_uid, ds_name, item_id) -> dict(obj)
+DATASET_ID_CACHE   = ContextVar("DATASET_ID_CACHE", default=None)     # (cfg_uid, ds_name) -> int(dataset_id)
+
+
+def current_handlers_dir() -> str:
+    # ищем в стеке фрейм, который выполняется из Handlers/<uid>/handlers.py
+    for fi in inspect.stack():
+        try:
+            fp = fi.frame.f_globals.get("__file__", "") or ""
+        except Exception:
+            fp = ""
+        if fp and (os.sep + "Handlers" + os.sep) in fp and fp.endswith(os.sep + "handlers.py"):
+            return os.path.dirname(fp)
+    return ""
+
+def current_config_uid_from_handlers() -> str:
+    d = current_handlers_dir()
+    return os.path.basename(d) if d else ""
 
 class AcceptRejected(Exception):
     def __init__(self, payload=None):
@@ -33,6 +58,12 @@ def set_runtime_context(config_uid: str | None, parsed_config: dict | None):
     # Reset per-request helpers
     RUNTIME_MESSAGES.set([])
     ACCEPT_GUARD.set(set())
+    AFTER_ACCEPT_GUARD.set(set())
+    
+    DATASET_VIEW_CACHE.set({})
+    DATASET_OBJ_CACHE.set({})
+    DATASET_ID_CACHE.set({})
+    
     return (t1, t2)
 
 def reset_runtime_context(tokens):
@@ -42,6 +73,7 @@ def reset_runtime_context(tokens):
     # Clear per-request helpers
     RUNTIME_MESSAGES.set(None)
     ACCEPT_GUARD.set(None)
+    AFTER_ACCEPT_GUARD.set(None)
 
 
 def push_message(text: str, level: str = "info"):
@@ -107,10 +139,10 @@ def dispatch_node_class_event(node, event_name: str, input_data: dict) -> tuple[
             fn = getattr(node, m, None)
             
             c = fn.__code__
-            print("FN:", fn, "qualname:", fn.__qualname__)
-            print("file:", c.co_filename, "line:", c.co_firstlineno)
-            print("freevars:", c.co_freevars, "vars:", c.co_varnames)
-            print("bytecode_len:", len(c.co_code), "hash:", hash(c.co_code))
+            #print("FN:", fn, "qualname:", fn.__qualname__)
+            #print("file:", c.co_filename, "line:", c.co_firstlineno)
+            #print("freevars:", c.co_freevars, "vars:", c.co_varnames)
+            #print("bytecode_len:", len(c.co_code), "hash:", hash(c.co_code))
 
             if not callable(fn):
                 return False, {"error": f"Handler method '{m}' not found for event {event_name}"}
@@ -137,6 +169,12 @@ def run_on_accept_server_once(node, saved_state: dict, input_data: dict | None =
 
     Raises AcceptRejected if rejected.
     """
+    
+    if "_skip_accept_handler" in node._data:
+        del node._data["_skip_accept_handler"]
+        node._save()
+        return
+
     guard = ACCEPT_GUARD.get()
     if guard is None:
         guard = set()
@@ -167,6 +205,31 @@ def run_on_accept_server_once(node, saved_state: dict, input_data: dict | None =
         except Exception:
             pass
         raise AcceptRejected(out)
+
+
+def run_on_after_accept_server_once(node, saved_state: dict) -> None:
+    """Run config ClassEvent 'onAfterAcceptServer' at most once per request per node.
+
+    This hook runs AFTER the node state has been persisted.
+
+    Note: unlike onAcceptServer, this hook is not used to reject the operation.
+    """
+    guard = AFTER_ACCEPT_GUARD.get()
+    if guard is None:
+        guard = set()
+        AFTER_ACCEPT_GUARD.set(guard)
+
+    key = _accept_guard_key(node)
+    if key in guard:
+        return
+    guard.add(key)
+
+    payload: dict = {"_saved_state": dict(saved_state or {})}
+    try:
+        dispatch_node_class_event(node, "onAfterAcceptServer", payload)
+    except Exception:
+        # Post-save hook must never break the main flow.
+        pass
 
 
 STORAGE_BASE_PATH = 'node_storage'
@@ -468,6 +531,9 @@ class Node:
 
                 node_data["_updated_at"] = datetime.now(timezone.utc).isoformat()
                 self._storage[self._id] = node_data
+
+                # run post-save hook AFTER persisting (only once per request)
+                run_on_after_accept_server_once(self, saved_state)
                 return True
             return False
         
@@ -627,6 +693,9 @@ class Node:
                     node_data['_data'] = dict(to_write) if isinstance(to_write, dict) else new_state
                     node_data['_updated_at'] = datetime.now(timezone.utc).isoformat()
                     new_node._storage[new_node._id] = node_data
+
+                    # run post-save hook AFTER persisting (only once per request)
+                    run_on_after_accept_server_once(new_node, saved_state)
                     new_node._data_cache = None
 
         return new_node
@@ -653,8 +722,9 @@ class Node:
             if self._id in self._storage:
                 data = self._storage[self._id].get('_data', {})
                 # Ensure that _id and _class are always present
-                if '_id' not in data:
-                    data['_id'] = self._id
+                #if '_id' not in data:
+                #    data['_id'] = self._id
+                data['_id'] = normalize_own_uid(self._config_uid, self.__class__.__name__, data.get('_id') or self._id)    
                 if '_class' not in data:
                     data['_class'] = self.__class__.__name__
                 return data
@@ -685,6 +755,9 @@ class Node:
                 node_data['_updated_at'] = datetime.now(timezone.utc).isoformat()
                 self._storage[self._id] = node_data
 
+                # run post-save hook AFTER persisting (only once per request)
+                run_on_after_accept_server_once(self, saved_state)
+
     def update_data(self, data_dict):
         with self._lock:
             if self._id in self._storage:
@@ -714,6 +787,9 @@ class Node:
                 node_data['_updated_at'] = datetime.now(timezone.utc).isoformat()
                 self._storage[self._id] = node_data
 
+                # run post-save hook AFTER persisting (only once per request)
+                run_on_after_accept_server_once(self, saved_state)
+
     def delete(self):
         """Recursively delete a node and all its descendants"""
         with self._lock:
@@ -731,19 +807,18 @@ class Node:
                     del Node._instance_locks[self._id]
             
             # Удаляем связь с родителем, если она есть
-            parent_info = self._data.get("_parent")
-            if parent_info:
+            parent_uid = self._data.get("_parent")  # "cfg$ParentClass$42"
+            if parent_uid:
                 try:
-                    parent_class_name = parent_info.get("class", parent_info.get("_class"))
-                    parent_id = parent_info.get("id", parent_info.get("_id"))
-                    if parent_class_name and parent_id:
-                        parent_cls = self._resolve_node_class(parent_class_name)
-                        if parent_cls and issubclass(parent_cls, Node):
-                            parent_node = parent_cls.get(parent_id, self._config_uid)
-                            if parent_node:
-                                parent_node.RemoveChild(self._id)
+                    cfg_uid, parent_class, parent_id = parent_uid.split("$", 2)
+                    parent_cls = self._resolve_node_class(parent_class)
+            
+                    parent_node = parent_cls.get(parent_uid, cfg_uid)  # или get(parent_id, cfg_uid) — как у вас принято
+                    parent_node.RemoveChild(self._data.get("_id") or self._id)
                 except Exception as e:
                     print(f"Error removing from parent: {e}")
+
+                
     
     @classmethod
     def get(cls, node_id, config_uid=None):
@@ -790,6 +865,8 @@ class Node:
     
     @classmethod
     def get_all(cls, config_uid=None):
+        if not config_uid:
+            config_uid = current_config_uid_from_handlers()
         storage_key = f"{cls.__name__}_{config_uid}" if config_uid else cls.__name__
         
         if storage_key not in cls._class_storages:
@@ -810,6 +887,8 @@ class Node:
     
     @classmethod
     def find(cls, condition_func, config_uid=None):
+        if not config_uid:
+            config_uid = current_config_uid_from_handlers()
         results = {}
         for node_id, node in cls.get_all(config_uid).items():
             if condition_func(node):
@@ -874,7 +953,159 @@ class Node:
     def _get_schemes(cls):
         return cls._load_schemes_for_class()
 
+    def _rebuild_sum_transactions(self, scheme_name: str):
+        """
+        Полный пересчёт цепочки _transactions[scheme_name]:
+        - balances пересчитываются заново
+        - parent/child/prev_hash/hash пересчитываются заново
+        Индекс _tx_index тоже пересобирается.
+        """
+        txs = list(self._data.get("_transactions", {}).get(scheme_name, []) or [])
+        if not txs:
+            # почистим индекс
+            idx_root = self._data.setdefault("_tx_index", {})
+            idx_root[scheme_name] = {}
+            self._save()
+            return True
 
+        idx = {}
+
+        prev = None
+        balances = {}
+
+        for i, tx in enumerate(txs):
+            # parent/child
+            tx["parent"] = prev["uid"] if prev else None
+            if prev:
+                prev["child"] = tx["uid"]
+            tx["child"] = None  # выставим после, когда будет следующий
+
+            # пересчёт balances
+            keys = tx.get("keys") or []
+            values = tx.get("values") or []
+            key_str = "::".join(str(k) for k in keys)
+
+            if key_str not in balances:
+                balances[key_str] = [0] * len(values)
+
+            # защитимся от несовпадения длин
+            min_len = min(len(balances[key_str]), len(values))
+            new_vec = list(balances[key_str])
+            for j in range(min_len):
+                new_vec[j] = new_vec[j] + values[j]
+            # если values длиннее — “дорастим”
+            if len(values) > len(new_vec):
+                new_vec.extend(values[len(new_vec):])
+            balances[key_str] = new_vec
+
+            tx["balances"] = copy.deepcopy(balances)
+
+            # prev_hash/hash
+            tx["prev_hash"] = prev["hash"] if prev else None
+            tx["hash"] = hashlib.sha256(
+                f"{tx['uid']}{tx['parent']}{tx['balances']}{tx.get('period')}".encode()
+            ).hexdigest()
+
+            # индекс по dedup_key (если есть) или вычислим из meta/полей
+            meta = tx.get("meta") or {}
+            dk = meta.get("dedup_key")
+            if not dk:
+                dk = self._tx_dedup_key(
+                    scheme_name,
+                    str(tx.get("period") or ""),
+                    keys,
+                    source_uid=meta.get("source_uid") or (self._data.get("_id") or self._id),
+                )
+                meta["dedup_key"] = dk
+                tx["meta"] = meta
+            idx[dk] = tx["uid"]
+
+            prev = tx
+
+        # закрыть child у последней
+        if txs:
+            txs[-1]["child"] = None
+
+        self._data.setdefault("_transactions", {})[scheme_name] = txs
+        self._data.setdefault("_tx_index", {})[scheme_name] = idx
+        self._save()
+        return True
+
+    def _remove_sum_transaction_unique(self, scheme_name: str, *, unique_key: str) -> bool:
+        txs = list(self._data.get("_transactions", {}).get(scheme_name, []) or [])
+        if not txs:
+            return False
+
+        new_txs = [t for t in txs if t.get("uk") != unique_key]
+        if len(new_txs) == len(txs):
+            return False  # ничего не удалили
+
+        self._data.setdefault("_transactions", {})[scheme_name] = new_txs
+        self._rebuild_sum_transactions(scheme_name)  # пересчёт parent/child/balances/hash
+        self._save()
+        return True
+    
+    def _sum_transaction_unique(
+        self,
+        scheme_name: str,
+        *,
+        unique_key: str,
+        period: str,
+        keys: list,
+        values: list,
+        meta: dict | None = None,
+    ) -> str | None:
+        """
+        Добавляет транзакцию только если unique_key ещё не встречался.
+        Возвращает uid существующей/новой транзакции.
+        """
+
+        if not unique_key:
+            raise ValueError("unique_key is required")
+
+        txs = self._data.setdefault("_transactions", {}).setdefault(scheme_name, [])
+
+        # 1) dedup check
+        existing = next((t for t in txs if t.get("uk") == unique_key), None)
+        if existing:
+            return existing["uid"]
+
+        # 2) обычное добавление (как в твоём _sum_transaction)
+        last_tx = txs[-1] if txs else None
+        parent_id = last_tx["uid"] if last_tx else None
+
+        balances = last_tx["balances"].copy() if last_tx else {}
+
+        key_str = "::".join(str(k) for k in (keys or []))
+        if key_str not in balances:
+            balances[key_str] = [0] * len(values)
+        balances[key_str] = [old + delta for old, delta in zip(balances[key_str], values)]
+
+        uid = str(uuid.uuid4())
+        prev_hash = last_tx["hash"] if last_tx else None
+        tx_hash = hashlib.sha256(f"{uid}{parent_id}{balances}{period}".encode()).hexdigest()
+
+        tx = {
+            "uid": uid,
+            "uk": unique_key,     # <-- ВОТ ОН, тех. уникальный ключ
+            "parent": parent_id,
+            "child": None,
+            "period": period,
+            "keys": keys,
+            "values": values,
+            "balances": balances,
+            "hash": tx_hash,
+            "prev_hash": prev_hash,
+            "meta": dict(meta or {}),  # meta остаётся описанием (накладная и т.п.)
+        }
+
+        if last_tx:
+            last_tx["child"] = uid
+
+        txs.append(tx)
+        self._data["_transactions"][scheme_name] = txs
+        self._save()
+        return uid
     def _sum_transaction(self, scheme_name, period=None, keys=None, values=None, meta=None):
         
         #schemes = self.__class__._get_schemes()
@@ -1056,13 +1287,14 @@ class Node:
             children_data[key] = value
             
             # Устанавливаем родителя в данных ребенка
-            child_node._data["_parent"] = {
-                "class": self.__class__.__name__,
-                "id": self._id
-            }
+            if "_id" in self._data:
+                child_node._data["_parent"] = self._data.get("_id")
+            else:    
+                child_node._data["_parent"] = self._id
             
             if child_data:
                 child_node.update_data(child_data)
+            
             
             self._save()
             child_node._save()
@@ -1079,8 +1311,9 @@ class Node:
             if isinstance(children_data, dict):
                 # Ищем ключи, которые заканчиваются на указанный child_id
                 keys_to_remove = []
+                internal = extract_internal_id(child_id)
                 for key in children_data.keys():
-                    if key.endswith(f"${child_id}"):
+                    if key.endswith(f"${internal}"):
                         keys_to_remove.append(key)
                 
                 # Удаляем найденные ключи
@@ -1115,9 +1348,12 @@ class Node:
                     
                     # Разбираем ключ или значение
                     parts = key.split("$")
-                    if len(parts) >= 2:
+                    if len(parts) == 2:
                         child_class_name = parts[0]
                         child_id = parts[1]
+                    elif len(parts) == 3:
+                        child_class_name = parts[1]
+                        child_id = parts[2]
                     else:
                         # Пробуем разобрать значение
                         value_parts = value.split("$")
@@ -1447,4 +1683,147 @@ def from_uid(uid, config_uid, config_info):
 
     # Not found
     return None
+
+
+
+import os, inspect
+from contextvars import ContextVar
+from typing import Any, Dict, Optional, Tuple
+
+DATASET_VIEW_CACHE = ContextVar("DATASET_VIEW_CACHE", default=None)  # (cfg_uid, ds_name, item_id)->str
+DATASET_OBJ_CACHE  = ContextVar("DATASET_OBJ_CACHE", default=None)   # (cfg_uid, ds_name, item_id)->dict|None
+
+
+def current_config_uid_from_handlers() -> str:
+    try:
+        for fi in inspect.stack():
+            fp = ""
+            try:
+                fp = fi.frame.f_globals.get("__file__", "") or ""
+            except Exception:
+                fp = ""
+            if fp and (os.sep + "Handlers" + os.sep) in fp and fp.endswith(os.sep + "handlers.py"):
+                return os.path.basename(os.path.dirname(fp))
+    except Exception:
+        pass
+    return ""
+
+
+class DataSets:
+    class Dataset:
+        def __init__(self, name: str):
+            self.name = str(name or "").strip()
+
+        def get(self, item_id: str) -> Optional[Dict[str, Any]]:
+            """goods.get('123') -> dataset item object or None"""
+            item_id = str(item_id or "").strip()
+            if not self.name or not item_id:
+                return None
+            return DataSets.getObject(f"{self.name}${item_id}")
+
+        def view(self, item_id: str) -> str:
+            """goods.view('123') -> view string"""
+            item_id = str(item_id or "").strip()
+            if not self.name or not item_id:
+                return item_id
+            return DataSets.getView(f"{self.name}${item_id}")
+
+    @staticmethod
+    def GetDataSet(name: str) -> "DataSets.Dataset":
+        return DataSets.Dataset(name)
+
+    @staticmethod
+    def getView(uid: str) -> str:
+        obj = DataSets.getObject(uid)
+        if obj and isinstance(obj, dict):
+            return str(obj.get("_view") or obj.get("_id") or uid)
+        return str(uid or "")
+
+    @staticmethod
+    def getObject(uid: str) -> Optional[Dict[str, Any]]:
+        """
+        uid: 'DatasetName$item_id'
+        Returns {"_id","_view","_data","_dataset"} or None.
+        No HTTP. Uses config_uid from handlers path.
+        """
+        uid = str(uid or "").strip()
+        if "$" not in uid:
+            return None
+
+        ds_name, item_id = uid.split("$", 1)
+        ds_name, item_id = ds_name.strip(), item_id.strip()
+        if not ds_name or not item_id:
+            return None
+
+        cfg_uid = current_config_uid_from_handlers()
+        if not cfg_uid:
+            return None
+
+        oc = DATASET_OBJ_CACHE.get()
+        if oc is None:
+            oc = {}
+            DATASET_OBJ_CACHE.set(oc)
+
+        ck = (cfg_uid, ds_name, item_id)
+        if ck in oc:
+            return oc[ck]
+
+        try:
+            import __main__ as main
+            Configuration = main.Configuration
+            Dataset = main.Dataset
+            DatasetItem = main.DatasetItem
+
+            cfg = Configuration.query.filter_by(uid=cfg_uid).first()
+            if not cfg:
+                oc[ck] = None
+                return None
+
+            ds = Dataset.query.filter_by(config_id=cfg.id, name=ds_name).first()
+            if not ds:
+                oc[ck] = None
+                return None
+
+            item = DatasetItem.query.filter_by(dataset_id=ds.id, item_id=item_id).first()
+            if not item:
+                oc[ck] = None
+                return None
+
+            data = item.data or {}
+            if not isinstance(data, dict):
+                data = {}
+
+            # build view from template
+            view = ""
+            tpl = (ds.view_template or "").strip()
+            if tpl:
+                import re
+                pattern = r"{([A-Za-z0-9_]+)}"
+
+                def repl(m):
+                    k = m.group(1)
+                    v = data.get(k, "")
+                    return "" if v is None else str(v)
+
+                view = re.sub(pattern, repl, tpl).strip()
+
+            if not view:
+                view = str(data.get("title") or data.get("name") or item_id)
+
+            obj = {"_id": item_id, "_view": view, "_data": data, "_dataset": ds_name}
+
+            # warm view cache too
+            vc = DATASET_VIEW_CACHE.get()
+            if vc is None:
+                vc = {}
+                DATASET_VIEW_CACHE.set(vc)
+            vc[ck] = view
+
+            oc[ck] = obj
+            return obj
+
+        except Exception:
+            oc[ck] = None
+            return None
+
 

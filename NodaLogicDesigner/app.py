@@ -95,9 +95,9 @@ import inspect
 
 #******************************************************************
 #CHANGE IT WITH YOUR VALUES
-DEEPSEEK_API_KEY = 'YOUR_KEY'
-ADMIN_LOGIN = 'YOUR_LOGIN'
-FLASK_SECRET= 'YOUR_KEY'
+DEEPSEEK_API_KEY = 'sk-85b64349ae5a4c48ba7a877463a01eec'
+ADMIN_LOGIN = 'dv1555@hotmail.com'
+FLASK_SECRET= 'ferret-26'
 #******************************************************************
 
 
@@ -112,7 +112,7 @@ NL_FORMAT = "1.1"
 
 
 NODE_CLASS_CODE = '''
-from nodes import Node, message, Dialog, to_uid, from_uid, CloseNode
+from nodes import Node, message, Dialog, to_uid, from_uid, CloseNode, DataSets
 '''
 
 NODE_CLASS_CODE_ANDROID = '''
@@ -366,7 +366,7 @@ def remove_method_from_code(config, class_name, method_name, engine):
             handlers_dir = os.path.join('Handlers', config.uid)
             os.makedirs(handlers_dir, exist_ok=True)
             handlers_file_path = os.path.join(handlers_dir, 'handlers.py')
-            with open(handlers_file_path, 'w', encoding='utf-8') as f:
+            with open(handlers_file_path, 'w', encoding='utf-8', newline="\n") as f:
                 f.write(updated_code)
 
             db.session.add(config)
@@ -955,7 +955,7 @@ def _ensure_sqlite_schema():
 
     # Client bind tables (optional)
     try:
-        db.create_all(bind="client")
+        db.create_all(bind_key="client")
     except Exception:
         pass
 
@@ -2125,6 +2125,9 @@ def send_nodes_update(room_uid, user_id=None):
         if room_uid in active_connections:
             for user, ws in list(active_connections[room_uid].items()):
                 
+                if not user:
+                    continue
+                
                 if user_id and user != user_id:
                     continue
                     
@@ -3154,7 +3157,7 @@ def edit_class(class_id):
                          room_aliases=room_aliases,
                          ui_tpl_buttons=ui_tpl_buttons,
                          ui_tpl_map=ui_tpl_map,
-                         event_types=['onShow', 'onInput', 'onChange', 'onShowWeb', 'onInputWeb',"onAcceptServer"])
+                         event_types=['onShow', 'onInput', 'onChange', 'onShowWeb', 'onInputWeb', "onAcceptServer", "onAfterAcceptServer"])
 
 
 @app.route('/add-method/<int:class_id>', methods=['POST'])
@@ -3192,7 +3195,7 @@ def add_method(class_id):
             handlers_dir = os.path.join('Handlers', class_obj.config.uid)
             os.makedirs(handlers_dir, exist_ok=True)
             handlers_file_path = os.path.join(handlers_dir, 'handlers.py')
-            with open(handlers_file_path, 'w', encoding='utf-8') as f:
+            with open(handlers_file_path, 'w', encoding='utf-8', newline="\n") as f:
                 f.write(new_module)
     
     
@@ -3477,7 +3480,7 @@ def create_config():
     
     
     handlers_file_path = os.path.join(handlers_dir, 'handlers.py')
-    with open(handlers_file_path, 'w', encoding='utf-8') as f:
+    with open(handlers_file_path, 'w', encoding='utf-8', newline="\n") as f:
         f.write(default_server_handlers)
     active_tab = request.form.get("active_tab", "config")
     return redirect(url_for('edit_config', uid=new_config.uid, tab=active_tab))
@@ -3554,7 +3557,7 @@ class {class_name}(Node):
             handlers_dir = os.path.join('Handlers', config.uid)
             os.makedirs(handlers_dir, exist_ok=True)
             handlers_file_path = os.path.join(handlers_dir, 'handlers.py')
-            with open(handlers_file_path, 'w', encoding='utf-8') as f:
+            with open(handlers_file_path, 'w', encoding='utf-8', newline="\n") as f:
                 f.write(current_code)
                 
         except Exception as e:
@@ -4951,7 +4954,7 @@ def import_config_new():
             handlers_file_path = os.path.join(handlers_dir, 'handlers.py')
             try:
                 handlers_code = base64.b64decode(config_to_use.nodes_server_handlers).decode('utf-8')
-                with open(handlers_file_path, 'w', encoding='utf-8') as f:
+                with open(handlers_file_path, 'w', encoding='utf-8', newline="\n") as f:
                     f.write(handlers_code)
                 print(f"Created/updated server handlers file: {handlers_file_path}")
             except Exception as e:
@@ -5152,7 +5155,7 @@ def apply_full_config_from_json(config, data):
         handlers_file_path = os.path.join(handlers_dir, 'handlers.py')
         try:
             handlers_code = base64.b64decode(config.nodes_server_handlers).decode('utf-8')
-            with open(handlers_file_path, 'w', encoding='utf-8') as f:
+            with open(handlers_file_path, 'w', encoding='utf-8', newline="\n") as f:
                 f.write(handlers_code)
             print(f"Created/updated server handlers file: {handlers_file_path}")
         except Exception as e:
@@ -6351,8 +6354,7 @@ def handle_ws_command(room_uid, user, data, auth_success):
                         
                         ws = active_connections[room_uid].get(user)
                         if ws:
-                            ws.send(json.dumps({
-                                'type': 'task_assigned',
+                            ws.send(json.dumps({                                'type': 'task_assigned',
                                 'task': task
                             }))
                         send_tasks_update(room_uid)
@@ -6383,16 +6385,12 @@ def handle_ws_command(room_uid, user, data, auth_success):
                 room_object = db.session.get(RoomObjects, obj_id)
                 if room_object and room_object.room_uid == room_uid:
                     # Add the user to the list of confirmed users
-                    acknowledged = room_object.acknowledged_by or []
-                    if user not in acknowledged:
-                        acknowledged.append(user)
-                        room_object.acknowledged_by = acknowledged
-                        
-                        # If all connected clients have confirmed, the object can be deleted
-                        active_users = list(active_connections[room_uid].keys()) if room_uid in active_connections else []
-                        if set(acknowledged) == set(active_users) and active_users:
-                            db.session.delete(room_object)
-            
+                    acknowledged = set(room_object.acknowledged_by or [])
+                    acknowledged.add(user)
+                    room_object.acknowledged_by = list(acknowledged)
+
+                   
+                                
             db.session.commit()
             
             # Send confirmation to the client
@@ -6435,12 +6433,16 @@ def handle_ws_command(room_uid, user, data, auth_success):
             #        pass
             
             objects = query.order_by(RoomObjects.created_at.desc()).all()
+
+            # НЕ отдаём клиенту то, что он уже ack-нул
+            objects = [o for o in objects if user not in (o.acknowledged_by or [])]
             
             ws = active_connections[room_uid].get(user)
             if ws:
                 objects_data = []
                 for obj in objects:
                     objects_data.append({
+                        'id': obj.id,
                         'config_uid': obj.config_uid,
                         'class_name': obj.class_name,
                         'objects': obj.objects_data,
@@ -6647,7 +6649,7 @@ def save_method(method_id):
             handlers_dir = os.path.join('Handlers', method.class_obj.config.uid)
             os.makedirs(handlers_dir, exist_ok=True)
             handlers_file_path = os.path.join(handlers_dir, 'handlers.py')
-            with open(handlers_file_path, 'w', encoding='utf-8') as f:
+            with open(handlers_file_path, 'w', encoding='utf-8', newline="\n") as f:
                 f.write(new_module)
         
         
@@ -7206,7 +7208,7 @@ def upload_server_handlers(uid):
     handlers_dir = os.path.join('Handlers', config.uid)
     os.makedirs(handlers_dir, exist_ok=True)
     handlers_file_path = os.path.join(handlers_dir, 'handlers.py')
-    with open(handlers_file_path, 'w', encoding='utf-8') as f:
+    with open(handlers_file_path, 'w', encoding='utf-8', newline="\n") as f:
         f.write(handlers_code)
     
     flash(_('Server handlers loaded successfully'), 'success')
@@ -7287,7 +7289,7 @@ def update_server_handlers_code(uid):
         os.makedirs(handlers_dir, exist_ok=True)
         
         handlers_file_path = os.path.join(handlers_dir, 'handlers.py')
-        with open(handlers_file_path, 'w', encoding='utf-8') as f:
+        with open(handlers_file_path, 'w', encoding='utf-8', newline="\n") as f:
             f.write(handlers_code)
         
         
@@ -7518,7 +7520,7 @@ if __name__ == '__main__':
         
         print(migrate_events_json_to_tables(dry_run=False))
         try:
-            db.create_all(bind='client')
+            db.create_all(bind_key='client')
         except Exception as e:
             print('Could not init client bind:', e)
 
