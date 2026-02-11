@@ -95,9 +95,9 @@ import inspect
 
 #******************************************************************
 #CHANGE IT WITH YOUR VALUES
-DEEPSEEK_API_KEY = 'sk-85b64349ae5a4c48ba7a877463a01eec'
-ADMIN_LOGIN = 'dv1555@hotmail.com'
-FLASK_SECRET= 'ferret-26'
+DEEPSEEK_API_KEY = 'YOUR_KEY'
+ADMIN_LOGIN = 'YOUR_LOGIN'
+FLASK_SECRET= 'YOUR_SECRET'
 #******************************************************************
 
 
