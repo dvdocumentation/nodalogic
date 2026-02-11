@@ -409,12 +409,50 @@ function render(items, meta) {
   
   bulkWrap.className = 'd-flex gap-2 align-items-center';
   bulkWrap.innerHTML = `
+    <button id="btnSelectAll" class="btn btn-outline-secondary btn-sm" type="button">
+      {{_('Select all')}}
+    </button>
+    <button id="btnSelectNone" class="btn btn-outline-secondary btn-sm" type="button">
+      {{_('Clear all')}}
+    </button>
     <button id="btnBulkDelete" class="btn btn-danger btn-sm" type="button" disabled>
       {{_('Delete selected')}}
     </button>
     <span id="bulkStatus" class="text-muted small"></span>
   `;
   cc.appendChild(bulkWrap);
+
+  function applySelectionToDom(){
+    // Sync checkboxes in both table and grid modes
+    document.querySelectorAll('input.chkRow, input.chkCard').forEach(ch => {
+      const k = ch.dataset.key;
+      ch.checked = selected.has(k);
+    });
+    const chkAll = document.getElementById('chkAll');
+    if (chkAll) {
+      const rows = document.querySelectorAll('input.chkRow');
+      if (!rows.length) chkAll.checked = false;
+      else {
+        let allOn = true;
+        rows.forEach(r => { if (!r.checked) allOn = false; });
+        chkAll.checked = allOn;
+      }
+    }
+  }
+
+  function setSelectionForCurrentItems(flag){
+    (items || []).forEach(it => {
+      const key = `${it.repo_id}:${it.class}:${it.id}`;
+      if (flag) selected.add(key); else selected.delete(key);
+    });
+    applySelectionToDom();
+    updateBulkBar(items);
+  }
+
+  const btnAll = document.getElementById('btnSelectAll');
+  const btnNone = document.getElementById('btnSelectNone');
+  if (btnAll) btnAll.onclick = () => setSelectionForCurrentItems(true);
+  if (btnNone) btnNone.onclick = () => setSelectionForCurrentItems(false);
 
 bulkBtn = document.getElementById('btnBulkDelete');
 bulkStatus = document.getElementById('bulkStatus');

@@ -10,13 +10,22 @@
   }
   .btn-save-close:hover{filter:brightness(0.95);}
 
+  /* Read-only mode for the form (when _data._read_only is set)
+     We only gray out / disable the main form area (left pane);
+     standard command buttons remain active. */
+  .nl-readonly-pane{opacity:0.88;}
+  .nl-readonly-pane input,
+  .nl-readonly-pane select,
+  .nl-readonly-pane textarea{
+    background-color:#f4f4f4 !important;
+  }
+
 
 
 </style>
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
   <div class="d-flex align-items-center gap-2 flex-wrap">
-    <a id="btnBack" class="btn btn-sm btn-outline-secondary" href="{{ url_for('client.sections_home') }}">{{_('Back to list')}}</a>
     <span class="badge text-bg-light border">{{ repo.display_name or repo.name }}</span>
     <span class="badge text-bg-light border">{{ class_name }}</span>
   </div>
@@ -37,7 +46,7 @@
     "pushing" under the right panel and looks wider when switching tabs.
     Setting min-width:0 allows the flex item to shrink to the available space.
   #}
-  <div class="flex-grow-1" style="min-width:0;">
+  <div id="nodeFormPane" class="flex-grow-1" style="min-width:0;">
 
     {% if layout_html %}
   <!-- onShowWeb / onShow layout -->
@@ -156,30 +165,52 @@ function openUrlMaybeNodeForm(url){
 const NODE_DATA_INITIAL = {{ (node_data if node_data is mapping else {})|tojson }};
 let _data = JSON.parse(JSON.stringify(NODE_DATA_INITIAL || {}));
 
+// If _data has key `_read_only` => lock the whole form (left pane) in read-only mode.
+// Standard command buttons (right pane) remain enabled.
+const IS_READ_ONLY = Object.prototype.hasOwnProperty.call(_data, "_read_only") && !!_data._read_only;
+
+function applyReadOnlyMode(){
+  if (!IS_READ_ONLY) return;
+
+  const pane = document.getElementById("nodeFormPane");
+  if (pane) pane.classList.add("nl-readonly-pane");
+
+  const root = document.getElementById("webRoot");
+  if (root) {
+    // Disable all interactive controls inside the form layout.
+    const controls = root.querySelectorAll("input, select, textarea, button");
+    for (const el of controls) {
+      try {
+        if (el.tagName === "TEXTAREA") el.readOnly = true;
+        else el.disabled = true;
+      } catch(_){ }
+    }
+    // Also stop contenteditable widgets.
+    const edits = root.querySelectorAll('[contenteditable="true"]');
+    for (const el of edits) {
+      try { el.setAttribute("contenteditable", "false"); } catch(_){ }
+    }
+  }
+
+  const ta = document.getElementById("dataJson");
+  if (ta) ta.readOnly = true;
+}
+applyReadOnlyMode();
+
 function setSideStatus(t){
   const el = document.getElementById("sideStatus");
   if(el) el.textContent = t || "";
 }
 
-/* Back button: prefer real referrer to return to the list if possible */
-(function(){
-  const backBtn = document.getElementById("btnBack");
-  if(!backBtn) return;
-  backBtn.addEventListener("click", (e) => {
-    try {
-      const ref = document.referrer || "";
-      if (ref.includes("/client/section/") || ref.includes("/client/sections") || ref.includes("/client/")) {
-        e.preventDefault();
-        window.location.href = ref;
-      }
-    } catch(_) {}
-  });
-})();
+// (Removed "Back to list" button)
 
 /* --- Web form (layout) input -> onInputWeb event --- */
 let inputTimer = null;
 
 function collectChanged(el){
+  if (el && el.matches && el.matches('input[data-nl-nodeinput="1"], input[data-nl-datasetinput="1"]')) {
+    return null;
+  }
   const path = (el.getAttribute("data-path") || "").trim();
   if(!path) return null;
 
@@ -803,6 +834,7 @@ function bindInputs(){
 
   const handle = (el, kind) => {
     if (!el) return;
+    if (IS_READ_ONLY) return;
     if (!(el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT")) return;
     const path = (el.getAttribute("data-path") || "").trim();
     if (!path) return;
