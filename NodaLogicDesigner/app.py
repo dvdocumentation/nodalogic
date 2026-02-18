@@ -1,6 +1,8 @@
-from flask import Flask, render_template, redirect, url_for, request, flash, jsonify, abort, after_this_request
+from flask import Flask, render_template, redirect, url_for, request, flash, jsonify, abort, after_this_request,send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+
+from werkzeug.utils import secure_filename
 
 from collections import OrderedDict
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -27,6 +29,7 @@ import pytz
 from ast import parse, FunctionDef, fix_missing_locations
 import ast
 import inspect
+from pathlib import Path
 
 # ==================================================================
 # Handlers loading (server): file-first, DB blob fallback
@@ -95,9 +98,9 @@ import inspect
 
 #******************************************************************
 #CHANGE IT WITH YOUR VALUES
-DEEPSEEK_API_KEY = 'YOUR_KEY'
-ADMIN_LOGIN = 'YOUR_LOGIN'
-FLASK_SECRET= 'YOUR_SECRET'
+DEEPSEEK_API_KEY = ''
+ADMIN_LOGIN = ''
+FLASK_SECRET= ''
 #******************************************************************
 
 
@@ -112,7 +115,7 @@ NL_FORMAT = "1.1"
 
 
 NODE_CLASS_CODE = '''
-from nodes import Node, message, Dialog, to_uid, from_uid, CloseNode, DataSets
+from nodes import Node, message, Dialog, to_uid, from_uid, CloseNode, DataSets, convertBase64ArrayToFilePaths,convertImageFilesToBase64Array,getBase64FromImageFile,saveBase64ToFile
 '''
 
 NODE_CLASS_CODE_ANDROID = '''
@@ -4448,6 +4451,19 @@ def export_config(uid):
                 'has_storage': c.has_storage,
                 'display_name': c.display_name,
                 'cover_image': c.cover_image,
+                'display_image_web': getattr(c, 'display_image_web', '') or '',
+                'display_image_table': getattr(c, 'display_image_table', '') or '',
+                'init_screen_layout': getattr(c, 'init_screen_layout', '') or '',
+
+                'commands': getattr(c, 'commands', '') or '',
+                'use_standard_commands': bool(getattr(c, 'use_standard_commands', True)),
+                'svg_commands': getattr(c, 'svg_commands', '') or '',
+                # Migration tab
+                'migration_register_command': bool(getattr(c, 'migration_register_command', False)),
+                'migration_register_on_save': bool(getattr(c, 'migration_register_on_save', False)),
+                'migration_default_room_uid': getattr(c, 'migration_default_room_uid', '') or '',
+                'migration_default_room_alias': getattr(c, 'migration_default_room_alias', '') or '',
+
                 'class_type': c.class_type,
                 'hidden': c.hidden,
                 'methods': [{
@@ -4789,11 +4805,16 @@ def import_config_new():
                 db.session.delete(section)
             for server in existing_config.servers:
                 db.session.delete(server)
+            for ra in (getattr(existing_config, 'room_aliases', None) or []):
+                db.session.delete(ra)
             for event in existing_config.config_events:
                 db.session.delete(event)    
             
             config_to_use = existing_config
             is_update = True
+
+            # Import common layouts
+            config_to_use.common_layouts = data.get('CommonLayouts', data.get('common_layouts', [])) or []
             
         else:
             # IF THERE IS NO CONFIGURATION - CREATE A NEW ONE
@@ -4810,13 +4831,17 @@ def import_config_new():
                 user_id=current_user.id,
                 uid=str(uuid.uuid4()), 
                 content_uid=content_uid,
-                vendor=data.get("vendor")
+                vendor=data.get("vendor"),
+                common_layouts=data.get('CommonLayouts', data.get('common_layouts', [])) or []
             )
             
             db.session.add(new_config)
             db.session.flush()
             config_to_use = new_config
             is_update = False
+
+            # Import common layouts
+            config_to_use.common_layouts = data.get('CommonLayouts', data.get('common_layouts', [])) or []
         
         # IMPORT CLASSES (same for creation and update)
         classes_data = data.get('classes', [])
@@ -4830,6 +4855,19 @@ def import_config_new():
                 has_storage=class_data.get('has_storage', False),
                 display_name=class_data.get('display_name', class_data['name']),
                 cover_image=class_data.get('cover_image', ''),
+                display_image_web=class_data.get('display_image_web', ''),
+                display_image_table=class_data.get('display_image_table', ''),
+                init_screen_layout=class_data.get('init_screen_layout', ''),
+
+                commands=class_data.get('commands', ''),
+                use_standard_commands=bool(class_data.get('use_standard_commands', True)),
+                svg_commands=class_data.get('svg_commands', ''),
+
+                migration_register_command=bool(class_data.get('migration_register_command', False)),
+                migration_register_on_save=bool(class_data.get('migration_register_on_save', False)),
+                migration_default_room_uid=class_data.get('migration_default_room_uid', ''),
+                migration_default_room_alias=class_data.get('migration_default_room_alias', ''),
+
                 class_type=class_data.get('class_type', ''),
                 hidden=class_data.get('hidden', False),
                 config_id=config_to_use.id
@@ -4925,6 +4963,22 @@ def import_config_new():
             )
             db.session.add(new_server)
 
+
+        # Import room aliases (rooms)
+        rooms_data = data.get('rooms', []) or []
+        print(f"Importing {len(rooms_data)} room aliases...")
+        for rdata in rooms_data:
+            alias = (rdata.get('alias') or '').strip()
+            room_uid = (rdata.get('room_id') or rdata.get('room_uid') or '').strip()
+            if not alias:
+                continue
+            new_ra = RoomAlias(
+                alias=alias,
+                room_uid=room_uid,
+                config_id=config_to_use.id
+            )
+            db.session.add(new_ra)
+
         common_events_data = data.get('CommonEvents', [])
         print(f"Importing {len(common_events_data)} common events.")
 
@@ -4997,6 +5051,7 @@ def apply_full_config_from_json(config, data):
     config.nodes_handlers_meta = data.get('nodes_handlers_meta', config.nodes_handlers_meta)
     config.nodes_server_handlers = data.get('nodes_server_handlers', config.nodes_server_handlers)
     config.nodes_server_handlers_meta = data.get('nodes_server_handlers_meta', config.nodes_server_handlers_meta)
+    config.common_layouts = data.get('CommonLayouts', data.get('common_layouts', config.common_layouts)) or []
     
     # We delete ALL existing related data
     print("Deleting existing data...")
@@ -5008,6 +5063,8 @@ def apply_full_config_from_json(config, data):
         db.session.delete(section)
     for server in config.servers:
         db.session.delete(server)
+    for ra in (getattr(config, 'room_aliases', None) or []):
+        db.session.delete(ra)
     for event in config.config_events:
         db.session.delete(event)    
     
@@ -5017,16 +5074,29 @@ def apply_full_config_from_json(config, data):
     
     for class_data in classes_data:
         new_class = ConfigClass(
-            name=class_data['name'],
-            section=class_data.get('section', ''),
-            section_code=class_data.get('section_code', ''),
-            has_storage=class_data.get('has_storage', False),
-            display_name=class_data.get('display_name', class_data['name']),
-            cover_image=class_data.get('cover_image', ''),
-            class_type=class_data.get('class_type', ''),
-            hidden=class_data.get('hidden', False),
-            config_id=config.id
-        )
+                name=class_data['name'],
+                section=class_data.get('section', ''),
+                section_code=class_data.get('section_code', ''),
+                has_storage=class_data.get('has_storage', False),
+                display_name=class_data.get('display_name', class_data['name']),
+                cover_image=class_data.get('cover_image', ''),
+                display_image_web=class_data.get('display_image_web', ''),
+                display_image_table=class_data.get('display_image_table', ''),
+                init_screen_layout=class_data.get('init_screen_layout', ''),
+
+                commands=class_data.get('commands', ''),
+                use_standard_commands=bool(class_data.get('use_standard_commands', True)),
+                svg_commands=class_data.get('svg_commands', ''),
+
+                migration_register_command=bool(class_data.get('migration_register_command', False)),
+                migration_register_on_save=bool(class_data.get('migration_register_on_save', False)),
+                migration_default_room_uid=class_data.get('migration_default_room_uid', ''),
+                migration_default_room_alias=class_data.get('migration_default_room_alias', ''),
+
+                class_type=class_data.get('class_type', ''),
+                hidden=class_data.get('hidden', False),
+                config_id=config.id
+            )
         db.session.add(new_class)
         db.session.flush()
         
@@ -5121,6 +5191,22 @@ def apply_full_config_from_json(config, data):
             config_id=config.id
         )
         db.session.add(new_server)
+
+
+    # Importing room aliases (rooms)
+    rooms_data = data.get('rooms', []) or []
+    print(f"Importing {len(rooms_data)} room aliases...")
+    for rdata in rooms_data:
+        alias = (rdata.get('alias') or '').strip()
+        room_uid = (rdata.get('room_id') or rdata.get('room_uid') or '').strip()
+        if not alias:
+            continue
+        new_ra = RoomAlias(
+            alias=alias,
+            room_uid=room_uid,
+            config_id=config.id
+        )
+        db.session.add(new_ra)
 
      # Importing common events
     common_events_data = data.get('CommonEvents', [])
@@ -6764,6 +6850,89 @@ def update_handlers_code(uid):
     active_tab = request.form.get("active_tab", "config")
     #return redirect(url_for('edit_config', uid=uid, tab=active_tab))
     return jsonify({"status": "ok"})
+
+
+
+
+
+def _userfiles_root_dir() -> Path:
+    
+    return Path(os.path.dirname(os.path.abspath(__file__))) / "UserFiles"
+
+
+def _userfiles_dir_for_config(config_uid: str) -> Path:
+    # защита от path traversal
+    if "/" in config_uid or "\\" in config_uid:
+        abort(400, "invalid config uid")
+
+    return _userfiles_root_dir() / config_uid
+
+
+@app.post("/api/userfiles/<config_uid>/images")
+def upload_images(config_uid):
+    target_dir = _userfiles_dir_for_config(config_uid)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    # можно присылать либо files[], либо file
+    files = request.files.getlist("files")
+    if not files and "file" in request.files:
+        files = [request.files["file"]]
+
+    if not files:
+        return jsonify({"ok": False, "error": "No files provided"}), 400
+
+    overwrite = request.form.get("overwrite", "0") == "1"
+
+    saved = []
+    errors = []
+
+    for f in files:
+        name = secure_filename(f.filename or "")
+        if not name:
+            errors.append("empty filename")
+            continue
+
+        dst = target_dir / name
+
+        if dst.exists() and not overwrite:
+            stem = dst.stem
+            suffix = dst.suffix
+            i = 1
+            while True:
+                candidate = target_dir / f"{stem}_{i}{suffix}"
+                if not candidate.exists():
+                    dst = candidate
+                    break
+                i += 1
+
+        try:
+            f.save(dst)
+            saved.append(dst.name)
+        except Exception as e:
+            errors.append(f"{name}: {str(e)}")
+
+    return jsonify({
+        "ok": len(saved) > 0,
+        "files": saved,
+        "errors": errors
+    }), (200 if saved else 400)
+
+
+
+@app.get("/api/userfiles/<config_uid>/raw/<path:filename>")
+def get_userfile(config_uid, filename):
+    target_dir = _userfiles_dir_for_config(config_uid)
+
+    safe_name = secure_filename(filename)
+    if not safe_name:
+        abort(404)
+
+    file_path = target_dir / safe_name
+    if not file_path.exists():
+        abort(404)
+
+    return send_from_directory(target_dir, safe_name, as_attachment=False)
+
 
 #Datasets API
 @app.route('/api/config/<uid>/dataset/<dataset_name>/items', methods=['GET'])

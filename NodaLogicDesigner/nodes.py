@@ -8,6 +8,148 @@ import json
 import hashlib
 import copy
 import inspect
+import base64
+import binascii
+import re
+
+
+def _userfiles_root_dir() -> str:
+    """Absolute path to the UserFiles root folder."""
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(root_dir, "UserFiles")
+
+
+def userfiles_dir(config_uid: str | None = None) -> str:
+    """Return absolute path to UserFiles/<uid> for the current config.
+
+    If config_uid is None, tries to resolve it from current handler execution
+    context (Handlers/<uid>/handlers.py). Falls back to CURRENT_CONFIG_UID.
+    """
+    uid = (config_uid or "").strip()
+    if not uid:
+        uid = (current_config_uid_from_handlers() or "").strip()
+    if not uid:
+        uid = (CURRENT_CONFIG_UID.get() or "").strip()
+    base = _userfiles_root_dir()
+    return os.path.join(base, uid) if uid else base
+
+
+_DATA_URL_RE = re.compile(r"^data:(?P<mime>[^;]+);base64,(?P<data>.+)$", re.IGNORECASE | re.DOTALL)
+
+
+def _ext_from_mime(mime: str) -> str:
+    mime = (mime or "").lower().strip()
+    return {
+        "image/png": "png",
+        "image/jpeg": "jpg",
+        "image/jpg": "jpg",
+        "image/webp": "webp",
+        "image/gif": "gif",
+        "image/bmp": "bmp",
+        "image/svg+xml": "svg",
+        "video/mp4": "mp4",
+        "audio/mpeg": "mp3",
+        "audio/mp3": "mp3",
+        "application/pdf": "pdf",
+    }.get(mime, "bin")
+
+
+def _guess_ext_from_bytes(data: bytes) -> str:
+    if not data:
+        return "bin"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
+        return "gif"
+    if len(data) >= 12 and data[0:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    if data.startswith(b"BM"):
+        return "bmp"
+    if data.startswith(b"%PDF"):
+        return "pdf"
+    return "bin"
+
+
+def _decode_base64_payload(base64_string: str) -> tuple[bytes, str]:
+    """Decode base64 string.
+
+    Returns: (bytes, ext)
+    Accepts both raw base64 and data URLs.
+    """
+    s = (base64_string or "").strip()
+    if not s:
+        return b"", "bin"
+
+    mime = ""
+    m = _DATA_URL_RE.match(s)
+    if m:
+        mime = (m.group("mime") or "").strip()
+        s = (m.group("data") or "").strip()
+
+    s = re.sub(r"\s+", "", s)
+    pad = (-len(s)) % 4
+    if pad:
+        s += "=" * pad
+    try:
+        raw = base64.b64decode(s, validate=False)
+    except (binascii.Error, ValueError):
+        raw = base64.b64decode(s + "===")
+
+    ext = _ext_from_mime(mime) if mime else _guess_ext_from_bytes(raw)
+    return raw, ext
+
+
+def getBase64FromImageFile(path_to_image: str) -> str:
+    """Read file and return raw base64 string (no data: prefix)."""
+    if not path_to_image:
+        return ""
+    with open(path_to_image, "rb") as f:
+        data = f.read()
+    return base64.b64encode(data).decode("utf-8")
+
+
+def convertImageFilesToBase64Array(paths_to_images_array: list[str]) -> list[str]:
+    """Convert list of file paths to list of raw base64 strings."""
+    out: list[str] = []
+    for p in (paths_to_images_array or []):
+        try:
+            out.append(getBase64FromImageFile(p))
+        except Exception:
+            out.append("")
+    return out
+
+
+def saveBase64ToFile(base64_string: str) -> str:
+    """Save base64 to UserFiles/<uid> and return *filename only*.
+
+    Filename includes extension. The caller/UI should resolve the absolute
+    path by joining it with UserFiles/<uid>.
+    """
+    data, ext = _decode_base64_payload(base64_string)
+    uid_dir = userfiles_dir()
+    os.makedirs(uid_dir, exist_ok=True)
+
+    filename = f"file_{uuid.uuid4().hex}.{ext or 'bin'}"
+    abs_path = os.path.join(uid_dir, filename)
+    with open(abs_path, "wb") as f:
+        f.write(data)
+    return filename
+
+
+def convertBase64ArrayToFilePaths(base64_array: list[str]) -> list[str]:
+    """Save array of base64 strings to UserFiles/<uid>.
+
+    Returns list of *filenames* (no folders), suitable to store in node._data.
+    """
+    out: list[str] = []
+    for s in (base64_array or []):
+        try:
+            out.append(saveBase64ToFile(s))
+        except Exception:
+            out.append("")
+    return out
 
 from contextvars import ContextVar
 
@@ -858,9 +1000,24 @@ class Node:
 
         storage = cls._class_storages[storage_key]
 
-        # ✅ lookup by internal id
-        if internal_id in storage:
-            return cls(internal_id, effective_config_uid)
+        # ✅ lookup by internal id (preferred), but be tolerant to legacy keys
+        candidates = []
+        if internal_id is not None:
+            candidates.append(str(internal_id))
+        # legacy: full raw key may have been used as internal id
+        try:
+            raw_s = str(node_id)
+            candidates.append(raw_s)
+            # also try normalized "cfg$Class$singleton" and "cfg$Class"
+            if effective_config_uid and uid_cls:
+                candidates.append(f"{effective_config_uid}${uid_cls}$singleton")
+                candidates.append(f"{effective_config_uid}${uid_cls}")
+        except Exception:
+            pass
+
+        for cand in candidates:
+            if cand in storage:
+                return cls(cand, effective_config_uid)
         return None
     
     @classmethod
@@ -1582,7 +1739,11 @@ def parse_uid_any(uid):
         # cfg$Class$Id  (if there are more, we still take last two as class/id)
         return parts[0], parts[-2], parts[-1]
     if len(parts) == 2:
-        # Class$Id
+        # Two-part form can be either "Class$Id" OR shorthand "cfg$Class" for singleton.
+        # Heuristic: if the first part looks like a UUID -> treat as config uid.
+        if re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", parts[0]):
+            return parts[0], parts[1], "singleton"
+        # Otherwise it's the classic "Class$Id"
         return None, parts[0], parts[1]
     # Id only
     return None, None, parts[0]
