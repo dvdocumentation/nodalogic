@@ -48,11 +48,50 @@
   #}
   <div id="nodeFormPane" class="flex-grow-1" style="min-width:0;">
 
+    {# --- PlugIn tabs (FileGallery / MediaGallery) --- #}
+    {% set ns = namespace(has_files=false, has_media=false) %}
+    {% for p in (ui_plugins or []) %}
+      {% if p and p.type == 'FileGallery' %}{% set ns.has_files = true %}{% endif %}
+      {% if p and p.type == 'MediaGallery' %}{% set ns.has_media = true %}{% endif %}
+    {% endfor %}
+
+    {% if (ns.has_files or ns.has_media) and layout_html %}
+      <ul class="nav nav-tabs mb-2" id="nlTopTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" id="tab-form" data-bs-toggle="tab" data-bs-target="#pane-form" type="button" role="tab">Form</button>
+        </li>
+        {% if ns.has_files %}
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="tab-files" data-bs-toggle="tab" data-bs-target="#pane-files" type="button" role="tab">Files</button>
+        </li>
+        {% endif %}
+        {% if ns.has_media %}
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="tab-media" data-bs-toggle="tab" data-bs-target="#pane-media" type="button" role="tab">Media</button>
+        </li>
+        {% endif %}
+      </ul>
+
+      <div class="tab-content">
+        <div class="tab-pane fade show active" id="pane-form" role="tabpanel">
+          <div id="webRoot">{{ layout_html | safe }}</div>
+        </div>
+        {% if ns.has_files %}
+        <div class="tab-pane fade" id="pane-files" role="tabpanel">
+          <div id="nlFileGalleryHost"></div>
+        </div>
+        {% endif %}
+        {% if ns.has_media %}
+        <div class="tab-pane fade" id="pane-media" role="tabpanel">
+          <div id="nlMediaGalleryHost"></div>
+        </div>
+        {% endif %}
+      </div>
+    {% else %}
+
     {% if layout_html %}
   <!-- onShowWeb / onShow layout -->
-  <div id="webRoot">
-    {{ layout_html | safe }}
-  </div>
+  <div id="webRoot">{{ layout_html | safe }}</div>
 {% else %}
   <!-- raw _data editor (fallback / when no layout) -->
   <div class="mb-2 text-muted small">_data (JSON)</div>
@@ -65,6 +104,8 @@
     {% endif %}
   </div>
 {% endif %}
+
+    {% endif %}
 
   </div>
 
@@ -92,6 +133,18 @@
 </div>
 
 <script>
+
+// helper for safe text into innerHTML (global)
+window.escapeHtml = window.escapeHtml || function escapeHtml(s){
+  return String(s ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+};
+const escapeHtml = window.escapeHtml;
+
 const REPO_ID = {{ repo_id|tojson }};
 const CLASS_NAME = {{ class_name|tojson }};
 const NODE_ID = {{ node_id|tojson }};
@@ -108,6 +161,8 @@ window.NL.api_node_event_web = API_EVENT_WEB;
 // initial BarcodeScanner listeners from PlugIn()
 (function(){
   const plugins = {{ (ui_plugins or [])|tojson }};
+  window.NL = window.NL || {};
+  window.NL.ui_plugins = plugins;
   const ids = [];
   try {
     for (const p of plugins) {
@@ -124,6 +179,14 @@ const DEFAULT_ROOM_UID = {{ (default_room_uid or "") | tojson }};
 const SECTIONS_HOME = {{ url_for('client.sections_home')|tojson }};
 const API_CLASS_NODES = "/client/api/class_nodes";
 const API_DATASET_ITEMS = "/client/api/dataset_items";
+
+// UserFiles API (FileGallery / MediaGallery)
+const API_USERFILES_LIST   = `/client/api/userfiles/${REPO_ID}/list`;
+const API_USERFILES_UPLOAD = `/client/api/userfiles/${REPO_ID}/upload`;
+const API_USERFILES_DELETE = `/client/api/userfiles/${REPO_ID}/delete`;
+function userfilesRawUrl(filename){
+  return `/client/api/userfiles/${REPO_ID}/raw/${encodeURIComponent(filename)}`;
+}
 
 function _winSafe(s){
   return String(s ?? "").replaceAll(/[^a-zA-Z0-9_]/g, "_").slice(0, 80);
@@ -875,6 +938,233 @@ function bindInputs(){
 }
 bindInputs();
 
+/* --- FileGallery / MediaGallery --- */
+function findGalleryPlugin(type){
+  const ps = (window.NL && Array.isArray(window.NL.ui_plugins)) ? window.NL.ui_plugins : [];
+  for (const p of ps) {
+    if (p && p.type === type) return p;
+  }
+  return null;
+}
+
+async function apiUserfilesList(){
+  try{
+    const r = await fetch(API_USERFILES_LIST, { credentials: "same-origin" });
+    const j = await r.json();
+    if (j && j.ok && Array.isArray(j.files)) return j.files;
+  } catch(_){ }
+  return [];
+}
+
+async function apiUserfilesUpload(file){
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await fetch(API_USERFILES_UPLOAD, { method: "POST", body: fd, credentials: "same-origin" });
+  const j = await r.json();
+  if (!j || !j.ok) throw new Error((j && j.error) || "upload failed");
+  return String(j.filename || "");
+}
+
+async function apiUserfilesDelete(filename){
+  const r = await fetch(API_USERFILES_DELETE, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ filename }),
+    credentials: "same-origin",
+  });
+  const j = await r.json();
+  if (!j || !j.ok) throw new Error((j && j.error) || "delete failed");
+  return true;
+}
+
+function getGalleryList(id){
+  const v = _data ? _data[id] : null;
+  return Array.isArray(v) ? v.slice() : [];
+}
+
+async function setGalleryListAndNotify(id, list){
+  // update local state strictly by id
+  _data[id] = Array.isArray(list) ? list.slice() : [];
+  await fireOnInputWeb({ id, path: id, value: _data[id] });
+}
+
+async function notifyGalleryDelete(id, filename, updatedList){
+  // 1) updated list into id
+  await setGalleryListAndNotify(id, updatedList);
+  // 2) delete event
+  await fireOnInputWeb({ id: `${id}_delete`, path: `${id}_delete`, value: filename });
+}
+
+function renderFileGallery(hostId, galleryId){
+  const host = document.getElementById(hostId);
+  if (!host) return;
+
+  const list = getGalleryList(galleryId);
+  host.innerHTML = `
+    <div class="d-flex align-items-center justify-content-between mb-2">
+      <div class="fw-semibold">${escapeHtml(galleryId)}</div>
+      <div class="d-flex gap-2">
+        <input type="file" class="form-control form-control-sm" id="${escapeHtml(hostId)}_inp" style="max-width:260px" />
+        <button class="btn btn-sm btn-outline-primary" type="button" id="${escapeHtml(hostId)}_add">Add</button>
+      </div>
+    </div>
+    <div class="list-group" id="${escapeHtml(hostId)}_list"></div>
+  `;
+
+  const listEl = document.getElementById(`${hostId}_list`);
+  const inp = document.getElementById(`${hostId}_inp`);
+  const btnAdd = document.getElementById(`${hostId}_add`);
+
+  const row = (fn) => `
+    <div class="list-group-item d-flex align-items-center justify-content-between">
+      <div class="text-truncate" style="max-width:70%">${escapeHtml(fn)}</div>
+      <div class="d-flex gap-2">
+        <a class="btn btn-sm btn-outline-secondary" href="${userfilesRawUrl(fn)}" target="_blank">Open</a>
+        <button class="btn btn-sm btn-outline-danger" data-del="1" data-fn="${escapeHtml(fn)}" type="button">Delete</button>
+      </div>
+    </div>`;
+  listEl.innerHTML = list.map(row).join("");
+
+  listEl.addEventListener("click", async (e) => {
+    const b = e.target.closest('button[data-del="1"]');
+    if (!b) return;
+    const fn = String(b.getAttribute("data-fn") || "");
+    try{
+      await apiUserfilesDelete(fn);
+      const next = getGalleryList(galleryId).filter(x => x !== fn);
+      await notifyGalleryDelete(galleryId, fn, next);
+      renderFileGallery(hostId, galleryId);
+    } catch(err){
+      if (window.message) window.message(String(err), "error");
+    }
+  });
+
+  btnAdd.addEventListener("click", async () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    try{
+      const saved = await apiUserfilesUpload(f);
+      const cur = getGalleryList(galleryId);
+      if (!cur.includes(saved)) cur.push(saved);
+      await setGalleryListAndNotify(galleryId, cur);
+      inp.value = "";
+      renderFileGallery(hostId, galleryId);
+    } catch(err){
+      if (window.message) window.message(String(err), "error");
+    }
+  });
+}
+
+function renderMediaGallery(hostId, galleryId){
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  const list = getGalleryList(galleryId);
+  const selected = String((_data && _data[`${galleryId}_selected`]) || (list[0] || ""));
+
+  host.innerHTML = `
+    <div class="d-flex align-items-center justify-content-between mb-2">
+      <div class="fw-semibold">${escapeHtml(galleryId)}</div>
+      <div class="d-flex gap-2">
+        <input type="file" accept="image/*" class="form-control form-control-sm" id="${escapeHtml(hostId)}_inp" style="max-width:260px" />
+        <button class="btn btn-sm btn-outline-primary" type="button" id="${escapeHtml(hostId)}_add">Add</button>
+      </div>
+    </div>
+    <div class="d-flex" style="gap:12px">
+      <div style="width:160px; flex:0 0 160px; max-height:70vh; overflow:auto" class="border rounded p-1" id="${escapeHtml(hostId)}_thumbs"></div>
+      <div class="flex-grow-1 border rounded p-2" style="min-height:260px">
+        <div class="text-muted small mb-2" id="${escapeHtml(hostId)}_caption"></div>
+        <div class="d-flex justify-content-center align-items-center" style="min-height:240px">
+          <img id="${escapeHtml(hostId)}_preview" src="" style="max-width:100%; max-height:68vh; object-fit:contain" />
+        </div>
+        <div class="mt-2 d-flex justify-content-end">
+          <button class="btn btn-sm btn-outline-danger" type="button" id="${escapeHtml(hostId)}_del" ${selected?"":"disabled"}>Delete</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const thumbs = document.getElementById(`${hostId}_thumbs`);
+  const preview = document.getElementById(`${hostId}_preview`);
+  const caption = document.getElementById(`${hostId}_caption`);
+  const btnDel = document.getElementById(`${hostId}_del`);
+  const inp = document.getElementById(`${hostId}_inp`);
+  const btnAdd = document.getElementById(`${hostId}_add`);
+
+  function setSelected(fn){
+    _data[`${galleryId}_selected`] = fn || "";
+    caption.textContent = fn || "";
+    preview.src = fn ? userfilesRawUrl(fn) : "";
+    btnDel.disabled = !fn;
+    // highlight
+    thumbs.querySelectorAll('[data-fn]').forEach(el => {
+      const is = String(el.getAttribute('data-fn')) === String(fn);
+      el.classList.toggle('border', is);
+      el.classList.toggle('border-primary', is);
+    });
+  }
+
+  const thumbItem = (fn) => `
+    <div class="mb-1" style="cursor:pointer" data-fn="${escapeHtml(fn)}">
+      <img src="${userfilesRawUrl(fn)}" style="width:100%; height:90px; object-fit:cover; border-radius:6px" />
+      <div class="small text-truncate">${escapeHtml(fn)}</div>
+    </div>`;
+  thumbs.innerHTML = list.map(thumbItem).join("");
+
+  thumbs.addEventListener("click", (e) => {
+    const el = e.target.closest('[data-fn]');
+    if (!el) return;
+    const fn = String(el.getAttribute('data-fn') || '');
+    setSelected(fn);
+  });
+
+  btnDel.addEventListener("click", async () => {
+    const fn = String(_data[`${galleryId}_selected`] || "");
+    if (!fn) return;
+    try{
+      await apiUserfilesDelete(fn);
+      const next = getGalleryList(galleryId).filter(x => x !== fn);
+      _data[`${galleryId}_selected`] = next[0] || "";
+      await notifyGalleryDelete(galleryId, fn, next);
+      renderMediaGallery(hostId, galleryId);
+    } catch(err){
+      if (window.message) window.message(String(err), "error");
+    }
+  });
+
+  btnAdd.addEventListener("click", async () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    try{
+      const saved = await apiUserfilesUpload(f);
+      const cur = getGalleryList(galleryId);
+      if (!cur.includes(saved)) cur.push(saved);
+      await setGalleryListAndNotify(galleryId, cur);
+      _data[`${galleryId}_selected`] = saved;
+      inp.value = "";
+      renderMediaGallery(hostId, galleryId);
+    } catch(err){
+      if (window.message) window.message(String(err), "error");
+    }
+  });
+
+  setSelected(selected);
+}
+
+function initGalleries(){
+  const pgFiles = findGalleryPlugin("FileGallery");
+  const pgMedia = findGalleryPlugin("MediaGallery");
+  if (pgFiles && document.getElementById("nlFileGalleryHost")) {
+    const id = String(pgFiles.id || "files");
+    renderFileGallery("nlFileGalleryHost", id);
+  }
+  if (pgMedia && document.getElementById("nlMediaGalleryHost")) {
+    const id = String(pgMedia.id || "pic_files");
+    renderMediaGallery("nlMediaGalleryHost", id);
+  }
+}
+
+initGalleries();
+
 /* --- Save/Delete (standard commands) --- */
 function getDataFromTextarea(){
   const ta = document.getElementById("dataJson");
@@ -1390,15 +1680,6 @@ function initDatasetTables(){
   });
 }
 
-// helper for safe text into innerHTML
-function escapeHtml(s){
-  return String(s ?? "")
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;")
-    .replaceAll("'","&#039;");
-}
 
 </script>
 

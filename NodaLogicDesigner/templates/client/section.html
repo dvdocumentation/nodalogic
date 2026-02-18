@@ -496,6 +496,18 @@ if (bulkBtn) bulkBtn.onclick = async () => {
 });
 
   // --- render table/grid ---
+  const getBg = (it) => {
+    try {
+      const bg = (it && it.data && typeof it.data._background === 'string') ? it.data._background.trim() : "";
+      if (!bg) return "";
+      // allow #RGB, #RRGGBB, #RRGGBBAA
+      if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(bg)) return "";
+      return bg;
+    } catch(e){
+      return "";
+    }
+  };
+
   if (mode === "table") {
     document.getElementById("viewTable").style.display = "";
     document.getElementById("viewGrid").style.display = "none";
@@ -517,8 +529,11 @@ if (bulkBtn) bulkBtn.onclick = async () => {
       const checked = selected.has(key) ? "checked" : "";
       const cols = headers.map(h => escapeHtml((it.table_values && it.table_values[h]) ? String(it.table_values[h]) : ""));
 
+      const bg = getBg(it);
+      const rowStyle = bg ? ` style="background:${escapeHtml(bg)}"` : "";
+
       return `
-        <tr class="${it.is_custom_process ? 'table-warning' : ''}">
+        <tr class="${it.is_custom_process ? 'table-warning' : ''}"${rowStyle}>
           <td><input class="chkRow" type="checkbox" data-key="${escapeHtml(key)}" ${checked}></td>
           <td>${escapeHtml(it.repo || "")}</td>
           <td>${escapeHtml(it.class || "")}</td>
@@ -560,6 +575,8 @@ if (bulkBtn) bulkBtn.onclick = async () => {
       const cover = (it.display_image_html || "").trim();
       const key = `${it.repo_id}:${it.class}:${it.id}`;
       const checked = selected.has(key) ? "checked" : "";
+      const bg = getBg(it);
+      const cardStyle = bg ? ` style="background:${escapeHtml(bg)}"` : "";
       // per-node delete removed (bulk delete only)
 
       const top = `
@@ -577,7 +594,7 @@ if (bulkBtn) bulkBtn.onclick = async () => {
       if (cover) {
         return `
           <div class="col-md-6 col-xl-4">
-            <div class="card h-100 overflow-hidden ${extra} node-card"
+            <div class="card h-100 overflow-hidden ${extra} node-card"${cardStyle}
                  data-url="${escapeHtml(nodeFormUrl(it.repo_id, it.class, it.id))}"
                  data-repo="${it.repo_id}" data-class="${escapeHtml(it.class)}" data-node="${escapeHtml(it.id)}">
               <div class="card-body p-2">
@@ -592,7 +609,7 @@ if (bulkBtn) bulkBtn.onclick = async () => {
 
       return `
         <div class="col-md-6 col-xl-4">
-          <div class="card h-100 ${extra} node-card"
+          <div class="card h-100 ${extra} node-card"${cardStyle}
                data-url="${escapeHtml(nodeFormUrl(it.repo_id, it.class, it.id))}"
                data-repo="${it.repo_id}" data-class="${escapeHtml(it.class)}" data-node="${escapeHtml(it.id)}">
             <div class="card-body">
