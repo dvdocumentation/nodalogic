@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import requests
-from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for, after_this_request
+from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for, after_this_request, send_from_directory
 from markupsafe import escape
 from flask_login import current_user, login_required
 
@@ -179,24 +179,25 @@ def _node_cover_html(repo: models.Repo, class_name: str, node_id: str, mode: str
     # Some callers (e.g. Table rows) may pass mode="table" to request a more
     # compact look in the future. Currently we render the same cover.
     data = _fetch_node_data_for_repo(repo, class_name, node_id)
+    assets_base_dir = _userfiles_dir_for_repo(repo)
 
     try:
         cov = data.get("_cover") if isinstance(data, dict) else None
         if cov:
             if isinstance(cov, (dict, list)):
-                html = str(render_nodalayout_html(cov, data) or "").strip()
+                html = str(render_nodalayout_html(cov, data, assets_base_dir=assets_base_dir) or "").strip()
                 if html:
                     return html
             elif isinstance(cov, str):
                 s = cov.strip()
                 # json layout as string
                 if (s.startswith("[") or s.startswith("{")):
-                    html = str(render_nodalayout_html(s, data) or "").strip()
+                    html = str(render_nodalayout_html(s, data, assets_base_dir=assets_base_dir) or "").strip()
                     if html:
                         return html
                 # plain image src
                 pic_layout = [[{"type": "Picture", "value": s, "width": -1}]]
-                html = str(render_nodalayout_html(pic_layout, data) or "").strip()
+                html = str(render_nodalayout_html(pic_layout, data, assets_base_dir=assets_base_dir) or "").strip()
                 if html:
                     return html
     except Exception:
@@ -218,7 +219,7 @@ def _node_cover_html(repo: models.Repo, class_name: str, node_id: str, mode: str
 
         if layout_to_use:
             
-            html = str(render_nodalayout_html(layout_to_use, data) or "").strip()
+            html = str(render_nodalayout_html(layout_to_use, data, assets_base_dir=assets_base_dir) or "").strip()
             if html:
                 return html
     except Exception:
@@ -1269,6 +1270,67 @@ def _resolve_class_default_room_uid(parsed: Optional[Dict[str, Any]], cls_cfg: D
         return str(cls_cfg.get("migration_default_room_uid") or "").strip()
 
 
+def _normalize_custom_process_uid(config_uid: str, class_name: str, node_id: str) -> str:
+    """Ensure custom_process uid is always 3-part: cfg$Class$singleton.
+
+    Backward compatible with older 2-part form: cfg$Class.
+    """
+    config_uid = str(config_uid or "").strip()
+    class_name = str(class_name or "").strip()
+    raw = str(node_id or "").strip()
+    if not config_uid or not class_name:
+        return raw
+
+    parts = raw.split("$") if raw else []
+
+    # Already normalized: cfg$Class$something
+    if len(parts) >= 3 and parts[0] == config_uid and parts[1] == class_name:
+        return raw
+
+    # Old form: cfg$Class
+    if len(parts) == 2 and parts[0] == config_uid and parts[1] == class_name:
+        try:
+            return _nodes_mod.normalize_own_uid(config_uid, class_name, "singleton")
+        except Exception:
+            return f"{config_uid}${class_name}$singleton"
+
+    # Fallback: force singleton
+    try:
+        return _nodes_mod.normalize_own_uid(config_uid, class_name, "singleton")
+    except Exception:
+        return f"{config_uid}${class_name}$singleton"
+    
+def _node_local_upsert_custom_process(config_uid: str, class_name: str, node_id: str, data: Dict[str, Any]) -> str:
+    """Create (if missing) and save a custom_process singleton node locally."""
+    node_uid = _normalize_custom_process_uid(config_uid, class_name, node_id)
+    node_class = _load_server_node_class(config_uid, class_name)
+
+    node = None
+    try:
+        node = node_class.get(node_uid, config_uid)
+    except Exception:
+        node = None
+
+    if not node:
+        try:
+            internal_id = _nodes_mod.extract_internal_id(node_uid) or "singleton"
+        except Exception:
+            internal_id = "singleton"
+        node = node_class(internal_id, config_uid)
+
+    merged = dict(data or {})
+    merged.setdefault("_class", class_name)
+    merged.setdefault("_id", node_uid)
+
+    try:
+        node._data = merged
+    except Exception:
+        node.update_data(merged)
+
+    if hasattr(node, "_save") and callable(getattr(node, "_save")):
+        node._save()
+    return node_uid    
+
 @client_bp.route("/api/node/save", methods=["POST"])
 @login_required
 def api_node_save():
@@ -1284,6 +1346,8 @@ def api_node_save():
     repo = _get_repo_or_404(repo_id)
     cfg_uid = repo.config_uid
     parsed_ctx = get_parsed_config(repo, models.db) or {}
+    cls_cfg = (parsed_ctx.get("classes") or {}).get(class_name) or {}
+    is_custom_process = (cls_cfg.get("class_type") or "data_node") == "custom_process"
     _ctx_tokens = _nodes_mod.set_runtime_context(cfg_uid, parsed_ctx)
 
     @after_this_request
@@ -1297,7 +1361,11 @@ def api_node_save():
 
     try:
         if not base_url or base_url == current:
-            _node_local_update_data(cfg_uid, class_name, node_id, data)
+            if is_custom_process:
+                # custom_process nodes are singletons; create on first save
+                node_id = _node_local_upsert_custom_process(cfg_uid, class_name, node_id, data)
+            else:
+                _node_local_update_data(cfg_uid, class_name, node_id, data)
             # Optional: register in default room after save (Migration tab)
             reg_count = 0
             room_uid = ""
@@ -1327,6 +1395,8 @@ def api_node_save():
                 pass
             return jsonify(out)
         # remote
+        if is_custom_process:
+            node_id = _normalize_custom_process_uid(cfg_uid, class_name, node_id)
         _api_post_remote(
             repo,
             f"/api/config/{cfg_uid}/node/{class_name}/{node_id}/save",
@@ -1369,7 +1439,6 @@ def api_node_save():
                         "error": str(e),
                         "message": {"text": f"Handler error: {e}", "level": "error"},
                         }), 500
-
 
 @client_bp.route("/api/node/register", methods=["POST"])
 @login_required
@@ -1888,21 +1957,21 @@ def api_section_data():
             cov = data.get("_cover") if isinstance(data, dict) else None
             if cov:
                 if isinstance(cov, (dict, list)):
-                    return str(render_nodalayout_html(cov, data) or "")
+                    return str(render_nodalayout_html(cov, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or "")
                 if isinstance(cov, str):
                     s = cov.strip()
                     if s.startswith("[") or s.startswith("{"):
-                        return str(render_nodalayout_html(s, data) or "")
+                        return str(render_nodalayout_html(s, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or "")
                     pic_layout = [[{"type": "Picture", "value": s, "width": -1}]]
-                    return str(render_nodalayout_html(pic_layout, data) or "")
+                    return str(render_nodalayout_html(pic_layout, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or "")
         except Exception:
             pass
 
         # 2) class cover layouts (existing)
         try:
             if (str(cover_web_layout or "").strip()):
-                return str(render_nodalayout_html(cover_web_layout, data) or "")
-            return str(render_nodalayout_html(cover_layout, data) or "")
+                return str(render_nodalayout_html(cover_web_layout, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or "")
+            return str(render_nodalayout_html(cover_layout, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or "")
         except Exception:
             return ""
 
@@ -1981,8 +2050,20 @@ def api_section_data():
 
             # custom_process
             if ctype == "custom_process":
-                node_id = f"{repo.config_uid}${cn}"
+                #node_id = f"{repo.config_uid}${cn}"
+                node_id = _nodes_mod.normalize_own_uid(repo.config_uid, cn, "singleton")
                 data = (c.get("_data") or {}).copy()
+                try:
+                    node_class = _load_server_node_class(repo.config_uid, cn)
+                    node = node_class.get(node_id, repo.config_uid)
+                    if node:
+                        saved = node.get_data() or {}
+                        if isinstance(saved, dict):
+                            data.update(saved)   # сохранённое поверх дефолта
+                except Exception:
+                    pass
+
+                
                 data.setdefault("_id", node_id)
 
                 if isinstance(data, dict) and data.get("_hidden"):
@@ -2422,7 +2503,12 @@ def node_form(config_uid: str, class_name: str, node_id: str):
     layout_html = ""
     if layout is not None:
         try:
-            layout_html = render_nodalayout_html(layout, node_data if isinstance(node_data, dict) else {}, context=_nl_context(repo, class_name=class_name, node_id=node_id))
+            layout_html = render_nodalayout_html(
+                layout,
+                node_data if isinstance(node_data, dict) else {},
+                assets_base_dir=_userfiles_dir_for_repo(repo),
+                context=_nl_context(repo, class_name=class_name, node_id=node_id),
+            )
         except Exception:
             layout_html = ""
 
@@ -2452,8 +2538,105 @@ def node_form(config_uid: str, class_name: str, node_id: str):
         is_custom_process=is_custom_process,
         show_register_command=bool(cls.get("migration_register_command")) and bool(use_std),
         default_room_uid=_resolve_class_default_room_uid(parsed, cls),
-        initial_message=ui_message
+        initial_message=ui_message,
+        ui_plugins=ui_plugins,
     )
+
+
+def _userfiles_root() -> str:
+    base = os.path.join(os.path.dirname(__file__), "..", "UserFiles")
+    base = os.path.abspath(base)
+    try:
+        os.makedirs(base, exist_ok=True)
+    except Exception:
+        pass
+    return base
+
+
+def _userfiles_dir_for_repo(repo) -> str:
+    p = os.path.join(_userfiles_root(), str(repo.config_uid))
+    try:
+        os.makedirs(p, exist_ok=True)
+    except Exception:
+        pass
+    return p
+
+
+def _safe_filename(name: str) -> str:
+    name = (name or "").replace("\\", "/")
+    name = name.split("/")[-1]
+    name = re.sub(r"[^A-Za-z0-9._\- ]+", "_", name)
+    return name.strip()[:180]
+
+
+@client_bp.route("/api/userfiles/<int:repo_id>/list")
+@login_required
+def api_userfiles_list(repo_id: int):
+    repo = _get_repo_or_404(repo_id)
+    d = _userfiles_dir_for_repo(repo)
+    try:
+        items = [f for f in os.listdir(d) if os.path.isfile(os.path.join(d, f))]
+        items.sort(key=lambda s: s.lower())
+    except Exception:
+        items = []
+    return jsonify({"ok": True, "files": items})
+
+
+@client_bp.route("/api/userfiles/<int:repo_id>/upload", methods=["POST"])
+@login_required
+def api_userfiles_upload(repo_id: int):
+    repo = _get_repo_or_404(repo_id)
+    d = _userfiles_dir_for_repo(repo)
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "no file"}), 400
+    f = request.files["file"]
+    if not f or not getattr(f, "filename", ""):
+        return jsonify({"ok": False, "error": "empty file"}), 400
+    name = _safe_filename(f.filename)
+    if not name:
+        return jsonify({"ok": False, "error": "bad filename"}), 400
+
+    base, ext = os.path.splitext(name)
+    out_name = name
+    n = 1
+    while os.path.exists(os.path.join(d, out_name)):
+        out_name = f"{base}_{n}{ext}"
+        n += 1
+
+    try:
+        f.save(os.path.join(d, out_name))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify({"ok": True, "filename": out_name})
+
+
+@client_bp.route("/api/userfiles/<int:repo_id>/delete", methods=["POST"])
+@login_required
+def api_userfiles_delete(repo_id: int):
+    repo = _get_repo_or_404(repo_id)
+    d = _userfiles_dir_for_repo(repo)
+    payload = request.get_json(silent=True) or {}
+    name = _safe_filename(payload.get("filename") or "")
+    if not name:
+        return jsonify({"ok": False, "error": "no filename"}), 400
+    p = os.path.join(d, name)
+    try:
+        if os.path.isfile(p):
+            os.remove(p)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify({"ok": True})
+
+
+@client_bp.route("/api/userfiles/<int:repo_id>/raw/<path:filename>")
+@login_required
+def api_userfiles_raw(repo_id: int, filename: str):
+    repo = _get_repo_or_404(repo_id)
+    d = _userfiles_dir_for_repo(repo)
+    name = _safe_filename(filename)
+    if not name:
+        abort(404)
+    return send_from_directory(d, name, as_attachment=False)
 
 
 
@@ -2861,6 +3044,7 @@ def api_node_event_web():
                     layout_html = render_nodalayout_html(
                         ui_dialog.get("layout"),
                         node_data if isinstance(node_data, dict) else {},
+                        assets_base_dir=_userfiles_dir_for_repo(repo),
                         context=_nl_context(repo, class_name=eff_class, node_id=eff_id),
                     )
                 except Exception:
@@ -2882,6 +3066,7 @@ def api_node_event_web():
                 layout_html = render_nodalayout_html(
                     new_layout,
                     data_for_layout,
+                    assets_base_dir=_userfiles_dir_for_repo(repo),
                     context=_nl_context(repo, class_name=eff_class, node_id=eff_id),
                 )
             except Exception:
@@ -3097,6 +3282,7 @@ def api_common_event_web():
                     dlg_layout_html = render_nodalayout_html(
                         ui_dialog.get("layout"),
                         payload if isinstance(payload, dict) else {},
+                        assets_base_dir=_userfiles_dir_for_repo(repo),
                         context=_nl_context(repo, class_name="", node_id="")
                     )
                 except Exception:
@@ -3117,6 +3303,7 @@ def api_common_event_web():
                 layout_html = render_nodalayout_html(
                     getattr(ui, "_ui_layout"),
                     payload if isinstance(payload, dict) else {},
+                    assets_base_dir=_userfiles_dir_for_repo(repo),
                     context=_nl_context(repo, class_name="", node_id="")
                 )
             except Exception:

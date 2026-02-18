@@ -479,11 +479,129 @@ def render_nodalayout_html(
             raw = _resolve_vars(str(el.get("value") or ""), node_data)
             src = _picture_src(raw, assets_base_dir)
             alt = escape(str(el.get("caption") or ""))
+            cover = bool(el.get("cover"))
+            fit_mode = "cover" if cover else "contain"
+
+            # If picture is constrained (both width & height are px), use object-fit to keep aspect ratio.
+            wv = el.get("width")
+            hv = el.get("height")
+            constrained = isinstance(wv, (int, float)) and wv > 0 and isinstance(hv, (int, float)) and hv > 0
+
+            pic_extra_css: List[str] = []
+            # Avoid baseline gap + make sizing predictable
+            pic_extra_css.append("display:block")
+            if constrained or cover:
+                pic_extra_css.append(f"object-fit:{fit_mode}")
+
+            style_attr = _style_attr(el, extra_css=pic_extra_css)
+
             if src:
                 return f'<img class="nl-picture"{style_attr} src="{escape(src)}" alt="{alt}"/>'
             return f'<div class="nl-picture nl-empty"{style_attr}></div>'
 
-        
+        if t == "ImageSlider":
+            # value:
+            # - ["file1.png", "file2.png"]
+            # - "@pic_files" -> node_data["pic_files"] as list
+            raw_val = el.get("value")
+            files_any: Any = raw_val
+            if isinstance(raw_val, str):
+                s = raw_val.strip()
+                if s.startswith("@"):  # @var
+                    files_any = node_data.get(s[1:])
+                elif s.startswith("["):
+                    try:
+                        files_any = json.loads(s)
+                    except Exception:
+                        files_any = []
+
+            files: List[str] = []
+            if isinstance(files_any, list):
+                for x in files_any:
+                    if x is None:
+                        continue
+                    files.append(str(x))
+            elif isinstance(files_any, str) and files_any.strip():
+                # allow single file string
+                files = [files_any.strip()]
+
+            # captions: optional list, can be resolved via @
+            caps_any: Any = el.get("captions")
+            if isinstance(caps_any, str) and caps_any.strip().startswith("@"):  # @var
+                caps_any = node_data.get(caps_any.strip()[1:])
+            captions: List[str] = []
+            if isinstance(caps_any, list):
+                captions = ["" if c is None else str(c) for c in caps_any]
+
+            cover = bool(el.get("cover"))
+            fit_mode = "cover" if cover else "contain"
+
+            wv = el.get("width")
+            hv = el.get("height")
+            constrained = isinstance(wv, (int, float)) and wv > 0 and isinstance(hv, (int, float)) and hv > 0
+
+            slider_extra_css: List[str] = []
+            if constrained or cover:
+                slider_extra_css.append("overflow:hidden")
+                # help flex layouts: don't overflow due to carousel internals
+                slider_extra_css.append("min-width:0")
+
+            style_attr = _style_attr(el, extra_css=slider_extra_css)
+
+            # build carousel
+            sid_base = str(el.get("id") or "imgslider")
+            sid = f"nl_imgslider_{re.sub(r'[^A-Za-z0-9_-]', '_', sid_base)}_{abs(hash('|'.join(files))) % 100000}"
+
+            slides: List[str] = []
+            indicators: List[str] = []
+            slide_idx = 0
+
+            # If constrained, force carousel internals to fill wrapper.
+            inner_style = ' style="height:100%"' if constrained or cover else ""
+            item_style = ' style="height:100%"' if constrained or cover else ""
+            img_style = f' style="display:block;width:100%;height:100%;object-fit:{fit_mode}"' if constrained or cover else ""
+
+            for i, f in enumerate(files):
+                src = _picture_src(_resolve_vars(str(f or ""), node_data), assets_base_dir)
+                if not src:
+                    continue
+                is_active = (len(slides) == 0)
+                act_cls = " active" if is_active else ""
+
+                cap = captions[i] if i < len(captions) else ""
+                cap_html = f'<div class="carousel-caption d-none d-md-block"><div class="nl-imageslider-cap">{escape(cap)}</div></div>' if cap else ""
+
+                indicators.append(
+                    f'<button type="button" data-bs-target="#{escape(sid)}" data-bs-slide-to="{slide_idx}"'
+                    + (" class=\"active\" aria-current=\"true\"" if is_active else "")
+                    + f' aria-label="Slide {i+1}"></button>'
+                )
+                slides.append(
+                    f'<div class="carousel-item{act_cls}"{item_style}>'
+                    f'<img class="d-block w-100 nl-imageslider-img" src="{escape(src)}" alt="{escape(cap) if cap else ""}"{img_style}>' 
+                    f'{cap_html}'
+                    f'</div>'
+                )
+                slide_idx += 1
+
+            if not slides:
+                return f'<div class="nl-imageslider nl-empty"{style_attr}></div>'
+
+            return (
+                f'<div id="{escape(sid)}" class="carousel slide nl-imageslider" data-bs-ride="carousel"{style_attr}>'
+                f'<div class="carousel-indicators">' + "".join(indicators) + '</div>'
+                f'<div class="carousel-inner"{inner_style}>' + "".join(slides) + '</div>'
+                f'<button class="carousel-control-prev" type="button" data-bs-target="#{escape(sid)}" data-bs-slide="prev">'
+                f'<span class="carousel-control-prev-icon" aria-hidden="true"></span>'
+                f'<span class="visually-hidden">Previous</span>'
+                f'</button>'
+                f'<button class="carousel-control-next" type="button" data-bs-target="#{escape(sid)}" data-bs-slide="next">'
+                f'<span class="carousel-control-next-icon" aria-hidden="true"></span>'
+                f'<span class="visually-hidden">Next</span>'
+                f'</button>'
+                f'</div>'
+            )
+
                 # NodeInput (readonly input + pick button, value is "Class$Id")
         if t == "NodeInput":
             nid = str(el.get("id") or "").strip() or "node_input"
@@ -1371,6 +1489,9 @@ DEFAULT_NL_CSS = """
 .nl-tv-title{opacity:.8}
 .nl-tv-value{font-weight:700}
 .nl-picture{max-width:100%;height:auto}
+.nl-imageslider{max-width:100%}
+.nl-imageslider-img{max-width:100%;height:auto;object-fit:contain}
+.nl-imageslider-cap{padding:.15rem .35rem;border-radius:.5rem;background:rgba(0,0,0,.35);display:inline-block}
 .nl-unknown{white-space:pre-wrap;background:#f6f6f6;padding:8px;border-radius:8px}
 
 .nl-container{display:flex;gap:10px;flex-wrap:wrap;max-width:100%}
@@ -1511,4 +1632,24 @@ DEFAULT_NL_CSS = """
 .nl-child-card{border:1px solid rgba(0,0,0,.125);border-radius:12px;padding:8px;background:#fff}
 .nl-child-card:hover{background:rgba(0,0,0,.02)}
 .nl-container.nl-row { align-items: center; }
+.nl-picture,
+.nl-imageslider {
+  box-sizing: border-box;
+}
+
+/* сам <img> */
+.nl-picture img,
+.nl-imageslider img {
+  display: block;        /* убирает baseline-gap */
+  width: 100%;
+  height: 100%;
+  object-fit: contain;   /* или cover, если нужно обрезать */
+}
+
+/* если это bootstrap carousel */
+.nl-imageslider .carousel,
+.nl-imageslider .carousel-inner,
+.nl-imageslider .carousel-item {
+  height: 100%;
+}
 """
