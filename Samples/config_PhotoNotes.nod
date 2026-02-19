@@ -1,5 +1,5 @@
 {
-    "name": "Заметки с фото",
+    "name": "Photo notes",
     "server_name": "",
     "uid": "b4b35d35-79b2-4f12-8e93-20fb82c2f2f9",
     "url": "http://192.168.1.133:5000/api/config/b4b35d35-79b2-4f12-8e93-20fb82c2f2f9",
@@ -12,7 +12,7 @@
     "version": "00.00.01",
     "NodaLogicFormat": "1.1",
     "NodaLogicType": "ANDROID_SERVER",
-    "last_modified": "2026-02-19T07:00:49.955596+03:00",
+    "last_modified": "2026-02-19T08:01:10.881368+03:00",
     "provider": "Dmitry Vorontsov",
     "CommonLayouts": [],
     "classes": [
@@ -148,9 +148,9 @@
     "datasets": [],
     "sections": [
         {
-            "name": "Фотозаметки",
+            "name": "Photo Notes",
             "code": "MyNotes",
-            "commands": "Скан|test_scan"
+            "commands": ""
         },
         {
             "name": "Settings",
@@ -166,19 +166,5 @@
         }
     ],
     "rooms": [],
-    "CommonEvents": [
-        {
-            "event": "onStartMenuCommand",
-            "listener": "",
-            "actions": [
-                {
-                    "action": "run",
-                    "source": "internal",
-                    "server": "",
-                    "method": "test_command",
-                    "postExecuteMethod": ""
-                }
-            ]
-        }
-    ]
+    "CommonEvents": []
 }
