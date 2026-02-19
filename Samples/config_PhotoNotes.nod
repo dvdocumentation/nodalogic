@@ -1,0 +1,184 @@
+{
+    "name": "Заметки с фото",
+    "server_name": "",
+    "uid": "b4b35d35-79b2-4f12-8e93-20fb82c2f2f9",
+    "url": "http://192.168.1.133:5000/api/config/b4b35d35-79b2-4f12-8e93-20fb82c2f2f9",
+    "content_uid": "cb733fbf-c979-4d03-9630-d63dbce5b053",
+    "vendor": "Dmitry Vorontsov",
+    "nodes_handlers": "ZnJvbSBub2Rlc2NsaWVudCBpbXBvcnQgUmVmcmVzaFRhYixTZXRUaXRsZSxDbG9zZU5vZGUsUnVuR1BTLFN0b3BHUFMsVXBkYXRlVmlldyxEaWFsb2csU2NhbkJhcmNvZGUsR2V0TG9jYXRpb24sQWRkVGltZXIsU3RvcFRpbWVyLFNob3dQcm9ncmVzc0J1dHRvbixIaWRlUHJvZ3Jlc3NCdXR0b24sU2hvd1Byb2dyZXNzR2xvYmFsLEhpZGVQcm9ncmVzc0dsb2JhbCxDb250cm9scyxTZXRDb3ZlcixnZXRCYXNlNjRGcm9tSW1hZ2VGaWxlLGNvbnZlcnRJbWFnZUZpbGVzVG9CYXNlNjRBcnJheSxzYXZlQmFzZTY0VG9GaWxlLGNvbnZlcnRCYXNlNjRBcnJheVRvRmlsZVBhdGhzLFVwZGF0ZU1lZGlhR2FsbGVyeQ0KZnJvbSBhbmRyb2lkIGltcG9ydCAqDQpmcm9tIG5vZGVzIGltcG9ydCBOZXdOb2RlLCBEZWxldGVOb2RlLCBHZXRBbGxOb2RlcywgR2V0Tm9kZSwgR2V0QWxsTm9kZXNTdHIsIEdldFJlbW90ZUNsYXNzLCBDcmVhdGVEYXRhU2V0LCBHZXREYXRhU2V0LCBEZWxldGVEYXRhU2V0LHRvX3VpZCwgZnJvbV91aWQNCmZyb20gY29tLmR2Lm5vZGEgaW1wb3J0IERhdGFTZXQNCmZyb20gY29tLmR2Lm5vZGEgaW1wb3J0IERhdGFTZXRzDQpmcm9tIGNvbS5kdi5ub2RhIGltcG9ydCBTaW1wbGVVdGlsaXRlcyBhcyBzdQ0KZnJvbSBkYXRhc2V0cyBpbXBvcnQgR2V0RGF0YVNldERhdGENCg0KIyBDb25maWd1cmF0aW9uIGNvbnN0YW50cw0KY3VycmVudF9tb2R1bGVfbmFtZT0iYjRiMzVkMzUtNzliMi00ZjEyLThlOTMtMjBmYjgyYzJmMmY5Ig0KY3VycmVudF9jb25maWd1cmF0aW9uX3VybD0iaHR0cDovL25tYWtlci5wdy9hcGkvY29uZmlnL2YzMGNiZTYwLTI2ZDItNDg2NS1hNjRhLTg0N2Y1MWFjM2M2ZiINCl9kYXRhX2RpciA9IHN1LmdldF9kYXRhX2RpcihjdXJyZW50X21vZHVsZV9uYW1lKQ0KX2Rvd25sb2Fkc19kaXIgPSBzdS5nZXRfZG93bmxvYWRzX2RpcihjdXJyZW50X21vZHVsZV9uYW1lKQ0KDQoNCmZyb20gbm9kZXMgaW1wb3J0IE5vZGUNCg0KZGVmIHRlc3RfY29tbWFuZChub2RlX2lucHV0KToNCiAgdG9hc3Qobm9kZV9pbnB1dC5nZXQoImNvbW1hbmQiKSkNCiAgcmV0dXJuIFRydWUse30NCg0KY2xhc3MgUGhvdG9Ob3RlKE5vZGUpOg0KICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6DQogICAgICAgIHN1cGVyKCkuX19pbml0X18obW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpDQoNCiAgICAiIiJDbGFzcyBQaG90b05vdGUiIiINCg0KICAgIGRlZiBPcGVuKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6DQogICAgICAgIHNlbGYuUGx1Z0luKFsNCiAgICAgICAgICB7InR5cGUiOiJQaG90b0J1dHRvbiIsICJpZCI6ImNhcHR1cmVfcGhvdG8ifSwNCiAgICAgICAgICB7InR5cGUiOiJNZWRpYUdhbGxlcnkiLCAiaWQiOiJwaWNfZmlsZXMifQ0KICAgICAgICBdKQ0KCiAgICAgICAgcmV0dXJuIFRydWUse30KICAgIGRlZiBwcm9jZXNzX3Bob3RvKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6DQogICAgICAgIGJhc2U2NG9wdCA9RmFsc2UNCiAgICAgICAgc2V0dGluZ3MgPSBTZXR0aW5ncy5nZXQoY3VycmVudF9tb2R1bGVfbmFtZSsiJFNldHRpbmdzIikNCiAgICAgICAgaWYgc2V0dGluZ3M6DQogICAgICAgICAgYmFzZTY0b3B0ID0gc2V0dGluZ3MuZ2V0KCJiYXNlNjQiLEZhbHNlKQ0KDQoNCiAgICAgICAgaWYgYmFzZTY0b3B0Og0KICAgICAgICAgIGlmICJwaG90b3NfYmFzZTY0IiBpbiBzZWxmLl9kYXRhOg0KICAgICAgICAgICAgcGhvdG9zX2Jhc2U2ND0gc2VsZi5fZGF0YVsicGhvdG9zX2Jhc2U2NCJdDQogICAgICAgICAgZWxzZToNCiAgICAgICAgICAgIHBob3Rvc19iYXNlNjQ9IFtdDQoNCiAgICAgICAgICBiYXNlNjQgPSBnZXRCYXNlNjRGcm9tSW1hZ2VGaWxlKHNlbGYuX2RhdGFbInJlc3VsdF9maWxlIl0sNTAsNTApICPQvdC4INC6INGH0LXQvNGDINC90LUg0LLQtdC00LXRgiwg0L/RgNC+0YHRgtC+INC/0L7Qu9GD0YfQuNC70Lgg0LrRgNC+0L8g0LIgYmFzZTY0DQogICAgICAgICAgcGhvdG9zX2Jhc2U2NC5hcHBlbmQoYmFzZTY0KQ0KDQogICAgICAgICAgc2VsZi5fZGF0YVsicGhvdG9zX2Jhc2U2NCJdID0gcGhvdG9zX2Jhc2U2NA0KICAgICAgICAgIHNlbGYuX3NhdmUoKQ0KICAgICAgICAgIHNlbGYudXBsb2FkX3RvX3NlcnZlcigpDQogICAgICAgIGVsc2U6DQogICAgICAgICAgaW1wb3J0IHJlcXVlc3RzDQogICAgICAgICAgZnJvbSBjb20uZHYubm9kYSBpbXBvcnQgTm9kZXNDb3JlIGFzIG5jb3JlDQogICAgICAgICAgDQogICAgICAgICAgc2VydmVyX3VybCA9IG5jb3JlLmdldFNlcnZlclVybChjdXJyZW50X21vZHVsZV9uYW1lLCJtYWluIikNCg0KICAgICAgICAgIHBhdGggPSBzZWxmLl9kYXRhWyJyZXN1bHRfZmlsZSJdDQogICAgICAgICAgZmlsZW5hbWUgPSBwYXRoLnNwbGl0KCcvJylbLTFdDQogICAgICAgICAgdXJsID0gZiJ7c2VydmVyX3VybH0vYXBpL3VzZXJmaWxlcy97Y3VycmVudF9tb2R1bGVfbmFtZX0vaW1hZ2VzIg0KDQogICAgICAgICAgZmlsZXMgPSBbDQogICAgICAgICAgICAgICgiZmlsZXMiLCAoZmlsZW5hbWUgLCBvcGVuKHBhdGggLCAicmIiKSwgImltYWdlL3BuZyIpKQ0KICAgICAgICAgIF0NCg0KICAgICAgICAgIHIgPSByZXF1ZXN0cy5wb3N0KHVybCwgZmlsZXM9ZmlsZXMsIGRhdGE9eyJvdmVyd3JpdGUiOiAiMCJ9KQ0KICAgICAgICAgIGlmIHIuc3RhdHVzX2NvZGU9PTIwMDoNCiAgICAgICAgICAgIGlmICJwaWNfZmlsZXNfd2ViIiBpbiBzZWxmLl9kYXRhOg0KICAgICAgICAgICAgICBwaWNfYXJyYXkgPSBzZWxmLl9kYXRhLmdldCgicGljX2ZpbGVzX3dlYiIpDQogICAgICAgICAgICBlbHNlOg0KICAgICAgICAgICAgICBwaWNfYXJyYXkgPSBbXQ0KICAgICAgICAgICAgcGljX2FycmF5LmFwcGVuZChmaWxlbmFtZSApICAgICAgDQogICAgICAgICAgICBzZWxmLl9kYXRhWyJwaWNfZmlsZXNfd2ViIl09cGljX2FycmF5DQogICAgICAgICAgICBzZWxmLl9zYXZlKCkNCiAgICAgICAgICAgIHNlbGYudXBsb2FkX3RvX3NlcnZlcigpDQogICAgICAgICAgICANCiAgICAgICAgICB0b2FzdChyLnN0YXR1c19jb2RlKSAgDQoNCg0KICAgICAgICAjdG9hc3QoIlNhdmVkIHRvIHBob3RvcyIpICANCg0KICAgICAgICByZXR1cm4gVHJ1ZSx7fQ0KICAgIGRlZiB1cGxvYWRfdG9fc2VydmVyKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6DQogICAgICAgIHN0YXR1cyxlcnJvciA9IHNlbGYuX3VwbG9hZCgpDQogICAgICAgIGlmIHN0YXR1czoNCiAgICAgICAgICBtZXNzYWdlKCJPYmplY3QgdXBsb2FkZWQiKQ0KICAgICAgICBlbHNlOg0KICAgICAgICAgIHRvYXN0KGVycm9yKSAgDQogICAgICAgIA0KICAgICAgICByZXR1cm4gVHJ1ZSx7fQ0KDQoNCg0KY2xhc3MgU2V0dGluZ3MoTm9kZSk6DQogICAgZGVmIF9faW5pdF9fKHNlbGYsIG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKToNCiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSkNCg0KICAgICIiIkNsYXNzIFNldHRpbmdzIiIiDQo=",
+    "nodes_handlers_meta": null,
+    "nodes_server_handlers": "DQpmcm9tIG5vZGVzIGltcG9ydCBOb2RlLCBtZXNzYWdlLCBEaWFsb2csIHRvX3VpZCwgZnJvbV91aWQsIENsb3NlTm9kZSwgRGF0YVNldHMsIGNvbnZlcnRCYXNlNjRBcnJheVRvRmlsZVBhdGhzLGNvbnZlcnRJbWFnZUZpbGVzVG9CYXNlNjRBcnJheSxnZXRCYXNlNjRGcm9tSW1hZ2VGaWxlLHNhdmVCYXNlNjRUb0ZpbGUNCg0KDQoNCmNsYXNzIFBob3RvTm90ZShOb2RlKToNCiAgICANCiAgICBkZWYgX19pbml0X18oc2VsZiwgbm9kZV9pZD1Ob25lLCBjb25maWdfdWlkPU5vbmUpOg0KICAgICAgICBzdXBlcigpLl9faW5pdF9fKG5vZGVfaWQsIGNvbmZpZ191aWQpDQogICAgICAgICMgQWRkaXRpb25hbCBpbml0aWFsb3phdGlvbiBmb3IgUGhvdG9Ob3RlDQoNCiAgICBkZWYgT3BlbldlYihzZWxmLCBpbnB1dF9kYXRhPU5vbmUpOg0KICAgICAgICBzZWxmLlBsdWdJbihbDQogICAgICAgICAgeyJ0eXBlIjoiTWVkaWFHYWxsZXJ5IiwgImlkIjoicGljX2ZpbGVzX3dlYiJ9LA0KICAgICAgICAgIHsidHlwZSI6IkZpbGVHYWxsZXJ5IiwgImlkIjoiZmlsZXMifQ0KICAgICAgICBdKQ0KDQogICAgICAgIHJldHVybiBUcnVlLHt9DQogICAgZGVmIG9uX2JlZm9yZV9zYXZlKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6DQogICAgICAgICNnZXQgaW5zdGFuY2UgVUlEDQogICAgICAgIHMgPSBzZWxmLl9kYXRhLmdldCgiX2lkIikNCiAgICAgICAgaSA9IHMuZmluZCgiJCIpDQogICAgICAgIGN1cnJlbnRfY29uZmlnX3VpZCA9IHNbOmldIGlmIGkgPiAwIGVsc2UgIiINCiAgICAgICAgI2dldCBTZXR0aW5ncyBub2RlDQogICAgICAgIHNldHRpbmdzID0gU2V0dGluZ3MuZ2V0KGN1cnJlbnRfY29uZmlnX3VpZCsiJFNldHRpbmdzIikNCg0KICAgICAgICANCiAgICAgICAgaWYgc2V0dGluZ3M6DQogICAgICAgICAgaWYgc2V0dGluZ3MuX2RhdGEuZ2V0KCJiYXNlNjQiKT09VHJ1ZToNCiAgICAgICAgICAgIHNlbGYuX2RhdGFbInBpY19maWxlc193ZWIiXSA9IGNvbnZlcnRCYXNlNjRBcnJheVRvRmlsZVBhdGhzKHNlbGYuX2RhdGFbJ3Bob3Rvc19iYXNlNjQnXSkNCiAgICAgICAgDQogICAgICAgIHJldHVybiBUcnVlLHt9DQogICAgICAgIA0KDQoNCg0KY2xhc3MgU2V0dGluZ3MoTm9kZSk6DQogICAgDQogICAgZGVmIF9faW5pdF9fKHNlbGYsIG5vZGVfaWQ9Tm9uZSwgY29uZmlnX3VpZD1Ob25lKToNCiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQ0KICAgICAgICAjIEFkZGl0aW9uYWwgaW5pdGlhbG96YXRpb24gZm9yIFNldHRpbmdzDQo=",
+    "nodes_server_handlers_meta": null,
+    "version": "00.00.01",
+    "NodaLogicFormat": "1.1",
+    "NodaLogicType": "ANDROID_SERVER",
+    "last_modified": "2026-02-19T07:00:49.955596+03:00",
+    "provider": "Dmitry Vorontsov",
+    "CommonLayouts": [],
+    "classes": [
+        {
+            "name": "PhotoNote",
+            "section": "Фотозаметки",
+            "section_code": "MyNotes",
+            "has_storage": false,
+            "display_name": "PhotoNote",
+            "cover_image": "[ \r\n [ { \"type\": \"ImageSlider\",  \"value\": \"@pic_files\",   \"width\": 200,  \"height\": 200,\"radius\":5  },  {\"type\": \"Text\",    \"value\": \"@title\",\"width\": -1, \"height\": -2  }  ]\r\n]",
+            "display_image_web": "[\r\n  [ { \"type\": \"ImageSlider\", \"value\": \"@pic_files_web\", \"width\": 100, \"height\": 100 , \"cover\":true},   { \"type\": \"VerticalLayout\", \"height\":-2, \"value\": [ { \"type\": \"Text\", \"value\": \"@title\" }  ]} ]  \r\n]",
+            "display_image_table": "",
+            "init_screen_layout": "[\r\n     [{\"type\":\"Input\",\"id\":\"title\",\"caption\":\"Subject\",\"value\":\"@title\",\"width\":-1}],\r\n     [{\"type\":\"Parameters\",\"w\":1},{\"type\":\"Input\",\"height\":-1,\"id\":\"body\",\"caption\":\"Text\",\"value\":\"@body\",\"input_type\":\"multiline\",\"width\":-1}]\r\n]",
+            "commands": "",
+            "use_standard_commands": true,
+            "svg_commands": "",
+            "migration_register_command": false,
+            "migration_register_on_save": true,
+            "migration_default_room_uid": "",
+            "migration_default_room_alias": "",
+            "class_type": "data_node",
+            "hidden": false,
+            "methods": [
+                {
+                    "name": "Open",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "Open"
+                },
+                {
+                    "name": "OpenWeb",
+                    "source": "internal",
+                    "engine": "server_python",
+                    "code": "OpenWeb"
+                },
+                {
+                    "name": "process_photo",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "process_photo"
+                },
+                {
+                    "name": "upload_to_server",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "upload_to_server"
+                },
+                {
+                    "name": "on_before_save",
+                    "source": "internal",
+                    "engine": "server_python",
+                    "code": "on_before_save"
+                }
+            ],
+            "events": [
+                {
+                    "event": "onShow",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "Open",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onShowWeb",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "OpenWeb",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "capture_photo",
+                    "actions": [
+                        {
+                            "action": "runasync",
+                            "source": "internal",
+                            "server": "",
+                            "method": "process_photo",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onAcceptServer",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "on_before_save",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Settings",
+            "section": "Settings",
+            "section_code": "ImageSettings",
+            "has_storage": true,
+            "display_name": "Настройки",
+            "cover_image": "[[{\"type\":\"Text\",\"value\":\"Client-server image exchange settings\"}],[\"Use base64|@base64\"]]",
+            "display_image_web": "",
+            "display_image_table": "",
+            "init_screen_layout": "[[{\"type\":\"Switch\",\"caption\":\"Use base64 compressing\",\"id\":\"base64\",\"value\":\"@base64\"}]]",
+            "commands": "",
+            "use_standard_commands": true,
+            "svg_commands": "",
+            "migration_register_command": false,
+            "migration_register_on_save": false,
+            "migration_default_room_uid": "",
+            "migration_default_room_alias": "",
+            "class_type": "custom_process",
+            "hidden": false,
+            "methods": [],
+            "events": []
+        }
+    ],
+    "datasets": [],
+    "sections": [
+        {
+            "name": "Фотозаметки",
+            "code": "MyNotes",
+            "commands": "Скан|test_scan"
+        },
+        {
+            "name": "Settings",
+            "code": "ImageSettings",
+            "commands": ""
+        }
+    ],
+    "servers": [
+        {
+            "alias": "main",
+            "url": "http://192.168.1.133:5000",
+            "is_default": true
+        }
+    ],
+    "rooms": [],
+    "CommonEvents": [
+        {
+            "event": "onStartMenuCommand",
+            "listener": "",
+            "actions": [
+                {
+                    "action": "run",
+                    "source": "internal",
+                    "server": "",
+                    "method": "test_command",
+                    "postExecuteMethod": ""
+                }
+            ]
+        }
+    ]
+}
