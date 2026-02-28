@@ -2105,6 +2105,7 @@ def api_section_data():
                     "class": cn,
                     "id": node_id,
                     "data": data,
+                    "class_obj": c,
                     "is_custom_process": True,
                     "display_image_html": display_image_html,
                     "table_values": tv,
@@ -2149,6 +2150,7 @@ def api_section_data():
                     "class": cn,
                     "id": node_id,
                     "data": data,
+                    "class_obj": c,
                     "is_custom_process": False,
                     "display_image_html": display_image_html,
                     "table_values": tv,
@@ -2324,6 +2326,23 @@ def node_form(config_uid: str, class_name: str, node_id: str):
     if not cls:
         abort(404)
 
+    # class-level PlugIn for Web (stored as JSON text in class.plug_in_web)
+    def _parse_plugins(s: str):
+        s = (s or "").strip()
+        if not s:
+            return []
+        try:
+            obj = json.loads(s)
+            if isinstance(obj, list):
+                return obj
+            if isinstance(obj, dict):
+                return [obj]
+        except Exception:
+            return []
+        return []
+
+    class_plugins_web = _parse_plugins(cls.get("plug_in_web") or "")
+
     use_std = bool(cls.get("use_standard_commands"))
     is_custom_process = (cls.get("class_type") or "data_node") == "custom_process"
     has_onshowweb = any((ev.get("event") or "") == "onShowWeb" for ev in (cls.get("events") or []))
@@ -2340,6 +2359,7 @@ def node_form(config_uid: str, class_name: str, node_id: str):
 
     layout = None
     node_data: Dict[str, Any] = {}
+    ui_plugins = None
 
     try:
         # ---------------- REMOTE ----------------
@@ -2364,6 +2384,11 @@ def node_form(config_uid: str, class_name: str, node_id: str):
             else:
                 n = _api_get_remote(repo, f"/api/config/{repo.config_uid}/node/{class_name}/{node_id}")
                 node_data = (n.get("_data") or {}) if isinstance(n, dict) else {}
+
+            # Remote mode: we can't execute server-side PlugIn(), but we can still
+            # expose class-level plug_in_web to the template.
+            if class_plugins_web:
+                ui_plugins = class_plugins_web
 
         # ---------------- LOCAL ----------------
         else:
@@ -2425,6 +2450,14 @@ def node_form(config_uid: str, class_name: str, node_id: str):
                     if getattr(node, "_ui_layout", None) is not None:
                         layout = node._ui_layout
 
+            # Class-level PlugIn for web (like calling self.PlugIn(...))
+            if class_plugins_web:
+                try:
+                    if hasattr(node, "PlugIn"):
+                        node.PlugIn(class_plugins_web)
+                except Exception:
+                    pass
+
             ui_message = getattr(node, "_ui_message", None)
             try:
                 if hasattr(node, "_ui_message"):
@@ -2481,7 +2514,8 @@ def node_form(config_uid: str, class_name: str, node_id: str):
             is_custom_process=is_custom_process,
             show_register_command=bool(cls.get("migration_register_command")) and bool(use_std),
             default_room_uid=_resolve_class_default_room_uid(parsed, cls),
-            initial_message=ui_message
+            initial_message=ui_message,
+            class_obj=cls,
             
         )
 
@@ -2540,6 +2574,7 @@ def node_form(config_uid: str, class_name: str, node_id: str):
         default_room_uid=_resolve_class_default_room_uid(parsed, cls),
         initial_message=ui_message,
         ui_plugins=ui_plugins,
+        class_obj=cls,
     )
 
 
