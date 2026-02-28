@@ -27,6 +27,7 @@
   <div class="col-lg-9">
     <div class="d-flex gap-2 flex-wrap align-items-center mb-3">
       <button id="btnRefresh" class="btn btn-primary" type="button">{{_('Refresh')}}</button>
+      <button id="btnSaveSoloSel" class="btn btn-outline-primary" type="button">{{_('Save to Solo')}}</button>
 
       <label class="form-check-label ms-2">
         <input id="autoToggle" class="form-check-input me-1" type="checkbox" checked>
@@ -82,6 +83,18 @@ let selected = new Set();
 let lastItems = []; // key = `${repo_id}:${class}:${id}`
 let stdMap = new Map();   // key `${repo_id}:${class}` -> true/false
 let repoIdToUid = new Map();
+
+function downloadJson(filename, obj){
+  const blob = new Blob([JSON.stringify(obj, null, 2)], {type: "application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
 
 function nodeFormUrl(repo_id, class_name, node_id) {
   const uid = repoIdToUid.get(Number(repo_id)) || String(repo_id);
@@ -670,6 +683,27 @@ async function loadSection() {
 
 // --- UI wiring ---
 document.getElementById("btnRefresh").addEventListener("click", loadSection);
+
+document.getElementById("btnSaveSoloSel").addEventListener("click", () => {
+  const itemByKey = new Map((lastItems||[]).map(it => [`${it.repo_id}:${it.class}:${it.id}`, it]));
+  const keys = Array.from(selected.values());
+  if (!keys.length) {
+    alert("No items selected");
+    return;
+  }
+  const out = [];
+  for (const k of keys) {
+    const it = itemByKey.get(k);
+    if (!it) continue;
+    out.push({
+      _id: it.id,
+      _data: it.data,
+      _class: it.class_obj || {},
+    });
+  }
+  const fn = `section_${String(sectionCode || 'all')}_solo.json`;
+  downloadJson(fn, out);
+});
 
 document.getElementById("btnTable").addEventListener("click", () => {
   mode = "table";

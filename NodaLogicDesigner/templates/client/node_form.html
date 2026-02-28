@@ -31,6 +31,8 @@
   </div>
   <div class="d-flex align-items-center gap-2 flex-wrap">
     <span class="badge text-bg-light border">id: {{ node_id }}</span>
+    {# Export button is NOT a standard command (it should not depend on options / command set) #}
+    <button id="btnSaveSolo" class="btn btn-sm btn-outline-primary" type="button">{{_('Save to Solo')}}</button>
   </div>
 </div>
 
@@ -148,6 +150,7 @@ const escapeHtml = window.escapeHtml;
 const REPO_ID = {{ repo_id|tojson }};
 const CLASS_NAME = {{ class_name|tojson }};
 const NODE_ID = {{ node_id|tojson }};
+const CLASS_OBJ = {{ (class_obj or {})|tojson }};
 const API_EVENT_WEB = {{ api_event_web|tojson }};
 const API_SAVE = {{ api_save_url|tojson }};
 
@@ -227,6 +230,18 @@ function openUrlMaybeNodeForm(url){
 // and we send it to the backend only on _save (unless element has explicit events).
 const NODE_DATA_INITIAL = {{ (node_data if node_data is mapping else {})|tojson }};
 let _data = JSON.parse(JSON.stringify(NODE_DATA_INITIAL || {}));
+
+function downloadJson(filename, obj){
+  const blob = new Blob([JSON.stringify(obj, null, 2)], {type: "application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
 
 // If _data has key `_read_only` => lock the whole form (left pane) in read-only mode.
 // Standard command buttons (right pane) remain enabled.
@@ -1309,6 +1324,17 @@ function doClose(){
 
 const bSC = document.getElementById("btnSaveClose");
 if (bSC) bSC.addEventListener("click", doSaveClose);
+
+const bSolo = document.getElementById("btnSaveSolo");
+if (bSolo) bSolo.addEventListener("click", () => {
+  const payload = {
+    _id: NODE_ID,
+    _data: _data,
+    _class: CLASS_OBJ,
+  };
+  const fn = `${String(CLASS_NAME)}_${String(NODE_ID)}.solo.json`;
+  downloadJson(fn, payload);
+});
 
 const bS = document.getElementById("btnSave");
 if (bS) bS.addEventListener("click", doSave);
