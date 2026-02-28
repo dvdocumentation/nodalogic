@@ -30,6 +30,7 @@ from ast import parse, FunctionDef, fix_missing_locations
 import ast
 import inspect
 from pathlib import Path
+import secrets
 
 # ==================================================================
 # Handlers loading (server): file-first, DB blob fallback
@@ -695,8 +696,21 @@ UI_COMPONENT_TEMPLATES = OrderedDict([
     ('DatasetField', '{"type":"DatasetField","dataset":"","value":""}'),
 ])
 
+# -----------------------------------------------------------------------------
+# PlugIn template snippets (used in multiple editors)
+# -----------------------------------------------------------------------------
+PLUGIN_TEMPLATES = OrderedDict([
+    ('FloatingButton', '{"type":"FloatingButton","id":"my_fab","caption":"My <b>button</b>"}'),
+])
+
+def get_plugin_templates():
+    """Return (buttons, map) for PlugIn templates used by editors."""
+    buttons = [{'key': k, 'label': k} for k in PLUGIN_TEMPLATES.keys()]
+    return buttons, dict(PLUGIN_TEMPLATES)
+
 
 def get_ui_component_templates():
+
     """Return (buttons, map) for UI component templates used by editors."""
     buttons = [{'key': k, 'label': k} for k in UI_COMPONENT_TEMPLATES.keys()]
     return buttons, dict(UI_COMPONENT_TEMPLATES)
@@ -1140,6 +1154,12 @@ def _ensure_sqlite_schema():
             _add_col("config_class", 'display_image_table TEXT DEFAULT ""', "display_image_table")
         if "init_screen_layout" not in cols:
             _add_col("config_class", 'init_screen_layout TEXT DEFAULT ""', "init_screen_layout")
+        if "init_screen_layout_web" not in cols:
+            _add_col("config_class", 'init_screen_layout_web TEXT DEFAULT ""', "init_screen_layout_web")
+        if "plug_in" not in cols:
+            _add_col("config_class", 'plug_in TEXT DEFAULT ""', "plug_in")
+        if "plug_in_web" not in cols:
+            _add_col("config_class", 'plug_in_web TEXT DEFAULT ""', "plug_in_web")
 
         # commands UI fields
         if "commands" not in cols:
@@ -1205,6 +1225,23 @@ def _ensure_sqlite_schema():
                 "config_event_action.event_id index",
             )
 
+        # NodaScript support
+        if "method_text" not in eacols:
+            _add_col("config_event_action", 'method_text TEXT DEFAULT ""', "method_text")
+        if "post_execute_text" not in eacols:
+            _add_col("config_event_action", 'post_execute_text TEXT DEFAULT ""', "post_execute_text")
+
+    # ------------------------------------------------------------
+    # event_action migrations (ClassEvent actions)
+    # ------------------------------------------------------------
+    if _table_exists("event_action"):
+        acols = _get_cols("event_action")
+        # NodaScript support
+        if "method_text" not in acols:
+            _add_col("event_action", 'method_text TEXT DEFAULT ""', "method_text")
+        if "post_execute_text" not in acols:
+            _add_col("event_action", 'post_execute_text TEXT DEFAULT ""', "post_execute_text")
+
 # Run schema check immediately on import (works for `flask run` too)
 try:
     with app.app_context():
@@ -1217,6 +1254,16 @@ try:
     app.register_blueprint(client_bp)
 except Exception as _e:
     print('Client blueprint not loaded:', _e)
+
+
+# NOTE: Models are defined throughout this large single-file app.
+# Run schema ensure once more near the end of the module so newly added
+# columns are present before any runtime SELECTs on updated models.
+try:
+    with app.app_context():
+        _ensure_sqlite_schema()
+except Exception as _e:
+    print('SQLite schema ensure (late) skipped:', _e)
 
 
 class Dataset(db.Model):
@@ -1334,7 +1381,9 @@ class ConfigEvent(db.Model):
                 "method": action.method,
                 "source": action.source,
                 "server": action.server,
-                "postExecuteMethod": action.post_execute_method
+                "postExecuteMethod": action.post_execute_method,
+                "methodText": action.method_text,
+                "postExecuteMethodText": action.post_execute_text,
             }
             
             action_dict = {k: v for k, v in action_dict.items() if v is not None and v != ""}
@@ -1349,6 +1398,9 @@ class ConfigEventAction(db.Model):
     server = db.Column(db.String(255), default="")
     method = db.Column(db.String(200), default="")
     post_execute_method = db.Column(db.String(200), default="")
+    # If method/post_execute_method == 'NodaScript', store the script text here
+    method_text = db.Column(db.Text, default="")
+    post_execute_text = db.Column(db.Text, default="")
     order = db.Column(db.Integer, default=0)  
 
     event_id = db.Column(db.Integer, db.ForeignKey('config_event.id', ondelete='CASCADE'), nullable=False)
@@ -1361,6 +1413,8 @@ class ConfigEventAction(db.Model):
             "server": self.server,
             "method": self.method,
             "postExecuteMethod": self.post_execute_method,
+            "methodText": self.method_text,
+            "postExecuteMethodText": self.post_execute_text,
             "order": self.order,
         }
     
@@ -1424,6 +1478,11 @@ class ConfigClass(db.Model):
     display_image_web = db.Column(db.Text, default="")
     display_image_table = db.Column(db.Text, default="")
     init_screen_layout = db.Column(db.Text, default="")
+    init_screen_layout_web = db.Column(db.Text, default="")
+
+    # PlugIn UI (mobile/web)
+    plug_in = db.Column(db.Text, default="")
+    plug_in_web = db.Column(db.Text, default="")
 
     # Commands UI (string formats described in UI hints)
     commands = db.Column(db.Text, default="")
@@ -1472,7 +1531,9 @@ class ClassEvent(db.Model):
                 "method": action.method,
                 "source": action.source,
                 "server": action.server,
-                "postExecuteMethod": action.post_execute_method
+                "postExecuteMethod": action.post_execute_method,
+                "methodText": action.method_text,
+                "postExecuteMethodText": action.post_execute_text,
             }
             
             action_dict = {k: v for k, v in action_dict.items() if v is not None and v != ""}
@@ -1487,6 +1548,9 @@ class EventAction(db.Model):
     server = db.Column(db.String(255), default="")
     method = db.Column(db.String(200), default="")
     post_execute_method = db.Column(db.String(200), default="")
+    # If method/post_execute_method == 'NodaScript', store the script text here
+    method_text = db.Column(db.Text, default="")
+    post_execute_text = db.Column(db.Text, default="")
     order = db.Column(db.Integer, default=0)  
 
     event_id = db.Column(db.Integer, db.ForeignKey('class_event.id', ondelete='CASCADE'), nullable=False)
@@ -1499,6 +1563,8 @@ class EventAction(db.Model):
             "server": self.server,
             "method": self.method,
             "postExecuteMethod": self.post_execute_method,
+            "methodText": self.method_text,
+            "postExecuteMethodText": self.post_execute_text,
             "order": self.order,
         }
 
@@ -1573,8 +1639,101 @@ def edit_profile():
     devices = UserDevice.query.filter_by(user_id=current_user.id).all()
     return render_template('edit_profile.html', devices=devices)
 
+class ApiToken(db.Model):
+    __tablename__ = "api_token"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    token = db.Column(db.String(128), unique=True, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    revoked_at = db.Column(db.DateTime, nullable=True)
+
+    user = db.relationship("User", backref="api_tokens")
 
 
+def issue_api_token(user) -> str:
+    # достаточно длинный, URL-safe
+    token = secrets.token_urlsafe(48)
+    db.session.add(ApiToken(user_id=user.id, token=token))
+    db.session.commit()
+    return token
+
+
+def check_api_token(token: str):
+    if not token:
+        return None
+    tok = ApiToken.query.filter_by(token=token, revoked_at=None).first()
+    return tok.user if tok else None
+
+@app.route("/api/auth/login", methods=["POST"])
+def api_auth_login():
+    data = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+
+    if not email or not password:
+        return jsonify({"error": "email and password are required"}), 400
+
+    user = User.query.filter_by(email=email).first()
+
+    # у вас пароль хранится в user.password (hash)
+    if not user or not check_password_hash(user.password, password):
+        return jsonify({"error": "Invalid credentials"}), 401
+
+    if not bool(getattr(user, "can_api", False)):
+        return jsonify({"error": "Forbidden"}), 403
+
+    # reuse последний активный токен, чтобы не плодить
+    tok = ApiToken.query.filter_by(user_id=user.id, revoked_at=None).order_by(ApiToken.id.desc()).first()
+    token_value = tok.token if tok else issue_api_token(user)
+
+    return jsonify({
+        "user": {"id": user.id, "email": user.email},
+        "access_token": token_value
+    }), 200
+
+@app.route('/api/auth/me', methods=['GET'])
+def api_auth_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user = None
+
+        # --- 1) Token auth: Bearer / X-API-Token ---
+        bearer = request.headers.get("Authorization", "")
+        x_token = request.headers.get("X-API-Token", "")
+
+        token = None
+        if bearer.lower().startswith("bearer "):
+            token = bearer.split(" ", 1)[1].strip()
+        elif x_token:
+            token = x_token.strip()
+
+        if token:
+            user = check_api_token(token)
+            if not user:
+                return jsonify({"error": "Unauthorized"}), 401
+
+
+        if not user:
+            auth = request.authorization
+            if auth:
+                user = check_api_auth(auth.username, auth.password)
+
+            if not user:
+                return jsonify({"error": "Unauthorized"}), 401
+
+
+        if not bool(getattr(user, "can_api", False)):
+            return jsonify({"error": "Forbidden"}), 403
+
+
+        cfg_uid = kwargs.get("config_uid") or kwargs.get("uid")
+        if cfg_uid and not user_can_access_config(user, str(cfg_uid)):
+            return jsonify({"error": "Forbidden"}), 403
+
+        g.api_user = user
+        return f(*args, **kwargs)
+
+    return decorated_function
 
 @app.route('/admin')
 @login_required
@@ -2565,6 +2724,12 @@ def get_config(uid):
                 'display_image_web': getattr(c, 'display_image_web', '') or '',
                 'display_image_table': getattr(c, 'display_image_table', '') or '',
                 'init_screen_layout': getattr(c, 'init_screen_layout', '') or '',
+                'init_screen_layout_web': getattr(c, 'init_screen_layout_web', '') or '',
+                'plug_in': getattr(c, 'plug_in', '') or '',
+                'plug_in_web': getattr(c, 'plug_in_web', '') or '',
+                'init_screen_layout_web': getattr(c, 'init_screen_layout_web', '') or '',
+                'plug_in': getattr(c, 'plug_in', '') or '',
+                'plug_in_web': getattr(c, 'plug_in_web', '') or '',
 
                 'commands': getattr(c, 'commands', '') or '',
                 'use_standard_commands': bool(getattr(c, 'use_standard_commands', True)),
@@ -2592,7 +2757,10 @@ def get_config(uid):
                                 'source': a.source,
                                 'server': a.server,
                                 'method': a.method,
-                                'postExecuteMethod': a.post_execute_method
+                                'postExecuteMethod': a.post_execute_method,
+                                # NodaScript texts (plain JSON-escaped strings)
+                                **({"methodText": a.method_text} if (a.method or '') == 'NodaScript' else {}),
+                                **({"postExecuteMethodText": a.post_execute_text} if (a.post_execute_method or '') == 'NodaScript' else {}),
                             }
                             for a in e.actions
                         ]
@@ -2639,7 +2807,10 @@ def get_config(uid):
                         'source': a.source,
                         'server': a.server,
                         'method': a.method,
-                        'postExecuteMethod': a.post_execute_method
+                        'postExecuteMethod': a.post_execute_method,
+                        # NodaScript texts (plain JSON-escaped strings)
+                        **({"methodText": a.method_text} if (a.method or '') == 'NodaScript' else {}),
+                        **({"postExecuteMethodText": a.post_execute_text} if (a.post_execute_method or '') == 'NodaScript' else {}),
                     }
                     for a in e.actions
                 ]
@@ -2743,6 +2914,8 @@ def add_config_event(config_uid):
             source=action_data.get('source', 'internal'),
             server=action_data.get('server', ''),
             post_execute_method=action_data.get('postExecuteMethod', ''),
+            method_text=(action_data.get('methodText', '') or '') if (action_data.get('method', '') or '') == 'NodaScript' else '',
+            post_execute_text=(action_data.get('postExecuteMethodText', '') or '') if (action_data.get('postExecuteMethod', '') or '') == 'NodaScript' else '',
             order=action_data.get('order', 0)
         )
         db.session.add(action)
@@ -2801,6 +2974,8 @@ def edit_config_event(config_uid):
             source=action_data.get('source', 'internal'),
             server=action_data.get('server', ''),
             post_execute_method=action_data.get('postExecuteMethod', ''),
+            method_text=(action_data.get('methodText', '') or '') if (action_data.get('method', '') or '') == 'NodaScript' else '',
+            post_execute_text=(action_data.get('postExecuteMethodText', '') or '') if (action_data.get('postExecuteMethod', '') or '') == 'NodaScript' else '',
             order=action_data.get('order', 0)
         )
         db.session.add(action)
@@ -3115,6 +3290,9 @@ def edit_class(class_id):
         class_obj.display_image_web = request.form.get('display_image_web')
         class_obj.display_image_table = request.form.get('display_image_table')
         class_obj.init_screen_layout = request.form.get('init_screen_layout') or ""
+        class_obj.init_screen_layout_web = request.form.get('init_screen_layout_web') or ""
+        class_obj.plug_in = request.form.get('plug_in') or ""
+        class_obj.plug_in_web = request.form.get('plug_in_web') or ""
 
         # Commands tab/group
         class_obj.commands = request.form.get('commands')
@@ -3153,6 +3331,7 @@ def edit_class(class_id):
     room_aliases = RoomAlias.query.filter_by(config_id=class_obj.config_id).order_by(RoomAlias.alias.asc()).all()
 
     ui_tpl_buttons, ui_tpl_map = get_ui_component_templates()
+    plugin_tpl_buttons, plugin_tpl_map = get_plugin_templates()
 
     return render_template('edit_class.html',
                          class_obj=class_obj,
@@ -3160,6 +3339,8 @@ def edit_class(class_id):
                          room_aliases=room_aliases,
                          ui_tpl_buttons=ui_tpl_buttons,
                          ui_tpl_map=ui_tpl_map,
+                         plugin_tpl_buttons=plugin_tpl_buttons,
+                         plugin_tpl_map=plugin_tpl_map,
                          event_types=['onShow', 'onInput', 'onChange', 'onShowWeb', 'onInputWeb', "onAcceptServer", "onAfterAcceptServer"])
 
 
@@ -3305,7 +3486,7 @@ def add_event(class_id):
     
     for a in actions:
         mname = a.get('method','').strip()
-        if mname:
+        if mname and mname != 'NodaScript':
             m = db.session.execute(
                 select(ClassMethod).where(ClassMethod.name == mname, ClassMethod.class_id == class_id)
             ).scalar_one_or_none()
@@ -3337,6 +3518,8 @@ def add_event(class_id):
             server = a.get('server','') or '',
             method = a.get('method','') or '',
             post_execute_method = a.get('postExecuteMethod','') or '',
+            method_text = (a.get('methodText','') or '') if (a.get('method','') or '') == 'NodaScript' else '',
+            post_execute_text = (a.get('postExecuteMethodText','') or '') if (a.get('postExecuteMethod','') or '') == 'NodaScript' else '',
             order = order,
             event_id = ce.id
         )
@@ -3385,7 +3568,7 @@ def edit_event(class_id):
     
     for a in actions:
         mname = a.get('method','').strip()
-        if mname:
+        if mname and mname != 'NodaScript':
             m = db.session.execute(
                 select(ClassMethod).where(ClassMethod.name == mname, ClassMethod.class_id == class_id)
             ).first()
@@ -3411,6 +3594,8 @@ def edit_event(class_id):
             server = a.get('server','') or '',
             method = a.get('method','') or '',
             post_execute_method = a.get('postExecuteMethod','') or '',
+            method_text = (a.get('methodText','') or '') if (a.get('method','') or '') == 'NodaScript' else '',
+            post_execute_text = (a.get('postExecuteMethodText','') or '') if (a.get('postExecuteMethod','') or '') == 'NodaScript' else '',
             order = order,
             event_id = target.id
         )
@@ -4454,6 +4639,9 @@ def export_config(uid):
                 'display_image_web': getattr(c, 'display_image_web', '') or '',
                 'display_image_table': getattr(c, 'display_image_table', '') or '',
                 'init_screen_layout': getattr(c, 'init_screen_layout', '') or '',
+                'init_screen_layout_web': getattr(c, 'init_screen_layout_web', '') or '',
+                'plug_in': getattr(c, 'plug_in', '') or '',
+                'plug_in_web': getattr(c, 'plug_in_web', '') or '',
 
                 'commands': getattr(c, 'commands', '') or '',
                 'use_standard_commands': bool(getattr(c, 'use_standard_commands', True)),
@@ -4858,6 +5046,9 @@ def import_config_new():
                 display_image_web=class_data.get('display_image_web', ''),
                 display_image_table=class_data.get('display_image_table', ''),
                 init_screen_layout=class_data.get('init_screen_layout', ''),
+                init_screen_layout_web=class_data.get('init_screen_layout_web', ''),
+                plug_in=class_data.get('plug_in', ''),
+                plug_in_web=class_data.get('plug_in_web', ''),
 
                 commands=class_data.get('commands', ''),
                 use_standard_commands=bool(class_data.get('use_standard_commands', True)),
@@ -5083,6 +5274,9 @@ def apply_full_config_from_json(config, data):
                 display_image_web=class_data.get('display_image_web', ''),
                 display_image_table=class_data.get('display_image_table', ''),
                 init_screen_layout=class_data.get('init_screen_layout', ''),
+                init_screen_layout_web=class_data.get('init_screen_layout_web', ''),
+                plug_in=class_data.get('plug_in', ''),
+                plug_in_web=class_data.get('plug_in_web', ''),
 
                 commands=class_data.get('commands', ''),
                 use_standard_commands=bool(class_data.get('use_standard_commands', True)),
@@ -7934,6 +8128,18 @@ if __name__ == '__main__':
             if 'init_screen_layout' not in columns:
                 with db.engine.begin() as conn:
                     conn.execute(text('ALTER TABLE config_class ADD COLUMN init_screen_layout TEXT DEFAULT ""'))
+
+            if 'init_screen_layout_web' not in columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN init_screen_layout_web TEXT DEFAULT ""'))
+
+            if 'plug_in' not in columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN plug_in TEXT DEFAULT ""'))
+
+            if 'plug_in_web' not in columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN plug_in_web TEXT DEFAULT ""'))
                
 
         if 'configuration' in inspector.get_table_names():
