@@ -103,6 +103,7 @@
               <option value="data_node" {% if class_obj.class_type == 'data_node' %}selected{% endif %}>{{ _('Data node') }}</option>
               <option value="custom_task" {% if class_obj.class_type == 'custom_task' %}selected{% endif %}>{{ _('User task') }}</option>
               <option value="background_task" {% if class_obj.class_type == 'background_task' %}selected{% endif %}>{{ _('Background task') }}</option>
+            <option value="solo_object" {% if class_obj.class_type == 'solo_object' %}selected{% endif %}>{{ _('Solo Object') }}</option>
             </select>
           </div>
 
@@ -185,6 +186,54 @@
             <small class="text-muted">{{_('^layout_id (from Common Markup) or JSON layout directly')}}</small>
             
           </div>
+
+          
+          <div class="mb-3">
+            <label for="initScreenLayoutWeb" class="form-label">{{_('Init screen layout (web)')}}</label>
+            <div class="d-flex gap-2">
+            <select class="form-select form-select-sm" id="initLayoutWebSelect">
+              <option value="">-- not selected --</option>
+              {% for l in (class_obj.config.common_layouts or []) %}
+                <option value="{{ l.id }}">{{ l.id }}</option>
+              {% endfor %}
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="initLayoutWebUseBtn">
+              {{ _('Use') }}
+            </button>
+          </div>
+            <div class="mt-2 mb-2 d-flex flex-wrap gap-1">
+              {% for t in (ui_tpl_buttons or []) %}
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('initScreenLayoutWeb', '{{ t.key }}')">{{ t.label }}</button>
+              {% endfor %}
+            </div>
+            <textarea class="form-control" id="initScreenLayoutWeb" name="init_screen_layout_web"
+                      rows="2"
+                      placeholder="^my_layout / row JSON-layout ">{{ class_obj.init_screen_layout_web }}</textarea>
+            <small class="text-muted">{{_('^layout_id (from Common Markup) or JSON layout directly')}}</small>
+          </div>
+
+          <div class="mb-3">
+            <label for="plugIn" class="form-label">{{ _('PlugIn') }}</label>
+            <div class="mb-2 d-flex flex-wrap gap-1">
+              {% for t in (plugin_tpl_buttons or []) %}
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertPluginTplIntoTextarea('plugIn', '{{ t.key }}')">{{ t.label }}</button>
+              {% endfor %}
+            </div>
+            <textarea class="form-control" id="plugIn" name="plug_in"
+                      rows="3">{{ class_obj.plug_in }}</textarea>
+          </div>
+
+          <div class="mb-3">
+            <label for="plugInWeb" class="form-label">{{ _('PlugInWeb') }}</label>
+            <div class="mb-2 d-flex flex-wrap gap-1">
+              {% for t in (plugin_tpl_buttons or []) %}
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertPluginTplIntoTextarea('plugInWeb', '{{ t.key }}')">{{ t.label }}</button>
+              {% endfor %}
+            </div>
+            <textarea class="form-control" id="plugInWeb" name="plug_in_web"
+                      rows="3">{{ class_obj.plug_in_web }}</textarea>
+          </div>
+
 
           <hr>
           <h6>{{ _('Commands') }}</h6>
@@ -509,7 +558,7 @@ return True,{}
 
 <!-- Modal for events -->
 <div class="modal fade" id="eventModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="eventModalTitle">{{ _('Edit event') }}</h5>
@@ -776,6 +825,7 @@ codeInput.registerTemplate("syntax-highlighted",
 <script>
 
 const METHOD_LAYOUT_TEMPLATES = {{ (ui_tpl_map or {}) | tojson }};
+const PLUGIN_TEMPLATES = {{ (plugin_tpl_map or {}) | tojson }};
 
 function insertMethodTpl(modalId, name) {
   const tpl = METHOD_LAYOUT_TEMPLATES[name];
@@ -844,6 +894,18 @@ function validateMethodName(name) {
 // Insert UI component JSON into a plain textarea (Cover / Web cover / Layout)
 function insertTplIntoTextarea(textareaId, name) {
   const tpl = (window.METHOD_LAYOUT_TEMPLATES || METHOD_LAYOUT_TEMPLATES || {})[name];
+  if (!tpl) return;
+  const ta = document.getElementById(textareaId);
+  if (!ta) return;
+  const p = ta.selectionStart || 0;
+  ta.value = ta.value.slice(0, p) + tpl + ta.value.slice(p);
+  ta.focus();
+  try { ta.selectionStart = ta.selectionEnd = p + tpl.length; } catch(e) {}
+}
+
+
+function insertPluginTplIntoTextarea(textareaId, name) {
+  const tpl = (window.PLUGIN_TEMPLATES || PLUGIN_TEMPLATES || {})[name];
   if (!tpl) return;
   const ta = document.getElementById(textareaId);
   if (!ta) return;
@@ -964,7 +1026,7 @@ document.addEventListener('DOMContentLoaded', function() {
     row.className = 'action-row mb-2 p-2 border rounded';
 
     row.innerHTML = `
-      <div class="d-flex gap-2 align-items-start">
+      <div class="d-flex gap-2 align-items-start flex-wrap">
         <div style="width:150px">
           <label class="form-label small">action</label>
           <select class="form-select action-field" data-field="action">
@@ -976,6 +1038,7 @@ document.addEventListener('DOMContentLoaded', function() {
           <select class="form-select action-field" data-field="method">
             <option value="">-- (no) --</option>
             ${METHODS.map(m => `<option value="${m}" ${m===action.method?'selected':''}>${m}</option>`).join('')}
+            <option value="NodaScript" ${action.method==='NodaScript'?'selected':''}>NodaScript</option>
           </select>
         </div>
         <div style="width:160px">
@@ -983,6 +1046,7 @@ document.addEventListener('DOMContentLoaded', function() {
           <select class="form-select action-field" data-field="postExecuteMethod">
             <option value="">(no)</option>
             ${METHODS.map(m => `<option value="${m}" ${m===action.postExecuteMethod?'selected':''}>${m}</option>`).join('')}
+            <option value="NodaScript" ${action.postExecuteMethod==='NodaScript'?'selected':''}>NodaScript</option>
           </select>
         </div>
         <div style="width:130px">
@@ -1001,6 +1065,23 @@ document.addEventListener('DOMContentLoaded', function() {
           <button type="button" class="btn btn-outline-danger btn-sm remove-action-btn">&times;</button>
         </div>
       </div>
+
+      <div class="mt-2 noda-script-block" style="display:none; width:100%">
+        <div class="row g-2">
+          <div class="col-12">
+            <div class="method-script" style="display:none;">
+              <label class="form-label small">NodaScript (method)</label>
+              <textarea class="form-control action-field noda-script-textarea" data-field="methodText" rows="4" placeholder="// NodaScript for method">${action.methodText || ''}</textarea>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="post-script" style="display:none;">
+              <label class="form-label small">NodaScript (postExecuteMethod)</label>
+              <textarea class="form-control action-field noda-script-textarea" data-field="postExecuteMethodText" rows="4" placeholder="// NodaScript for postExecuteMethod">${action.postExecuteMethodText || ''}</textarea>
+            </div>
+          </div>
+        </div>
+      </div>
     `;
 
     const removeBtn = row.querySelector('.remove-action-btn');
@@ -1014,6 +1095,46 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     toggleServer();
     sourceSelect.addEventListener('change', toggleServer);
+
+    // NodaScript UI
+    const methodSelect = row.querySelector('[data-field="method"]');
+    const postSelect = row.querySelector('[data-field="postExecuteMethod"]');
+    const nodaBlock = row.querySelector('.noda-script-block');
+    const methodBox = row.querySelector('.method-script');
+    const postBox = row.querySelector('.post-script');
+    const methodTa = row.querySelector('[data-field="methodText"]');
+    const postTa = row.querySelector('[data-field="postExecuteMethodText"]');
+
+    function autoResize(ta) {
+      if (!ta) return;
+      ta.style.height = 'auto';
+      ta.style.height = (ta.scrollHeight + 2) + 'px';
+    }
+    [methodTa, postTa].forEach(ta => {
+      if (!ta) return;
+      ta.style.resize = 'vertical';
+      ta.addEventListener('input', () => autoResize(ta));
+      // initial
+      setTimeout(() => autoResize(ta), 0);
+    });
+
+    function toggleNoda() {
+      const isMethodScript = methodSelect.value === 'NodaScript';
+      const isPostScript = postSelect.value === 'NodaScript';
+
+      if (!isMethodScript) methodTa.value = '';
+      if (!isPostScript) postTa.value = '';
+
+      methodBox.style.display = isMethodScript ? '' : 'none';
+      postBox.style.display = isPostScript ? '' : 'none';
+      nodaBlock.style.display = (isMethodScript || isPostScript) ? '' : 'none';
+
+      if (isMethodScript) autoResize(methodTa);
+      if (isPostScript) autoResize(postTa);
+    }
+    toggleNoda();
+    methodSelect.addEventListener('change', toggleNoda);
+    postSelect.addEventListener('change', toggleNoda);
 
     return row;
   }
@@ -1166,6 +1287,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const ta = document.querySelector('textarea[name="init_screen_layout"]');
     if (!ta) {
       alert('textarea[name="init_screen_layout"] not found');
+      return;
+    }
+
+    ta.value = '^' + v;
+    ta.focus();
+  });
+});
+
+
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('initLayoutWebSelect');
+  const btn = document.getElementById('initLayoutWebUseBtn');
+  if (!sel || !btn) return;
+
+  btn.addEventListener('click', () => {
+    const v = (sel.value || '').trim();
+    if (!v) return;
+
+    const ta = document.querySelector('textarea[name="init_screen_layout_web"]');
+    if (!ta) {
+      alert('textarea[name="init_screen_layout_web"] not found');
       return;
     }
 
