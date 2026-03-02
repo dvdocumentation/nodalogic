@@ -6,6 +6,8 @@
     <style>
   {{ nl_css | safe }}
 
+  <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+
   /* top message stack */
   #nlMessages{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2000;display:flex;flex-direction:column;gap:8px;max-width:min(920px, 94vw);width:fit-content}
   .nl-msg{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:12px;box-shadow:0 0.5rem 1.25rem rgba(0,0,0,.12);background:#fff;border:1px solid rgba(0,0,0,.12)}
@@ -133,11 +135,30 @@ window.Dialog = function(spec, onResult){
   const collect = () => {
     const out = {};
     const inputs = bodyEl.querySelectorAll('[data-path]');
+
+    const parseNumberValue = (raw) => {
+      // Normalize comma decimals for EU locales: "1,5" -> "1.5"
+      const s = (raw == null ? '' : String(raw)).trim().replace(',', '.');
+      if(s === '') return '';
+      const num = Number(s);
+      if(Number.isNaN(num)) return raw;
+      return Number.isInteger(num) ? Math.trunc(num) : num;
+    };
+
     inputs.forEach(i => {
       const p = (i.getAttribute('data-path') || '').trim();
       if(!p) return;
       let v;
-      if(i.type === 'checkbox') v = !!i.checked; else v = i.value;
+      if(i.type === 'checkbox') {
+        v = !!i.checked;
+      } else if(i.type === 'number') {
+        v = parseNumberValue(i.value);
+      } else {
+        // Some inputs can carry the intended type in a data attribute
+        const dit = (i.getAttribute('data-input-type') || '').toUpperCase().trim();
+        if(dit === 'NUMBER') v = parseNumberValue(i.value);
+        else v = i.value;
+      }
       out[p] = v;
     });
     return out;

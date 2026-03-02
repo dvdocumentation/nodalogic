@@ -300,13 +300,19 @@ if (el.type === "checkbox") {
   v = !!el.checked;
 
 } else if (el.type === "number") {
-  const s = String(el.value ?? "").trim();
+  let s = String(el.value ?? "").trim();
   if (s === "") v = null;
   else {
-    
-    const isFloat = s.includes(".") || s.includes("e") || s.includes("E");
+    // Some users type decimal comma. Normalise it for parsing.
+    if (s.includes(",") && !s.includes(".")) s = s.replace(/,/g, ".");
     const num = Number(s);
-    v = Number.isFinite(num) ? (isFloat ? num : parseInt(s, 10)) : null;
+    if (!Number.isFinite(num)) {
+      v = null;
+    } else {
+      // Keep integers as integers; otherwise keep float.
+      const looksFloat = s.includes(".") || s.includes("e") || s.includes("E") || (Math.abs(num % 1) > 0);
+      v = looksFloat ? num : Math.trunc(num);
+    }
   }
 
 } else {
