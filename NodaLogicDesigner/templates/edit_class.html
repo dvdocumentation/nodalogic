@@ -132,6 +132,8 @@
           <div class="mb-3">
             <label for="coverImage" class="form-label">{{ _('Cover') }}</label>
             <div class="mb-2 d-flex flex-wrap gap-1">
+              <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('coverImage')">Format</button>
+              <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('coverImage')">Check</button>
               {% for t in (ui_tpl_buttons or []) %}
                 <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('coverImage', '{{ t.key }}')">{{ t.label }}</button>
               {% endfor %}
@@ -146,6 +148,8 @@
           <div class="mb-3">
             <label for="displayImageWeb" class="form-label">{{ _('Special cover for web client') }}</label>
             <div class="mb-2 d-flex flex-wrap gap-1">
+              <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('displayImageWeb')">Format</button>
+              <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('displayImageWeb')">Check</button>
               {% for t in (ui_tpl_buttons or []) %}
                 <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('displayImageWeb', '{{ t.key }}')">{{ t.label }}</button>
               {% endfor %}
@@ -176,6 +180,8 @@
             </button>
           </div>
             <div class="mt-2 mb-2 d-flex flex-wrap gap-1">
+              <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('initScreenLayout')">Format</button>
+              <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('initScreenLayout')">Check</button>
               {% for t in (ui_tpl_buttons or []) %}
                 <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('initScreenLayout', '{{ t.key }}')">{{ t.label }}</button>
               {% endfor %}
@@ -202,6 +208,8 @@
             </button>
           </div>
             <div class="mt-2 mb-2 d-flex flex-wrap gap-1">
+              <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('initScreenLayoutWeb')">Format</button>
+              <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('initScreenLayoutWeb')">Check</button>
               {% for t in (ui_tpl_buttons or []) %}
                 <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('initScreenLayoutWeb', '{{ t.key }}')">{{ t.label }}</button>
               {% endfor %}
@@ -618,6 +626,30 @@ return True,{}
     <!--You can also choose custom themes by changing "prism" above to something like "prism-dark" from https://prismjs.com/index.html-->
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+
+    <!-- Custom Prism language: NodaScript -->
+    <script>
+      (function(){
+        if (typeof Prism === 'undefined') return;
+
+        // Unicode-aware keyword boundaries (works for EN + RU keywords)
+        const kw = [
+          'if','else','while','for','in','try','except','throw','break','continue','true','false','null','and','or','not','return',
+          'вернуть','если','иначе','пока','для','в','попытка','исключение','вызвать','прервать','продолжить','истина','ложь','пусто','и','или','не'
+        ];
+        const kwRe = new RegExp(String.raw`(?<![\p{L}\p{N}_])(?:${kw.map(s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|')})(?![\p{L}\p{N}_])`, 'u');
+
+        Prism.languages.nodascript = {
+          'comment': { pattern: /\/\/.*/, greedy: true, alias: 'comment' },
+          'string':  { pattern: /(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/, greedy: true },
+          'number':  { pattern: /\b\d+(?:\.\d+)?\b/ },
+          'keyword': { pattern: kwRe },
+          'operator': /[+\-*/%=<>!]+/,
+          'punctuation': /[{}\[\]();,.]/
+        };
+        Prism.languages.noda = Prism.languages.nodascript;
+      })();
+    </script>
         
     <!--Import code-input-->
     <!--The same goes for downloaded versions.-->
@@ -915,6 +947,75 @@ function insertPluginTplIntoTextarea(textareaId, name) {
   try { ta.selectionStart = ta.selectionEnd = p + tpl.length; } catch(e) {}
 }
 
+// --- Layout JSON helpers (Cover / Web cover / Init layouts) ---
+// Expected format: Array<Array<Object>>
+function _parseLayoutJsonFromTextarea(textareaId) {
+  const ta = document.getElementById(textareaId);
+  if (!ta) throw new Error('Textarea not found: ' + textareaId);
+  const raw = (ta.value || '').trim();
+
+  if (!raw) throw new Error('Empty value');
+  if (raw.startsWith('^')) throw new Error('Not a JSON layout (starts with ^layout_id)');
+
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    throw new Error('Invalid JSON: ' + (e && e.message ? e.message : e));
+  }
+  return { ta, raw, data };
+}
+
+function _validateLayoutData(data) {
+  if (!Array.isArray(data)) {
+    throw new Error('Must be an array (top-level)');
+  }
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    if (!Array.isArray(row)) {
+      throw new Error(`Row #${i} must be an array`);
+    }
+    for (let j = 0; j < row.length; j++) {
+      const cell = row[j];
+      const isObj = cell && typeof cell === 'object' && !Array.isArray(cell);
+      if (!isObj) {
+        throw new Error(`Row #${i}, item #${j} must be an object`);
+      }
+    }
+  }
+}
+
+function formatLayoutJson(textareaId) {
+  try {
+    const { ta, data } = _parseLayoutJsonFromTextarea(textareaId);
+    _validateLayoutData(data);
+
+    const lines = [];
+    lines.push('[');
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      const objs = row.map(o => JSON.stringify(o)); // compact objects
+      const rowStr = `[ ${objs.join(', ')} ]`;
+      lines.push('  ' + rowStr + (i < data.length - 1 ? ',' : ''));
+    }
+    lines.push(']');
+    ta.value = lines.join('\n');
+    ta.focus();
+  } catch (e) {
+    alert(String(e && e.message ? e.message : e));
+  }
+}
+
+function checkLayoutJson(textareaId) {
+  try {
+    const { data } = _parseLayoutJsonFromTextarea(textareaId);
+    _validateLayoutData(data);
+    alert('OK');
+  } catch (e) {
+    alert(String(e && e.message ? e.message : e));
+  }
+}
+
 
 function showMethodNameError(input, message) {
 
@@ -1071,13 +1172,13 @@ document.addEventListener('DOMContentLoaded', function() {
           <div class="col-12">
             <div class="method-script" style="display:none;">
               <label class="form-label small">NodaScript (method)</label>
-              <textarea class="form-control action-field noda-script-textarea" data-field="methodText" rows="4" placeholder="// NodaScript for method">${action.methodText || ''}</textarea>
+              <code-input class="action-field noda-script-editor" data-field="methodText" language="nodascript">${(action.methodText || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</code-input>
             </div>
           </div>
           <div class="col-12">
             <div class="post-script" style="display:none;">
               <label class="form-label small">NodaScript (postExecuteMethod)</label>
-              <textarea class="form-control action-field noda-script-textarea" data-field="postExecuteMethodText" rows="4" placeholder="// NodaScript for postExecuteMethod">${action.postExecuteMethodText || ''}</textarea>
+              <code-input class="action-field noda-script-editor" data-field="postExecuteMethodText" language="nodascript">${(action.postExecuteMethodText || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</code-input>
             </div>
           </div>
         </div>
@@ -1102,39 +1203,82 @@ document.addEventListener('DOMContentLoaded', function() {
     const nodaBlock = row.querySelector('.noda-script-block');
     const methodBox = row.querySelector('.method-script');
     const postBox = row.querySelector('.post-script');
-    const methodTa = row.querySelector('[data-field="methodText"]');
-    const postTa = row.querySelector('[data-field="postExecuteMethodText"]');
+    const methodCi = row.querySelector('[data-field="methodText"]');
+    const postCi = row.querySelector('[data-field="postExecuteMethodText"]');
 
-    function autoResize(ta) {
+    function ensureCodeInput(ci) {
+      if (!ci) return;
+      try {
+        if (typeof codeInput !== 'undefined' && !ci._codeInput) {
+          codeInput.register(ci);
+        }
+      } catch(e) {}
+    }
+
+    function clearCodeInput(ci) {
+      if (!ci) return;
+      // If code-input isn't registered yet, touching .value can throw.
+      if (ci._codeInput) ci.value = '';
+      else ci.textContent = '';
+    }
+
+
+    function getInnerTextarea(ci) {
+      if (!ci) return null;
+      try {
+        let ta = ci.querySelector('textarea');
+        if (!ta && ci._codeInput && ci._codeInput.textarea) ta = ci._codeInput.textarea;
+        if (!ta && ci._codeInput && ci._codeInput.textareaElement) ta = ci._codeInput.textareaElement;
+        return ta;
+      } catch(e) { return null; }
+    }
+
+    function autoResize(ci) {
+      const ta = getInnerTextarea(ci);
       if (!ta) return;
       ta.style.height = 'auto';
       ta.style.height = (ta.scrollHeight + 2) + 'px';
     }
-    [methodTa, postTa].forEach(ta => {
-      if (!ta) return;
-      ta.style.resize = 'vertical';
-      ta.addEventListener('input', () => autoResize(ta));
-      // initial
-      setTimeout(() => autoResize(ta), 0);
-    });
 
     function toggleNoda() {
+      // make sure code-input is ready before reading/writing .value
+      ensureCodeInput(methodCi);
+      ensureCodeInput(postCi);
+
       const isMethodScript = methodSelect.value === 'NodaScript';
       const isPostScript = postSelect.value === 'NodaScript';
 
-      if (!isMethodScript) methodTa.value = '';
-      if (!isPostScript) postTa.value = '';
+      if (!isMethodScript) clearCodeInput(methodCi);
+      if (!isPostScript) clearCodeInput(postCi);
 
       methodBox.style.display = isMethodScript ? '' : 'none';
       postBox.style.display = isPostScript ? '' : 'none';
       nodaBlock.style.display = (isMethodScript || isPostScript) ? '' : 'none';
 
-      if (isMethodScript) autoResize(methodTa);
-      if (isPostScript) autoResize(postTa);
+      if (isMethodScript) autoResize(methodCi);
+      if (isPostScript) autoResize(postCi);
     }
+
+    // register editors before first use
+    ensureCodeInput(methodCi);
+    ensureCodeInput(postCi);
+
     toggleNoda();
     methodSelect.addEventListener('change', toggleNoda);
     postSelect.addEventListener('change', toggleNoda);
+
+    // Prism/code-input for NodaScript editors (dynamic rows)
+    [methodCi, postCi].forEach(ci => {
+      if (!ci) return;
+      try { if (typeof codeInput !== 'undefined') codeInput.register(ci); } catch(e) {}
+      // best-effort autoresize while typing
+      const ta = getInnerTextarea(ci);
+      if (ta) {
+        ta.style.resize = 'vertical';
+        ta.addEventListener('input', () => autoResize(ci));
+        setTimeout(() => autoResize(ci), 0);
+      }
+    });
 
     return row;
   }
