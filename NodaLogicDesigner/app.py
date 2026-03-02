@@ -686,14 +686,22 @@ app.config['BABEL_DEFAULT_LOCALE'] = 'en'
 UI_COMPONENT_TEMPLATES = OrderedDict([
     ('Text', '{"type":"Text","value":"my text"}'),
     ('Text(tag)', '{"type":"Text","value":"my text","radius":10,"background":"#F54927"}'),
-    ('Picture', '{"type":"Picture","value":""}'),
+    ('Picture', '{"type":"Picture","value":"filename/path"}'),
     ('Button', '{"type":"Button","id":"btn_update","caption":"Simple button"}'),
     ('Switch', '{"type":"Switch","caption":"Setting 1","id":"sw1","value":"@sw1"}'),
     ('CheckBox', '{"type":"CheckBox","caption":"My checkbox","id":"cb1","value":"@cb1"}'),
-    ('Input', '{"type":"Input","caption":"My input","id":"my_input1","input_type":"","value":"@my_input1"}'),
-    ('Table', '{"type":"Table","id":"my_table","value":[]}'),
+    ('Input', '{"type":"Input","caption":"My input","id":"my_input1","input_type":"number","value":"@my_input1"}'),
+    ('Table(flat)', '{"type":"Table","id":"tab4","value":lines,"table":True,"table_header":["#|n|1","Position|position|7","Qty|qty|1"]}'),
+    ('Table(list)', '{"type":"Tab","id":"tab1","caption":"Base elements","layout":tab1_layout,"value":"@lines"}'),
     ('Tabs', '{"type":"Tabs","value":[{"type":"Tab","id":"tab1","caption":"My tab1","layout":[]}]}'),
-    ('DatasetField', '{"type":"DatasetField","dataset":"","value":""}'),
+    ('DatasetField', '{"type":"DatasetField","dataset":"goods","value":"@product"}'),
+    ('NodeInput', '{"type":"DatasetField","dataset":"operations","value":"@my_node"}'),
+    ('Spinner', '{"type":"Spinner","id":"my_spinner","caption":"my select:","value":"@my_spinner", "dataset":spinner_dataset}'),
+    ('Card', '{"type":"Card","value":[[]]}'),
+    ('VerticalLayout', '{"type":"VerticalLayout","value":[]}'),
+    ('HorizontalLayout', '{"type":"HorizontalLayout","value":[]}'),
+    ('VerticalScroll', '{"type":"VerticalScroll","value":[]}'),
+    ('HorizontalScroll', '{"type":"HorizontalScroll","value":[]}'),
 ])
 
 # -----------------------------------------------------------------------------
@@ -701,6 +709,12 @@ UI_COMPONENT_TEMPLATES = OrderedDict([
 # -----------------------------------------------------------------------------
 PLUGIN_TEMPLATES = OrderedDict([
     ('FloatingButton', '{"type":"FloatingButton","id":"my_fab","caption":"My <b>button</b>"}'),
+    ('CameraBarcodeScannerButton', '{"type":"CameraBarcodeScannerButton","id":"cam_barcode"}'),
+    ('BarcodeScanner ', '{"type":"BarcodeScanner ","id":"barcode"}'),
+    ('ToolbarButton ', '{"type":"ToolbarButton","id":"pin","caption":"Save","svg":svg2,"svg_size":24,"svg_color":"#FFFFFF"}'),
+    ('PhotoButton', '{"type":"PhotoButton","id":"photo"}'),
+    ('GalleryButton', '{"type":"GalleryButton","id":"photo"'),
+    ('MediaGallery', '{"type":"MediaGallery","id":"gallery"}'),
 ])
 
 def get_plugin_templates():
@@ -6894,6 +6908,42 @@ def remove_example_method_from_class(module_code, class_name):
     return module_code
     
 
+def ensure_class_stub_in_module(module_code: str, class_name: str) -> str:
+    """
+    Ensures class stub exists in handlers module in the form:
+
+    class MyClass(Node):
+
+        def __init__(self, node_id=None, config_uid=None):
+            super().__init__(node_id, config_uid)
+    """
+
+    module_code = module_code or ""
+
+    
+    class_pattern = re.compile(
+        rf'^\s*class\s+{re.escape(class_name)}\s*\(',
+        re.MULTILINE
+    )
+    if class_pattern.search(module_code):
+        return module_code
+
+    
+    if not module_code.strip():
+        module_code = NODE_CLASS_CODE.strip() + "\n"
+
+    module = module_code.rstrip() + "\n\n"
+
+    
+    stub = (
+        f"class {class_name}(Node):\n"
+        f"    \n"
+        f"    def __init__(self, node_id=None, config_uid=None):\n"
+        f"        super().__init__(node_id, config_uid)\n"
+    )
+
+    return module + stub + "\n"
+
 @app.route('/save-method/<int:method_id>', methods=['POST'])
 @login_required
 def save_method(method_id):
@@ -6914,18 +6964,36 @@ def save_method(method_id):
         if method.engine == 'server_python':
             current_module = ""
             if method.class_obj.config.nodes_server_handlers:
-                current_module = base64.b64decode(method.class_obj.config.nodes_server_handlers).decode('utf-8')
+                current_module = base64.b64decode(
+                    method.class_obj.config.nodes_server_handlers
+                ).decode('utf-8')
+
             
-            
-            new_module = add_method_to_class(current_module, method.class_obj.name, method.name, function_body)
-            
-            if new_module is None:  
-                return redirect(url_for('edit_class', class_id=method.class_id, _anchor='handlers-refresh'))
-            
-            
-            method.class_obj.config.nodes_server_handlers = base64.b64encode(new_module.encode('utf-8')).decode('utf-8')
-            
+            if not current_module.strip():
+                current_module = NODE_CLASS_CODE.strip() + "\n"
+
            
+            current_module = ensure_class_stub_in_module(
+                current_module,
+                method.class_obj.name
+            )
+
+           
+            new_module = add_method_to_class(
+                current_module,
+                method.class_obj.name,
+                method.name,
+                function_body
+            )
+
+            if new_module is None:
+                return redirect(url_for('edit_class', class_id=method.class_id, _anchor='handlers-refresh'))
+
+            method.class_obj.config.nodes_server_handlers = base64.b64encode(
+                new_module.encode('utf-8')
+            ).decode('utf-8')
+
+            
             handlers_dir = os.path.join('Handlers', method.class_obj.config.uid)
             os.makedirs(handlers_dir, exist_ok=True)
             handlers_file_path = os.path.join(handlers_dir, 'handlers.py')
