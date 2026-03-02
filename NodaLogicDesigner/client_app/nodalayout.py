@@ -922,7 +922,19 @@ def render_nodalayout_html(
             default_full_width=True,
         )
 
+        # value may be:
+        #   - list of rows
+        #   - string dataset name
+        #   - string reference into current node_data: "@lines" -> node_data["lines"]
         value = el.get("value") or []
+        if isinstance(value, str):
+            vstr = value.strip()
+            if vstr.startswith("@"):
+                ref_key = vstr[1:].strip()
+                ref_val = node_data.get(ref_key) if isinstance(node_data, dict) else None
+                # allow list of objects/rows as an inline source
+                if isinstance(ref_val, list):
+                    value = ref_val
         rows_data: List[Any] = value if isinstance(value, list) else []
 
         # ------- helpers -------
@@ -1132,17 +1144,26 @@ def render_nodalayout_html(
             rows_data = value
         elif isinstance(value, str):
             ds_name = value.strip()
-            as_table = bool(el.get("table"))
-            
-            return (
-                f'<div class="nl-dataset-table" data-nl-dataset-table="1" '
-                f'data-nl-table-id="{tid}" data-nl-dataset-name="{escape(ds_name)}" '
-                f'data-nl-as-table="{"1" if as_table else "0"}"{style_attr}>'
-                f'<input class="form-control form-control-sm" '
-                f'data-nl-dataset-search="1" placeholder="Поиск..."/>'
-                f'<div class="mt-2" data-nl-dataset-body="1"></div>'
-                f'</div>'
-            )
+            # If string starts with '@' treat it as a reference into current node_data.
+            # Example: value="@lines" and node_data["lines"] is a list of objects.
+            if ds_name.startswith("@"):
+                ref_key = ds_name[1:].strip()
+                ref_val = node_data.get(ref_key) if isinstance(node_data, dict) else None
+                if isinstance(ref_val, list):
+                    rows_data = ref_val
+
+            # Fallback to dataset-table behavior when rows are not provided inline.
+            if not rows_data:
+                as_table = bool(el.get("table"))
+                return (
+                    f'<div class="nl-dataset-table" data-nl-dataset-table="1" '
+                    f'data-nl-table-id="{tid}" data-nl-dataset-name="{escape(ds_name)}" '
+                    f'data-nl-as-table="{"1" if as_table else "0"}"{style_attr}>'
+                    f'<input class="form-control form-control-sm" '
+                    f'data-nl-dataset-search="1" placeholder="Поиск..."/>'
+                    f'<div class="mt-2" data-nl-dataset-body="1"></div>'
+                    f'</div>'
+                )
 
         if nodes_source:
             # Try to interpret each row as {"class":..,"id":..} or {"_class":..,"_id":..}
