@@ -692,11 +692,13 @@ UI_COMPONENT_TEMPLATES = OrderedDict([
     ('CheckBox', '{"type":"CheckBox","caption":"My checkbox","id":"cb1","value":"@cb1"}'),
     ('Input', '{"type":"Input","caption":"My input","id":"my_input1","input_type":"number","value":"@my_input1"}'),
     ('Table(flat)', '{"type":"Table","id":"tab4","value":lines,"table":True,"table_header":["#|n|1","Position|position|7","Qty|qty|1"]}'),
-    ('Table(list)', '{"type":"Tab","id":"tab1","caption":"Base elements","layout":tab1_layout,"value":"@lines"}'),
+    ('Table(list)', '{"type":"Table","id":"table1","layout":tab1_layout,"value":"@lines"}'),
     ('Tabs', '{"type":"Tabs","value":[{"type":"Tab","id":"tab1","caption":"My tab1","layout":[]}]}'),
     ('DatasetField', '{"type":"DatasetField","dataset":"goods","value":"@product"}'),
-    ('NodeInput', '{"type":"DatasetField","dataset":"operations","value":"@my_node"}'),
+    ('NodeInput', '{"type":"NodeInput","dataset":"operations","value":"@my_node"}'),
     ('Spinner', '{"type":"Spinner","id":"my_spinner","caption":"my select:","value":"@my_spinner", "dataset":spinner_dataset}'),
+    ('NodeLink', '{"type":"NodeLink","value":""}'),
+    ('DataSetLink', '{"type":"DataSetLink","value":""}'),
     ('Card', '{"type":"Card","value":[[]]}'),
     ('VerticalLayout', '{"type":"VerticalLayout","value":[]}'),
     ('HorizontalLayout', '{"type":"HorizontalLayout","value":[]}'),
@@ -4190,6 +4192,287 @@ def register_nodes(config_uid, class_name, room_uid):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/config/<config_uid>/class_method/<class_name>/<method_name>', methods=['POST'])
+@api_auth_required
+def execute_class_method(config_uid, class_name, method_name):
+
+    data = request.get_json() or {}
+    date = data.get("date")
+
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == config_uid)
+    ).scalar_one_or_none()
+
+    if not config:
+        abort(404)
+
+    runtime_parsed = _build_runtime_parsed_config(config)
+    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed)
+
+    @after_this_request
+    def _reset_ctx(resp):
+        _nodes_mod.reset_runtime_context(_ctx_tokens)
+        return resp
+
+    try:
+
+        isolated_globals = _load_server_handlers_ns(config_uid, config)
+
+        if class_name not in isolated_globals:
+            return jsonify({"status": False, "error": "class not found"}), 404
+
+        node_class = isolated_globals[class_name]
+
+        if not hasattr(node_class, method_name):
+            return jsonify({"status": False, "error": "method not found"}), 404
+
+        fn = getattr(node_class, method_name)
+
+        if date is not None:
+            result = fn(date)
+        else:
+            result = fn()
+
+        return jsonify({
+            "status": True,
+            "result": result
+        })
+
+    except Exception as e:
+
+        return jsonify({
+            "status": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route("/api/config/<config_uid>/date_range", methods=["GET"])
+@api_auth_required
+def config_date_range(config_uid):
+    """
+    Returns min/max dates across ALL node classes for given config_uid.
+
+    Prefers date index DBs:
+      node_storage/<Class>_<config_uid>__date_index.sqlite
+    Fallback: scans main storage DB:
+      node_storage/<Class>_<config_uid>.sqlite
+
+    Output date format:
+      min_date_key/max_date_key: 'YYYYMMDD'
+      min_date/max_date: 'YYYY-MM-DD'
+    """
+    import os, glob, sqlite3, pickle
+    import nodes as _nodes_mod
+
+    # ensure config exists (optional, but good)
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == config_uid)
+    ).scalar_one_or_none()
+    if not config:
+        abort(404)
+
+    base_dir = "node_storage"
+    table = "unnamed"
+
+    def key_to_iso(dk: str | None) -> str | None:
+        if not dk or len(dk) != 8:
+            return None
+        return f"{dk[0:4]}-{dk[4:6]}-{dk[6:8]}"
+
+    def unpack(blob):
+        try:
+            return pickle.loads(blob)
+        except Exception:
+            return None
+
+    # discover classes by scanning storage files
+    pattern = os.path.join(base_dir, f"*_{config_uid}.sqlite")
+    main_files = [
+        p for p in glob.glob(pattern)
+        if not p.endswith("__date_index.sqlite")
+    ]
+
+    per_class = []
+    global_min = None
+    global_max = None
+
+    for main_path in sorted(main_files):
+        fname = os.path.basename(main_path)
+        # "<Class>_<config_uid>.sqlite"  -> class_name
+        suffix = f"_{config_uid}.sqlite"
+        if not fname.endswith(suffix):
+            continue
+        class_name = fname[:-len(suffix)]
+
+        idx_path = os.path.join(base_dir, f"{class_name}_{config_uid}__date_index.sqlite")
+
+        cls_min = None
+        cls_max = None
+        used = None
+
+        # 1) Fast path: read min/max from index
+        if os.path.exists(idx_path):
+            conn = sqlite3.connect(idx_path)
+            try:
+                cur = conn.cursor()
+                # keys are "YYYYMMDD|node_id" so MIN/MAX works lexicographically
+                cur.execute(f"SELECT MIN(key), MAX(key) FROM {table}")
+                row = cur.fetchone()
+                if row:
+                    kmin, kmax = row
+                    if kmin:
+                        cls_min = str(kmin)[0:8]
+                    if kmax:
+                        cls_max = str(kmax)[0:8]
+                used = "date_index"
+            finally:
+                conn.close()
+
+        # 2) Fallback: scan main DB values for _data._date_key / _data._date
+        if (cls_min is None and cls_max is None) and os.path.exists(main_path):
+            conn = sqlite3.connect(main_path)
+            try:
+                cur = conn.cursor()
+                cur.execute(f"SELECT value FROM {table}")
+                for (blob,) in cur.fetchall():
+                    obj = unpack(blob)
+                    if not isinstance(obj, dict):
+                        continue
+                    data = obj.get("_data") or {}
+                    if not isinstance(data, dict):
+                        continue
+                    dk = data.get("_date_key") or _nodes_mod.normalize_date_key(data.get("_date"))
+                    if not dk:
+                        continue
+                    # update min/max
+                    if cls_min is None or dk < cls_min:
+                        cls_min = dk
+                    if cls_max is None or dk > cls_max:
+                        cls_max = dk
+                used = "scan_main_db"
+            finally:
+                conn.close()
+
+        # update global min/max
+        if cls_min:
+            if global_min is None or cls_min < global_min:
+                global_min = cls_min
+        if cls_max:
+            if global_max is None or cls_max > global_max:
+                global_max = cls_max
+
+        per_class.append({
+            "class": class_name,
+            "min_date_key": cls_min,
+            "max_date_key": cls_max,
+            "min_date": key_to_iso(cls_min),
+            "max_date": key_to_iso(cls_max),
+            "source": used,
+        })
+
+    return jsonify({
+        "status": True,
+        "config_uid": config_uid,
+        "min_date_key": global_min,
+        "max_date_key": global_max,
+        "min_date": key_to_iso(global_min),
+        "max_date": key_to_iso(global_max),
+        "classes": per_class,
+    })
+
+@app.route("/api/config/<config_uid>/node/<class_name>/page_at_date", methods=["GET"])
+@api_auth_required
+def nodes_api_page_at_date(config_uid, class_name):
+    """
+    Fast paged nodes list up to date (inclusive) using date index.
+    Query:
+      date (YYYY-MM-DD|YYYYMMDD), offset (int), limit (int)
+    """
+    # validate config exists
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == config_uid)
+    ).scalar_one_or_none()
+    if not config:
+        abort(404)
+
+    import os, sqlite3, pickle
+    import nodes as _nodes_mod
+
+    date = (request.args.get("date") or "").strip()
+    offset = int(request.args.get("offset", 0) or 0)
+    limit = int(request.args.get("limit", 50) or 50)
+
+    # normalize date to YYYYMMDD
+    dk = _nodes_mod.normalize_date_key(date)
+    if not dk:
+        return jsonify({"total": 0, "offset": offset, "limit": limit, "items": [], "error": "bad date format"}), 400
+
+    storage_key = f"{class_name}_{config_uid}"
+    main_db_path = os.path.join("node_storage", f"{storage_key}.sqlite")
+    idx_db_path = os.path.join("node_storage", f"{storage_key}__date_index.sqlite")
+
+    if not os.path.exists(main_db_path):
+        return jsonify({"total": 0, "offset": offset, "limit": limit, "items": []})
+
+    if not os.path.exists(idx_db_path):
+        # index not built yet
+        return jsonify({"total": 0, "offset": offset, "limit": limit, "items": [], "warning": "date index missing"}), 200
+
+    table = "unnamed"
+
+    def unpack(blob):
+        try:
+            return pickle.loads(blob)
+        except Exception:
+            return None
+
+    upper = f"{dk}|~"
+
+    # 1) get page of node_ids from index (fast)
+    conn = sqlite3.connect(idx_db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(f"SELECT COUNT(1) FROM {table} WHERE key <= ?", (upper,))
+        total = int(cur.fetchone()[0] or 0)
+
+        cur.execute(
+            f"SELECT key FROM {table} WHERE key <= ? ORDER BY key LIMIT ? OFFSET ?",
+            (upper, limit, offset),
+        )
+        idx_rows = cur.fetchall()
+        idx_keys = [r[0] for r in idx_rows]
+    finally:
+        conn.close()
+
+    node_ids = []
+    for k in idx_keys:
+        try:
+            _, node_id = k.split("|", 1)
+            node_ids.append(node_id)
+        except Exception:
+            pass
+
+    if not node_ids:
+        return jsonify({"total": total, "offset": offset, "limit": limit, "items": []})
+
+    # 2) fetch docs from main storage by ids (page sized -> OK)
+    conn = sqlite3.connect(main_db_path)
+    try:
+        cur = conn.cursor()
+        items = []
+        for node_id in node_ids:
+            cur.execute(f"SELECT value FROM {table} WHERE key = ?", (node_id,))
+            row = cur.fetchone()
+            if not row:
+                continue
+            obj = unpack(row[0])
+            if obj is not None:
+                items.append(obj)
+
+        return jsonify({"total": total, "offset": offset, "limit": limit, "items": items})
+    finally:
+        conn.close()        
+
 @app.route('/api/config/<config_uid>/node/<class_name>', methods=['GET', 'POST'])
 @api_auth_required
 def nodes_api(config_uid, class_name):
@@ -4326,6 +4609,118 @@ def nodes_api(config_uid, class_name):
         return jsonify({
             "error": str(e)
         }), 500
+
+
+@app.route("/api/config/<config_uid>/node/batch_get", methods=["POST"])
+@api_auth_required
+def node_batch_get(config_uid):
+
+    data = request.get_json() or {}
+
+    class_name = data.get("class")
+    ids = data.get("ids", [])
+    date = data.get("date")
+
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == config_uid)
+    ).scalar_one_or_none()
+
+    if not config:
+        abort(404)
+
+    runtime_parsed = _build_runtime_parsed_config(config)
+    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed)
+
+    @after_this_request
+    def _reset_ctx(resp):
+        _nodes_mod.reset_runtime_context(_ctx_tokens)
+        return resp
+
+    isolated_globals = _load_server_handlers_ns(config_uid, config)
+
+    if class_name not in isolated_globals:
+        return jsonify({"status":True,"items":[]})
+
+    node_class = isolated_globals[class_name]
+
+    result = []
+
+    for nid in ids:
+
+        node = node_class.get(nid, config_uid)
+
+        if not node:
+            continue
+
+        result.append(node._data)
+
+    return jsonify({
+        "status":True,
+        "items":result
+    })
+
+@app.route("/api/config/<config_uid>/node/batch_summary", methods=["POST"])
+@api_auth_required
+def node_batch_summary(config_uid):
+
+    data = request.get_json() or {}
+
+    class_name = data.get("class")
+    ids = data.get("ids",[])
+    date = data.get("date")
+
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == config_uid)
+    ).scalar_one_or_none()
+
+    if not config:
+        abort(404)
+
+    runtime_parsed = _build_runtime_parsed_config(config)
+    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed)
+
+    @after_this_request
+    def _reset_ctx(resp):
+        _nodes_mod.reset_runtime_context(_ctx_tokens)
+        return resp
+
+    isolated_globals = _load_server_handlers_ns(config_uid, config)
+
+    if class_name not in isolated_globals:
+        return jsonify({"status":True,"items":[]})
+
+    node_class = isolated_globals[class_name]
+
+    result = []
+
+    for nid in ids:
+
+        node = node_class.get(nid, config_uid)
+
+        if not node:
+            continue
+
+        fn = getattr(node, "_summary", None)
+
+        if not callable(fn):
+            continue
+
+        try:
+
+            r = fn(date)
+
+            result.append({
+                "id":nid,
+                "summary":r
+            })
+
+        except Exception:
+            pass
+
+    return jsonify({
+        "status":True,
+        "items":result
+    })
 
 
 @app.route('/api/config/<config_uid>/node/<class_name>/page', methods=['GET'])
@@ -4684,7 +5079,9 @@ def export_config(uid):
                                 'source': a.source,
                                 'server': a.server,
                                 'method': a.method,
-                                'postExecuteMethod': a.post_execute_method
+                                'postExecuteMethod': a.post_execute_method,
+                                **({"methodText": a.method_text} if (a.method or '') == 'NodaScript' else {}),
+                                **({"postExecuteMethodText": a.post_execute_text} if (a.post_execute_method or '') == 'NodaScript' else {}),
                             }
                             for a in e.actions
                         ]
@@ -5118,6 +5515,8 @@ def import_config_new():
                         server=action_data.get('server', ''),
                         method=action_data.get('method', ''),
                         post_execute_method=action_data.get('postExecuteMethod', ''),
+                        method_text=(action_data.get('methodText', '') or '') if (action_data.get('method', '') or '') == 'NodaScript' else '',
+                        post_execute_text=(action_data.get('postExecuteMethodText', '') or '') if (action_data.get('postExecuteMethod', '') or '') == 'NodaScript' else '',
                         order=action_data.get('order', 0),
                         event_id=new_event.id
                     )
@@ -7943,6 +8342,80 @@ def get_ws_scheme():
     if request.is_secure or request.headers.get('X-Forwarded-Proto', '').lower() == 'https':
         return 'wss'
     return 'ws'
+
+#NL_graph API
+@app.route("/api/config/<uid>/handlers-server/save", methods=["POST"])
+@api_auth_required
+def api_handlers_server_save(uid):
+    data = request.get_json(silent=True) or {}
+    code = data.get("code") or ""
+
+    user = getattr(request, "api_user", None)
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    config = db.session.scalars(
+        select(Configuration).where(Configuration.uid == uid, Configuration.user_id == user.id)
+    ).first()
+    if not config:
+        return jsonify({"error": "not_found"}), 404
+
+    if not code.strip():
+        return jsonify({"error": "empty_code"}), 400
+
+    is_valid, error = validate_python_syntax(code)
+    if not is_valid:
+        return jsonify({"error": "python_syntax_error", "details": error}), 400
+
+    encoded = base64.b64encode(code.encode("utf-8")).decode("utf-8")
+    config.nodes_server_handlers = encoded
+    config.update_last_modified()
+    db.session.commit()
+
+    handlers_dir = os.path.join("Handlers", config.uid)
+    os.makedirs(handlers_dir, exist_ok=True)
+    with open(os.path.join(handlers_dir, "handlers.py"), "w", encoding="utf-8", newline="\n") as f:
+        f.write(code)
+
+    sync_classes_from_server_handlers(config)
+    sync_methods_from_code(config)
+
+    return jsonify({"ok": True})
+
+@app.route("/api/config/create", methods=["POST"])
+@api_auth_required
+def api_config_create():
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "New configuration").strip() or "New configuration"
+
+    # user берём из api_auth_required (как current_user аналог)
+    user = getattr(request, "api_user", None)  # <- как у тебя реализовано в api_auth_required
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    new_config = Configuration(
+        name=name,
+        user_id=user.id,
+        content_uid=str(uuid.uuid4()),
+        vendor=getattr(user, "config_display_name", None) or user.email,
+        version="00.00.01",
+    )
+    new_config.uid = str(uuid.uuid4())
+
+    # android handlers можно как раньше (если нужно), но nl_graph просит только server handlers
+    default_server_handlers = NODE_CLASS_CODE
+    new_config.nodes_server_handlers = base64.b64encode(default_server_handlers.encode("utf-8")).decode("utf-8")
+
+    db.session.add(new_config)
+    db.session.commit()
+
+    handlers_dir = os.path.join("Handlers", new_config.uid)
+    os.makedirs(handlers_dir, exist_ok=True)
+    with open(os.path.join(handlers_dir, "handlers.py"), "w", encoding="utf-8", newline="\n") as f:
+        f.write(default_server_handlers)
+
+    return jsonify({"ok": True, "uid": new_config.uid, "name": new_config.name})
+#
 
 
 if __name__ == '__main__':

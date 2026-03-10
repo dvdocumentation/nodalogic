@@ -393,6 +393,9 @@ class Node:
     _storage_locks = {}  
     _instance_locks = {}  
     
+    _date_index_storages = {}
+    _date_index_locks = {}
+    
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         
@@ -674,6 +677,43 @@ class Node:
                 node_data["_updated_at"] = datetime.now(timezone.utc).isoformat()
                 self._storage[self._id] = node_data
 
+                # --- update date index (best-effort; never break save) ---
+                try:
+                    old_date = None
+                    if isinstance(saved_state, dict):
+                        old_date = saved_state.get("_date_key") or saved_state.get("_date")
+
+                    new_state = node_data.get("_data") or {}
+                    new_date = None
+                    if isinstance(new_state, dict):
+                        new_date = new_state.get("_date_key") or new_state.get("_date")
+
+                    old_dk = normalize_date_key(old_date)
+                    new_dk = normalize_date_key(new_date)
+
+                    # persist normalized key for consistency
+                    if new_dk and isinstance(new_state, dict):
+                        if new_state.get("_date_key") != new_dk:
+                            new_state["_date_key"] = new_dk
+                            node_data["_data"] = new_state
+                            self._storage[self._id] = node_data
+
+                    idx = self.__class__._get_date_index_storage(self._config_uid)
+
+                    if old_dk and old_dk != new_dk:
+                        old_k = self.__class__._date_index_key(old_dk, self._id)
+                        try:
+                            if old_k in idx:
+                                del idx[old_k]
+                        except Exception:
+                            pass
+
+                    if new_dk:
+                        new_k = self.__class__._date_index_key(new_dk, self._id)
+                        idx[new_k] = 1
+                except Exception:
+                    pass
+
                 # run post-save hook AFTER persisting (only once per request)
                 run_on_after_accept_server_once(self, saved_state)
                 return True
@@ -897,6 +937,43 @@ class Node:
                 node_data['_updated_at'] = datetime.now(timezone.utc).isoformat()
                 self._storage[self._id] = node_data
 
+                # --- update date index (best-effort; never break save) ---
+                try:
+                    old_date = None
+                    if isinstance(saved_state, dict):
+                        old_date = saved_state.get("_date_key") or saved_state.get("_date")
+
+                    new_state = node_data.get("_data") or {}
+                    new_date = None
+                    if isinstance(new_state, dict):
+                        new_date = new_state.get("_date_key") or new_state.get("_date")
+
+                    old_dk = normalize_date_key(old_date)
+                    new_dk = normalize_date_key(new_date)
+
+                    # persist normalized key for consistency
+                    if new_dk and isinstance(new_state, dict):
+                        if new_state.get("_date_key") != new_dk:
+                            new_state["_date_key"] = new_dk
+                            node_data["_data"] = new_state
+                            self._storage[self._id] = node_data
+
+                    idx = self.__class__._get_date_index_storage(self._config_uid)
+
+                    if old_dk and old_dk != new_dk:
+                        old_k = self.__class__._date_index_key(old_dk, self._id)
+                        try:
+                            if old_k in idx:
+                                del idx[old_k]
+                        except Exception:
+                            pass
+
+                    if new_dk:
+                        new_k = self.__class__._date_index_key(new_dk, self._id)
+                        idx[new_k] = 1
+                except Exception:
+                    pass
+
                 # run post-save hook AFTER persisting (only once per request)
                 run_on_after_accept_server_once(self, saved_state)
 
@@ -928,6 +1005,43 @@ class Node:
                 node_data['_data'] = dict(to_write) if isinstance(to_write, dict) else new_state
                 node_data['_updated_at'] = datetime.now(timezone.utc).isoformat()
                 self._storage[self._id] = node_data
+
+                # --- update date index (best-effort; never break save) ---
+                try:
+                    old_date = None
+                    if isinstance(saved_state, dict):
+                        old_date = saved_state.get("_date_key") or saved_state.get("_date")
+
+                    new_state = node_data.get("_data") or {}
+                    new_date = None
+                    if isinstance(new_state, dict):
+                        new_date = new_state.get("_date_key") or new_state.get("_date")
+
+                    old_dk = normalize_date_key(old_date)
+                    new_dk = normalize_date_key(new_date)
+
+                    # persist normalized key for consistency
+                    if new_dk and isinstance(new_state, dict):
+                        if new_state.get("_date_key") != new_dk:
+                            new_state["_date_key"] = new_dk
+                            node_data["_data"] = new_state
+                            self._storage[self._id] = node_data
+
+                    idx = self.__class__._get_date_index_storage(self._config_uid)
+
+                    if old_dk and old_dk != new_dk:
+                        old_k = self.__class__._date_index_key(old_dk, self._id)
+                        try:
+                            if old_k in idx:
+                                del idx[old_k]
+                        except Exception:
+                            pass
+
+                    if new_dk:
+                        new_k = self.__class__._date_index_key(new_dk, self._id)
+                        idx[new_k] = 1
+                except Exception:
+                    pass
 
                 # run post-save hook AFTER persisting (only once per request)
                 run_on_after_accept_server_once(self, saved_state)
@@ -1041,6 +1155,144 @@ class Node:
         
         storage = cls._class_storages[storage_key]
         return {node_id: cls(node_id, config_uid) for node_id in storage.keys()}
+
+    # --- date index (fast queries by _data._date_key) ---
+
+    @classmethod
+    def _get_date_index_storage(cls, config_uid=None):
+        if not config_uid:
+            config_uid = current_config_uid_from_handlers()
+        storage_key = f"{cls.__name__}_{config_uid}" if config_uid else cls.__name__
+        idx_key = f"{storage_key}__date_index"
+
+        if idx_key not in cls._date_index_storages:
+            if idx_key not in cls._date_index_locks:
+                cls._date_index_locks[idx_key] = threading.RLock()
+            with cls._date_index_locks[idx_key]:
+                if idx_key not in cls._date_index_storages:
+                    db_path = os.path.join(STORAGE_BASE_PATH, f"{idx_key}.sqlite")
+                    cls._date_index_storages[idx_key] = SqliteDict(db_path, autocommit=True)
+
+        return cls._date_index_storages[idx_key]
+
+    @classmethod
+    def _date_index_key(cls, date_key: str, node_id: str) -> str:
+        return f"{date_key}|{node_id}"
+
+    @classmethod
+    def page_at_date(cls, *, date=None, config_uid=None, offset=0, limit=50):
+        """Fast paged nodes list up to date (inclusive) using date index.
+        date: 'YYYY-MM-DD'|'YYYYMMDD'|ISO datetime; if None -> falls back to key paging.
+        Returns: {total, offset, limit, items}
+        """
+        if not config_uid:
+            config_uid = current_config_uid_from_handlers()
+
+        import sqlite3, pickle
+
+        storage_key = f"{cls.__name__}_{config_uid}" if config_uid else cls.__name__
+        main_db_path = os.path.join(STORAGE_BASE_PATH, f"{storage_key}.sqlite")
+        if not os.path.exists(main_db_path):
+            return {"total": 0, "offset": int(offset), "limit": int(limit), "items": []}
+
+        table = "unnamed"
+
+        def unpack(blob):
+            try:
+                return pickle.loads(blob)
+            except Exception:
+                return None
+
+        dk = normalize_date_key(date)
+
+        # no date -> fast key paging like nodes_api_page
+        if dk is None:
+            conn = sqlite3.connect(main_db_path)
+            try:
+                cur = conn.cursor()
+                cur.execute(f"SELECT COUNT(1) FROM {table}")
+                total = int(cur.fetchone()[0] or 0)
+                cur.execute(
+                    f"SELECT value FROM {table} ORDER BY key LIMIT ? OFFSET ?",
+                    (int(limit), int(offset)),
+                )
+                rows = cur.fetchall()
+                items = []
+                for (val_blob,) in rows:
+                    obj = unpack(val_blob)
+                    if obj is not None:
+                        items.append(obj)
+                return {"total": total, "offset": int(offset), "limit": int(limit), "items": items}
+            finally:
+                conn.close()
+
+        # date provided -> use date index to get node ids, then fetch docs from main storage
+        idx_db_path = os.path.join(STORAGE_BASE_PATH, f"{storage_key}__date_index.sqlite")
+        if not os.path.exists(idx_db_path):
+            # index missing -> fallback to scan (slow) but correct
+            conn = sqlite3.connect(main_db_path)
+            try:
+                cur = conn.cursor()
+                cur.execute(f"SELECT value FROM {table}")
+                rows = cur.fetchall()
+                items_all = []
+                for (val_blob,) in rows:
+                    obj = unpack(val_blob)
+                    if obj is None:
+                        continue
+                    data = (obj or {}).get("_data") or {}
+                    k = normalize_date_key(data.get("_date_key") or data.get("_date"))
+                    if k and k <= dk:
+                        items_all.append(obj)
+                total = len(items_all)
+                sliced = items_all[int(offset): int(offset) + int(limit)]
+                return {"total": total, "offset": int(offset), "limit": int(limit), "items": sliced}
+            finally:
+                conn.close()
+
+        upper = f"{dk}|~"
+
+        conn = sqlite3.connect(idx_db_path)
+        try:
+            cur = conn.cursor()
+            cur.execute(f"SELECT COUNT(1) FROM {table} WHERE key <= ?", (upper,))
+            total = int(cur.fetchone()[0] or 0)
+            cur.execute(
+                f"SELECT key FROM {table} WHERE key <= ? ORDER BY key LIMIT ? OFFSET ?",
+                (upper, int(limit), int(offset)),
+            )
+            idx_rows = cur.fetchall()
+            idx_keys = [r[0] for r in idx_rows]
+        finally:
+            conn.close()
+
+        node_ids = []
+        for k in idx_keys:
+            try:
+                _, node_id = k.split("|", 1)
+                node_ids.append(node_id)
+            except Exception:
+                pass
+
+        if not node_ids:
+            return {"total": total, "offset": int(offset), "limit": int(limit), "items": []}
+
+        # fetch docs for these node_ids from main db (per-id lookup is cheap for page-sized list)
+        conn = sqlite3.connect(main_db_path)
+        try:
+            cur = conn.cursor()
+            items = []
+            for node_id in node_ids:
+                cur.execute(f"SELECT value FROM {table} WHERE key = ?", (node_id,))
+                row = cur.fetchone()
+                if not row:
+                    continue
+                obj = unpack(row[0])
+                if obj is not None:
+                    items.append(obj)
+            return {"total": total, "offset": int(offset), "limit": int(limit), "items": items}
+        finally:
+            conn.close()
     
     @classmethod
     def find(cls, condition_func, config_uid=None):
@@ -1118,6 +1370,11 @@ class Node:
         Индекс _tx_index тоже пересобирается.
         """
         txs = list(self._data.get("_transactions", {}).get(scheme_name, []) or [])
+        # ensure stable ordering by period_key then uid
+        try:
+            txs.sort(key=lambda t: ((t.get("period_key") or normalize_date_key(t.get("period")) or ""), str(t.get("uid") or "")))
+        except Exception:
+            pass
         if not txs:
             # почистим индекс
             idx_root = self._data.setdefault("_tx_index", {})
@@ -1136,6 +1393,9 @@ class Node:
             if prev:
                 prev["child"] = tx["uid"]
             tx["child"] = None  # выставим после, когда будет следующий
+
+            # normalize period key for fast queries
+            tx["period_key"] = normalize_date_key(tx.get("period")) or tx.get("period_key")
 
             # пересчёт balances
             keys = tx.get("keys") or []
@@ -1190,6 +1450,11 @@ class Node:
 
     def _remove_sum_transaction_unique(self, scheme_name: str, *, unique_key: str) -> bool:
         txs = list(self._data.get("_transactions", {}).get(scheme_name, []) or [])
+        # ensure stable ordering by period_key then uid
+        try:
+            txs.sort(key=lambda t: ((t.get("period_key") or normalize_date_key(t.get("period")) or ""), str(t.get("uid") or "")))
+        except Exception:
+            pass
         if not txs:
             return False
 
@@ -1248,6 +1513,7 @@ class Node:
             "parent": parent_id,
             "child": None,
             "period": period,
+            "period_key": normalize_date_key(period),
             "keys": keys,
             "values": values,
             "balances": balances,
@@ -1306,6 +1572,7 @@ class Node:
             "parent": parent_id,
             "child": None,
             "period": period,
+            "period_key": normalize_date_key(period),
             "keys": keys,
             "values": values,
             "balances": balances,
@@ -1323,12 +1590,45 @@ class Node:
         self._save()
         return uid
 
-    def _get_balance(self, scheme_name):
-        """Returns current balances according to the scheme"""
-        txs = self._data.get("_transactions", {}).get(scheme_name, [])
-        if not txs:
-            return {}
-        return txs[-1]["balances"]
+    def _get_balance(self, scheme_name, date=None):
+            """Returns balances for scheme at a specific date (inclusive).
+            If date is None -> last balances.
+            Date can be 'YYYY-MM-DD', 'YYYYMMDD' or ISO datetime.
+            """
+            txs = self._data.get("_transactions", {}).get(scheme_name, [])
+            if not txs:
+                return {}
+            if date is None:
+                return txs[-1].get("balances") or {}
+
+            dk = normalize_date_key(date)
+            if not dk:
+                # fallback to string compare on period
+                target = str(date)
+                lo, hi, idx = 0, len(txs) - 1, -1
+                while lo <= hi:
+                    mid = (lo + hi) // 2
+                    p = str(txs[mid].get("period") or "")
+                    if p <= target:
+                        idx = mid
+                        lo = mid + 1
+                    else:
+                        hi = mid - 1
+                return (txs[idx].get("balances") or {}) if idx >= 0 else {}
+
+            lo, hi, idx = 0, len(txs) - 1, -1
+            while lo <= hi:
+                mid = (lo + hi) // 2
+                pkey = txs[mid].get("period_key") or normalize_date_key(txs[mid].get("period"))
+                if not pkey:
+                    pkey = "00000000"
+                if pkey <= dk:
+                    idx = mid
+                    lo = mid + 1
+                else:
+                    hi = mid - 1
+            return (txs[idx].get("balances") or {}) if idx >= 0 else {}
+
     def _get_sum_transactions(self, scheme_name):
         """Returns the full chain of transactions according to the scheme"""
         return self._data.get("_transactions", {}).get(scheme_name, [])
@@ -1366,6 +1666,7 @@ class Node:
             "parent": parent_id,
             "child": None,
             "period": period,
+            "period_key": normalize_date_key(period),
             "keys": keys,
             "values": values,
             "state": current_state,  
@@ -1383,12 +1684,43 @@ class Node:
         self._save()
         return uid
 
-    def _get_state_balance(self, scheme_name):
-        """Returns the current state of the schema (the values ​​of the last transaction)"""
-        txs = self._data.get("_state_transactions", {}).get(scheme_name, [])
-        if not txs:
-            return {}
-        return txs[-1]["state"]  
+    def _get_state_balance(self, scheme_name, date=None):
+            """Returns state snapshot for scheme at a specific date (inclusive).
+            If date is None -> last state.
+            Date can be 'YYYY-MM-DD', 'YYYYMMDD' or ISO datetime.
+            """
+            txs = self._data.get("_state_transactions", {}).get(scheme_name, [])
+            if not txs:
+                return {}
+            if date is None:
+                return txs[-1].get("state") or {}
+
+            dk = normalize_date_key(date)
+            if not dk:
+                target = str(date)
+                lo, hi, idx = 0, len(txs) - 1, -1
+                while lo <= hi:
+                    mid = (lo + hi) // 2
+                    p = str(txs[mid].get("period") or "")
+                    if p <= target:
+                        idx = mid
+                        lo = mid + 1
+                    else:
+                        hi = mid - 1
+                return (txs[idx].get("state") or {}) if idx >= 0 else {}
+
+            lo, hi, idx = 0, len(txs) - 1, -1
+            while lo <= hi:
+                mid = (lo + hi) // 2
+                pkey = txs[mid].get("period_key") or normalize_date_key(txs[mid].get("period"))
+                if not pkey:
+                    pkey = "00000000"
+                if pkey <= dk:
+                    idx = mid
+                    lo = mid + 1
+                else:
+                    hi = mid - 1
+            return (txs[idx].get("state") or {}) if idx >= 0 else {}
 
     def _get_state_transactions(self, scheme_name):
         """Returns the complete chain of transactions for the state of the schema"""
@@ -1711,6 +2043,32 @@ def normalize_own_uid(config_uid: str, class_name: str, raw_id: str) -> str:
     if internal is None:
         return None
     return f"{config_uid}${class_name}${internal}"
+
+def normalize_date_key(date_str):
+    """Normalize date-like string into 'YYYYMMDD' (8 chars) or return None.
+    Accepts:
+      - 'YYYY-MM-DD'
+      - 'YYYYMMDD'
+      - ISO datetime 'YYYY-MM-DDTHH:MM:SS...'
+    """
+    if date_str is None:
+        return None
+    s = str(date_str).strip()
+    if not s:
+        return None
+    if "T" in s:
+        s = s.split("T", 1)[0].strip()
+    if len(s) == 10 and s[4] == "-" and s[7] == "-":
+        y, m_, d = s[0:4], s[5:7], s[8:10]
+        if y.isdigit() and m_.isdigit() and d.isdigit():
+            return y + m_ + d
+        return None
+    if len(s) == 8 and s.isdigit():
+        return s
+    return None
+
+
+
 
 def parse_uid_any(uid):
     """
