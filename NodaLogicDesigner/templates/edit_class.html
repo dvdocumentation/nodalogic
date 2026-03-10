@@ -634,10 +634,31 @@ return True,{}
 
         // Unicode-aware keyword boundaries (works for EN + RU keywords)
         const kw = [
-          'if','else','while','for','in','try','except','throw','break','continue','true','false','null','and','or','not','return',
-          'вернуть','если','иначе','пока','для','в','попытка','исключение','вызвать','прервать','продолжить','истина','ложь','пусто','и','или','не'
-        ];
-        const kwRe = new RegExp(String.raw`(?<![\p{L}\p{N}_])(?:${kw.map(s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|')})(?![\p{L}\p{N}_])`, 'u');
+  // EN
+  'if','else','while','for','in','try','except','throw',
+  'break','continue','return',
+  'true','false','null',
+  'and','or','not',
+
+  // RU
+  'если','иначе','пока',
+  'для','в','из',
+  'попытка','исключение','вызвать',
+  'прервать','продолжить',
+  'возврат',
+  'тогда','иначеесли','конецесли',
+  'цикл','конеццикла',
+  'каждого','по',
+  'новый','массив','структура',
+  'истина','ложь','неопределено',
+  'и','или','не'
+];
+
+      // было: 'u'  -> надо: 'iu' (case-insensitive)
+      const kwRe = new RegExp(
+        String.raw`(?<![\p{L}\p{N}_])(?:${kw.map(s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|')})(?![\p{L}\p{N}_])`,
+        'iu'
+      );
 
         Prism.languages.nodascript = {
           'comment': { pattern: /\/\/.*/, greedy: true, alias: 'comment' },
