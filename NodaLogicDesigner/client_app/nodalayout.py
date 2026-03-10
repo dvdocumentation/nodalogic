@@ -11,6 +11,28 @@ from typing import Any, Callable, Dict, List, Optional, Union
 Layout = Union[str, List[List[Dict[str, Any]]]]
 
 _VAR_RE = re.compile(r"@([A-Za-z0-9_]+)")
+_HEX_COLOR_RE = re.compile(r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$")
+
+
+def _needs_tpl(raw: Any) -> bool:
+    """Whether the original string should be kept for client-side @/# evaluation."""
+    if not isinstance(raw, str):
+        return False
+    s = raw.strip()
+    if not s:
+        return False
+    if _HEX_COLOR_RE.fullmatch(s):
+        return False
+    return ("@" in s) or s.startswith("#")
+
+
+def _tpl_attr(name: str, raw: Any) -> str:
+    if not _needs_tpl(raw):
+        return ""
+    try:
+        return f' data-nl-tpl-{escape(str(name))}="{escape(str(raw))}"'
+    except Exception:
+        return ""
 
 # Добавим в nodalayout.py функции для работы с детьми в новом формате
 
@@ -74,6 +96,81 @@ def _get_children_from_data(data: Dict[str, Any]) -> List[Dict[str, str]]:
                     })
     
     return result
+
+
+
+def _resolve_link_value(raw_val: Any, node_data: Dict[str, Any]) -> str:
+    """Resolve element value or @var into a raw UID/reference string."""
+    if isinstance(raw_val, str) and raw_val.startswith("@"):
+        v = node_data.get(raw_val[1:], "")
+        return "" if v is None else str(v)
+    return _resolve_vars(str(raw_val or ""), node_data)
+
+
+def _resolve_node_link_text(el: Dict[str, Any], node_data: Dict[str, Any], context: Optional[Dict[str, Any]]) -> str:
+    raw_ref = _resolve_link_value(el.get("value"), node_data).strip()
+    if not raw_ref:
+        return ""
+
+    # 1) explicit prefilled view in node_data by element id
+    lid = str(el.get("id") or "").strip()
+    if lid:
+        view_key = f"{lid}_view"
+        v = node_data.get(view_key)
+        if v not in (None, ""):
+            return str(v)
+
+    # 2) explicit <field>_view for @field values
+    raw_val = el.get("value")
+    if isinstance(raw_val, str) and raw_val.startswith("@"):
+        field_name = raw_val[1:]
+        v = node_data.get(f"{field_name}_view")
+        if v not in (None, ""):
+            return str(v)
+
+    # 3) resolve on demand via context
+    get_node_view_fn = (context or {}).get("get_node_view")
+    if callable(get_node_view_fn):
+        try:
+            resolved = get_node_view_fn(raw_ref)
+            if resolved not in (None, ""):
+                return str(resolved)
+        except Exception:
+            pass
+
+    return raw_ref
+
+
+def _resolve_dataset_link_text(el: Dict[str, Any], node_data: Dict[str, Any], context: Optional[Dict[str, Any]]) -> str:
+    raw_ref = _resolve_link_value(el.get("value"), node_data).strip()
+    if not raw_ref:
+        return ""
+
+    lid = str(el.get("id") or "").strip()
+    if lid:
+        view_key = f"{lid}_view"
+        v = node_data.get(view_key)
+        if v not in (None, ""):
+            return str(v)
+
+    raw_val = el.get("value")
+    if isinstance(raw_val, str) and raw_val.startswith("@"):
+        field_name = raw_val[1:]
+        v = node_data.get(f"{field_name}_view")
+        if v not in (None, ""):
+            return str(v)
+
+    ds_name = str(el.get("dataset") or "").strip()
+    get_view_fn = (context or {}).get("get_dataset_item_view")
+    if callable(get_view_fn):
+        try:
+            resolved = get_view_fn(ds_name, raw_ref)
+            if resolved not in (None, ""):
+                return str(resolved)
+        except Exception:
+            pass
+
+    return raw_ref
 
 def _coerce_layout(layout: Layout) -> List[List[Dict[str, Any]]]:
     """Normalize layout into 2D rows."""
@@ -202,12 +299,14 @@ def _style_attr(
     bg = el.get("background")
     if not (isinstance(bg, str) and bg.strip()):
         bg = el.get("bg")
+    tpl_bg_attr = _tpl_attr("style-background", bg) if _needs_tpl(bg) else ""
     if isinstance(bg, str) and bg.strip():
         css.append(f"background:{bg}")
 
     fg = el.get("text_color")
     if not (isinstance(fg, str) and fg.strip()):
         fg = el.get("fg")
+    tpl_fg_attr = _tpl_attr("style-color", fg) if _needs_tpl(fg) else ""
     if isinstance(fg, str) and fg.strip():
         css.append(f"color:{fg}")
 
@@ -250,9 +349,10 @@ def _style_attr(
     if extra_css:
         css.extend([c for c in extra_css if isinstance(c, str) and c.strip()])
 
+    attrs = tpl_bg_attr + tpl_fg_attr
     if not css:
-        return ""
-    return ' style="' + escape(";".join(css)) + '"'
+        return attrs
+    return ' style="' + escape(";".join(css)) + '"' + attrs
 
 
 def _weight_css(el: Dict[str, Any], *, direction: str) -> List[str]:
@@ -466,17 +566,35 @@ def render_nodalayout_html(
             return f'<div class="nl-tabs"{style_attr}>{nav_html}{panes_html}</div>'
 
         if t == "Text":
-            txt = _resolve_vars(str(el.get("value") or ""), node_data)
+            raw_tpl = el.get("value")
+            txt = _resolve_vars(str(raw_tpl or ""), node_data)
             #allow_html = bool(el.get("html") or el.get("allow_html"))
             allow_html =True
-            return f'<div class="nl-text"{style_attr}>{txt if allow_html else escape(txt)}</div>'
+            tpl = _tpl_attr("text", raw_tpl)
+            html_flag = ' data-nl-allow-html="1"' if allow_html else ""
+            return f'<div class="nl-text"{style_attr}{tpl}{html_flag}>{txt if allow_html else escape(txt)}</div>'
+
+        if t == "NodeLink":
+            raw_tpl = el.get("value")
+            txt = _resolve_node_link_text(el, node_data, context)
+            tpl = _tpl_attr("text", raw_tpl)
+            return f'<div class="nl-text nl-node-link"{style_attr}{tpl}>{escape(txt)}</div>'
+
+        if t == "DataSetLink":
+            raw_tpl = el.get("value")
+            txt = _resolve_dataset_link_text(el, node_data, context)
+            tpl = _tpl_attr("text", raw_tpl)
+            return f'<div class="nl-text nl-dataset-link"{style_attr}{tpl}>{escape(txt)}</div>'
 
         if t == "HTML":
-            html = _resolve_vars(str(el.get("value") or ""), node_data)
-            return f'<div class="nl-html"{style_attr}>{html}</div>'
+            raw_tpl = el.get("value")
+            html = _resolve_vars(str(raw_tpl or ""), node_data)
+            tpl = _tpl_attr("html", raw_tpl)
+            return f'<div class="nl-html"{style_attr}{tpl} data-nl-allow-html="1">{html}</div>'
 
         if t == "Picture":
-            raw = _resolve_vars(str(el.get("value") or ""), node_data)
+            raw_tpl = el.get("value")
+            raw = _resolve_vars(str(raw_tpl or ""), node_data)
             src = _picture_src(raw, assets_base_dir)
             alt = escape(str(el.get("caption") or ""))
             cover = bool(el.get("cover"))
@@ -495,9 +613,11 @@ def render_nodalayout_html(
 
             style_attr = _style_attr(el, extra_css=pic_extra_css)
 
+            tpl = _tpl_attr("src", raw_tpl)
+
             if src:
-                return f'<img class="nl-picture"{style_attr} src="{escape(src)}" alt="{alt}"/>'
-            return f'<div class="nl-picture nl-empty"{style_attr}></div>'
+                return f'<img class="nl-picture"{style_attr}{tpl} src="{escape(src)}" alt="{alt}"/>'
+            return f'<div class="nl-picture nl-empty"{style_attr}{tpl}></div>'
 
         if t == "ImageSlider":
             # value:
@@ -757,7 +877,7 @@ def render_nodalayout_html(
                 return (
                     f'<div class="{field_cls}">'
                     f'{label_html}'
-                    f'<textarea class="{textarea_cls}"{style_attr_input} '
+                    f'<textarea class="{textarea_cls}"{style_attr_input}{_tpl_attr("value", el.get("value"))}{_tpl_attr("placeholder", el.get("caption"))} '
                     f'data-path="{path}" data-id="{iid}"{events_attr} '
                     f'placeholder="{ph}">{escape(v)}</textarea>'
                     f'</div>'
@@ -775,7 +895,7 @@ def render_nodalayout_html(
             return (
                 f'<div class="nl-field nl-field-row">'
                 f'{label_html}'
-                f'<input class="nl-input"{style_attr_input} data-path="{path}" data-id="{iid}" '
+                f'<input class="nl-input"{style_attr_input}{_tpl_attr("value", el.get("value"))}{_tpl_attr("placeholder", el.get("caption"))} data-path="{path}" data-id="{iid}" '
                 f'type="{html_type}"{events_attr}{date_attr} '
                 f'value="{escape(v)}" placeholder="{ph}"/>'
                 f'</div>'
@@ -865,16 +985,18 @@ def render_nodalayout_html(
 
         if t == "Switch":
             iid = escape(str(el.get("id") or "sw"))
-            cap = _resolve_vars(str(el.get("caption") or ""), node_data)
+            raw_cap = el.get("caption")
+            cap = _resolve_vars(str(raw_cap or ""), node_data)
             val = el.get("value")
             path = str(el.get("id") or "")
             if isinstance(val, str) and val.startswith("@"):
                 val = node_data.get(val[1:])
             events_attr = ' data-nl-events="1"' if el.get("events") else ""
             checked = " checked" if str(val).lower() in ("1", "true", "yes", "on") else ""
+            tpl = _tpl_attr("text", raw_cap)
             return (
                 f'<label class="nl-switch"{style_attr}>'
-                f'<span class="nl-switch-caption">{escape(cap)}</span>'
+                f'<span class="nl-switch-caption"{tpl}>{escape(cap)}</span>'
                 f'<span class="nl-switch-control">'
                 f'<input type="checkbox" data-id="{iid}" data-path="{escape(path or str(el.get("id") or ""))}"{events_attr}{checked}/>'
                 f'<span class="nl-switch-slider"></span>'
@@ -884,12 +1006,14 @@ def render_nodalayout_html(
 
         # Active elements
         if t == "Button":
-            caption = _resolve_vars(str(el.get("caption", el.get("value", "Button"))), node_data)
+            raw_tpl = el.get("caption", el.get("value", "Button"))
+            caption = _resolve_vars(str(raw_tpl), node_data)
             bid = escape(str(el.get("id") or "btn"))
             # no match_parent in web: use wrap_content by default
+            tpl = _tpl_attr("text", raw_tpl)
             return (
                 f'<button class="nl-button"{style_attr} data-nl-click="1" data-nl-listener="{bid}" '
-                f'type="button">{escape(caption)}</button>'
+                f'type="button"{tpl}>{escape(caption)}</button>'
             )
 
         if t == "Table":
@@ -914,6 +1038,7 @@ def render_nodalayout_html(
         tid = escape(str(el.get("id") or "tbl"))
         nodes_source = bool(el.get("nodes_source"))
         as_table = bool(el.get("table"))
+        virtual_node = el.get("virtual_node") if isinstance(el.get("virtual_node"), dict) else None
         # Ensure tables never overflow the available content width.
         # (Bootstrap tables can become wider than the container if long content appears.)
         style_attr = _style_attr(
@@ -921,6 +1046,31 @@ def render_nodalayout_html(
             extra_css=["max-width:100%", "overflow-x:auto"],
             default_full_width=True,
         )
+
+        # Special case: virtual_node rows are stored directly inside current node._data[table_id].
+        # Layout + cover are declared inline in the element itself.
+        if virtual_node and not nodes_source:
+            vt_layout = virtual_node.get("layout")
+            vt_cover = virtual_node.get("cover")
+            vt_header = _parse_table_header(el.get("table_header")) if as_table else []
+            add_btn = (
+            f'<button type="button" class="nl-btn-add" data-nl-vt-add="1">'
+            f'+'
+            f'</button>'
+            )
+
+            toolbar = f'<div class="nl-vt-toolbar">{add_btn}</div>'
+            body_cls = "nl-vt-body nl-vt-table-body" if as_table else "nl-vt-body nl-vt-grid-body"
+            return (
+                f'<div class="nl-virtual-table-host" data-nl-virtual-table="1" data-nl-table-id="{tid}" '
+                f'data-nl-as-table="{"1" if as_table else "0"}" '
+                f'data-nl-vt-layout="{escape(json.dumps(vt_layout, ensure_ascii=False))}" '
+                f'data-nl-vt-cover="{escape(json.dumps(vt_cover, ensure_ascii=False))}" '
+                f'data-nl-vt-header="{escape(json.dumps(vt_header, ensure_ascii=False))}"{style_attr}>'
+                f'{toolbar}'
+                f'<div class="{body_cls}"></div>'
+                f'</div>'
+            )
 
         # value may be:
         #   - list of rows
@@ -1646,6 +1796,27 @@ DEFAULT_NL_CSS = """
 .nl-node-row{border:1px solid rgba(0,0,0,.125);border-radius:12px;padding:8px;background:#fff}
 .nl-node-row:hover{background:rgba(0,0,0,.02)}
 
+/* virtual table */
+.nl-virtual-table-host{display:flex;flex-direction:column;gap:8px}
+.nl-vt-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin-bottom: 8px;
+}
+
+.nl-virtual-table tbody tr + tr td {
+  padding-top: 6px;
+}
+
+.nl-virtual-table tbody tr + tr td {
+  padding-top: 6px;
+}
+.nl-vt-add-btn{width:32px;height:32px;padding:0;border:none;border-radius:8px;background:#198754;color:#fff;font-size:22px;line-height:1;font-weight:700;display:inline-flex;align-items:center;justify-content:center;box-shadow:0 1px 2px rgba(0,0,0,.08);vertical-align:middle}.nl-vt-add-btn>span{display:block;line-height:1;transform:translateY(-1px)}
+.nl-vt-add-btn:hover{filter:brightness(.96)}
+.nl-vt-empty{border:1px dashed rgba(0,0,0,.2);border-radius:12px;padding:14px;color:rgba(0,0,0,.55);background:rgba(0,0,0,.01)}
+.nl-vt-row-cover{display:block;width:100%}
+
 /* NodeChildren */
 .nl-child-line{position:absolute;top:18px;width:14px;height:2px;background:rgba(0,0,0,.25)}
 .nl-node-children{display:flex;flex-direction:column;gap:10px}
@@ -1672,5 +1843,29 @@ DEFAULT_NL_CSS = """
 .nl-imageslider .carousel-inner,
 .nl-imageslider .carousel-item {
   height: 100%;
+}
+
+.nl-btn-add {
+  background: #198754;      /* bootstrap success green */
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 14px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.nl-btn-add:hover {
+  background: #157347;      /* темнее при наведении */
+}
+
+.nl-btn-add:active {
+  background: #146c43;      /* ещё темнее при нажатии */
+}
+
+.nl-btn-add:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(25,135,84,.25);
 }
 """

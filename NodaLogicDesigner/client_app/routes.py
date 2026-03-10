@@ -173,6 +173,18 @@ def _fetch_node_data_for_repo(repo: models.Repo, class_name: str, node_id: str) 
     except Exception:
         return {}
 
+def _wrap_client_tpl_html(html: str, data: dict) -> str:
+    html = str(html or "").strip()
+    if not html:
+        return ""
+    if 'data-nl-tpl-' not in html:
+        return html
+    try:
+        payload = escape(json.dumps(data or {}, ensure_ascii=False), quote=True)
+        return f'<div class="nl-cover-runtime" data-nl-cover-data="{payload}">{html}</div>'
+    except Exception:
+        return html
+
 def _node_cover_html(repo: models.Repo, class_name: str, node_id: str, mode: str = "") -> str:
 
     # NOTE: `mode` is kept for backward/forward compatibility.
@@ -187,19 +199,19 @@ def _node_cover_html(repo: models.Repo, class_name: str, node_id: str, mode: str
             if isinstance(cov, (dict, list)):
                 html = str(render_nodalayout_html(cov, data, assets_base_dir=assets_base_dir) or "").strip()
                 if html:
-                    return html
+                    return _wrap_client_tpl_html(html, data)
             elif isinstance(cov, str):
                 s = cov.strip()
                 # json layout as string
                 if (s.startswith("[") or s.startswith("{")):
                     html = str(render_nodalayout_html(s, data, assets_base_dir=assets_base_dir) or "").strip()
                     if html:
-                        return html
+                        return _wrap_client_tpl_html(html, data)
                 # plain image src
                 pic_layout = [[{"type": "Picture", "value": s, "width": -1}]]
                 html = str(render_nodalayout_html(pic_layout, data, assets_base_dir=assets_base_dir) or "").strip()
                 if html:
-                    return html
+                    return _wrap_client_tpl_html(html, data)
     except Exception:
         pass
 
@@ -221,7 +233,7 @@ def _node_cover_html(repo: models.Repo, class_name: str, node_id: str, mode: str
             
             html = str(render_nodalayout_html(layout_to_use, data, assets_base_dir=assets_base_dir) or "").strip()
             if html:
-                return html
+                return _wrap_client_tpl_html(html, data)
     except Exception:
         pass
 
@@ -466,6 +478,28 @@ def _nl_context(repo: models.Repo, *, class_name: str, node_id: str) -> Dict[str
             return item_id
         except Exception:
             return item_uid
+
+    def get_node_view(node_uid: str) -> str:
+        """Resolve node UID/Class$Id into plain display text (_view or id)."""
+        try:
+            uid = str(node_uid or "").strip()
+            if not uid:
+                return ""
+            lst = _nodes_mod.from_uid([uid], config_uid=str(repo.config_uid))
+            if not lst:
+                return uid
+            n = lst[0]
+            d = None
+            try:
+                d = n.get_data() or {}
+            except Exception:
+                d = {}
+            if isinstance(d, dict):
+                return str(d.get("_view") or getattr(n, "_id", "") or uid)
+            return str(getattr(n, "_id", "") or uid)
+        except Exception:
+            return str(node_uid or "")
+
     def uid_resolve(uid: str):
         try:
             lst = _nodes_mod.from_uid([str(uid)], config_uid=str(repo.config_uid))
@@ -512,6 +546,7 @@ def _nl_context(repo: models.Repo, *, class_name: str, node_id: str) -> Dict[str
         "node_cover_table": lambda cls, nid: _node_cover_html(repo, cls, nid, mode="table"),
         "node_children_tree": lambda c, i: _node_children_tree(repo, c, i),
         "get_dataset_item_view": get_dataset_item_view,
+        "get_node_view": get_node_view,
         "uid_resolve": uid_resolve,
     }
 
@@ -696,7 +731,9 @@ def fetch_config_from_local_db(config_uid: str) -> Dict[str, Any]:
                             "source": a.source,
                             "server": a.server,
                             "method": a.method,
+                            "methodText": getattr(a, "method_text", "") or "",
                             "postExecuteMethod": a.post_execute_method,
+                            "postExecuteMethodText": getattr(a, "post_execute_method_text", "") or "",
                         }
                         for a in (e.actions or [])
                     ],
@@ -1331,6 +1368,36 @@ def _node_local_upsert_custom_process(config_uid: str, class_name: str, node_id:
         node._save()
     return node_uid    
 
+@client_bp.route("/api/nodalayout/render", methods=["POST"])
+@login_required
+def api_nodalayout_render():
+    j = request.get_json(force=True) or {}
+    repo_id = int(j.get("repo_id") or 0)
+    class_name = str(j.get("class_name") or "")
+    node_id = str(j.get("node_id") or "")
+    layout = j.get("layout")
+    data = j.get("data")
+
+    if not repo_id or not class_name or not node_id:
+        return jsonify({"ok": False, "error": "bad args"}), 400
+    if layout is None:
+        return jsonify({"ok": False, "error": "layout required"}), 400
+    if data is None or not isinstance(data, dict):
+        data = {}
+
+    repo = _get_repo_or_404(repo_id)
+    try:
+        html = render_nodalayout_html(
+            layout,
+            data,
+            assets_base_dir=_userfiles_dir_for_repo(repo),
+            context=_nl_context(repo, class_name=class_name, node_id=node_id),
+        )
+        return jsonify({"ok": True, "layout_html": html or ""})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @client_bp.route("/api/node/save", methods=["POST"])
 @login_required
 def api_node_save():
@@ -1957,21 +2024,21 @@ def api_section_data():
             cov = data.get("_cover") if isinstance(data, dict) else None
             if cov:
                 if isinstance(cov, (dict, list)):
-                    return str(render_nodalayout_html(cov, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or "")
+                    return _wrap_client_tpl_html(str(render_nodalayout_html(cov, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or ""), data)
                 if isinstance(cov, str):
                     s = cov.strip()
                     if s.startswith("[") or s.startswith("{"):
-                        return str(render_nodalayout_html(s, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or "")
+                        return _wrap_client_tpl_html(str(render_nodalayout_html(s, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or ""), data)
                     pic_layout = [[{"type": "Picture", "value": s, "width": -1}]]
-                    return str(render_nodalayout_html(pic_layout, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or "")
+                    return _wrap_client_tpl_html(str(render_nodalayout_html(pic_layout, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or ""), data)
         except Exception:
             pass
 
         # 2) class cover layouts (existing)
         try:
             if (str(cover_web_layout or "").strip()):
-                return str(render_nodalayout_html(cover_web_layout, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or "")
-            return str(render_nodalayout_html(cover_layout, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or "")
+                return _wrap_client_tpl_html(str(render_nodalayout_html(cover_web_layout, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or ""), data)
+            return _wrap_client_tpl_html(str(render_nodalayout_html(cover_layout, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or ""), data)
         except Exception:
             return ""
 
