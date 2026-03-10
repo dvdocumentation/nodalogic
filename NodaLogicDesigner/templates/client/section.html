@@ -170,6 +170,86 @@ async function fireNodeEvent(repo_id, class_name, node_id, event_name, payload){
   return j;
 }
 
+
+function nlCoverGetByPath(obj, path){
+  try {
+    const parts = String(path || '').split('.').filter(Boolean);
+    let cur = obj;
+    for (const part of parts) {
+      if (cur == null) return null;
+      cur = cur[part];
+    }
+    return cur;
+  } catch(_) { return null; }
+}
+
+function nlCoverIsHexColorString(value){
+  const s = String(value ?? '').trim();
+  return /^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/.test(s);
+}
+
+function nlResolveCoverTemplateString(s, data){
+  if (s == null) return '';
+  s = String(s);
+  const st = s.trim();
+  if (nlCoverIsHexColorString(st)) {
+    return st;
+  }
+  if (st.startsWith('#')) {
+    try {
+      const Ctor = window.NodaScriptEngine;
+      if (!Ctor) throw new Error('NodaScriptEngine is not loaded');
+      const eng = new Ctor({ maxInstructions: 1_000_000 });
+      const r = eng.get(st.slice(1), data || {});
+      return (r == null) ? '' : r;
+    } catch(e) {
+      return String(e?.message || e);
+    }
+  }
+  if (s.includes('@')) {
+    return s.replaceAll(/@([A-Za-z0-9_\.]+)/g, (_, key) => {
+      const v = nlCoverGetByPath(data || {}, key);
+      return (v == null) ? '' : String(v);
+    });
+  }
+  return s;
+}
+
+function applyCoverTemplates(root){
+  if (!root) return;
+  root.querySelectorAll('.node-card').forEach(card => {
+    const repo_id = Number(card.dataset.repo);
+    const class_name = card.dataset.class;
+    const node_id = card.dataset.node;
+    const item = (lastItems || []).find(it => Number(it.repo_id) === repo_id && String(it.class) === String(class_name) && String(it.id) === String(node_id));
+    const data = (item && item.data && typeof item.data === 'object') ? item.data : {};
+
+    card.querySelectorAll('*').forEach((el) => {
+      Array.from(el.attributes || []).forEach((attr) => {
+        const name = String(attr.name || '');
+        if (!name.startsWith('data-nl-tpl-')) return;
+        const key = name.slice('data-nl-tpl-'.length);
+        const val = String(nlResolveCoverTemplateString(attr.value, data) ?? '');
+        if (key === 'text') {
+          const allow = el.getAttribute('data-nl-allow-html') === '1';
+          if (allow) el.innerHTML = val;
+          else el.textContent = val;
+        } else if (key === 'html') {
+          el.innerHTML = val;
+        } else if (key === 'src') {
+          if (el.tagName === 'IMG') el.setAttribute('src', val);
+        } else if (key === 'style-background') {
+          el.style.background = val;
+        } else if (key === 'style-color') {
+          el.style.color = val;
+        } else if (key.startsWith('attr-')) {
+          el.setAttribute(key.slice(5), val);
+        }
+      });
+    });
+  });
+}
+
 function wireCoverInteractions(root){
   if(!root) return;
 
@@ -648,6 +728,7 @@ if (bulkBtn) bulkBtn.onclick = async () => {
       });
     });
 
+    applyCoverTemplates(grid);
     wireCardClicks();
     wireCoverInteractions(grid);
   }

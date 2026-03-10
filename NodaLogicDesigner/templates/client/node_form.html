@@ -147,6 +147,9 @@ window.escapeHtml = window.escapeHtml || function escapeHtml(s){
 };
 const escapeHtml = window.escapeHtml;
 
+window.initDatasetTables = window.initDatasetTables || function(){};
+window.initVirtualTables = window.initVirtualTables || function(){};
+
 const REPO_ID = {{ repo_id|tojson }};
 const CLASS_NAME = {{ class_name|tojson }};
 const NODE_ID = {{ node_id|tojson }};
@@ -182,6 +185,7 @@ const DEFAULT_ROOM_UID = {{ (default_room_uid or "") | tojson }};
 const SECTIONS_HOME = {{ url_for('client.sections_home')|tojson }};
 const API_CLASS_NODES = "/client/api/class_nodes";
 const API_DATASET_ITEMS = "/client/api/dataset_items";
+const API_NODALAYOUT_RENDER = "/client/api/nodalayout/render";
 
 // UserFiles API (FileGallery / MediaGallery)
 const API_USERFILES_LIST   = `/client/api/userfiles/${REPO_ID}/list`;
@@ -230,6 +234,328 @@ function openUrlMaybeNodeForm(url){
 // and we send it to the backend only on _save (unless element has explicit events).
 const NODE_DATA_INITIAL = {{ (node_data if node_data is mapping else {})|tojson }};
 let _data = JSON.parse(JSON.stringify(NODE_DATA_INITIAL || {}));
+
+// ---- Data context helper (virtual node support) ----
+window.__nlActiveDataContext = window.__nlActiveDataContext || null;
+function nlGetDataCtx(){
+  return window.__nlActiveDataContext || _data;
+}
+
+function nlIsVirtualCtx(){
+  return !!window.__nlActiveDataContext;
+}
+function nlFindFieldInput(fieldId){
+  const sel = `input[data-nl-nodeinput="1"][data-id="${CSS.escape(fieldId)}"], input[data-nl-datasetinput="1"][data-id="${CSS.escape(fieldId)}"]`;
+  const editorBody = document.getElementById('nlVirtualNodeEditorBody');
+  if (nlIsVirtualCtx() && editorBody) {
+    return editorBody.querySelector(sel);
+  }
+  return document.querySelector(sel);
+}
+
+
+// ---------------- NodaScript (browser) ----------------
+// We use the global build from /static/NodaScriptEngine.js
+const __nlScript = {
+  engine: null,
+  ensureEngine(){
+    if (this.engine) return this.engine;
+    const Ctor = window.NodaScriptEngine;
+    if (!Ctor) throw new Error("NodaScriptEngine is not loaded");
+
+    // tzOffsetMinutes: align to browser local; keep default
+    const eng = new Ctor({ maxInstructions: 1_000_000 });
+
+    // message(text)
+    const msgFn = (args) => {
+      const t = (args && args.length) ? args[0] : "";
+      try { window.message && window.message(String(t ?? ""), "danger"); } catch(_) {}
+      return null;
+    };
+    eng.register("message", msgFn).register("Message", msgFn).register("Сообщение", msgFn).register("Сообщить", msgFn);
+
+    // Dialog(spec) -> delegates to existing UI dialog if provided in _data or caller passes object
+    const dlgFn = (args) => {
+      const spec = (args && args.length) ? args[0] : null;
+      try { window.Dialog && window.Dialog(spec || {}, (p) => fireOnClickWeb(p)); } catch(_) {}
+      return null;
+    };
+    eng.register("dialog", dlgFn).register("Dialog", dlgFn).register("Диалог", dlgFn);
+
+    // refresh() / обновить() -> full page reload so onShowWeb runs again and layout is rebuilt
+    const refreshFn = () => { try { window.location.reload(); } catch(_) {} return null; };
+    eng.register("refresh", refreshFn).register("Refresh", refreshFn).register("Обновить", refreshFn).register("обновить", refreshFn);
+
+    // save() / сохранить() -> existing form save button logic
+    const saveFn = () => { try { if (typeof doSave === "function") return doSave(); } catch(_) {} return null; };
+    eng.register("save", saveFn).register("Save", saveFn).register("Сохранить", saveFn).register("сохранить", saveFn);
+
+    // http(method,url,body?,headers?,auth?)
+    // auth can be: {type:"basic", user:"", pass:""} or {type:"bearer", token:""}
+    const httpFn = async (args) => {
+      const method = String(args?.[0] ?? "GET").toUpperCase();
+      const url = String(args?.[1] ?? "");
+      const body = args?.[2];
+      const headersObj = (args?.[3] && typeof args[3] === 'object') ? args[3] : null;
+      const auth = (args?.[4] && typeof args[4] === 'object') ? args[4] : null;
+
+      const headers = {};
+      if (headersObj) {
+        for (const k of Object.keys(headersObj)) headers[k] = String(headersObj[k]);
+      }
+      if (auth && auth.type) {
+        const t = String(auth.type).toLowerCase();
+        if (t === 'basic') {
+          const u = String(auth.user ?? "");
+          const p = String(auth.pass ?? "");
+          headers['Authorization'] = 'Basic ' + btoa(u + ':' + p);
+        } else if (t === 'bearer') {
+          headers['Authorization'] = 'Bearer ' + String(auth.token ?? "");
+        }
+      }
+
+      const init = { method, headers, credentials: 'same-origin' };
+      if (body !== undefined && body !== null && method !== 'GET' && method !== 'HEAD') {
+        if (typeof body === 'string') {
+          init.body = body;
+        } else {
+          init.body = JSON.stringify(body);
+          if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
+        }
+      }
+
+      const r = await fetch(url, init);
+      const text = await r.text();
+      let json = null;
+      try { json = JSON.parse(text); } catch(_) {}
+      const outHeaders = {};
+      try { r.headers.forEach((v,k) => outHeaders[k] = v); } catch(_) {}
+      return { status: r.status, ok: r.ok, text, json, headers: outHeaders };
+    };
+    // engine externals are sync; wrap async via immediate promise result
+    eng.register("http", (args) => httpFn(args)).register("HTTP", (args) => httpFn(args));
+
+    this.engine = eng;
+    return eng;
+  },
+
+  run(code, ctx){
+    const eng = this.ensureEngine();
+    return eng.execute(String(code ?? ""), _data, ctx || {});
+  },
+  get(code, ctx){
+    const eng = this.ensureEngine();
+    return eng.get(String(code ?? ""), _data, ctx || {});
+  }
+};
+
+function nlGetByPath(obj, path){
+  if (!path) return undefined;
+  const parts = String(path).split('.').filter(Boolean);
+  let cur = obj;
+  for (const p of parts){
+    if (cur == null) return undefined;
+    if (typeof cur === 'object' && p in cur) cur = cur[p];
+    else return undefined;
+  }
+  return cur;
+}
+
+function nlIsHexColorString(value){
+  const s = String(value ?? '').trim();
+  return /^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/.test(s);
+}
+
+function nlResolveTemplateString(tpl){
+  if (tpl == null) return "";
+  const s = String(tpl);
+  const st = s.trim();
+
+  if (nlIsHexColorString(st)) {
+    return st;
+  }
+
+  // # ... => NodaScript get() (expects return inside)
+  if (st.startsWith('#')) {
+    const code = st.slice(1);
+    try {
+      const r = __nlScript.get(code, {});
+      return (r == null) ? "" : r;
+    } catch(e) {
+      return String(e?.message || e);
+    }
+  }
+
+  // @var or text with @var inside
+  if (s.includes('@')) {
+    return s.replaceAll(/@([A-Za-z0-9_\.]+)/g, (_, key) => {
+      const v = nlGetByPath(_data, key);
+      return (v == null) ? "" : String(v);
+    });
+  }
+  return s;
+}
+
+function nlApplyTemplateAttr(el, name, tpl){
+  const val = nlResolveTemplateString(tpl);
+  const s = (val == null) ? '' : String(val);
+  switch (name) {
+    case 'text': {
+      const allow = el.getAttribute('data-nl-allow-html') === '1';
+      if (allow) el.innerHTML = s;
+      else el.textContent = s;
+      return;
+    }
+    case 'html':
+      el.innerHTML = s;
+      return;
+    case 'src':
+      if (el.tagName === 'IMG') el.setAttribute('src', s);
+      return;
+    case 'value':
+      if ('value' in el && document.activeElement !== el) el.value = s;
+      else el.setAttribute('value', s);
+      return;
+    case 'placeholder':
+      el.setAttribute('placeholder', s);
+      return;
+    case 'style-background':
+      el.style.background = s;
+      return;
+    case 'style-color':
+      el.style.color = s;
+      return;
+    default:
+      if (name.startsWith('attr-')) el.setAttribute(name.slice(5), s);
+  }
+}
+
+function nlRefreshBoundInputs(){
+  const root = document.getElementById('webRoot');
+  if (!root) return;
+  const els = root.querySelectorAll('input[data-path],textarea[data-path],select[data-path]');
+  for (const el of els){
+    // don't fight the user's current typing
+    if (document.activeElement === el) continue;
+    const path = (el.getAttribute('data-path') || '').trim();
+    if (!path) continue;
+    const v = nlGetByPath(_data, path);
+    try {
+      if (el.tagName === 'SELECT') {
+        const sv = (v == null) ? '' : String(v);
+        if (el.value !== sv) el.value = sv;
+      } else if (el.type === 'checkbox') {
+        const b = !!v;
+        if (!!el.checked !== b) el.checked = b;
+      } else {
+        const sv = (v == null) ? '' : String(v);
+        if (el.value !== sv) el.value = sv;
+      }
+    } catch(_) {}
+  }
+}
+
+function nlRefreshUI(){
+  const root = document.getElementById('webRoot') || document;
+
+  root.querySelectorAll('*').forEach((el) => {
+    Array.from(el.attributes || []).forEach((attr) => {
+      const name = attr && attr.name ? String(attr.name) : '';
+      if (!name.startsWith('data-nl-tpl-')) return;
+      const key = name.slice('data-nl-tpl-'.length);
+      nlApplyTemplateAttr(el, key, attr.value);
+    });
+  });
+
+  root.querySelectorAll('[data-nl-tpl-src]').forEach((el) => {
+    if (el.tagName === 'IMG') return;
+    const tpl = el.getAttribute('data-nl-tpl-src');
+    const src = String(nlResolveTemplateString(tpl) ?? '');
+    if (src) {
+      const img = document.createElement('img');
+      img.className = el.className.replace('nl-empty','').trim() || 'nl-picture';
+      const st = el.getAttribute('style');
+      if (st) img.setAttribute('style', st);
+      img.setAttribute('src', src);
+      img.setAttribute('data-nl-tpl-src', tpl);
+      el.replaceWith(img);
+    }
+  });
+
+  nlRefreshBoundInputs();
+}
+
+function nlGetEventActions(eventName, listener){
+  const evs = (CLASS_OBJ && Array.isArray(CLASS_OBJ.events)) ? CLASS_OBJ.events : [];
+  const l = String(listener || '').trim();
+  const out = [];
+  for (const ev of evs){
+    if (!ev || (ev.event || '') !== eventName) continue;
+    const evl = String(ev.listener || '').trim();
+    if (l) {
+      if (evl && evl !== l) continue;
+    } else {
+      if (evl) continue;
+    }
+    const acts = Array.isArray(ev.actions) ? ev.actions : [];
+    out.push(...acts);
+  }
+  return out;
+}
+
+async function nlRunLocalNodaScriptFirst(eventName, payload){
+  const listener = String(payload?.listener || payload?.id || '').trim();
+  const actions = nlGetEventActions(eventName, listener);
+  if (!actions.length) return { ran: false, hasRemote: false };
+
+  let ran = false;
+  let hasRemote = false;
+  for (const a of actions){
+    const m = String(a?.method || '').trim().toLowerCase();
+    if (!m) continue;
+    if (m === 'nodascript') {
+      const code = a.methodText ?? a.method_text ?? a.text ?? a.code ?? '';
+      try {
+        __nlScript.run(String(code || ''), { payload });
+      } catch(e) {
+        try { window.message && window.message(String(e?.message || e), 'danger'); } catch(_) {}
+      }
+      ran = true;
+    } else {
+      hasRemote = true;
+    }
+  }
+
+  if (ran) {
+    try { nlRefreshUI(); } catch(_) {}
+  }
+  return { ran, hasRemote };
+}
+
+async function nlRunLocalPostNodaScript(eventName, payload){
+  const listener = String(payload?.listener || payload?.id || '').trim();
+  const actions = nlGetEventActions(eventName, listener);
+  if (!actions.length) return { ran: false };
+
+  let ran = false;
+  for (const a of actions){
+    const m = String(a?.postExecuteMethod || a?.post_execute_method || '').trim().toLowerCase();
+    if (m !== 'nodascript') continue;
+    const code = a.postExecuteMethodText ?? a.post_execute_method_text ?? a.postText ?? a.post_text ?? '';
+    try {
+      __nlScript.run(String(code || ''), { payload });
+    } catch(e) {
+      try { window.message && window.message(String(e?.message || e), 'danger'); } catch(_) {}
+    }
+    ran = true;
+  }
+
+  if (ran) {
+    try { nlRefreshUI(); } catch(_) {}
+  }
+  return { ran };
+}
+
 
 function downloadJson(filename, obj){
   const blob = new Blob([JSON.stringify(obj, null, 2)], {type: "application/json"});
@@ -408,7 +734,7 @@ function updateLocalDataFromElement(el){
   if(!p) return null;
 
   
-  setByPath(_data, p.path, p.value);
+  setByPath(nlGetDataCtx(), p.path, p.value);
 
   
   p.extra = [];
@@ -434,8 +760,8 @@ function updateLocalDataFromElement(el){
       const view = found ? String(found._view || found._id || "") : selectedId;
 
       if (sid) {
-        setByPath(_data, `${sid}_data`, found || null);
-        setByPath(_data, `${sid}_view`, view || null);
+        setByPath(nlGetDataCtx(), `${sid}_data`, found || null);
+        setByPath(nlGetDataCtx(), `${sid}_view`, view || null);
 
         p.extra.push({ path: `${sid}_data`, value: found || null });
         p.extra.push({ path: `${sid}_view`, value: view || null });
@@ -451,7 +777,7 @@ function updateLocalDataFromElement(el){
     const lid = String(p.listener || "").trim();
     if (lid) {
       const iso = String(el.value || "").trim();
-      setByPath(_data, `_d${lid}`, iso || null);
+      setByPath(nlGetDataCtx(), `_d${lid}`, iso || null);
       p.extra.push({ path: `_d${lid}`, value: iso || null });
     }
   }
@@ -474,6 +800,19 @@ function shouldSendWebEvent(el){
 }
 
 async function fireOnInputWeb(payload){
+  if (nlIsVirtualCtx()) {
+    return;
+  }
+  // Local NodaScript actions first (per listener rules)
+  try {
+    const info = await nlRunLocalNodaScriptFirst("onInputWeb", payload || {});
+    if (info.ran && !info.hasRemote) {
+      try { await nlRunLocalPostNodaScript("onInputWeb", payload || {}); } catch(_){}
+      try { nlRefreshUI(); } catch(_) {}
+      return;
+    }
+  } catch(_){ }
+
   try{
     const r = await fetch(API_EVENT_WEB, {
       method: "POST",
@@ -518,6 +857,7 @@ async function fireOnInputWeb(payload){
         } catch(_) {}
 
         _data = base;
+        try { nlRefreshUI(); } catch(_) {}
       }
       if (j && j.message) {
         try {
@@ -600,13 +940,17 @@ async function fireOnInputWeb(payload){
           root.innerHTML = j.layout_html || "";
           bindClicks();
           bindInputs();
-          initDatasetTables();
+          if (window.initDatasetTables) window.initDatasetTables();
+          if (window.initVirtualTables) window.initVirtualTables();
         }
       }
     } catch(_){}
   } catch(e){
     console.warn("event_web failed", e);
   }
+
+  try { await nlRunLocalPostNodaScript("onInputWeb", payload || {}); } catch(_){}
+  try { nlRefreshUI(); } catch(_) {}
 }
 
 
@@ -619,13 +963,24 @@ function snapshotWebFormIntoData(){
     const p = collectChanged(el);
     if(!p) return;
     // обновим локальный _data по path текущим значением
-    try { setByPath(_data, p.path, p.value); } catch(_){}
+    try { setByPath(nlGetDataCtx(), p.path, p.value); } catch(_){}
   });
 }
 
 // NOTE: we keep the function name for backward compatibility inside this template,
 // but the backend event name must remain "onInputWeb" (as in config events).
 async function fireOnClickWeb(payload, target_class = "", target_node = "") {
+  // 1) Local NodaScript actions first (per requirements)
+  try {
+    const info = await nlRunLocalNodaScriptFirst("onInputWeb", payload || {});
+    // If this listener has ONLY local NodaScript actions, we can skip the backend call.
+    if (info.ran && !info.hasRemote) {
+      try { await nlRunLocalPostNodaScript("onInputWeb", payload || {}); } catch(_){}
+      try { nlRefreshUI(); } catch(_) {}
+      return;
+    }
+  } catch(_){ }
+
     try {
       
       const l = String(payload?.listener || payload?.id || "");
@@ -769,6 +1124,8 @@ async function fireOnClickWeb(payload, target_class = "", target_node = "") {
       bindClicks();
       bindInputs();
       initDatasetTables();
+      initVirtualTables();
+          try { nlRefreshUI(); } catch(_) {}
     }
   }
 
@@ -791,6 +1148,9 @@ async function fireOnClickWeb(payload, target_class = "", target_node = "") {
     _data = base;
 
   }
+
+  try { await nlRunLocalPostNodaScript("onInputWeb", payload || {}); } catch(_){}
+  try { nlRefreshUI(); } catch(_) {}
 }
 
 
@@ -859,14 +1219,12 @@ function bindClicks() {
       if (!fieldId) return;
 
       // clear local data
-      setByPath(_data, fieldId, null);
-      setByPath(_data, `${fieldId}_data`, null);
-      setByPath(_data, `${fieldId}_view`, null);
+      setByPath(nlGetDataCtx(), fieldId, null);
+      setByPath(nlGetDataCtx(), `${fieldId}_data`, null);
+      setByPath(nlGetDataCtx(), `${fieldId}_view`, null);
 
       // update UI (readonly input)
-      const inp =
-        document.querySelector(`input[data-nl-nodeinput="1"][data-id="${CSS.escape(fieldId)}"],` +
-                               `input[data-nl-datasetinput="1"][data-id="${CSS.escape(fieldId)}"]`);
+      const inp = nlFindFieldInput(fieldId);
       if (inp) inp.value = "";
 
       // notify server (as onInputWeb)
@@ -1370,7 +1728,9 @@ const INITIAL_MESSAGE = {{ (initial_message or None) | tojson }};
 
 window.addEventListener("DOMContentLoaded", () => {
   try {
-    if (!INITIAL_MESSAGE) return;
+    if (!INITIAL_MESSAGE) {
+      // still continue to apply templates
+    } else {
 
     const showOne = (m) => {
       if (!window.message) return;
@@ -1378,9 +1738,13 @@ window.addEventListener("DOMContentLoaded", () => {
       else window.message(String(m), "info");
     };
 
-    if (Array.isArray(INITIAL_MESSAGE)) INITIAL_MESSAGE.forEach(showOne);
-    else showOne(INITIAL_MESSAGE);
+      if (Array.isArray(INITIAL_MESSAGE)) INITIAL_MESSAGE.forEach(showOne);
+      else showOne(INITIAL_MESSAGE);
+    }
   } catch(_) {}
+
+  // Apply @/# templates on initial render
+  try { nlRefreshUI(); } catch(_) {}
 });
 
 
@@ -1489,9 +1853,9 @@ async function openNodePickDialog(fieldId, kind, dsRaw){
         const view = String(it._view || uid).trim();
 
   
-        setByPath(_data, fieldId, uid);
-        setByPath(_data, `${fieldId}_data`, it.data || null);
-        setByPath(_data, `${fieldId}_view`, view);
+        setByPath(nlGetDataCtx(), fieldId, uid);
+        setByPath(nlGetDataCtx(), `${fieldId}_data`, it.data || null);
+        setByPath(nlGetDataCtx(), `${fieldId}_view`, view);
 
   
         const inp = document.querySelector(`input[data-nl-nodeinput="1"][data-id="${CSS.escape(fieldId)}"]`);
@@ -1572,11 +1936,11 @@ async function openDatasetPickDialog(fieldId, dsName){
         const key = String(it.key || "").trim();           // dataset$id
         const view = String(it.view || key).trim();
 
-        setByPath(_data, fieldId, key);
-        setByPath(_data, `${fieldId}_data`, it.data || null);
-        setByPath(_data, `${fieldId}_view`, view);
+        setByPath(nlGetDataCtx(), fieldId, key);
+        setByPath(nlGetDataCtx(), `${fieldId}_data`, it.data || null);
+        setByPath(nlGetDataCtx(), `${fieldId}_view`, view);
 
-        const inp = document.querySelector(`input[data-nl-datasetinput="1"][data-id="${CSS.escape(fieldId)}"]`);
+        const inp = nlFindFieldInput(fieldId);
         if (inp) inp.value = view;
 
         const payload = {
@@ -1607,7 +1971,256 @@ async function openDatasetPickDialog(fieldId, dsName){
   };
 }
 
-function initDatasetTables(){
+async function renderArbitraryNodalayout(layoutSpec, dataObj){
+  const r = await fetch(API_NODALAYOUT_RENDER, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    credentials: "same-origin",
+    body: JSON.stringify({
+      repo_id: REPO_ID,
+      class_name: CLASS_NAME,
+      node_id: NODE_ID,
+      layout: layoutSpec,
+      data: dataObj || {}
+    })
+  });
+  const j = await r.json();
+  if (!j || !j.ok) throw new Error((j && (j.error || j.message)) || "render failed");
+  return String(j.layout_html || "");
+}
+
+function getByPath(obj, path){
+  if (!obj || !path) return undefined;
+  const tokens = parsePathTokens(String(path));
+  let cur = obj;
+  for (const k of tokens) {
+    if (cur == null) return undefined;
+    cur = cur[k];
+  }
+  return cur;
+}
+
+function ensureVirtualNodeEditor(){
+  let el = document.getElementById("nlVirtualNodeEditor");
+  if (el) return el;
+  el = document.createElement("div");
+  el.className = "offcanvas offcanvas-end";
+  el.tabIndex = -1;
+  el.id = "nlVirtualNodeEditor";
+  el.style.width = "min(720px, 92vw)";
+  el.innerHTML = `
+    <div class="offcanvas-header">
+      
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body d-flex flex-column" style="min-width:0;">
+      <div id="nlVirtualNodeEditorBody" class="flex-grow-1" style="min-width:0;"></div>
+      <div class="pt-3 border-top mt-3 d-grid gap-2">
+        <button id="nlVirtualNodeEditorSaveClose" class="btn btn-sm btn-save-close" type="button">{{_('Save and close')}}</button>
+        <button id="nlVirtualNodeEditorClose" class="btn btn-sm btn-outline-secondary" type="button">{{_('Close')}}</button>
+        <button id="nlVirtualNodeEditorDelete" class="btn btn-danger btn-sm" type="button">{{_('Delete')}}</button>
+      </div>
+    </div>`;
+  const host = document.getElementById("webRoot") || document.body;
+  host.appendChild(el);
+  return el;
+}
+
+function parseJsonAttr(el, name, fallback){
+  try {
+    const raw = String(el.getAttribute(name) || "").trim();
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch(_) {
+    return fallback;
+  }
+}
+
+function getVirtualTableRows(tableId){
+  const cur = _data ? _data[tableId] : null;
+  return Array.isArray(cur) ? cur.slice() : [];
+}
+
+function setVirtualTableRows(tableId, rows){
+  setByPath(_data, tableId, Array.isArray(rows) ? rows : []);
+}
+
+function collectChangedForObject(dst, el){
+  const p = collectChanged(el);
+  if (!p) return null;
+  setByPath(dst, p.path, p.value);
+  return p;
+}
+
+function bindVirtualEditorInputs(bodyEl, state){
+  if (!bodyEl) return;
+  bodyEl.__nlVirtualState = state;
+  if (bodyEl.__nlVirtualInputsBound) return;
+  bodyEl.__nlVirtualInputsBound = true;
+  const handle = (ev) => {
+    const el = ev.target;
+    const curState = bodyEl.__nlVirtualState;
+    if (!el || !curState || !(el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT")) return;
+    collectChangedForObject(curState.data, el);
+  };
+  bodyEl.addEventListener("input", handle);
+  bodyEl.addEventListener("change", handle);
+}
+
+async function renderVirtualTableRoot(root){
+  const tableId = String(root.getAttribute("data-nl-table-id") || "").trim();
+  const asTable = root.getAttribute("data-nl-as-table") === "1";
+  const coverSpec = parseJsonAttr(root, "data-nl-vt-cover", []);
+  const headerCols = parseJsonAttr(root, "data-nl-vt-header", []);
+  const bodyEl = root.querySelector('.nl-vt-body');
+  if (!tableId || !bodyEl) return;
+
+  const rows = getVirtualTableRows(tableId);
+  //if (!rows.length) {
+  //  bodyEl.innerHTML = '<div class="nl-vt-empty">Пусто</div>';
+  //  return;
+  //}
+
+  const coverHtmlList = await Promise.all(rows.map(async (row) => {
+    try { return await renderArbitraryNodalayout(coverSpec, row || {}); }
+    catch(_) { return '<div class="nl-text text-danger">cover render error</div>'; }
+  }));
+
+  if (!asTable) {
+    bodyEl.innerHTML =
+  `<div class="nl-table nl-nodes">` +
+  rows.map((row, idx) => (
+    `<div class="nl-node-row nl-clickable" data-nl-vt-row="1" data-nl-vt-index="${idx}">` +
+    `<div class="nl-vt-row-cover">${coverHtmlList[idx] || ""}</div>` +
+    `</div>`
+  )).join("") +
+  `</div>`;
+    return;
+  }
+
+  if (Array.isArray(headerCols) && headerCols.length) {
+    const totalW = headerCols.reduce((acc, c) => acc + Number(c && c.weight || 1), 0) || 1;
+    const colgroup = headerCols.map((c) => `<col style="width:${(Number(c && c.weight || 1)/totalW)*100}%">`).join("");
+    const thead = headerCols.map((c) => `<th scope="col">${escapeHtml(c && c.title || "")}</th>`).join("");
+    const tbody = rows.map((row, idx) => {
+      const tds = headerCols.map((c) => {
+        const v = getByPath(row || {}, String(c && c.key || ""));
+        let txt = "";
+        if (v == null) txt = "";
+        else if (typeof v === "object") {
+          try { txt = JSON.stringify(v); } catch(_) { txt = String(v); }
+        } else txt = String(v);
+        return `<td>${escapeHtml(txt)}</td>`;
+      }).join("");
+      return `<tr class="nl-tr nl-clickable" data-nl-vt-row="1" data-nl-vt-index="${idx}">${tds}</tr>`;
+    }).join("");
+    bodyEl.innerHTML = `<div class="nl-table-wrap"><table class="nl-table-el"><colgroup>${colgroup}</colgroup><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table></div>`;
+    return;
+  }
+
+  const tbody = rows.map((row, idx) => (
+    `<tr class="nl-tr nl-clickable" data-nl-vt-row="1" data-nl-vt-index="${idx}">` +
+    `<td>${coverHtmlList[idx] || ""}</td></tr>`
+  )).join("");
+  bodyEl.innerHTML = `<div class="nl-table-wrap"><table class="nl-table-el"><tbody>${tbody}</tbody></table></div>`;
+}
+
+async function refreshVirtualTables(){
+  const roots = Array.from(document.querySelectorAll('[data-nl-virtual-table="1"]'));
+  for (const root of roots) {
+    try { await renderVirtualTableRoot(root); } catch(err) { console.error('virtual table render failed', err); }
+  }
+}
+
+async function openVirtualNodeEditor(root, rowIndex){
+  const tableId = String(root.getAttribute("data-nl-table-id") || "").trim();
+  const layoutSpec = parseJsonAttr(root, "data-nl-vt-layout", []);
+  const rows = getVirtualTableRows(tableId);
+  const isNew = !(Number.isInteger(rowIndex) && rowIndex >= 0 && rowIndex < rows.length);
+  const editorEl = ensureVirtualNodeEditor();
+  const titleEl = editorEl.querySelector('.offcanvas-title');
+  const bodyEl = document.getElementById('nlVirtualNodeEditorBody');
+  const btnSaveClose = document.getElementById('nlVirtualNodeEditorSaveClose');
+  const btnClose = document.getElementById('nlVirtualNodeEditorClose');
+  const btnDelete = document.getElementById('nlVirtualNodeEditorDelete');
+  const state = {
+    tableId,
+    rowIndex: isNew ? -1 : rowIndex,
+    data: JSON.parse(JSON.stringify(isNew ? {} : (rows[rowIndex] || {})))
+  };
+  editorEl.__nlVirtualState = state;
+  window.__nlActiveDataContext = state.data;
+  if (titleEl) titleEl.textContent = isNew ? 'Виртуальный узел: новый' : 'Виртуальный узел';
+  if (btnDelete) btnDelete.style.display = isNew ? 'none' : '';
+
+  try {
+    bodyEl.innerHTML = await renderArbitraryNodalayout(layoutSpec, state.data);
+  } catch(err) {
+    bodyEl.innerHTML = `<div class="alert alert-danger">${escapeHtml(String(err))}</div>`;
+  }
+  bindVirtualEditorInputs(bodyEl, state);
+
+  const bs = bootstrap.Offcanvas.getOrCreateInstance(editorEl);
+  editorEl.addEventListener('hidden.bs.offcanvas', () => {
+    if (window.__nlActiveDataContext === state.data) window.__nlActiveDataContext = null;
+  }, { once: true });
+  bs.show();
+
+  btnSaveClose.onclick = async () => {
+    const curRows = getVirtualTableRows(tableId);
+    const savedRow = JSON.parse(JSON.stringify(state.data || {}));
+    if (state.rowIndex >= 0 && state.rowIndex < curRows.length) curRows[state.rowIndex] = savedRow;
+    else curRows.push(savedRow);
+    setVirtualTableRows(tableId, curRows);
+    await refreshVirtualTables();
+    if (window.__nlActiveDataContext === state.data) window.__nlActiveDataContext = null;
+    bs.hide();
+  };
+  btnClose.onclick = async () => {
+    await refreshVirtualTables();
+    if (window.__nlActiveDataContext === state.data) window.__nlActiveDataContext = null;
+    bs.hide();
+  };
+  btnDelete.onclick = async () => {
+    if (!(state.rowIndex >= 0)) return;
+    const curRows = getVirtualTableRows(tableId);
+    curRows.splice(state.rowIndex, 1);
+    setVirtualTableRows(tableId, curRows);
+    await refreshVirtualTables();
+    if (window.__nlActiveDataContext === state.data) window.__nlActiveDataContext = null;
+    bs.hide();
+  };
+}
+
+window.initVirtualTables = function initVirtualTables(){
+  const roots = document.querySelectorAll('[data-nl-virtual-table="1"]');
+  roots.forEach((root) => {
+    if (IS_READ_ONLY) {
+      root.querySelectorAll('[data-nl-vt-add="1"]').forEach((b) => b.style.display = 'none');
+    }
+    if (root.__nlVirtualInit) return;
+    root.__nlVirtualInit = true;
+    root.addEventListener('click', async (e) => {
+      const addBtn = e.target.closest('[data-nl-vt-add="1"]');
+      if (addBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!IS_READ_ONLY) await openVirtualNodeEditor(root, null);
+        return;
+      }
+      const rowEl = e.target.closest('[data-nl-vt-row="1"]');
+      if (rowEl) {
+        e.preventDefault();
+        e.stopPropagation();
+        const idx = Number(rowEl.getAttribute('data-nl-vt-index') || '-1');
+        if (!IS_READ_ONLY && Number.isFinite(idx) && idx >= 0) await openVirtualNodeEditor(root, idx);
+      }
+    });
+  });
+  refreshVirtualTables();
+}
+
+window.initDatasetTables = function initDatasetTables(){
   const roots = document.querySelectorAll('[data-nl-dataset-table="1"]');
   roots.forEach((root) => {
     if (root.__nlDatasetInit) return;
@@ -1681,10 +2294,10 @@ function initDatasetTables(){
       try { data = JSON.parse(row.getAttribute("data-nl-ds-data") || "null"); } catch(_) { data = null; }
 
       // store variables in _data
-      setByPath(_data, tableId, key);
-      setByPath(_data, `${tableId}_selected_key`, key);
-      setByPath(_data, `${tableId}_selected_data`, data);
-      setByPath(_data, `${tableId}_selected_position`, pos);
+      setByPath(nlGetDataCtx(), tableId, key);
+      setByPath(nlGetDataCtx(), `${tableId}_selected_key`, key);
+      setByPath(nlGetDataCtx(), `${tableId}_selected_data`, data);
+      setByPath(nlGetDataCtx(), `${tableId}_selected_position`, pos);
 
       const payload = {
         listener: tableId,
@@ -1713,6 +2326,12 @@ function initDatasetTables(){
 }
 
 
+</script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  if (window.initDatasetTables) window.initDatasetTables();
+  if (window.initVirtualTables) window.initVirtualTables();
+});
 </script>
 
 {% endblock %}
