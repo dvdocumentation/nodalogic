@@ -1,0 +1,262 @@
+{
+    "name": "NodaScript",
+    "server_name": "",
+    "uid": "1429725f-e767-4d10-8ad6-e4e081365143",
+    "url": "http://nmaker.pw/api/config/1429725f-e767-4d10-8ad6-e4e081365143",
+    "content_uid": "4a9e8f1e-e817-49f2-82aa-e0021ebb8a4a",
+    "vendor": "Dmitry Vorontsov",
+    "nodes_handlers": "ZnJvbSBub2Rlc2NsaWVudCBpbXBvcnQgUmVmcmVzaFRhYixTZXRUaXRsZSxDbG9zZU5vZGUsUnVuR1BTLFN0b3BHUFMsVXBkYXRlVmlldyxEaWFsb2csU2NhbkJhcmNvZGUsR2V0TG9jYXRpb24sQWRkVGltZXIsU3RvcFRpbWVyLFNob3dQcm9ncmVzc0J1dHRvbixIaWRlUHJvZ3Jlc3NCdXR0b24sU2hvd1Byb2dyZXNzR2xvYmFsLEhpZGVQcm9ncmVzc0dsb2JhbCxDb250cm9scyxTZXRDb3ZlcixnZXRCYXNlNjRGcm9tSW1hZ2VGaWxlLGNvbnZlcnRJbWFnZUZpbGVzVG9CYXNlNjRBcnJheSxzYXZlQmFzZTY0VG9GaWxlLGNvbnZlcnRCYXNlNjRBcnJheVRvRmlsZVBhdGhzLFVwZGF0ZU1lZGlhR2FsbGVyeQ0KZnJvbSBhbmRyb2lkIGltcG9ydCAqDQpmcm9tIG5vZGVzIGltcG9ydCBOZXdOb2RlLCBEZWxldGVOb2RlLCBHZXRBbGxOb2RlcywgR2V0Tm9kZSwgR2V0QWxsTm9kZXNTdHIsIEdldFJlbW90ZUNsYXNzLCBDcmVhdGVEYXRhU2V0LCBHZXREYXRhU2V0LCBEZWxldGVEYXRhU2V0LHRvX3VpZCwgZnJvbV91aWQNCmZyb20gY29tLmR2Lm5vZGEgaW1wb3J0IERhdGFTZXQNCmZyb20gY29tLmR2Lm5vZGEgaW1wb3J0IERhdGFTZXRzDQpmcm9tIGNvbS5kdi5ub2RhIGltcG9ydCBTaW1wbGVVdGlsaXRlcyBhcyBzdQ0KZnJvbSBkYXRhc2V0cyBpbXBvcnQgR2V0RGF0YVNldERhdGENCg0KIyBDb25maWd1cmF0aW9uIGNvbnN0YW50cw0KY3VycmVudF9tb2R1bGVfbmFtZT0iMTQyOTcyNWYtZTc2Ny00ZDEwLThhZDYtZTRlMDgxMzY1MTQzIg0KY3VycmVudF9jb25maWd1cmF0aW9uX3VybD0iaHR0cDovL25tYWtlci5wdy9hcGkvY29uZmlnLzE0Mjk3MjVmLWU3NjctNGQxMC04YWQ2LWU0ZTA4MTM2NTE0MyINCl9kYXRhX2RpciA9IHN1LmdldF9kYXRhX2RpcihjdXJyZW50X21vZHVsZV9uYW1lKQ0KX2Rvd25sb2Fkc19kaXIgPSBzdS5nZXRfZG93bmxvYWRzX2RpcihjdXJyZW50X21vZHVsZV9uYW1lKQ0KDQoNCmZyb20gbm9kZXMgaW1wb3J0IE5vZGUNCg0KDQpjbGFzcyBNeU9yZGVyKE5vZGUpOg0KICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6DQogICAgICAgIHN1cGVyKCkuX19pbml0X18obW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpDQoNCiAgICAiIiJDbGFzcyBNeU9yZGVyIiIiDQoNCgoKY2xhc3MgTGF5b3V0VGVzdChOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSkKCiAgICAiIiJDbGFzcyBMYXlvdXRUZXN0IiIiCgoKCmNsYXNzIEZ1bmN0aW9ucyhOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSkKCiAgICAiIiJDbGFzcyBGdW5jdGlvbnMiIiIK",
+    "nodes_handlers_meta": null,
+    "nodes_server_handlers": "DQpmcm9tIG5vZGVzIGltcG9ydCBOb2RlLCBtZXNzYWdlLCBEaWFsb2csIHRvX3VpZCwgZnJvbV91aWQsIENsb3NlTm9kZSwgRGF0YVNldHMKCmNsYXNzIE15T3JkZXIoTm9kZSk6CiAgICAKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQoKCiAgICBkZWYgT3BlbihzZWxmLCBpbnB1dF9kYXRhPU5vbmUpOgogICAgICAgIGxpbmVzID0gW10NCiAgICAgICAgaWYgImxpbmVzIiBpbiBzZWxmLl9kYXRhOg0KICAgICAgICAgIGxpbmVzID0gc2VsZi5fZGF0YVsibGluZXMiXQ0KCiAgICAgICAgZm9yIGxpbmUgaW4gbGluZXM6DQogICAgICAgICAgaWYgbGluZS5nZXQoInF0eSIpIGFuZCBsaW5lLmdldCgicHJpY2UiKToNCiAgICAgICAgICAgIGxpbmVbInN1bSJdID0gbGluZVsicXR5Il0qbGluZVsicHJpY2UiXQ0KCgogICAgICAgIHNlbGYuU2hvdyggWw0KICAgICAgICAgICAgW3sidHlwZSI6IkJ1dHRvbiIsImlkIjoiYWRkX2xpbmVfZGlhbG9nIiwiY2FwdGlvbiI6IkFkZC4uLiJ9XSwNCiAgICAgICAgICAgIFt7InR5cGUiOiJUYWJsZSIsImlkIjoidGFiMyIsInZhbHVlIjpsaW5lcywidGFibGUiOlRydWUsDQogICAgICAgICAgICAidGFibGVfaGVhZGVyIjpbIiN8biIsIlBvc2l0aW9ufHBvc2l0aW9uIiwiUHJpY2V8cHJpY2UiLCJPcmRlciBxdC58cXR5IiwiT3JkZXIgc3VtfHN1bSJdfV0NCiAgICAgICAgXSkNCgogICAgICAgIHJldHVybiBUcnVlLCB7fQogICAgZGVmIHJ1bl9kaWFsb2coc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKICAgICAgICBEaWFsb2coImRsZyIsIkVudGVyIHBvc2l0aW9uIGFuZCBxdWFudGl0eSIsIkFkZCIsIkNhbmNlbCIsW1t7InR5cGUiOiJJbnB1dCIsImlkIjoicG9zaXRpb25fZGlhbG9nIiwiY2FwdGlvbiI6IlBvc2l0aW9uIn1dLFt7InR5cGUiOiJJbnB1dCIsImlkIjoicHJpY2VfZGlhbG9nIiwiY2FwdGlvbiI6IlByaWNlIiwiaW5wdXRfdHlwZSI6Im51bWJlciJ9XV0pDQoKICAgICAgICByZXR1cm4gVHJ1ZSx7fQogICAgZGVmIGFkZF9saW5lX2RpYWxvZyhzZWxmLCBpbnB1dF9kYXRhPU5vbmUpOgogICAgICAgIGlmICJsaW5lcyIgaW4gc2VsZi5fZGF0YToNCiAgICAgICAgICBsaW5lcyA9IHNlbGYuX2RhdGFbImxpbmVzIl0NCiAgICAgICAgZWxzZToNCiAgICAgICAgICBsaW5lcyA9IFtdICANCgogICAgICAgIGxpbmVzLmFwcGVuZCh7InBvc2l0aW9uIjpzZWxmLl9kYXRhLmdldCgicG9zaXRpb25fZGlhbG9nIiksInByaWNlIjpzZWxmLl9kYXRhLmdldCgicHJpY2VfZGlhbG9nIil9KSAgDQoKICAgICAgICBzZWxmLl9kYXRhWyJsaW5lcyJdID0gbGluZXMNCiAgICAgICAgc2VsZi5fc2F2ZSgpDQogICAgICAgIHNlbGYuT3BlbigpDQoKICAgICAgICBtZXNzYWdlKCJuZXcgbGluZSBhZGRlZC4uLiIpDQoKICAgICAgICByZXR1cm4gVHJ1ZSx7fQoKCmNsYXNzIExheW91dFRlc3QoTm9kZSk6CiAgICAKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQogICAgICAgICMgQWRkaXRpb25hbCBpbml0aWFsb3phdGlvbiBmb3IgTGF5b3V0VGVzdAoKCgpjbGFzcyBGdW5jdGlvbnMoTm9kZSk6CiAgICAKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQogICAgICAgICMgQWRkaXRpb25hbCBpbml0aWFsb3phdGlvbiBmb3IgRnVuY3Rpb25zCg==",
+    "nodes_server_handlers_meta": null,
+    "version": "00.00.01",
+    "NodaLogicFormat": "1.1",
+    "NodaLogicType": "ANDROID_SERVER",
+    "last_modified": "2026-03-07T13:46:20.614314+03:00",
+    "provider": "Dmitry Vorontsov",
+    "CommonLayouts": [],
+    "classes": [
+        {
+            "name": "MyOrder",
+            "section": "NodaScript",
+            "section_code": "noda_script_samples",
+            "has_storage": true,
+            "display_name": "MyOrder",
+            "cover_image": "[\r\n[{\"type\":\"Text\",\"value\":\"Order\",\"bold\":true}],\r\n[{\"type\":\"Text\",\"value\":\"Order lines Pruduct-Price You can fill it in the web version, and enter the quantity in the mobile version\"}],\r\n[{\"type\":\"Text\",\"value\":\"#return 'lines' in _data ? ' filled ' : ' empty '\",\"radius\":10,\"background\":\"#701705\",\"width\":-2,\"w\":0,\"text_color\":\"#FFFFFF\"}]\r\n]",
+            "display_image_web": "",
+            "display_image_table": "",
+            "init_screen_layout": "[\r\n  [ {\"type\":\"Button\",\"id\":\"btn_add_child\",\"caption\":\"Add line\"} ],\r\n  [ {\"type\":\"Parameters\",\"w\":1}, {\"type\":\"Table\",\"id\":\"tab1\",\"value\":\"@lines\",\"layout\":[\r\n[{\"type\":\"Text\",\"value\":\"@position\",\"id\":\"position\",\"bold\":true}],\r\n[{\"type\":\"Text\",\"value\":\"Цена\"},{\"type\":\"Text\",\"value\":\"@price\"}],\r\n[{\"type\":\"Button\",\"small\":true,\"gravity\":\"rigth\",\"caption\":\"+\",\"id\":\"btn_plus\",\"onClickParent\":\"line = _data.lines[_data.tab1_input_position]; if not HasProperty(line,'qty') {line.qty=0;};  line.qty = line.qty + 1;refresh();\"},{\"type\":\"Text\",\"value\":\"@qty\",\"id\":\"qty\",\"gravity\":\"center\"},{\"type\":\"Button\",\"small\":true,\"caption\":\"-\",\"id\":\"btn_minus\",\"onClickParent\":\"line = _data.lines[_data.tab1_input_position]; if not HasProperty(line,'qty') {line.qty=0;}; line.qty = line.qty - 1;refresh();\"},{\"type\":\"Text\",\"value\":\"#if _data.qty!=null and _data.price!=null {return _data.qty*_data.price;} else {return '--';};\",\r\n\"gravity\":\"right\"}]],\"height\":-1} ],\r\n\r\n  [ {\"type\":\"Text\",\"value\":\"Total : \"}, {\"type\":\"Text\",\"value\":\"#sum = 0; if HasProperty(_data,'lines') and _data.lines != null { for i = 0; i < Length(_data.lines); i = i + 1 { line = _data.lines[i]; if HasProperty(line,'qty') and HasProperty(line,'price') and line.qty != null and line.price != null { sum = sum + line.qty * line.price; } } } return sum;\",\"gravity\":\"right\",\"bold\":true} ]\r\n]",
+            "init_screen_layout_web": "",
+            "plug_in": "",
+            "plug_in_web": "",
+            "commands": "",
+            "use_standard_commands": true,
+            "svg_commands": "",
+            "migration_register_command": true,
+            "migration_register_on_save": true,
+            "migration_default_room_uid": "",
+            "migration_default_room_alias": "main",
+            "class_type": "data_node",
+            "hidden": false,
+            "methods": [
+                {
+                    "name": "Open",
+                    "source": "internal",
+                    "engine": "server_python",
+                    "code": "Open"
+                },
+                {
+                    "name": "run_dialog",
+                    "source": "internal",
+                    "engine": "server_python",
+                    "code": "run_dialog"
+                },
+                {
+                    "name": "add_line_dialog",
+                    "source": "internal",
+                    "engine": "server_python",
+                    "code": "add_line_dialog"
+                }
+            ],
+            "events": [
+                {
+                    "event": "onInputWeb",
+                    "listener": "add_line_dialog",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "run_dialog",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInputWeb",
+                    "listener": "dlg_positive",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "add_line_dialog",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onShowWeb",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "Open",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "LayoutTest",
+            "section": "NodaScript",
+            "section_code": "noda_script_samples",
+            "has_storage": false,
+            "display_name": "LayoutTest",
+            "cover_image": "[[\"Usage tests in layout markup. Android only\"]]",
+            "display_image_web": "",
+            "display_image_table": "",
+            "init_screen_layout": "[\r\n  [ {\"type\":\"Button\",\"id\":\"btn_update\",\"caption\":\"Simple button\",\"onClick\":\"message('btn_update')\"} ],\r\n  [ {\"type\":\"Switch\",\"caption\":\"Setting 1\",\"id\":\"sw1\",\"value\":\"@sw1\",\"onChange\":\"message(_data.sw1)\"} ],\r\n  [ {\"type\":\"Table\",\"id\":\"tab4\",\"value\":\"@lines\",\"table\":true,\"table_header\":[\"#|n|1\",\"Position|position|7\",\"Qty|qty|1\"],\"onClick\":\"message(_data.tab4_selected_position)\"} ]\r\n]",
+            "init_screen_layout_web": "",
+            "plug_in": "",
+            "plug_in_web": "",
+            "commands": "",
+            "use_standard_commands": true,
+            "svg_commands": "",
+            "migration_register_command": false,
+            "migration_register_on_save": false,
+            "migration_default_room_uid": "",
+            "migration_default_room_alias": "",
+            "class_type": "custom_process",
+            "hidden": false,
+            "methods": [],
+            "events": [
+                {
+                    "event": "onShow",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "lines = Новый Массив;\nДля i=0 по 10 Цикл\n  //вместо этого можно Новый Структура(\"Ключ1\", Значение1, \"Ключ2\", Значение2)... но так удобнее\n  line = {\"n\":i,\"position\":\"Продукция #\"+String(i)};\n  lines.add(line);\nКонецЦикла;\n\n_data.lines = lines\n"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Functions",
+            "section": "NodaScript",
+            "section_code": "noda_script_samples",
+            "has_storage": true,
+            "display_name": "Functions",
+            "cover_image": "[\r\n[\"Call NodaScript builtins\"],\r\n[\"Currency rate USD|@usd\"]\r\n]",
+            "display_image_web": "",
+            "display_image_table": "",
+            "init_screen_layout": "[\r\n[{\"type\":\"Button\",\"id\":\"btn_dialog\",\"caption\":\"Dialog\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_get_rate\",\"caption\":\"Currency rate\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_close\",\"caption\":\"Close\",\"onClick\":\"RefreshTab();CloseNode()\"}]\r\n]",
+            "init_screen_layout_web": "",
+            "plug_in": "",
+            "plug_in_web": "",
+            "commands": "",
+            "use_standard_commands": true,
+            "svg_commands": "",
+            "migration_register_command": false,
+            "migration_register_on_save": false,
+            "migration_default_room_uid": "",
+            "migration_default_room_alias": "",
+            "class_type": "custom_process",
+            "hidden": false,
+            "methods": [],
+            "events": [
+                {
+                    "event": "onInput",
+                    "listener": "my_question_positive",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "message(\"To be\");\nbeep()"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "btn_get_rate",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "r = HTTPRequest(\"GET\", \"https://www.cbr-xml-daily.ru/daily_json.js\", null, null);\nif r.status = 200 {\n    data= r.json;\n    rate = data.Valute.USD.Value;\n    message(\"USD rate: \" + String(rate));\n    _data.usd= rate; //set variable in node\n    Save() //save node\n} else {\n    message(\"Ошибка HTTP: \" + String(r.status))\n}"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInputWeb",
+                    "listener": "my_question_positive",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "Сообщить(\"To be\")\n"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInputWeb",
+                    "listener": "btn_get_rate",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "ответ = HTTPRequest(\"GET\", \"https://www.cbr-xml-daily.ru/daily_json.js\", Неопределено, Неопределено);\nЕсли ответ.status = 200 Тогда\n    данные = ответ.json;\n    курс = данные.Valute.USD.Value;\n    Сообщить(\"Курс доллара: \" + Строка(курс));\n    _data.usd= курс;\n    Сохранить()\nИначе\n    Сообщить(\"Ошибка HTTP: \" + Строка(ответ.status))\nКонецЕсли"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInputWeb",
+                    "listener": "btn_dialog",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "Dialog('my_question','To be||!(to be)','to be','not to be')"
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "datasets": [],
+    "sections": [
+        {
+            "name": "NodaScript",
+            "code": "noda_script_samples",
+            "commands": ""
+        }
+    ],
+    "servers": [
+        {
+            "alias": "main",
+            "url": "https://nmaker.pw",
+            "is_default": true
+        }
+    ],
+    "rooms": [
+        {
+            "alias": "main",
+            "room_id": "129882c8-492a-4c04-9471-84713741858e"
+        }
+    ],
+    "CommonEvents": []
+}
