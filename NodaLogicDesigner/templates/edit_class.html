@@ -120,152 +120,188 @@
           </div>
         </div>
 
+
         <!-- DISPLAY -->
         <div class="tab-pane fade" id="display" role="tabpanel">
           <div class="mb-3">
             <label for="displayName" class="form-label">{{ _('Display name') }}</label>
             <input type="text" class="form-control" id="displayName" name="display_name"
-                   value="{{ class_obj.display_name }}">
+                  value="{{ class_obj.display_name }}">
             <small class="text-muted">{{ _('Human-readable class name, can contain any characters.') }}</small>
           </div>
 
           <div class="mb-3">
-            <label for="coverImage" class="form-label">{{ _('Cover') }}</label>
-            <div class="mb-2 d-flex flex-wrap gap-1">
-              <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('coverImage')">Format</button>
-              <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('coverImage')">Check</button>
-              {% for t in (ui_tpl_buttons or []) %}
-                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('coverImage', '{{ t.key }}')">{{ t.label }}</button>
-              {% endfor %}
-            </div>
-            <textarea class="form-control" id="coverImage" name="cover_image"
-                      rows="2" placeholder="{{ _('JSON markup for the node cover') }}">{{ class_obj.cover_image }}</textarea>
-            <small class="text-muted">
-              {{ _('JSON markup. For example: [[{\"type\":\"Text\",\"value\":\"@ctitle\",\"bold\":true}],[{\"type\":\"Text\",\"value\":\"@cbody\"}]]') }}
-            </small>
-          </div>
-
-          <div class="mb-3">
-            <label for="displayImageWeb" class="form-label">{{ _('Special cover for web client') }}</label>
-            <div class="mb-2 d-flex flex-wrap gap-1">
-              <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('displayImageWeb')">Format</button>
-              <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('displayImageWeb')">Check</button>
-              {% for t in (ui_tpl_buttons or []) %}
-                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('displayImageWeb', '{{ t.key }}')">{{ t.label }}</button>
-              {% endfor %}
-            </div>
-            <textarea class="form-control" id="displayImageWeb" name="display_image_web"
-                      rows="2">{{ class_obj.display_image_web }}</textarea>
-            <small class="text-muted">{{ _('Stored in API as display_image_web') }}</small>
-          </div>
-
-          <div class="mb-3">
-            <label for="displayImageTable" class="form-label">{{ _('Cover for table') }}</label>
-            <textarea class="form-control" id="displayImageTable" name="display_image_table"
-                      rows="2">{{ class_obj.display_image_table }}</textarea>
-            <small class="text-muted">{{ _('Stored in API as display_image_table') }}</small>
-          </div>
-
-          <div class="mb-3">
-            <label for="initScreenLayout" class="form-label">{{_('Init screen layout')}}</label>
-            <div class="d-flex gap-2">
-            <select class="form-select form-select-sm" id="initLayoutSelect">
-              <option value="">-- not selected --</option>
-              {% for l in (class_obj.config.common_layouts or []) %}
-                <option value="{{ l.id }}">{{ l.id }}</option>
-              {% endfor %}
-            </select>
-            <button type="button" class="btn btn-sm btn-outline-primary" id="initLayoutUseBtn">
-              {{ _('Use') }}
-            </button>
-          </div>
-            <div class="mt-2 mb-2 d-flex flex-wrap gap-1">
-              <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('initScreenLayout')">Format</button>
-              <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('initScreenLayout')">Check</button>
-              {% for t in (ui_tpl_buttons or []) %}
-                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('initScreenLayout', '{{ t.key }}')">{{ t.label }}</button>
-              {% endfor %}
-            </div>
-            <textarea class="form-control" id="initScreenLayout" name="init_screen_layout"
-                      rows="2"
-                      placeholder="^my_layout / row JSON-layout ">{{ class_obj.init_screen_layout }}</textarea>
-            <small class="text-muted">{{_('^layout_id (from Common Markup) or JSON layout directly')}}</small>
-            
-          </div>
-
-          
-          <div class="mb-3">
-            <label for="initScreenLayoutWeb" class="form-label">{{_('Init screen layout (web)')}}</label>
-            <div class="d-flex gap-2">
-            <select class="form-select form-select-sm" id="initLayoutWebSelect">
-              <option value="">-- not selected --</option>
-              {% for l in (class_obj.config.common_layouts or []) %}
-                <option value="{{ l.id }}">{{ l.id }}</option>
-              {% endfor %}
-            </select>
-            <button type="button" class="btn btn-sm btn-outline-primary" id="initLayoutWebUseBtn">
-              {{ _('Use') }}
-            </button>
-          </div>
-            <div class="mt-2 mb-2 d-flex flex-wrap gap-1">
-              <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('initScreenLayoutWeb')">Format</button>
-              <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('initScreenLayoutWeb')">Check</button>
-              {% for t in (ui_tpl_buttons or []) %}
-                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('initScreenLayoutWeb', '{{ t.key }}')">{{ t.label }}</button>
-              {% endfor %}
-            </div>
-            <textarea class="form-control" id="initScreenLayoutWeb" name="init_screen_layout_web"
-                      rows="2"
-                      placeholder="^my_layout / row JSON-layout ">{{ class_obj.init_screen_layout_web }}</textarea>
-            <small class="text-muted">{{_('^layout_id (from Common Markup) or JSON layout directly')}}</small>
-          </div>
-
-          <div class="mb-3">
-            <label for="plugIn" class="form-label">{{ _('PlugIn') }}</label>
-            <div class="mb-2 d-flex flex-wrap gap-1">
-              {% for t in (plugin_tpl_buttons or []) %}
-                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertPluginTplIntoTextarea('plugIn', '{{ t.key }}')">{{ t.label }}</button>
-              {% endfor %}
-            </div>
-            <textarea class="form-control" id="plugIn" name="plug_in"
-                      rows="3">{{ class_obj.plug_in }}</textarea>
-          </div>
-
-          <div class="mb-3">
-            <label for="plugInWeb" class="form-label">{{ _('PlugInWeb') }}</label>
-            <div class="mb-2 d-flex flex-wrap gap-1">
-              {% for t in (plugin_tpl_buttons or []) %}
-                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertPluginTplIntoTextarea('plugInWeb', '{{ t.key }}')">{{ t.label }}</button>
-              {% endfor %}
-            </div>
-            <textarea class="form-control" id="plugInWeb" name="plug_in_web"
-                      rows="3">{{ class_obj.plug_in_web }}</textarea>
-          </div>
-
-
-          <hr>
-          <h6>{{ _('Commands') }}</h6>
-
-          <div class="mb-3">
-            <label for="commands" class="form-label">{{ _('Commands') }}</label>
-            <textarea class="form-control" id="commands" name="commands"
-                      rows="3">{{ class_obj.commands }}</textarea>
-            <small class="text-muted">{{ _('Hint: Header|key') }}</small>
+            <label for="recordView" class="form-label">{{ _('Record template') }}</label>
+            <input type="text" class="form-control" id="recordView" name="record_view"
+                  value="{{ class_obj.record_view or '' }}"
+                  placeholder="№{number} от {date}">
+            <small class="text-muted">{{ _('Record display template: use {field}. If the template fails, _view will be used, then id.') }}</small>
           </div>
 
           <div class="mb-3 form-check">
             <input type="checkbox" class="form-check-input" id="useStandardCommands" name="use_standard_commands"
-                   {% if class_obj.use_standard_commands %}checked{% endif %}>
+                  {% if class_obj.use_standard_commands %}checked{% endif %}>
             <label class="form-check-label" for="useStandardCommands">{{ _('Use standard commands') }}</label>
           </div>
 
-          <div class="mb-3">
-            <label for="svgCommands" class="form-label">{{ _('SVG commands') }}</label>
-            <textarea class="form-control" id="svgCommands" name="svg_commands"
-                      rows="3">{{ class_obj.svg_commands }}</textarea>
-            <small class="text-muted">{{ _('Hint: \"key\"|\"svg\"') }}</small>
+          <input type="hidden" id="commands" name="commands" value="{{ class_obj.commands }}">
+          <input type="hidden" id="svgCommands" name="svg_commands" value="{{ class_obj.svg_commands }}">
+
+          <ul class="nav nav-tabs mb-3" id="displaySubTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+              <button class="nav-link active"
+                      id="display-general-tab"
+                      data-bs-toggle="tab"
+                      data-bs-target="#display-general-pane"
+                      type="button"
+                      role="tab"
+                      aria-controls="display-general-pane"
+                      aria-selected="true">
+                {{ _('General/Android') }}
+              </button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link"
+                      id="display-web-tab"
+                      data-bs-toggle="tab"
+                      data-bs-target="#display-web-pane"
+                      type="button"
+                      role="tab"
+                      aria-controls="display-web-pane"
+                      aria-selected="false">
+                {{ _('Web') }}
+              </button>
+            </li>
+          </ul>
+
+          <div class="tab-content border rounded p-3 bg-light-subtle">
+            <div class="tab-pane fade show active"
+                id="display-general-pane"
+                role="tabpanel"
+                aria-labelledby="display-general-tab">
+
+              <div class="mb-3">
+                <label for="coverImage" class="form-label">{{ _('Cover') }}</label>
+                <div class="mb-2 d-flex flex-wrap gap-1">
+                  <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('coverImage')">{{ _('Format') }}</button>
+                  <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('coverImage')">{{ _('Check') }}</button>
+                  <button type="button" class="btn btn-sm btn-purple text-white" onclick="openMarkupWizard('coverImage', 'cover')">{{ _('Wizard') }}</button>
+                  {% for t in (ui_tpl_buttons or []) %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('coverImage', '{{ t.key }}')">{{ t.label }}</button>
+                  {% endfor %}
+                </div>
+                <textarea class="form-control" id="coverImage" name="cover_image"
+                          rows="4" placeholder="{{ _('JSON markup for the node cover') }}">{{ class_obj.cover_image }}</textarea>
+                <small class="text-muted">{{ _('JSON markup or generated markup from Wizard.') }}</small>
+              </div>
+
+              <div class="mb-3">
+                <label for="displayImageTable" class="form-label">{{ _('Cover for table') }}</label>
+                <div class="mb-2 d-flex flex-wrap gap-1">
+                  <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('displayImageTable')">{{ _('Format') }}</button>
+                  <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('displayImageTable')">{{ _('Check') }}</button>
+                  <button type="button" class="btn btn-sm btn-purple text-white" onclick="openMarkupWizard('displayImageTable', 'cover')">{{ _('Wizard') }}</button>
+                  {% for t in (ui_tpl_buttons or []) %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('displayImageTable', '{{ t.key }}')">{{ t.label }}</button>
+                  {% endfor %}
+                </div>
+                <textarea class="form-control" id="displayImageTable" name="display_image_table"
+                          rows="4">{{ class_obj.display_image_table }}</textarea>
+                <small class="text-muted">{{ _('Stored in API as display_image_table') }}</small>
+              </div>
+
+              <div class="mb-3">
+                <label for="initScreenLayout" class="form-label">{{ _('Init screen layout') }}</label>
+                <div class="d-flex gap-2">
+                  <select class="form-select form-select-sm" id="initLayoutSelect">
+                    <option value="">{{ _('-- not selected --') }}</option>
+                    {% for l in (class_obj.config.common_layouts or []) %}
+                      <option value="{{ l.id }}">{{ l.id }}</option>
+                    {% endfor %}
+                  </select>
+                  <button type="button" class="btn btn-sm btn-outline-primary" id="initLayoutUseBtn">{{ _('Use') }}</button>
+                </div>
+                <div class="mt-2 mb-2 d-flex flex-wrap gap-1">
+                  <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('initScreenLayout')">{{ _('Format') }}</button>
+                  <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('initScreenLayout')">{{ _('Check') }}</button>
+                  <button type="button" class="btn btn-sm btn-purple text-white" onclick="openMarkupWizard('initScreenLayout', 'active')">{{ _('Wizard') }}</button>
+                  {% for t in (ui_tpl_buttons or []) %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('initScreenLayout', '{{ t.key }}')">{{ t.label }}</button>
+                  {% endfor %}
+                </div>
+                <textarea class="form-control" id="initScreenLayout" name="init_screen_layout"
+                          rows="4" placeholder="{{ _('^my_layout / row JSON-layout') }}">{{ class_obj.init_screen_layout }}</textarea>
+                <small class="text-muted">{{ _('^layout_id (from Common Markup) or JSON layout directly') }}</small>
+              </div>
+
+              <div class="mb-3">
+                <label for="plugIn" class="form-label">{{ _('PlugIn') }}</label>
+                <div class="mb-2 d-flex flex-wrap gap-1">
+                  {% for t in (plugin_tpl_buttons or []) %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertPluginTplIntoTextarea('plugIn', '{{ t.key }}')">{{ t.label }}</button>
+                  {% endfor %}
+                </div>
+                <textarea class="form-control" id="plugIn" name="plug_in" rows="3">{{ class_obj.plug_in }}</textarea>
+              </div>
+            </div>
+
+            <div class="tab-pane fade"
+                id="display-web-pane"
+                role="tabpanel"
+                aria-labelledby="display-web-tab">
+
+              <div class="mb-3">
+                <label for="displayImageWeb" class="form-label">{{ _('Cover web') }}</label>
+                <div class="mb-2 d-flex flex-wrap gap-1">
+                  <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('displayImageWeb')">{{ _('Format') }}</button>
+                  <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('displayImageWeb')">{{ _('Check') }}</button>
+                  <button type="button" class="btn btn-sm btn-purple text-white" onclick="openMarkupWizard('displayImageWeb', 'cover')">{{ _('Wizard') }}</button>
+                  {% for t in (ui_tpl_buttons or []) %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('displayImageWeb', '{{ t.key }}')">{{ t.label }}</button>
+                  {% endfor %}
+                </div>
+                <textarea class="form-control" id="displayImageWeb" name="display_image_web" rows="4">{{ class_obj.display_image_web }}</textarea>
+                <small class="text-muted">{{ _('Stored in API as display_image_web') }}</small>
+              </div>
+
+              <div class="mb-3">
+                <label for="initScreenLayoutWeb" class="form-label">{{ _('Init screen web') }}</label>
+                <div class="d-flex gap-2">
+                  <select class="form-select form-select-sm" id="initLayoutWebSelect">
+                    <option value="">{{ _('-- not selected --') }}</option>
+                    {% for l in (class_obj.config.common_layouts or []) %}
+                      <option value="{{ l.id }}">{{ l.id }}</option>
+                    {% endfor %}
+                  </select>
+                  <button type="button" class="btn btn-sm btn-outline-primary" id="initLayoutWebUseBtn">{{ _('Use') }}</button>
+                </div>
+                <div class="mt-2 mb-2 d-flex flex-wrap gap-1">
+                  <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('initScreenLayoutWeb')">{{ _('Format') }}</button>
+                  <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('initScreenLayoutWeb')">{{ _('Check') }}</button>
+                  <button type="button" class="btn btn-sm btn-purple text-white" onclick="openMarkupWizard('initScreenLayoutWeb', 'active')">{{ _('Wizard') }}</button>
+                  {% for t in (ui_tpl_buttons or []) %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('initScreenLayoutWeb', '{{ t.key }}')">{{ t.label }}</button>
+                  {% endfor %}
+                </div>
+                <textarea class="form-control" id="initScreenLayoutWeb" name="init_screen_layout_web"
+                          rows="4" placeholder="{{ _('^my_layout / row JSON-layout') }}">{{ class_obj.init_screen_layout_web }}</textarea>
+                <small class="text-muted">{{ _('^layout_id (from Common Markup) or JSON layout directly') }}</small>
+              </div>
+
+              <div class="mb-3">
+                <label for="plugInWeb" class="form-label">{{ _('PlugIn web') }}</label>
+                <div class="mb-2 d-flex flex-wrap gap-1">
+                  {% for t in (plugin_tpl_buttons or []) %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertPluginTplIntoTextarea('plugInWeb', '{{ t.key }}')">{{ t.label }}</button>
+                  {% endfor %}
+                </div>
+                <textarea class="form-control" id="plugInWeb" name="plug_in_web" rows="3">{{ class_obj.plug_in_web }}</textarea>
+              </div>
+
+            </div>
           </div>
         </div>
+
 
         <!-- API -->
         <div class="tab-pane fade" id="api" role="tabpanel">
@@ -562,6 +598,53 @@ return True,{}
             </form>
         </div>
     </div>
+</div>
+
+<!-- Markup Wizard -->
+<div class="modal fade" id="markupWizardModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">{{ _('Markup Wizard') }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('Close') }}"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="markupWizardTarget">
+        <input type="hidden" id="markupWizardMode" value="active">
+
+        <div class="alert alert-info mb-3">
+          <div class="fw-semibold mb-1">{{ _('Example') }}</div>
+          <pre class="mb-0" id="markupWizardExample">{{ _('Date|date: date\nNumber|num: number\nPartner|partner: Node("Partner")\nClosed|closed: boolean\n[Product|product: DataSet("goods"), Quantity|qty: number]') }}</pre>
+        </div>
+
+        <div class="mb-2 d-flex flex-wrap gap-1" id="wizardActiveHelpers">
+          {% for t in (wizard_active_buttons or []) %}
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    onclick='insertWizardSnippet({{ t.value|tojson }})'>{{ t.label }}</button>
+          {% endfor %}
+        </div>
+
+        <div class="mb-2 d-flex flex-wrap gap-1 d-none" id="wizardCoverHelpers">
+          {% for t in (wizard_cover_buttons or []) %}
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    onclick='insertWizardSnippet({{ t.value|tojson }})'>{{ t.label }}</button>
+          {% endfor %}
+        </div>
+
+        <textarea class="form-control"
+                  id="markupWizardInput"
+                  rows="14"
+                  placeholder="{{ _('One line = one row') }}"></textarea>
+        <small class="text-muted">{{ _('One line = one row. Square brackets define a table. Keywords are case-insensitive.') }}</small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+        <button type="button" class="btn btn-primary" onclick="applyMarkupWizard()">{{ _('Apply') }}</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Modal for events -->
@@ -1621,7 +1704,7 @@ document.addEventListener('click', (e) => {
     line-height: 1.5;
 }
 
-code-input {
+.code-input {
     --code-input-color: #333;
     --code-input-background: #f8f9fa;
     --code-input-border-color: #dee2e6;
@@ -1629,10 +1712,149 @@ code-input {
     --code-input-padding: 10px;
 }
 
+
+
 .modal-lg .code-input-editor {
     min-height: 300px;
 }
 </style>
+
+<style>
+.btn-purple {
+  background:#6f42c1;
+  border-color:#6f42c1;
+}
+.btn-purple:hover {
+  background:#5e35b1;
+  border-color:#5e35b1;
+}
+</style>
+
+<script>
+function insertWizardSnippet(text) {
+  const ta = document.getElementById('markupWizardInput');
+  if (!ta) return;
+
+  const start = ta.selectionStart ?? ta.value.length;
+  const end = ta.selectionEnd ?? ta.value.length;
+  const prefix = ta.value && !ta.value.endsWith('\n') ? '\n' : '';
+  const insertText = (start === ta.value.length ? prefix : '') + text;
+
+  ta.value = ta.value.slice(0, start) + insertText + ta.value.slice(end);
+  ta.focus();
+
+  const pos = start + insertText.length;
+  ta.selectionStart = ta.selectionEnd = pos;
+}
+
+async function openMarkupWizard(textareaId, mode) {
+  const target = document.getElementById('markupWizardTarget');
+  const modeInput = document.getElementById('markupWizardMode');
+  const input = document.getElementById('markupWizardInput');
+  const example = document.getElementById('markupWizardExample');
+  const source = document.getElementById(textareaId);
+
+  if (!target || !modeInput || !input || !source) return;
+
+  target.value = textareaId;
+  modeInput.value = mode || 'active';
+  input.value = '';
+
+  document.getElementById('wizardActiveHelpers')?.classList.toggle('d-none', mode !== 'active');
+  document.getElementById('wizardCoverHelpers')?.classList.toggle('d-none', mode === 'active');
+
+  if (example) {
+    if (mode === 'active') {
+      example.textContent =
+`Date|date: date
+Number|num: number
+Partner|partner: Node("Partner")
+Closed|closed: boolean
+[Product|product: DataSet("goods"), Quantity|qty: number]`;
+    } else {
+      example.textContent =
+`Date|@date
+Number|@num
+Partner|partner: Node("Partner")
+[Product|@product, Quantity|@qty]`;
+    }
+  }
+
+  const raw = (source.value || '').trim();
+
+  if (raw) {
+    let asJson = null;
+    try {
+      asJson = JSON.parse(raw);
+    } catch (_) {}
+
+    if (asJson) {
+      try {
+        const resp = await fetch('{{ url_for("layout_wizard") }}', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            direction: 'to_simplified',
+            mode: mode,
+            layout: asJson
+          })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.ok) {
+          input.value = data.text || '';
+        } else {
+          input.value = '';
+        }
+      } catch (_) {
+        input.value = '';
+      }
+    } else {
+      input.value = raw;
+    }
+  }
+
+  const modalEl = document.getElementById('markupWizardModal');
+  if (!modalEl) return;
+  bootstrap.Modal.getOrCreateInstance(modalEl).show();
+}
+
+async function applyMarkupWizard() {
+  try {
+    const targetId = document.getElementById('markupWizardTarget')?.value;
+    const mode = document.getElementById('markupWizardMode')?.value || 'active';
+    const input = document.getElementById('markupWizardInput')?.value || '';
+    const target = document.getElementById(targetId);
+
+    if (!target) {
+      throw new Error({{ _('Target textarea not found')|tojson }});
+    }
+
+    const resp = await fetch('{{ url_for("layout_wizard") }}', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        direction: 'to_json',
+        text: input,
+        mode: mode
+      })
+    });
+
+    const data = await resp.json();
+
+    if (!resp.ok || !data.ok) {
+      throw new Error(data.error || {{ _('Wizard conversion error')|tojson }});
+    }
+
+    target.value = JSON.stringify(data.layout, null, 2);
+    bootstrap.Modal.getInstance(document.getElementById('markupWizardModal'))?.hide();
+    target.focus();
+  } catch (e) {
+  alert(String(e && e.message ? e.message : e));
+}
+}
+</script>
 
 </div>
 {% endblock %}
