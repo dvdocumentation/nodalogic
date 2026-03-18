@@ -6,6 +6,7 @@ import pickle
 import sqlite3
 import base64
 import uuid
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -35,6 +36,35 @@ client_bp = Blueprint(
 APP_TITLE = "NodaLogic Client"
 DEFAULT_LIMIT_PER_CLASS = 50
 AUTO_REFRESH_SECONDS = 10
+
+
+_CLASS_VIEW_RE = re.compile(r"\{([A-Za-z0-9_]+)\}")
+
+def _render_class_record_view(parsed: Optional[Dict[str, Any]], class_name: str, node_id: str, data: Optional[Dict[str, Any]]) -> str:
+    """Render class-level record view template using node data."""
+    data = data if isinstance(data, dict) else {}
+
+    if isinstance(data.get("_view"), str) and data.get("_view", "").strip():
+        return data.get("_view", "").strip()
+
+    cls_cfg: Dict[str, Any] = {}
+    try:
+        cls_cfg = ((parsed or {}).get("classes") or {}).get(class_name) or {}
+    except Exception:
+        cls_cfg = {}
+
+    tpl = str(cls_cfg.get("record_view") or "").strip()
+    if tpl:
+        def repl(m: re.Match) -> str:
+            key = m.group(1)
+            val = data.get(key)
+            return "" if val is None else str(val)
+
+        rendered = _CLASS_VIEW_RE.sub(repl, tpl).strip()
+        if rendered:
+            return rendered
+
+    return str(node_id or "")
 
 # in-memory parsed config cache (per repo)
 CONFIG_MEM: Dict[int, Dict[str, Any]] = {}
@@ -445,7 +475,7 @@ def _fill_nodeinput_views(repo, parsed, layout, node_data):
             except Exception:
                 d = {}
 
-            view = str(d.get("_view") or internal_id)
+            view = _render_class_record_view(parsed, cls_name, internal_id, d)
             cache[ref] = view
             node_data[view_key] = view
         except Exception:
@@ -495,7 +525,7 @@ def _nl_context(repo: models.Repo, *, class_name: str, node_id: str) -> Dict[str
             except Exception:
                 d = {}
             if isinstance(d, dict):
-                return str(d.get("_view") or getattr(n, "_id", "") or uid)
+                return _render_class_record_view(parsed, getattr(n, "__class__", type(n)).__name__, getattr(n, "_id", "") or uid, d)
             return str(getattr(n, "_id", "") or uid)
         except Exception:
             return str(node_uid or "")
@@ -700,6 +730,7 @@ def fetch_config_from_local_db(config_uid: str) -> Dict[str, Any]:
             "section_code": c.section_code,
             "has_storage": c.has_storage,
             "display_name": c.display_name,
+            "record_view": getattr(c, "record_view", "") or "",
             "cover_image": c.cover_image,
             
             "display_image_web": getattr(c, "display_image_web", "") or "",
@@ -2842,12 +2873,9 @@ def _set_by_path(obj: dict, path: str, value):
 
 
 def _apply_web_payload_to_node_data(node, payload: dict):
-
-
     if not isinstance(payload, dict):
         return
 
-   
     base = None
     if getattr(node, "_data_cache", None) is not None and isinstance(node._data_cache, dict):
         base = node._data_cache
@@ -2860,23 +2888,18 @@ def _apply_web_payload_to_node_data(node, payload: dict):
         except Exception:
             pass
 
-    
     listener = payload.get("listener") or payload.get("id")
     if listener is not None:
         base["listener"] = str(listener)
 
-    
     el_id = payload.get("id")
     if el_id:
-        
         if "value" in payload:
             base[str(el_id)] = payload.get("value")
 
-        
         if "date_iso" in payload:
             base["_d" + str(el_id)] = payload.get("date_iso")
 
-    
     try:
         p = payload.get("path")
         if isinstance(p, str) and p.strip() and ("value" in payload):
@@ -2884,22 +2907,35 @@ def _apply_web_payload_to_node_data(node, payload: dict):
     except Exception:
         pass
 
-    
+    # ВАЖНО: дополнительные значения от UI, например <field>_view
+    # DatasetField / DatasetInput могут присылать:
+    # "extra": [{"path": "customer_view", "value": "ООО Ромашка"}]
+    extra = payload.get("extra")
+    if isinstance(extra, list):
+        for item in extra:
+            if not isinstance(item, dict):
+                continue
+            try:
+                ep = item.get("path")
+                if isinstance(ep, str) and ep.strip() and ("value" in item):
+                    _set_by_path(base, ep.strip(), item.get("value"))
+            except Exception:
+                pass
+
     fd = payload.get("full_data")
     if isinstance(fd, dict):
         try:
-            # это именно "данные формы", лучше класть в base (который _data_cache)
             for k, v in fd.items():
                 base[k] = v
         except Exception:
             pass
+
     dv = payload.get("dialog_values")
     if isinstance(dv, dict):
         for p, v in dv.items():
             if isinstance(p, str) and p.strip():
-                _set_by_path(base, p.strip(), v)        
+                _set_by_path(base, p.strip(), v)
 
-    
     passthrough_keys = [
         "row", "col", "row_id", "col_id",
         "selected", "selected_ids",
@@ -2910,11 +2946,9 @@ def _apply_web_payload_to_node_data(node, payload: dict):
         if k in payload:
             base[k] = payload[k]
 
-    
     try:
         if getattr(node, "_data", None) is None or not isinstance(node._data, dict):
             node._data = {}
-        # merge, не replace
         node._data.update(base)
     except Exception:
         pass
@@ -3579,7 +3613,7 @@ def api_class_nodes():
         nid = n.get("_id") or data.get("_id") or ""
         if not nid:
             continue
-        view = data.get("_view") or data.get("title") or nid
+        view = _render_class_record_view(get_parsed_config(repo, models.db), class_name, str(nid), data)
         cover_html = ""
         try:
             cover_html = _node_cover_html(repo, class_name, str(nid), mode="table")

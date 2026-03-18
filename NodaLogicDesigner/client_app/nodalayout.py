@@ -580,7 +580,7 @@ def render_nodalayout_html(
             tpl = _tpl_attr("text", raw_tpl)
             return f'<div class="nl-text nl-node-link"{style_attr}{tpl}>{escape(txt)}</div>'
 
-        if t == "DataSetLink":
+        if t == "DataSetLink" or t == "DatasetLink":
             raw_tpl = el.get("value")
             txt = _resolve_dataset_link_text(el, node_data, context)
             tpl = _tpl_attr("text", raw_tpl)
@@ -737,10 +737,21 @@ def render_nodalayout_html(
             display = node_data.get(view_key)
             if display is None:
                 raw_val = el.get("value")
-                if isinstance(raw_val, str) and raw_val.startswith("@"):
-                    display = node_data.get(raw_val[1:], "")
-                else:
-                    display = _resolve_vars(str(raw_val or ""), node_data)
+                raw_ref = _resolve_link_value(raw_val, node_data).strip()
+                if raw_ref:
+                    get_node_view_fn = (context or {}).get("get_node_view")
+                    if callable(get_node_view_fn):
+                        try:
+                            resolved = get_node_view_fn(raw_ref)
+                            if resolved not in (None, ""):
+                                display = resolved
+                        except Exception:
+                            display = None
+                if display is None:
+                    if isinstance(raw_val, str) and raw_val.startswith("@"):
+                        display = node_data.get(raw_val[1:], "")
+                    else:
+                        display = _resolve_vars(str(raw_val or ""), node_data)
             display = "" if display is None else str(display)
 
             # dataset can be:
