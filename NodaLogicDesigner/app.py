@@ -698,13 +698,37 @@ UI_COMPONENT_TEMPLATES = OrderedDict([
     ('NodeInput', '{"type":"NodeInput","dataset":"operations","value":"@my_node"}'),
     ('Spinner', '{"type":"Spinner","id":"my_spinner","caption":"my select:","value":"@my_spinner", "dataset":spinner_dataset}'),
     ('NodeLink', '{"type":"NodeLink","value":""}'),
-    ('DataSetLink', '{"type":"DataSetLink","value":""}'),
+    ('DatasetLink', '{"type":"DatasetLink","value":""}'),
     ('Card', '{"type":"Card","value":[[]]}'),
     ('VerticalLayout', '{"type":"VerticalLayout","value":[]}'),
     ('HorizontalLayout', '{"type":"HorizontalLayout","value":[]}'),
     ('VerticalScroll', '{"type":"VerticalScroll","value":[]}'),
     ('HorizontalScroll', '{"type":"HorizontalScroll","value":[]}'),
 ])
+
+WIZARD_ACTIVE_TEMPLATES = OrderedDict([
+    ('String', 'Title|id: string'),
+    ('Date', 'Date|date: date'),
+    ('Number', 'Number|num: number'),
+    ('Boolean', 'Closed|closed: boolean'),
+    ('NodeInput', 'Partner|partner: Node("Partner")'),
+    ('DatasetField', 'Product|product: DataSet("goods")'),
+    ('Spinner', 'Operation|operation: select(Receipt|StockIn, Shipment|StockOut)'),
+    ('Table', '[Product|product: Node("Product"), Quantity|qty: number]'),
+])
+
+WIZARD_COVER_TEMPLATES = OrderedDict([
+    ('Text', 'Title|@value'),
+    ('NodeLink', 'Partner|partner: Node("Partner")'),
+    ('DatasetLink', 'Items|items: Dataset("goods")'),
+    ('Table', '[Product|@product, Quantity|@qty]'),
+])
+
+def get_wizard_active_templates():
+    return [{'key': k, 'label': k, 'value': v} for k, v in WIZARD_ACTIVE_TEMPLATES.items()]
+
+def get_wizard_cover_templates():
+    return [{'key': k, 'label': k, 'value': v} for k, v in WIZARD_COVER_TEMPLATES.items()]
 
 # -----------------------------------------------------------------------------
 # PlugIn template snippets (used in multiple editors)
@@ -1156,6 +1180,8 @@ def _ensure_sqlite_schema():
 
         if "display_name" not in cols:
             _add_col("config_class", "display_name VARCHAR(100)", "display_name")
+        if "record_view" not in cols:
+            _add_col("config_class", 'record_view TEXT DEFAULT ""', "record_view")
         if "cover_image" not in cols:
             _add_col("config_class", "cover_image TEXT", "cover_image")
 
@@ -1483,6 +1509,7 @@ class ConfigClass(db.Model):
     has_storage = db.Column(db.Boolean, default=False)  
     class_type = db.Column(db.String(50))  
     display_name = db.Column(db.String(100))  
+    record_view = db.Column(db.Text, default="")
     cover_image = db.Column(db.Text)  
     section = db.Column(db.String(100))  
     section_code = db.Column(db.String(100)) 
@@ -2736,6 +2763,7 @@ def get_config(uid):
                 'section_code': c.section_code,
                 'has_storage': c.has_storage,
                 'display_name': c.display_name,
+                'record_view': getattr(c, 'record_view', '') or '',
                 'cover_image': c.cover_image,
                 'display_image_web': getattr(c, 'display_image_web', '') or '',
                 'display_image_table': getattr(c, 'display_image_table', '') or '',
@@ -2944,6 +2972,794 @@ def add_config_event(config_uid):
         "redirect_url": url_for('edit_config', uid=config_uid, tab=active_tab)
     })
 
+def _wizard_split_top_level(text, delimiter=','):
+    out = []
+    buf = ''
+    paren = 0
+    bracket = 0
+    quote = None
+
+    for i, ch in enumerate(text):
+        prev = text[i - 1] if i > 0 else ''
+        if quote:
+            buf += ch
+            if ch == quote and prev != '\\':
+                quote = None
+            continue
+
+        if ch in ("'", '"'):
+            quote = ch
+            buf += ch
+            continue
+
+        if ch == '(':
+            paren += 1
+        elif ch == ')':
+            paren = max(0, paren - 1)
+        elif ch == '[':
+            bracket += 1
+        elif ch == ']':
+            bracket = max(0, bracket - 1)
+
+        if ch == delimiter and paren == 0 and bracket == 0:
+            out.append(buf.strip())
+            buf = ''
+            continue
+
+        buf += ch
+
+    if buf.strip():
+        out.append(buf.strip())
+    return out
+
+
+def _wizard_normalize_id(value):
+    value = (value or '').strip()
+    value = re.sub(r'^@+', '', value)
+    value = re.sub(r'[^a-zA-Z0-9_]+', '_', value)
+    value = value.strip('_')
+    return value or 'field'
+
+
+def _wizard_split_once_top_level(src, separator=':'):
+    paren = 0
+    bracket = 0
+    quote = None
+
+    for i, ch in enumerate(src):
+        prev = src[i - 1] if i > 0 else ''
+        if quote:
+            if ch == quote and prev != '\\':
+                quote = None
+            continue
+
+        if ch in ("'", '"'):
+            quote = ch
+            continue
+
+        if ch == '(':
+            paren += 1
+        elif ch == ')':
+            paren = max(0, paren - 1)
+        elif ch == '[':
+            bracket += 1
+        elif ch == ']':
+            bracket = max(0, bracket - 1)
+        elif ch == separator and paren == 0 and bracket == 0:
+            return src[:i].strip(), src[i + 1:].strip()
+
+    return src.strip(), ''
+
+
+def _wizard_parse_fn_call(text):
+    m = re.match(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\((.*)\)\s*$', text or '')
+    if not m:
+        return None
+    fn = m.group(1).lower()
+    arg = m.group(2).strip()
+    if (arg.startswith('"') and arg.endswith('"')) or (arg.startswith("'") and arg.endswith("'")):
+        arg = arg[1:-1]
+    return fn, arg
+
+
+def _wizard_parse_select(text):
+    m = re.match(r'^\s*select\((.*)\)\s*$', text or '', flags=re.I)
+    if not m:
+        return None
+    items = []
+    for part in _wizard_split_top_level(m.group(1)):
+        left, right = _wizard_split_once_top_level(part, '|')
+        caption = left.strip()
+        value = right.strip() or caption
+        if caption:
+            items.append({"_view": caption, "_id": value})
+    return items
+
+
+def _wizard_build_active_field(spec):
+    left, right = _wizard_split_once_top_level(spec, ':')
+    caption, field_id = _wizard_split_once_top_level(left, '|')
+
+    caption = caption.strip()
+    field_id = _wizard_normalize_id(field_id or caption)
+    value_ref = '@' + field_id
+    right_lc = (right or '').strip().lower()
+
+    fn_call = _wizard_parse_fn_call(right)
+    if fn_call:
+        fn, arg = fn_call
+        if fn == 'node':
+            return {
+                "type": "NodeInput",
+                "caption": caption,
+                "id": field_id,
+                "dataset": arg,
+                "value": value_ref,
+            }
+        if fn == 'dataset':
+            return {
+                "type": "DatasetField",
+                "caption": caption,
+                "id": field_id,
+                "dataset": arg,
+                "value": value_ref,
+            }
+
+    select_items = _wizard_parse_select(right)
+    if select_items is not None:
+        return {
+            "type": "Spinner",
+            "caption": caption,
+            "id": field_id,
+            "value": value_ref,
+            "dataset": select_items,
+        }
+
+    if right_lc in ('bool', 'boolean', 'checkbox', 'check', 'switch', 'галочка'):
+        return {
+            "type": "Switch",
+            "caption": caption,
+            "id": field_id,
+            "value": value_ref,
+        }
+
+    if right_lc in ('number', 'numeric', 'int', 'integer', 'float', 'double'):
+        return {
+            "type": "Input",
+            "caption": caption,
+            "id": field_id,
+            "value": value_ref,
+            "input_type": "number",
+        }
+
+    if right_lc in ('date', 'datetime'):
+        return {
+            "type": "Input",
+            "caption": caption,
+            "id": field_id,
+            "value": value_ref,
+            "input_type": "date",
+        }
+
+    return {
+        "type": "Input",
+        "caption": caption,
+        "id": field_id,
+        "value": value_ref,
+    }
+
+
+def _wizard_build_cover_field(spec):
+    left, right = _wizard_split_once_top_level(spec, ':')
+    caption, raw_value = _wizard_split_once_top_level(left, '|')
+    caption = caption.strip()
+
+    label = {"type": "Text", "value": caption}
+    right = (right or raw_value or '').strip()
+
+    fn_call = _wizard_parse_fn_call(right)
+    if fn_call:
+        fn, _arg = fn_call
+        field_id = _wizard_normalize_id(caption)
+        if fn == 'node':
+            return [label, {"type": "NodeLink", "value": '@' + field_id}]
+        if fn == 'dataset':
+            return [label, {"type": "DatasetLink", "value": '@' + field_id}]
+
+    return [label, {"type": "Text", "value": right or ('@' + _wizard_normalize_id(caption))}]
+
+
+def _wizard_build_table(inner, mode, index):
+    cols = [x.strip() for x in _wizard_split_top_level(inner) if x.strip()]
+    if not cols:
+        raise ValueError('Empty table definition')
+
+    if mode == 'active':
+        layout_row = [_wizard_build_active_field(col) for col in cols]
+        cover_row = []
+
+        for col in cols:
+            left, _right = _wizard_split_once_top_level(col, ':')
+            caption, field_id = _wizard_split_once_top_level(left, '|')
+            field_id = _wizard_normalize_id(field_id or caption)
+            field = _wizard_build_active_field(col)
+
+            if field["type"] == "NodeInput":
+                cover_row.append({"type": "NodeLink", "value": '@' + field_id})
+            elif field["type"] == "DatasetField":
+                cover_row.append({"type": "DatasetLink", "value": '@' + field_id})
+            else:
+                cover_row.append({"type": "Text", "value": '@' + field_id})
+
+        return [[{
+            "type": "Table",
+            "id": f"tab{index}",
+            "virtual_node": {
+                "layout": [layout_row],
+                "cover": [cover_row],
+            }
+        }]]
+
+    header = []
+    for col in cols:
+        left, _right = _wizard_split_once_top_level(col, ':')
+        caption, field_id = _wizard_split_once_top_level(left, '|')
+        field_id = _wizard_normalize_id(field_id or caption)
+        header.append(f"{caption.strip()}|{field_id}|1")
+
+    return [[{
+        "type": "Table",
+        "id": f"tab{index}",
+        "value": [],
+        "table": True,
+        "table_header": header,
+    }]]
+
+
+def simplified_markup_to_layout(text, mode):
+    mode = (mode or 'active').strip().lower()
+    if mode not in ('active', 'cover'):
+        raise ValueError('Unsupported mode')
+
+    lines = [x.strip() for x in (text or '').splitlines() if x.strip()]
+    rows = []
+    tables = []
+
+    for line in lines:
+        if line.startswith('[') and line.endswith(']'):
+            tables.append(_wizard_build_table(line[1:-1].strip(), mode, len(tables) + 1))
+            continue
+
+        parts = _wizard_split_top_level(line)
+        if mode == 'active':
+            rows.append([_wizard_build_active_field(p) for p in parts])
+        else:
+            row = []
+            for p in parts:
+                row.extend(_wizard_build_cover_field(p))
+            rows.append(row)
+
+    if not tables:
+        return rows
+
+    if len(tables) == 1:
+        return rows + tables[0]
+
+    tabs = []
+    for i, table_layout in enumerate(tables, start=1):
+        tabs.append({
+            "type": "Tab",
+            "id": f"tab_{i}",
+            "caption": f"Table {i}",
+            "layout": table_layout,
+        })
+
+    return rows + [[{"type": "Tabs", "value": tabs}]]
+
+import re
+
+
+def _wiz_split_top_level(text, delimiter=','):
+    result = []
+    buf = ''
+    depth_round = 0
+    depth_square = 0
+    quote = None
+
+    for i, ch in enumerate(text or ''):
+        prev = text[i - 1] if i > 0 else ''
+
+        if quote:
+            buf += ch
+            if ch == quote and prev != '\\':
+                quote = None
+            continue
+
+        if ch in ('"', "'"):
+            quote = ch
+            buf += ch
+            continue
+
+        if ch == '(':
+            depth_round += 1
+        elif ch == ')':
+            depth_round = max(0, depth_round - 1)
+        elif ch == '[':
+            depth_square += 1
+        elif ch == ']':
+            depth_square = max(0, depth_square - 1)
+
+        if ch == delimiter and depth_round == 0 and depth_square == 0:
+            if buf.strip():
+                result.append(buf.strip())
+            buf = ''
+            continue
+
+        buf += ch
+
+    if buf.strip():
+        result.append(buf.strip())
+    return result
+
+
+def _wiz_split_once_top_level(src, separator=':'):
+    depth_round = 0
+    depth_square = 0
+    quote = None
+
+    for i, ch in enumerate(src or ''):
+        prev = src[i - 1] if i > 0 else ''
+
+        if quote:
+            if ch == quote and prev != '\\':
+                quote = None
+            continue
+
+        if ch in ('"', "'"):
+            quote = ch
+            continue
+
+        if ch == '(':
+            depth_round += 1
+        elif ch == ')':
+            depth_round = max(0, depth_round - 1)
+        elif ch == '[':
+            depth_square += 1
+        elif ch == ']':
+            depth_square = max(0, depth_square - 1)
+        elif ch == separator and depth_round == 0 and depth_square == 0:
+            return src[:i].strip(), src[i + 1:].strip()
+
+    return (src or '').strip(), ''
+
+
+def _wiz_unquote(value):
+    value = (value or '').strip()
+    if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+        return value[1:-1]
+    return value
+
+
+def _wiz_norm_id(value):
+    value = (value or '').strip()
+    value = re.sub(r'^@+', '', value)
+    value = re.sub(r'[^A-Za-z0-9_]+', '_', value)
+    value = value.strip('_')
+    return value or 'field'
+
+
+def _wiz_parse_fn_call(text):
+    m = re.match(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)\s*$', text or '')
+    if not m:
+        return None
+    return m.group(1).strip().lower(), _wiz_unquote(m.group(2).strip())
+
+
+def _wiz_parse_select(text):
+    m = re.match(r'^\s*select\s*\((.*)\)\s*$', text or '', flags=re.I)
+    if not m:
+        return None
+
+    items = []
+    for part in _wiz_split_top_level(m.group(1)):
+        left, right = _wiz_split_once_top_level(part, '|')
+        cap = left.strip()
+        val = right.strip() or cap
+        if cap:
+            items.append({"_view": cap, "_id": val})
+    return items
+
+
+def _wiz_parse_line_spec(spec):
+    left, right = _wiz_split_once_top_level(spec, ':')
+    caption, field_id = _wiz_split_once_top_level(left, '|')
+    caption = caption.strip()
+    field_id = _wiz_norm_id(field_id or caption)
+    return caption, field_id, (right or '').strip()
+
+
+def _wiz_active_field_to_json(spec):
+    caption, field_id, right = _wiz_parse_line_spec(spec)
+    value_ref = '@' + field_id
+    right_lc = right.lower()
+
+    fn_call = _wiz_parse_fn_call(right)
+    if fn_call:
+        fn, arg = fn_call
+        if fn == 'node':
+            return {
+                "type": "NodeInput",
+                "caption": caption,
+                "id": field_id,
+                "dataset": arg,
+                "value": value_ref,
+            }
+        if fn == 'dataset':
+            return {
+                "type": "DatasetField",
+                "caption": caption,
+                "id": field_id,
+                "dataset": arg,
+                "value": value_ref,
+            }
+
+    select_items = _wiz_parse_select(right)
+    if select_items is not None:
+        return {
+            "type": "Spinner",
+            "caption": caption,
+            "id": field_id,
+            "value": value_ref,
+            "dataset": select_items,
+        }
+
+    if right_lc in ('bool', 'boolean', 'checkbox', 'check', 'switch', 'галочка'):
+        return {
+            "type": "Switch",
+            "caption": caption,
+            "id": field_id,
+            "value": value_ref,
+        }
+
+    if right_lc in ('number', 'numeric', 'int', 'integer', 'float', 'double'):
+        return {
+            "type": "Input",
+            "caption": caption,
+            "id": field_id,
+            "value": value_ref,
+            "input_type": "number",
+        }
+
+    if right_lc in ('date', 'datetime'):
+        return {
+            "type": "Input",
+            "caption": caption,
+            "id": field_id,
+            "value": value_ref,
+            "input_type": "date",
+        }
+
+    return {
+        "type": "Input",
+        "caption": caption,
+        "id": field_id,
+        "value": value_ref,
+    }
+
+
+def _wiz_cover_field_to_json(spec):
+    caption, field_id, right = _wiz_parse_line_spec(spec)
+    label = {"type": "Text", "value": caption}
+
+    fn_call = _wiz_parse_fn_call(right)
+    if fn_call:
+        fn, _arg = fn_call
+        if fn == 'node':
+            return [
+                label,
+                {"type": "NodeLink", "value": '@' + field_id, "bold": True}
+            ]
+        if fn == 'dataset':
+            return [
+                label,
+                {"type": "DatasetLink", "value": '@' + field_id, "bold": True}
+            ]
+
+    value = right or ('@' + field_id)
+    return [
+        label,
+        {"type": "Text", "value": value, "bold": True}
+    ]
+
+
+def _wiz_build_active_table(specs, index):
+    layout_row = []
+    cover_row = []
+
+    for spec in specs:
+        field = _wiz_active_field_to_json(spec)
+        layout_row.append(field)
+
+        field_id = field.get('id') or 'field'
+        if field.get('type') == 'NodeInput':
+            cover_row.append({"type": "NodeLink", "value": '@' + field_id, "bold": True})
+        elif field.get('type') == 'DatasetField':
+            cover_row.append({"type": "DatasetLink", "value": '@' + field_id, "bold": True})
+        else:
+            cover_row.append({"type": "Text", "value": '@' + field_id, "bold": True})
+
+    return [[{
+        "type": "Table",
+        "id": f"tab{index}",
+        "virtual_node": {
+            "layout": [layout_row],
+            "cover": [cover_row],
+        }
+    }]]
+
+
+def _wiz_build_cover_table(specs, index):
+    header = []
+    value_row = []
+
+    for spec in specs:
+        caption, field_id, right = _wiz_parse_line_spec(spec)
+        header.append(f"{caption}|{field_id}|1")
+        value_row.append(right or ('@' + field_id))
+
+    return [[{
+        "type": "Table",
+        "id": f"tab{index}",
+        "value": [value_row],
+        "table": True,
+        "table_header": header,
+    }]]
+
+
+def simplified_markup_to_layout(text, mode):
+    mode = (mode or 'active').strip().lower()
+    if mode not in ('active', 'cover'):
+        raise ValueError('Unsupported mode')
+
+    lines = [x.strip() for x in (text or '').splitlines() if x.strip()]
+    rows = []
+    tables = []
+
+    for line in lines:
+        if line.startswith('[') and line.endswith(']'):
+            inner = line[1:-1].strip()
+            specs = [x.strip() for x in _wiz_split_top_level(inner) if x.strip()]
+            if mode == 'active':
+                tables.append(_wiz_build_active_table(specs, len(tables) + 1))
+            else:
+                tables.append(_wiz_build_cover_table(specs, len(tables) + 1))
+            continue
+
+        parts = [x.strip() for x in _wiz_split_top_level(line) if x.strip()]
+        if mode == 'active':
+            rows.append([_wiz_active_field_to_json(p) for p in parts])
+        else:
+            row = []
+            for p in parts:
+                row.extend(_wiz_cover_field_to_json(p))
+            rows.append(row)
+
+    if not tables:
+        return rows
+
+    if len(tables) == 1:
+        return rows + tables[0]
+
+    tabs = []
+    for i, table_layout in enumerate(tables, start=1):
+        tabs.append({
+            "type": "Tab",
+            "id": f"tab_{i}",
+            "caption": f"Table {i}",
+            "layout": table_layout,
+        })
+
+    return rows + [[{"type": "Tabs", "value": tabs}]]
+
+
+def _wiz_json_field_to_simple(item):
+    if not isinstance(item, dict):
+        return None
+
+    t = (item.get('type') or '').strip()
+    caption = item.get('caption') or item.get('value') or 'Field'
+    field_id = item.get('id') or _wiz_norm_id(caption)
+
+    if t == 'Input':
+        input_type = (item.get('input_type') or '').lower()
+        if input_type == 'number':
+            return f'{caption}|{field_id}: number'
+        if input_type == 'date':
+            return f'{caption}|{field_id}: date'
+        return f'{caption}|{field_id}: string'
+
+    if t in ('Switch', 'CheckBox'):
+        return f'{caption}|{field_id}: boolean'
+
+    if t == 'NodeInput':
+        ds = item.get('dataset') or ''
+        return f'{caption}|{field_id}: Node("{ds}")'
+
+    if t in ('DataSetField', 'DatasetField'):
+        ds = item.get('dataset') or ''
+        return f'{caption}|{field_id}: DataSet("{ds}")'
+
+    if t == 'Spinner':
+        ds = item.get('dataset')
+        if isinstance(ds, list):
+            parts = []
+            for x in ds:
+                if isinstance(x, dict):
+                    parts.append(f'{x.get("_view","")}|{x.get("_id","")}')
+            return f'{caption}|{field_id}: select({", ".join(parts)})'
+        return f'{caption}|{field_id}: string'
+
+    return None
+
+
+def _wiz_cover_row_to_simple(row):
+    if not isinstance(row, list) or len(row) < 2:
+        return None
+
+    parts = []
+    i = 0
+
+    while i + 1 < len(row):
+        left = row[i]
+        right = row[i + 1]
+
+        if not isinstance(left, dict) or not isinstance(right, dict):
+            i += 2
+            continue
+
+        if left.get('type') != 'Text':
+            i += 2
+            continue
+
+        caption = left.get('value') or 'Field'
+        right_type = right.get('type')
+        value = right.get('value') or ''
+        field_id = _wiz_norm_id(value if isinstance(value, str) and value.startswith('@') else caption)
+
+        if right_type in ('Text', 'NodeLink', 'DatasetLink'):
+            parts.append(f'{caption}|{value or ("@" + field_id)}')
+
+        i += 2
+
+    if parts:
+        return ', '.join(parts)
+
+    return None
+
+
+def _wiz_table_to_simple(table_item, mode):
+    if not isinstance(table_item, dict) or table_item.get('type') != 'Table':
+        return None
+
+    if mode == 'active':
+        v = table_item.get('virtual_node') or {}
+        layout = v.get('layout') or []
+        if not layout or not isinstance(layout, list) or not layout[0]:
+            return None
+
+        cols = []
+        for item in layout[0]:
+            s = _wiz_json_field_to_simple(item)
+            if s:
+                cols.append(s)
+        if cols:
+            return '[' + ', '.join(cols) + ']'
+        return None
+
+    headers = table_item.get('table_header') or []
+    if headers:
+        cols = []
+        for h in headers:
+            if not isinstance(h, str):
+                continue
+            parts = h.split('|')
+            caption = parts[0].strip() if len(parts) > 0 else 'Field'
+            field_id = parts[1].strip() if len(parts) > 1 else _wiz_norm_id(caption)
+            cols.append(f'{caption}|@{field_id}')
+        if cols:
+            return '[' + ', '.join(cols) + ']'
+    return None
+
+
+def layout_to_simplified_markup(layout, mode):
+    mode = (mode or 'active').strip().lower()
+    if isinstance(layout, str):
+        layout = json.loads(layout)
+
+    if not isinstance(layout, list):
+        raise ValueError('Layout must be a list')
+
+    lines = []
+
+    for row in layout:
+        if not isinstance(row, list) or not row:
+            continue
+
+        if len(row) == 1 and isinstance(row[0], dict):
+            item = row[0]
+            t = item.get('type')
+
+            if t == 'Table':
+                s = _wiz_table_to_simple(item, mode)
+                if s:
+                    lines.append(s)
+                continue
+
+            if t == 'Tabs':
+                tabs = item.get('value') or []
+                for tab in tabs:
+                    if not isinstance(tab, dict):
+                        continue
+                    tab_layout = tab.get('layout') or []
+                    if not tab_layout:
+                        continue
+                    if isinstance(tab_layout, list):
+                        for subrow in tab_layout:
+                            if isinstance(subrow, list) and len(subrow) == 1 and isinstance(subrow[0], dict) and subrow[0].get('type') == 'Table':
+                                s = _wiz_table_to_simple(subrow[0], mode)
+                                if s:
+                                    lines.append(s)
+                continue
+
+        if mode == 'active':
+            parts = []
+            for item in row:
+                s = _wiz_json_field_to_simple(item)
+                if s:
+                    parts.append(s)
+            if parts:
+                lines.append(', '.join(parts))
+        else:
+            s = _wiz_cover_row_to_simple(row)
+            if s:
+                lines.append(s)
+
+    return '\n'.join(lines)
+
+@app.route('/layout_wizard', methods=['POST'])
+@login_required
+def layout_wizard():
+    data = request.get_json(silent=True) or {}
+    direction = (data.get('direction') or 'to_json').strip().lower()
+    mode = (data.get('mode') or 'active').strip().lower()
+
+    try:
+        if direction == 'to_json':
+            text = data.get('text', '')
+            layout = simplified_markup_to_layout(text, mode)
+            return jsonify({
+                'ok': True,
+                'layout': layout,
+            })
+
+        if direction == 'to_simplified':
+            layout = data.get('layout')
+            text = layout_to_simplified_markup(layout, mode)
+            return jsonify({
+                'ok': True,
+                'text': text,
+            })
+
+        return jsonify({
+            'ok': False,
+            'error': 'Unsupported direction'
+        }), 400
+
+    except Exception as e:
+        return jsonify({
+            'ok': False,
+            'error': str(e),
+        }), 400
 
 @app.route('/config/<config_uid>/edit-event', methods=['POST'])
 @login_required
@@ -3302,6 +4118,7 @@ def edit_class(class_id):
         class_obj.name = request.form.get('name')
         # Display tab
         class_obj.display_name = request.form.get('display_name')
+        class_obj.record_view = request.form.get('record_view') or ''
         class_obj.cover_image = request.form.get('cover_image')
         class_obj.display_image_web = request.form.get('display_image_web')
         class_obj.display_image_table = request.form.get('display_image_table')
@@ -3357,6 +4174,8 @@ def edit_class(class_id):
                          ui_tpl_map=ui_tpl_map,
                          plugin_tpl_buttons=plugin_tpl_buttons,
                          plugin_tpl_map=plugin_tpl_map,
+                         wizard_active_buttons=get_wizard_active_templates(),
+                         wizard_cover_buttons=get_wizard_cover_templates(),
                          event_types=['onShow', 'onInput', 'onChange', 'onShowWeb', 'onInputWeb', "onAcceptServer", "onAfterAcceptServer"])
 
 
@@ -5044,6 +5863,7 @@ def export_config(uid):
                 'section_code': c.section_code,
                 'has_storage': c.has_storage,
                 'display_name': c.display_name,
+                'record_view': getattr(c, 'record_view', '') or '',
                 'cover_image': c.cover_image,
                 'display_image_web': getattr(c, 'display_image_web', '') or '',
                 'display_image_table': getattr(c, 'display_image_table', '') or '',
@@ -5453,6 +6273,7 @@ def import_config_new():
                 section_code=class_data.get('section_code', ''),
                 has_storage=class_data.get('has_storage', False),
                 display_name=class_data.get('display_name', class_data['name']),
+                record_view=class_data.get('record_view', ''),
                 cover_image=class_data.get('cover_image', ''),
                 display_image_web=class_data.get('display_image_web', ''),
                 display_image_table=class_data.get('display_image_table', ''),
@@ -5683,6 +6504,7 @@ def apply_full_config_from_json(config, data):
                 section_code=class_data.get('section_code', ''),
                 has_storage=class_data.get('has_storage', False),
                 display_name=class_data.get('display_name', class_data['name']),
+                record_view=class_data.get('record_view', ''),
                 cover_image=class_data.get('cover_image', ''),
                 display_image_web=class_data.get('display_image_web', ''),
                 display_image_table=class_data.get('display_image_table', ''),
