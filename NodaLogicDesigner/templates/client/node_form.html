@@ -1858,7 +1858,7 @@ async function openNodePickDialog(fieldId, kind, dsRaw){
         setByPath(nlGetDataCtx(), `${fieldId}_view`, view);
 
   
-        const inp = document.querySelector(`input[data-nl-nodeinput="1"][data-id="${CSS.escape(fieldId)}"]`);
+        const inp = nlFindFieldInput(fieldId);
         if (inp) inp.value = view;
 
   
@@ -2008,19 +2008,23 @@ function ensureVirtualNodeEditor(){
   el.tabIndex = -1;
   el.id = "nlVirtualNodeEditor";
   el.style.width = "min(720px, 92vw)";
-  el.innerHTML = `
-    <div class="offcanvas-header">
-      
-      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+el.innerHTML = `
+  <div class="offcanvas-header d-flex justify-content-between align-items-center">
+
+  <button type="button" class="btn-close me-2" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+
+
+  <button id="nlVirtualNodeEditorDelete" class="btn btn-sm btn-danger" type="button">
+    {{_('Delete')}}
+  </button>
+</div>
+  <div class="offcanvas-body d-flex flex-column" style="min-width:0;">
+    <div id="nlVirtualNodeEditorBody" class="flex-grow-1" style="min-width:0;"></div>
+    <div class="pt-3 border-top mt-3 d-grid gap-2">
+      <button id="nlVirtualNodeEditorSaveClose" class="btn btn-sm btn-save-close" type="button">{{_('Save and close')}}</button>
+      <button id="nlVirtualNodeEditorClose" class="btn btn-sm btn-outline-secondary" type="button">{{_('Close')}}</button>
     </div>
-    <div class="offcanvas-body d-flex flex-column" style="min-width:0;">
-      <div id="nlVirtualNodeEditorBody" class="flex-grow-1" style="min-width:0;"></div>
-      <div class="pt-3 border-top mt-3 d-grid gap-2">
-        <button id="nlVirtualNodeEditorSaveClose" class="btn btn-sm btn-save-close" type="button">{{_('Save and close')}}</button>
-        <button id="nlVirtualNodeEditorClose" class="btn btn-sm btn-outline-secondary" type="button">{{_('Close')}}</button>
-        <button id="nlVirtualNodeEditorDelete" class="btn btn-danger btn-sm" type="button">{{_('Delete')}}</button>
-      </div>
-    </div>`;
+  </div>`;
   const host = document.getElementById("webRoot") || document.body;
   host.appendChild(el);
   return el;
