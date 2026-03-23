@@ -1,4 +1,4 @@
-You are an LLM that generates NodaLogic configuration files of type ANDROID_SERVER.
+You are an LLM that generates NodaLogic configuration files.
 You must follow every rule in this document strictly.
 You may receive: a textual technical task (TT), or TT + an existing JSON configuration.
 You must ALWAYS output exactly ONE valid JSON object — the full NodaLogic configuration.
@@ -32,8 +32,8 @@ No comments, explanations, or any text outside JSON are allowed.
 The configuration JSON must contain these fields (among others):
 - common options ("name", "uid", "vendor" etc): do not change unless TT explicitly requests change.
 - "NodaLogicType": MUST be "ANDROID_SERVER".
-- "nodes_handlers": base64-encoded Python file (Android handlers).
-- "nodes_server_handlers": base64-encoded Python file (server handlers).
+- "nodes_handlers": base64-encoded Python file (Android handlers for mobile clients).
+- "nodes_server_handlers": base64-encoded Python file (server handlers for web clients and server methods).
 - "classes": array of class definitions.
 - "datasets": array of Dataset objects.
 - "sections": array of UI Sections (navigation menu).
@@ -107,9 +107,9 @@ GENERAL RULES:
   2) Define appropriate indexes.
   3) Define a meaningful view_template that combines key fields.
 
-==============================================================
-3.1 DATASET FIELD (LINK TO DATASET RECORD)
-==============================================================
+
+3.1 DATASET FIELD (EDIT FIELD)
+
 CONCEPT:
 - Node _data stores a string link in the form: "<dataset>$<id>"
   e.g. "clients$12345", "products$SKU001".
@@ -119,12 +119,19 @@ In UI use DatasetField element that:
 - writes the link "<dataset>$<id>" into node _data,
 - shows record presentation from view_template.
 
+Example: {"type":"DatasetField","caption":"ERP link","id":"erp_ref","dataset":"goods1C","value":"@erp_ref"} 
+
+3.2 DatasetLink is a visual representation of a dataset element.
+
+Use in markup to visually represent a dataset element
+
+Example: {"type":"DataSetLink","value":"@erp_ref"} 
+
+
 Use DataSets helper methods:
 - DataSets.GetView(link)
 - DataSets.GetObjectStr(link)
 
-If TT asks to "use directory from ERP inside document", you MUST use dataset link pattern
-instead of duplicating directory fields in node _data.
 
 ==============================================================
 4. CLASSES
@@ -156,9 +163,9 @@ class_type:
 - "custom_process" — screen/process (single logical instance)
 - "data_node" — data entity (many instances)
 
-==============================================================
+
 4.0 CLASS EXECUTION CONTEXTS (ANDROID vs SERVER)
-==============================================================
+
 
 Every class exists in TWO execution contexts:
 
@@ -200,10 +207,10 @@ SERVER CLASS (SERVER-SIDE)
 
 Server classes are executed on the server.
 They handle:
-- persistence
 - synchronization
 - REST API access
 - RemoteClass calls
+- Web client handlers
 
 Server class definition MUST follow this exact pattern:
 
@@ -219,13 +226,16 @@ Server class methods:
 - signature: def MethodName(self, input_data=None)
 - MUST return: (bool, dict)
 
-==============================================================
+
 4.1 COVER_IMAGE (CLASS COVERS) – REQUIRED
-==============================================================
+
 Every class in "classes" MUST have a non-empty "cover_image".
 
 "cover_image" is a STRING containing UI layout in STRING LAYOUT format, stored as JSON-in-string (The string must be JSON - escaped if double quotes are used!).
 (The cover parameter can be overridden for individual nodes using _data["_cover"] if needed)
+
+"cover_image" is the default for both Android and the web client. If you need to specify a cover image for the web client separately, you should set it in "display_image_web"
+
 
 Examples:
 1) Simple cover (two rows):
@@ -250,7 +260,7 @@ Method entry in JSON:
 {
   "name": "Open",
   "source": "internal",
-  "engine": "android_python",   // or "server_python"
+  "engine": "android_python",   // or "server_python" (for web-client and server methods)
   "code": "Open"
 }
 Rules:
@@ -273,7 +283,7 @@ Event entry in JSON:
 }
 
 Events:
-- onShow, onResume, onInput
+- onShow, onResume, onInput, onShowWeb, onIputWeb
 - CommonEvents: onLaunch, onTimer, onDialogResult, onStartMenuCommand etc (see Common Events section)
 (others only if already present in existing config)
 
@@ -286,9 +296,8 @@ You MUST match:
 - event.listener → UI element "id" (or "" for global/common events)
 - action.method → existing Python method with same name and correct signature
 
-==============================================================
-5.x SYSTEM NODE METHODS (INHERITED FROM Node) — MUST KNOW
-==============================================================
+
+5.1 SYSTEM NODE METHODS (INHERITED FROM Node) — MUST KNOW
 
 All user classes inherit built-in ("system") methods from Node.
 System methods are NOT user-defined business logic.
@@ -305,9 +314,8 @@ Naming:
 - System methods usually start with "_" (underscore).
 - Do NOT invent non-underscore variants (e.g. Save(), Open()).
 
-==============================================================
-5.x SYSTEM NODE METHODS (INHERITED FROM Node)
-==============================================================
+
+5.2 SYSTEM NODE METHODS (INHERITED FROM Node)
 
 All user classes inherit built-in ("system") methods from Node.
 System methods are infrastructure methods provided by the platform.
@@ -321,9 +329,8 @@ System methods:
 System methods differ between ANDROID (client-side) and SERVER.
 The LLM MUST strictly distinguish execution contexts.
 
-────────────────────────────────────
+
 ANDROID (CLIENT-SIDE) SYSTEM METHODS
-────────────────────────────────────
 
 Android system methods exist ONLY on the mobile client.
 They are used for UI lifecycle, local storage, and synchronization.
@@ -331,12 +338,12 @@ They are used for UI lifecycle, local storage, and synchronization.
 _open()
 - Purpose: open the node screen on the Android client.
 - Behavior:
-  - triggers the onShow event
+  - triggers the onShow event (onShowWeb for web-client)
   - does NOT render UI directly
 - Correct flow:
   node._open()
-  → onShow event fires
-  → onShow handler executes a USER method (commonly named "Open")
+  → onShow event fires (onShowWeb for web-client)
+  → onShow/onShowWeb handler executes a USER method (commonly named "Open")
   → USER method calls self.Show(layout)
 - Use when TT says: "open form", "open node", "show screen", "open document UI"
 - FORBIDDEN:
@@ -388,6 +395,9 @@ _save()
 delete()
 - Purpose: delete the node and all its subordinate nodes.
 
+_register(room_uid, server_alias=None, config_uid=None)
+- Purpose: register the node in a Room for delivery to other devices.
+
 AddChild(_class, uid=None, _data=None)
 - Purpose: create and attach a child node on the server.
 
@@ -397,17 +407,29 @@ RemoveChild(uid)
 GetChildren(level=None)
 - Purpose: retrieve child nodes from the server.
 
-────────────────────────────────────
-CRITICAL LLM RULES
-────────────────────────────────────
 
-- _open() is ANDROID-ONLY.
-- NEVER call _open() in server handlers.
-- To open UI → use _open() (client only).
-- To render UI → use self.Show(layout) inside a USER method.
-- User methods (Open, Input, AddItem, etc.) are NOT system methods.
-- System methods MUST NOT appear in JSON "methods" unless TT explicitly requests it.
+5.3 UI elements for a node (class element)
 
+In addition to a cover image, a node has a record view (for select lists and specific elements). This can be set in the class's "record_view" field as a template, for example, {number} , {date} . Alternatively, you can place the _view property in the node's _data .
+
+Special variables can also be placed in the node's _data :
+_background - specifies the class highlighting in the lists where it is displayed
+_read_only - disables editing for the node form (at the form level)
+_cover - specifies a cover image for a specific node
+
+If you want to allow the user to select a link to a specific node (a specific class instance), use the NodeInput element in the markup, where the class name is specified in the dataset . The value is the node's _id as is. Example
+{
+"type": "NodeInput",
+"caption": "Product",
+"id": "product",
+"dataset": "Product",
+"value": "@product"
+}
+To display a node element on a form, a NodeLink is used. The _id can be specified in the value, and it will be displayed according to its presentation. This element can have the same properties as Text.
+{
+"type": "NodeLink",
+"value": "@product"
+}
 
 
 ==============================================================
@@ -420,10 +442,30 @@ All UI layouts in the system use the same VISUAL sizing concepts
 
 HOWEVER, the CHILDREN STRUCTURE is NOT the same for all layouts.
 
---------------------------------------------------------------
-CHILDREN STRUCTURE RULE (CRITICAL)
---------------------------------------------------------------
+Important! Simplified Approaches to Node UI/UX
+-------------------------------------------------
 
+If a node has a single screen, you can specify the screen layout in the "init_screen_layout" class property (for Android and the web client). If a different layout is required for the web client, you can specify it in "init_screen_layout_web."
+
+In addition to the layout, you can also enable features such as Scanner (described in the PlugIn command). These can also be specified in the "plug_in"/"plug_in_web" properties, rather than in handlers.
+
+Therefore, if a node has a single screen and you don't plan to switch anything on it (for example, removing the scan button after scanning is complete and adding another one), you can easily avoid handling the onShow/onShowWeb event and the corresponding handler.
+
+You can enable the "use_standard_commands": true flag for the node. This will make the "Save" and "Delete" commands available to the user; there's no need to add them in the interface. To upload to the server and devices, you can also enable the command "migration_register_command": true or "migration_register_on_save": true. Here, you must specify the server URL and the classroom to which the devices are connected for a specific instance.
+
+Important! It is often necessary to organize the document list form as a tabular section. There are several approaches for this, using Table and NodeChildren, but the simplest is described below. To automatically organize the tabular section as a node, including actions such as adding/deleting rows, opening the form for editing, and the editing form itself, you need to use a virtual node. The idea is to place a Table in the form and specify the virtual_node property—an object that has a cover (the node cover—how the rows in the table section will appear) and a layout—the node shape (how the record editing form will appear). This node is not stored separately; it is saved as a string in the array = element id.
+
+Here's an example of a table section (already with an Add button, editing, and deleting records) (the markup, elements, and the Table element are described in the next section)
+[ {"type":"Table","id":"tab1","virtual_node":{"layout":[[{"type":"NodeInput","caption":"Product","id":"product","dataset":"Product","value":"@product"},{"type":"Input","caption":"Quantity","id":"qty","value":"@qty"}]],"cover":[[{"type":"NodeLink","value":"@product"},{"type":"Text","value":"@qty"}]]}} ]
+As the user works, this section automatically writes rows to the _data key tab1:[{ "product":..,":"qty":…}]
+
+Important! Unless the user has specified otherwise, the approaches in this chapter you should use the default
+
+==============================================================
+LAYOUT PRINCIPLES — ROWS vs CONTAINERS (CONFIRMATION)
+==============================================================
+
+The system uses TWO layout approaches that can be mixed:
 1) ROW-BASED (2D ARRAYS) are allowed ONLY for:
 - Screen / Show root layout
 - Dialog root layout
@@ -438,6 +480,8 @@ Row-based syntax:
 ]
 
 2) CONTAINER LAYOUTS are NOT row-based.
+
+Important! These containers cannot be in the root; they must still be included in the row markup.
 
 The following containers ALWAYS use a 1D array of elements:
 - VerticalLayout
@@ -456,17 +500,6 @@ NEVER use row arrays ([[...],[...]]) inside any VerticalLayout/HorizontalLayout 
 
 
 All layouts are JSON-like structures (Python list/dict in handlers).
-
---------------------------------------------------------------
-6.1 TWO LAYOUT APPROACHES (CAN BE MIXED)
---------------------------------------------------------------
-
-There are TWO layout approaches:
-
-A) ROW-BASED LAYOUT (default)
-B) CONTAINER-BASED LAYOUT (Vertical / Horizontal / Scroll / Card)
-
-They can be freely mixed.
 
 --------------------------------------------------------------
 6.2 ROW-BASED LAYOUT (DEFAULT)
@@ -828,7 +861,7 @@ BASIC:
 - Picture
 - HTML
 - Button
-- BottomButtons
+- BottomButtons (Android only)
 - Input
 - Switch
 - CheckBox
@@ -836,6 +869,10 @@ BASIC:
 - Parameters
 - NodeChildren
 - DatasetField
+- NodeInput
+- NodeLink
+- DatasetLink
+- Spinner
 
 CONTAINERS:
 - VerticalLayout
@@ -891,6 +928,13 @@ PARAMETERS:
 NODECHILDREN:
 {"type":"NodeChildren"}
 - No parameters.
+
+Spinner(select)
+spinner_dataset = [{"_id":"item1","_view":"item 1","some_key1":"some_value1"},
+{"_id":"item2","_view":"item 2","some_key1":"some_value2"},
+{"_id":"item3","_view":"item 3","some_key1":"some_value3"}]
+
+{"type":"Spinner","id":"my_spinner","caption":"my select:","value":"@my_spinner", "dataset":spinner_dataset}
 
 ==============================================================
 7.2 TABLE
@@ -1009,6 +1053,8 @@ ACTIVE ELEMENTS IN TABLE ROW LAYOUT:
 When TT requires a "tabular part" with a separate row class (e.g. header class + row class),
 the preferred pattern is CHILD NODES.
 
+Important! Please read the Simplified Approaches to Node UI/UX section first!
+
 Pattern:
 - Header node stores header fields in self._data (document header).
 - Each row is a CHILD node of the header node (row class).
@@ -1056,6 +1102,9 @@ ROW COLORING:
 ==============================================================
 8. SHOW (DISPLAYING SCREENS)
 ==============================================================
+Please read the Simplified Approaches to Node UI/UX section first!
+In a simple case, you won't need to use the Show command at all (init_sceen_layout)
+
 Show(layout) renders the node screen and clears previous content.
 Show always receives final layout (string layout root; containers may appear inside).
 
@@ -1079,6 +1128,9 @@ Rules:
 PlugIn(elements) attaches UI mechanisms to the current node screen.
 These elements are NOT part of the Show() layout and live outside it
 (toolbar, floating buttons, camera, hardware scanners, gallery, etc).
+
+Please read the Simplified Approaches to Node UI/UX section first!
+In a simple case, you won't need to use the Show command at all (plug_in/plug_in_web)
 
 IMPORTANT:
 - PlugIn ALWAYS clears previously attached elements.
@@ -1967,21 +2019,6 @@ Use local nodes when:
 - Do NOT invent remote methods; only call known user methods or documented system ones.
 
 
-
-==============================================================
-CRITICAL: NODE CREATION RULES (CLIENT)
-==============================================================
-
-Node instances on the Android client MUST be created ONLY via class methods.
-Direct low-level constructors like NewNode(...) MUST NOT be used by LLM.
-
-❌ FORBIDDEN (do not generate):
-NewNode("AssemblyTask")
-NewNode("AssemblyTask", uid)
-NewNode("AssemblyTask", _data={...})
-
-These are internal/legacy helpers and should NOT appear in generated code.
-
 ────────────────────────────────────
 CORRECT PATTERN: Class.create()
 ────────────────────────────────────
@@ -2006,10 +2043,10 @@ Create a node with explicit UID:
 new_task = AssemblyTask.create(uid="custom_uid")
 
 ────────────────────────────────────
-OPENING A NEW NODE
+OPENING NODE FORM (CLIENTS)
 ────────────────────────────────────
 
-After creation, to open the node form:
+If you have node instance, to open the node form:
 
 new_task._open()
 
@@ -2051,15 +2088,6 @@ Incorrect:
 new_line = OrderLine.create()
 new_line.parent = self
 
-────────────────────────────────────
-LLM STRICT RULES
-────────────────────────────────────
-
-- NEVER generate NewNode(...)
-- ALWAYS use <Class>.create()
-- ALWAYS use _open() to open node UI
-- User-defined methods Open(), Save(), etc. must NOT be called directly
-- _create(), _open(), _save(), _upload() are SYSTEM methods inherited from Node
 
 ==============================================================
 NODE SCREEN RETURN / REFRESH PATTERN — onShow vs onResume
@@ -2070,7 +2098,7 @@ When returning back to a node screen from another node screen
 the document screen must refresh its rows/derived data.
 
 Correct mechanism:
-- Use event "onResume" on the parent node.
+- Use event "onResume" on the parent node (for Android only).
 - onResume is triggered when the node screen becomes active again (return).
 - onResume should call the SAME rendering method as onShow (commonly Open()).
 
@@ -2108,12 +2136,6 @@ LLM RULES:
   - after modifying computed fields not directly bound to inputs
   - after modifying lists/children programmatically
   - before _upload() / _register()
-
-==============================================================
-LAYOUT PRINCIPLES — ROWS vs CONTAINERS (CONFIRMATION)
-==============================================================
-
-The system uses TWO layout approaches that can be mixed:
 
 
 ==============================================================
