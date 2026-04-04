@@ -9,7 +9,7 @@
 {% endif %}
 
 <div class="row">
-  <div class="col-lg-3 mb-3">
+  <div class="col-12 col-xl-3 mb-3">
     <div class="list-group">
       <div class="list-group-item text-muted small">{{_('Sections')}}</div>
       {% for s in sections %}
@@ -24,27 +24,31 @@
     </div>
   </div>
 
-  <div class="col-lg-9">
-    <div class="d-flex gap-2 flex-wrap align-items-center mb-3">
-      <button id="btnRefresh" class="btn btn-primary" type="button">{{_('Refresh')}}</button>
-      <button id="btnSaveSoloSel" class="btn btn-outline-primary" type="button">{{_('Save to Solo')}}</button>
+  <div class="col-12 col-xl-9">
+    <div class="d-flex gap-2 flex-nowrap align-items-center mb-3 section-toolbar">
+      <button id="btnRefresh" class="btn btn-primary btn-sm" type="button">{{_('Refresh')}}</button>
+      <button id="btnSaveSoloSel" class="btn btn-outline-primary btn-sm" type="button">{{_('Save to Solo')}}</button>
 
-      <label class="form-check-label ms-2">
+      <label class="form-check-label mb-0 text-nowrap">
         <input id="autoToggle" class="form-check-input me-1" type="checkbox" checked>
         {{_('auto refresh')}} ({{ auto_refresh }}s)
       </label>
 
-      <input id="q" class="form-control" style="max-width: 360px;" type="text" placeholder="Search...">
+      <input id="q" class="form-control form-control-sm flex-grow-1" type="text" placeholder="Search...">
 
-      <button id="btnTable" class="btn btn-outline-secondary" type="button">{{_('Table')}}</button>
-      <button id="btnGrid" class="btn btn-outline-secondary" type="button">{{_('Grid')}}</button>
+      <button id="btnTable" class="btn btn-outline-secondary btn-sm" type="button">{{_('Table')}}</button>
+      <button id="btnGrid" class="btn btn-outline-secondary btn-sm" type="button">{{_('Grid')}}</button>
 
       <span id="status" class="text-muted small"></span>
     </div>
 
     <div id="classCmds" class="d-flex gap-2 flex-wrap mb-3"></div>
 
-  
+    <div id="filtersPanel" class="card mb-3" style="display:none;">
+      <div class="card-body py-2">
+        <div id="filtersBody" class="row g-2"></div>
+      </div>
+    </div>
 
     <div id="viewTable" style="display:none;">
       <div class="table-responsive">
@@ -61,6 +65,14 @@
 
 <style id="nlCss"></style>
 
+<style>
+  .section-toolbar { overflow: hidden; }
+  .section-toolbar > * { flex-shrink: 0; }
+  .section-toolbar #q { min-width: 140px; flex: 1 1 180px; }
+  .section-toolbar #status { min-width: 0; white-space: nowrap; }
+  #filtersPanel .card-body { background: #fff; }
+</style>
+
 <script>
 const sectionCode = {{ section_code | tojson }};
 const autoSeconds = {{ auto_refresh | tojson }};
@@ -76,13 +88,345 @@ const apiClassEventWeb  = {{ url_for('client.api_class_event_web')|tojson }};
 const clientBase = {{ url_for('client.home')|tojson }}; // обычно "/client/"
 
 let mode = "grid";
-let timer = null;
+let autoTimer = null;
+let searchTimer = null;
 let inFlight = false;
 
 let selected = new Set();
 let lastItems = []; // key = `${repo_id}:${class}:${id}`
 let stdMap = new Map();   // key `${repo_id}:${class}` -> true/false
 let repoIdToUid = new Map();
+let filterIndexes = [];
+let filterState = {};
+let pickerRepoIds = [];
+
+function ensurePickerModal(){
+  let el = document.getElementById("sectionNodePickModal");
+  if (el) return el;
+  el = document.createElement('div');
+  el.className = 'modal fade';
+  el.id = 'sectionNodePickModal';
+  el.tabIndex = -1;
+  el.innerHTML = `
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _('Select value') }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <input id="sectionNodePickSearch" class="form-control mb-3" placeholder="Search...">
+          <div id="sectionNodePickList" class="d-grid gap-2"></div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(el);
+  return el;
+}
+
+async function fetchPickerNodes(className, q){
+  const url = new URL('/client/api/class_nodes', window.location.origin);
+  if (window.__firstRepoIdForPicker) url.searchParams.set('repo_id', String(window.__firstRepoIdForPicker));
+  url.searchParams.set('class_name', String(className || ''));
+  url.searchParams.set('q', String(q || ''));
+  const r = await fetch(url.toString(), {credentials:'same-origin'});
+  const j = await r.json();
+  return (j && j.ok && Array.isArray(j.items)) ? j.items : [];
+}
+
+async function fetchPickerDataset(dsName, q){
+  const url = new URL('/client/api/dataset_items', window.location.origin);
+  if (window.__firstRepoIdForPicker) url.searchParams.set('repo_id', String(window.__firstRepoIdForPicker));
+  url.searchParams.set('dataset', String(dsName || ''));
+  url.searchParams.set('q', String(q || ''));
+  const r = await fetch(url.toString(), {credentials:'same-origin'});
+  const j = await r.json();
+  return (j && j.ok && Array.isArray(j.items)) ? j.items : [];
+}
+
+async function pickValueByType(filterType){
+  const mNode = /^Node\((.+)\)$/.exec(String(filterType || ''));
+  const mDs = /^Dataset\((.+)\)$/.exec(String(filterType || ''));
+  if (!mNode && !mDs) return null;
+  const modalEl = ensurePickerModal();
+  const bs = new bootstrap.Modal(modalEl);
+  const searchEl = document.getElementById('sectionNodePickSearch');
+  const listEl = document.getElementById('sectionNodePickList');
+  return await new Promise((resolve) => {
+    let settled = false;
+    const cleanup = () => {
+      modalEl.removeEventListener('hidden.bs.modal', onHidden);
+      searchEl.oninput = null;
+    };
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const onHidden = () => finish(null);
+    modalEl.addEventListener('hidden.bs.modal', onHidden, { once: true });
+    async function render(){
+      let items = [];
+      if (mNode) items = await fetchPickerNodes(mNode[1], searchEl.value || '');
+      else if (mDs) items = await fetchPickerDataset(mDs[1], searchEl.value || '');
+      listEl.innerHTML = '';
+      items.forEach(it => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-outline-secondary text-start';
+        const value = String(it.uid || it.key || '');
+        const view = String(it._view || it.view || value);
+        btn.innerHTML = it.cover_html ? it.cover_html : view;
+        btn.addEventListener('click', () => {
+          bs.hide();
+          finish({ value, view });
+        });
+        listEl.appendChild(btn);
+      });
+    }
+    searchEl.value = '';
+    searchEl.oninput = () => { clearTimeout(window.__pickerTimer); window.__pickerTimer = setTimeout(render, 200); };
+    render();
+    bs.show();
+  });
+}
+
+async function openFilterPicker(filterName, filterType){
+  const input = document.querySelector(`[data-filter-input="${filterName}"]`);
+  if (!input) return;
+  const picked = await pickValueByType(filterType);
+  if (!picked) return;
+  input.dataset.value = picked.value;
+  input.value = picked.view;
+  const en = document.querySelector(`[data-filter-enable="${filterName}"]`);
+  if (en) en.checked = true;
+  filterState[String(filterName || '')] = { enabled: true, value: picked.view, rawValue: picked.value, values: [picked.value], views: [picked.view] };
+  loadSection();
+}
+
+function ensureListFilterModal(){
+  let el = document.getElementById('sectionFilterListModal');
+  if (el) return el;
+  el = document.createElement('div');
+  el.className = 'modal fade';
+  el.id = 'sectionFilterListModal';
+  el.tabIndex = -1;
+  el.innerHTML = `
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="sectionFilterListTitle">{{ _('Filter values') }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div id="sectionFilterListAddRow" class="mb-3"></div>
+          <div id="sectionFilterListItems" class="list-group"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Close') }}</button>
+          <button type="button" class="btn btn-primary" id="sectionFilterListApply">{{ _('Apply') }}</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(el);
+  return el;
+}
+
+async function openListFilterEditor(filterName, filterType, labelText){
+  const modalEl = ensureListFilterModal();
+  const bs = new bootstrap.Modal(modalEl);
+  const titleEl = document.getElementById('sectionFilterListTitle');
+  const addRowEl = document.getElementById('sectionFilterListAddRow');
+  const itemsEl = document.getElementById('sectionFilterListItems');
+  const applyBtn = document.getElementById('sectionFilterListApply');
+  const state = filterState[String(filterName || '')] || { enabled:false, values:[], views:[] };
+  let values = Array.isArray(state.values) ? [...state.values] : (state.rawValue ? [state.rawValue] : []);
+  let views = Array.isArray(state.views) ? [...state.views] : (state.value ? [state.value] : [...values]);
+  titleEl.textContent = labelText || filterName || '{{ _('Filter values') }}';
+
+  function addValue(raw, view){
+    const rv = String(raw ?? '').trim();
+    if (!rv) return;
+    if (values.includes(rv)) return;
+    values.push(rv);
+    views.push(String(view ?? rv));
+    renderItems();
+  }
+  function removeAt(idx){
+    values.splice(idx, 1);
+    views.splice(idx, 1);
+    renderItems();
+  }
+  function renderItems(){
+    itemsEl.innerHTML = '';
+    if (!values.length) {
+      itemsEl.innerHTML = `<div class="text-muted small">{{ _('No values selected') }}</div>`;
+      return;
+    }
+    values.forEach((v, idx) => {
+      const row = document.createElement('div');
+      row.className = 'list-group-item d-flex align-items-center justify-content-between gap-2';
+      row.innerHTML = `<div style="min-width:0;"><div>${escapeHtml(views[idx] || v)}</div><div class="small text-muted">${escapeHtml(v)}</div></div><button type="button" class="btn btn-sm btn-outline-danger">{{ _('Delete') }}</button>`;
+      row.querySelector('button').addEventListener('click', () => removeAt(idx));
+      itemsEl.appendChild(row);
+    });
+  }
+
+  const mNode = /^Node\((.+)\)$/.exec(String(filterType || ''));
+  const mDs = /^Dataset\((.+)\)$/.exec(String(filterType || ''));
+  if (mNode || mDs) {
+    addRowEl.innerHTML = `<div class="input-group input-group-sm"><input id="sectionFilterListPickView" class="form-control" type="text" readonly><button id="sectionFilterListPickBtn" class="btn btn-outline-secondary" type="button">…</button><button id="sectionFilterListAddBtn" class="btn btn-primary" type="button">{{ _('Add') }}</button></div>`;
+    const viewEl = document.getElementById('sectionFilterListPickView');
+    let picked = null;
+    document.getElementById('sectionFilterListPickBtn').onclick = async () => {
+      picked = await pickValueByType(filterType);
+      if (picked) viewEl.value = picked.view;
+    };
+    document.getElementById('sectionFilterListAddBtn').onclick = () => {
+      if (!picked) return;
+      addValue(picked.value, picked.view);
+      picked = null;
+      viewEl.value = '';
+    };
+  } else if (String(filterType || '') === 'boolean') {
+    addRowEl.innerHTML = `<div class="input-group input-group-sm"><select id="sectionFilterListBool" class="form-select"><option value="true">true</option><option value="false">false</option></select><button id="sectionFilterListAddBtn" class="btn btn-primary" type="button">{{ _('Add') }}</button></div>`;
+    document.getElementById('sectionFilterListAddBtn').onclick = () => {
+      const v = document.getElementById('sectionFilterListBool').value;
+      addValue(v, v);
+    };
+  } else {
+    const inputType = String(filterType || '') === 'number' ? 'number' : 'text';
+    addRowEl.innerHTML = `<div class="input-group input-group-sm"><input id="sectionFilterListText" class="form-control" type="${inputType}"><button id="sectionFilterListAddBtn" class="btn btn-primary" type="button">{{ _('Add') }}</button></div>`;
+    const inputEl = document.getElementById('sectionFilterListText');
+    const add = () => {
+      const v = String(inputEl.value || '').trim();
+      if (!v) return;
+      addValue(v, v);
+      inputEl.value = '';
+      inputEl.focus();
+    };
+    document.getElementById('sectionFilterListAddBtn').onclick = add;
+    inputEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); add(); } });
+  }
+
+  applyBtn.onclick = () => {
+    filterState[String(filterName || '')] = {
+      enabled: values.length > 0,
+      value: views.join(', '),
+      rawValue: values[0] || '',
+      values: [...values],
+      views: [...views]
+    };
+    const en = document.querySelector(`[data-filter-enable="${filterName}"]`);
+    if (en) en.checked = values.length > 0;
+    bs.hide();
+    loadSection();
+  };
+
+  renderItems();
+  bs.show();
+}
+
+function renderFilters(meta){
+  filterIndexes = (meta && Array.isArray(meta.filter_indexes)) ? meta.filter_indexes : [];
+  const nextState = {};
+  const panel = document.getElementById('filtersPanel');
+  const body = document.getElementById('filtersBody');
+  if (!panel || !body) return;
+  if (!filterIndexes.length) { panel.style.display = 'none'; body.innerHTML = ''; return; }
+  panel.style.display = '';
+  body.innerHTML = '';
+  filterIndexes.forEach((idx, pos) => {
+    const name = String(idx.name || '');
+    const label = String(idx.filter_label || idx.name || '');
+    const type = String(idx.filter_type || 'string');
+    const listEnabled = !!idx.filter_list_enabled;
+    const state = filterState[name] || { enabled: false, value: '', rawValue: '', values: [], views: [] };
+    const stateValues = Array.isArray(state.values) ? state.values : (state.rawValue ? [state.rawValue] : []);
+    const stateViews = Array.isArray(state.views) ? state.views : (state.value ? [state.value] : [...stateValues]);
+    nextState[name] = { enabled: !!state.enabled, value: state.value || '', rawValue: state.rawValue || '', values: [...stateValues], views: [...stateViews] };
+    const escapedName = escapeHtml(name);
+    const escapedLabel = escapeHtml(label);
+    let control = `<input class="form-control form-control-sm" data-filter-input="${name}" type="text" value="${escapeHtml(state.value || '')}">`;
+    if (listEnabled) {
+      control = `<div class="input-group input-group-sm"><input class="form-control" data-filter-input="${name}" type="text" readonly value="${escapeHtml((stateViews.length ? stateViews.join(', ') : state.value) || '')}" data-value="${escapeHtml((stateValues[0] || state.rawValue || ''))}"><button class="btn btn-outline-secondary" type="button" data-filter-list="${name}" data-filter-type="${type}" data-filter-label="${escapedLabel}">…</button><button class="btn btn-outline-secondary" type="button" data-filter-clear="${name}">×</button></div>`;
+    } else if (type === 'number') control = `<input class="form-control form-control-sm" data-filter-input="${name}" type="number" value="${escapeHtml(state.value || '')}">`;
+    else if (type === 'boolean') control = `<select class="form-select form-select-sm" data-filter-input="${name}"><option value=""></option><option value="true" ${String(state.rawValue) === 'true' ? 'selected' : ''}>true</option><option value="false" ${String(state.rawValue) === 'false' ? 'selected' : ''}>false</option></select>`;
+    else if (/^Node\(.+\)$/.test(type) || /^Dataset\(.+\)$/.test(type)) control = `<div class="input-group input-group-sm"><input class="form-control" data-filter-input="${name}" type="text" readonly value="${escapeHtml(state.value || '')}" data-value="${escapeHtml(state.rawValue || '')}"><button class="btn btn-outline-secondary" type="button" data-filter-pick="${name}" data-filter-type="${type}">…</button><button class="btn btn-outline-secondary" type="button" data-filter-clear="${name}">×</button></div>`;
+    const col = document.createElement('div');
+    col.className = 'col-12 col-lg-6 col-xxl-4';
+    col.innerHTML = `
+      <div class="border rounded px-2 py-2 h-100 bg-white">
+        <div class="d-flex align-items-center gap-2">
+          <input class="form-check-input mt-0" type="checkbox" data-filter-enable="${name}" id="flt_${pos}" ${state.enabled ? 'checked' : ''}>
+          <label class="form-label mb-0 text-nowrap" for="flt_${pos}">${escapedLabel}</label>
+          <div class="flex-grow-1">${control}</div>
+        </div>
+      </div>`;
+    body.appendChild(col);
+  });
+  filterState = nextState;
+
+  function syncFilterStateOnly(){
+    for (const idx of (filterIndexes || [])) {
+      const name = String(idx.name || '');
+      const enabledEl = body.querySelector(`[data-filter-enable="${name}"]`);
+      const inputEl = body.querySelector(`[data-filter-input="${name}"]`);
+      const prev = filterState[name] || { values: [], views: [] };
+      if (!enabledEl || !inputEl) continue;
+      const next = {
+        enabled: !!enabledEl.checked,
+        value: String(inputEl.value || ''),
+        rawValue: String(inputEl.dataset.value || inputEl.value || ''),
+        values: Array.isArray(prev.values) ? [...prev.values] : [],
+        views: Array.isArray(prev.views) ? [...prev.views] : []
+      };
+      if (!idx.filter_list_enabled) {
+        next.values = next.rawValue ? [next.rawValue] : [];
+        next.views = next.value ? [next.value] : [...next.values];
+      }
+      filterState[name] = next;
+    }
+  }
+  function syncFilterStateAndReload(){
+    syncFilterStateOnly();
+    loadSection();
+  }
+
+  body.querySelectorAll('[data-filter-enable]').forEach(el => {
+    const handler = () => {
+      syncFilterStateOnly();
+      loadSection();
+    };
+    el.addEventListener('change', handler);
+    el.addEventListener('click', handler);
+  });
+  body.querySelectorAll('[data-filter-input]').forEach(el => {
+    if (el.tagName === 'SELECT' || el.readOnly) {
+      el.addEventListener('change', syncFilterStateAndReload);
+      return;
+    }
+    el.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        syncFilterStateAndReload();
+      }
+    });
+    el.addEventListener('blur', syncFilterStateAndReload);
+  });
+  body.querySelectorAll('[data-filter-pick]').forEach(el => el.addEventListener('click', () => openFilterPicker(el.dataset.filterPick, el.dataset.filterType)));
+  body.querySelectorAll('[data-filter-list]').forEach(el => el.addEventListener('click', () => openListFilterEditor(el.dataset.filterList, el.dataset.filterType, el.dataset.filterLabel)));
+  body.querySelectorAll('[data-filter-clear]').forEach(el => el.addEventListener('click', () => {
+    const name = String(el.dataset.filterClear || '');
+    const inp = body.querySelector(`[data-filter-input="${name}"]`);
+    const en = body.querySelector(`[data-filter-enable="${name}"]`);
+    if (inp){ inp.value=''; inp.dataset.value=''; }
+    if (en) en.checked = false;
+    filterState[name] = { enabled:false, value:'', rawValue:'', values:[], views:[] };
+    loadSection();
+  }));
+}
 
 function downloadJson(filename, obj){
   const blob = new Blob([JSON.stringify(obj, null, 2)], {type: "application/json"});
@@ -118,6 +462,26 @@ function openNodeForm(repo_id, class_name, node_id){
   return false;
 }
 
+
+function buildFilterParams(){
+  const out = {};
+  for (const idx of (filterIndexes || [])) {
+    const state = filterState[String(idx.name || '')] || {};
+    if (!state.enabled) continue;
+    const values = Array.isArray(state.values) ? state.values.map(v => String(v || '').trim()).filter(Boolean) : [];
+    if (values.length > 1) {
+      out.index_name = idx.name;
+      out.index_value = JSON.stringify(values);
+      break;
+    }
+    const v = String((values[0] ?? state.rawValue ?? state.value ?? '')).trim();
+    if (!v) continue;
+    out.index_name = idx.name;
+    out.index_value = v;
+    break;
+  }
+  return out;
+}
 
 function setStatus(text) {
   document.getElementById("status").textContent = text || "";
@@ -231,6 +595,9 @@ function applyCoverTemplates(root){
         const key = name.slice('data-nl-tpl-'.length);
         const val = String(nlResolveCoverTemplateString(attr.value, data) ?? '');
         if (key === 'text') {
+          if (el.classList.contains('nl-node-link') || el.classList.contains('nl-dataset-link')) {
+            return;
+          }
           const allow = el.getAttribute('data-nl-allow-html') === '1';
           if (allow) el.innerHTML = val;
           else el.textContent = val;
@@ -370,12 +737,16 @@ function render(items, meta) {
   // --- meta maps ---
   stdMap = new Map();
   repoIdToUid = new Map();
+  pickerRepoIds = [];
 
   const classes = (meta && meta.classes_ui) ? meta.classes_ui : [];
+  renderFilters(meta || {});
   classes.forEach(c => {
     stdMap.set(stdKey(c.repo_id, c.class), !!c.use_standard_commands);
     if (c.repo_id && c.repo_uid) repoIdToUid.set(Number(c.repo_id), String(c.repo_uid));
+    if (c.repo_id && !pickerRepoIds.includes(Number(c.repo_id))) pickerRepoIds.push(Number(c.repo_id));
   });
+  window.__firstRepoIdForPicker = pickerRepoIds.length ? pickerRepoIds[0] : 0;
 
   // --- bulk bar (ВАЖНО: до любых вызовов updateBulkBar) ---
   //const bulkBar = document.getElementById("bulkBar");
@@ -747,7 +1118,11 @@ async function loadSection() {
     const url = new URL(apiSection, window.location.origin);
     url.searchParams.set("section_code", sectionCode === "__empty__" ? "" : sectionCode);
     if (q) url.searchParams.set("q", q);
+    const f = buildFilterParams();
+    if (f.index_name) url.searchParams.set("index_name", f.index_name);
+    if (f.index_value) url.searchParams.set("index_value", f.index_value);
 
+    window.__lastAppliedSearch = q;
     const r = await fetch(url.toString(), {method:"GET"});
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || "load failed");
@@ -795,20 +1170,26 @@ document.getElementById("btnGrid").addEventListener("click", () => {
   loadSection();
 });
 
-document.getElementById("q").addEventListener("input", () => {
-  if (timer) clearTimeout(timer);
-  timer = setTimeout(loadSection, 250);
+document.getElementById("q").addEventListener("keydown", (ev) => {
+  if (ev.key === 'Enter') {
+    ev.preventDefault();
+    loadSection();
+  }
+});
+document.getElementById("q").addEventListener("blur", () => {
+  const current = (document.getElementById("q").value || "").trim();
+  if (current !== (window.__lastAppliedSearch || '')) loadSection();
 });
 
 function startAuto() {
   stopAuto();
-  timer = setInterval(() => {
+  autoTimer = setInterval(() => {
     if (document.getElementById("autoToggle").checked) loadSection();
   }, Math.max(1, Number(autoSeconds) || 5) * 1000);
 }
 function stopAuto() {
-  if (timer) clearInterval(timer);
-  timer = null;
+  if (autoTimer) clearInterval(autoTimer);
+  autoTimer = null;
 }
 
 document.getElementById("autoToggle").addEventListener("change", () => {

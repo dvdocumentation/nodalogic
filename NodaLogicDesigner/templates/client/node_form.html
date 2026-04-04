@@ -286,6 +286,40 @@ const __nlScript = {
     const refreshFn = () => { try { window.location.reload(); } catch(_) {} return null; };
     eng.register("refresh", refreshFn).register("Refresh", refreshFn).register("Обновить", refreshFn).register("обновить", refreshFn);
 
+    const messageUserFn = async (args) => {
+      const userKey = String(args?.[0] ?? "").trim();
+      const payload = (args && args.length > 1) ? args[1] : {}; // object => direct JSON, string/composite id => node link
+      const title = String(args?.[2] ?? "Direct message");
+      const body = String(args?.[3] ?? "New message");
+      const senderUser = (args && args.length > 4 && args[4] != null) ? String(args[4]) : null;
+      if (!userKey) throw new Error('message_user expects user key');
+      const r = await fetch(`/webapi/messages/user/${encodeURIComponent(userKey)}`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, body, data: payload, sender_user: senderUser })
+      });
+      return await r.json();
+    };
+    eng.register("message_user", (args) => messageUserFn(args)).register("MessageUser", (args) => messageUserFn(args)).register("messageToUser", (args) => messageUserFn(args));
+
+    const messageDeviceFn = async (args) => {
+      const deviceUid = String(args?.[0] ?? "").trim();
+      const payload = (args && args.length > 1) ? args[1] : {}; // object => direct JSON, string/composite id => node link
+      const title = String(args?.[2] ?? "Direct message");
+      const body = String(args?.[3] ?? "New message");
+      const senderUser = (args && args.length > 4 && args[4] != null) ? String(args[4]) : null;
+      if (!deviceUid) throw new Error('message_device expects device uid');
+      const r = await fetch(`/webapi/messages/device/${encodeURIComponent(deviceUid)}`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, body, data: payload, sender_user: senderUser })
+      });
+      return await r.json();
+    };
+    eng.register("message_device", (args) => messageDeviceFn(args)).register("MessageDevice", (args) => messageDeviceFn(args)).register("messageToDevice", (args) => messageDeviceFn(args));
+
     // save() / сохранить() -> existing form save button logic
     const saveFn = () => { try { if (typeof doSave === "function") return doSave(); } catch(_) {} return null; };
     eng.register("save", saveFn).register("Save", saveFn).register("Сохранить", saveFn).register("сохранить", saveFn);
@@ -430,17 +464,32 @@ function nlApplyTemplateAttr(el, name, tpl){
   }
 }
 
-function nlRefreshBoundInputs(){
+function nlRefreshBoundInputs(opts){
   const root = document.getElementById('webRoot');
   if (!root) return;
+
+  const skipSelector = String((opts && opts.skipInside) || '').trim();
+
   const els = root.querySelectorAll('input[data-path],textarea[data-path],select[data-path]');
   for (const el of els){
-    // don't fight the user's current typing
     if (document.activeElement === el) continue;
+    if (skipSelector && el.closest(skipSelector)) continue;
+
     const path = (el.getAttribute('data-path') || '').trim();
     if (!path) continue;
-    const v = nlGetByPath(_data, path);
+
     try {
+      if (el.matches('input[data-nl-nodeinput="1"], input[data-nl-datasetinput="1"]')) {
+        const view = nlGetByPath(_data, `${path}_view`);
+        const raw  = nlGetByPath(_data, path);
+        const sv = (view != null && String(view).trim() !== '')
+          ? String(view)
+          : ((raw == null) ? '' : String(raw));
+        if (el.value !== sv) el.value = sv;
+        continue;
+      }
+
+      const v = nlGetByPath(_data, path);
       if (el.tagName === 'SELECT') {
         const sv = (v == null) ? '' : String(v);
         if (el.value !== sv) el.value = sv;
@@ -458,7 +507,14 @@ function nlRefreshBoundInputs(){
 function nlRefreshUI(){
   const root = document.getElementById('webRoot') || document;
 
+  const isInsideSpecialTable = (el) => {
+    return !!(el.closest('[data-nl-virtual-table="1"]') || el.closest('[data-nl-dataset-table="1"]'));
+  };
+
+  // 1. Обновляем шаблонные атрибуты, но НЕ внутри virtual/dataset tables
   root.querySelectorAll('*').forEach((el) => {
+    if (isInsideSpecialTable(el)) return;
+
     Array.from(el.attributes || []).forEach((attr) => {
       const name = attr && attr.name ? String(attr.name) : '';
       if (!name.startsWith('data-nl-tpl-')) return;
@@ -467,8 +523,11 @@ function nlRefreshUI(){
     });
   });
 
+  // 2. Обновляем tpl-src, но НЕ внутри virtual/dataset tables
   root.querySelectorAll('[data-nl-tpl-src]').forEach((el) => {
+    if (isInsideSpecialTable(el)) return;
     if (el.tagName === 'IMG') return;
+
     const tpl = el.getAttribute('data-nl-tpl-src');
     const src = String(nlResolveTemplateString(tpl) ?? '');
     if (src) {
@@ -482,7 +541,24 @@ function nlRefreshUI(){
     }
   });
 
-  nlRefreshBoundInputs();
+  // 3. Обновляем обычные bind-inputs, но НЕ внутри virtual/dataset tables
+  nlRefreshBoundInputs({
+    skipInside: '[data-nl-virtual-table="1"], [data-nl-dataset-table="1"]'
+  });
+
+  // 4. Спец-таблицы рендерим отдельно, их DOM не трогаем общим refresh
+  try {
+    if (typeof refreshVirtualTables === "function") {
+      Promise.resolve().then(() => refreshVirtualTables()).catch(() => {});
+    }
+  } catch(_) {}
+
+  try {
+    if (typeof window.initDatasetTables === "function") {
+      // если dataset tables у тебя тоже живут отдельно
+      Promise.resolve().then(() => window.initDatasetTables()).catch(() => {});
+    }
+  } catch(_) {}
 }
 
 function nlGetEventActions(eventName, listener){
@@ -800,9 +876,13 @@ function shouldSendWebEvent(el){
 }
 
 async function fireOnInputWeb(payload){
+
+
   if (nlIsVirtualCtx()) {
     return;
   }
+
+
   // Local NodaScript actions first (per listener rules)
   try {
     const info = await nlRunLocalNodaScriptFirst("onInputWeb", payload || {});
@@ -827,6 +907,8 @@ async function fireOnInputWeb(payload){
     });
     try{
       const j = await r.json();
+
+
       if (j && j.node_data && typeof j.node_data === "object") {
         
         let base;
@@ -845,6 +927,13 @@ async function fireOnInputWeb(payload){
         
         try {
           if (payload && payload.path) setByPath(base, payload.path, payload.value);
+        } catch(_) {}
+
+        
+        try {
+          if (payload && payload.id && Object.prototype.hasOwnProperty.call(payload, "value")) {
+            base[String(payload.id)] = payload.value;
+          }
         } catch(_) {}
 
         
@@ -901,39 +990,39 @@ async function fireOnInputWeb(payload){
             } else {
               window.location.href = targetUrl;
             }
-                        return;
+            return;
           }
         } catch(_){}
       }
 
       if (j && j.close) {
- 
-  try {
-    // 1) Если это попап
-    if (window.opener && !window.opener.closed) {
-      if (typeof window.opener.loadSection === "function") window.opener.loadSection();
-      window.opener.postMessage({type:"nodes_refresh"}, window.location.origin);
-      try { window.opener.focus(); } catch(_) {}
-      window.close(); // <-- ТАК ЖЕ КАК В doClose()
-      return;
-    }
-  } catch(_) {}
+        try {
+          // 1) Если это попап
+          if (window.opener && !window.opener.closed) {
+            if (typeof window.opener.loadSection === "function") window.opener.loadSection();
+            window.opener.postMessage({type:"nodes_refresh"}, window.location.origin);
+            try { window.opener.focus(); } catch(_) {}
+            window.close();
+            return;
+          }
+        } catch(_) {}
 
-  // 2) Иначе навигация назад
-  try {
-    const ref = (document.referrer || "").trim();
-    if (ref) {
-      const u = new URL(ref, window.location.origin);
-      u.searchParams.set("refresh", "1");
-      window.location.href = u.toString();
-      return;
-    }
-  } catch(_) {}
+        // 2) Иначе навигация назад
+        try {
+          const ref = (document.referrer || "").trim();
+          if (ref) {
+            const u = new URL(ref, window.location.origin);
+            u.searchParams.set("refresh", "1");
+            window.location.href = u.toString();
+            return;
+          }
+        } catch(_) {}
 
-  // 3) Fallback
-  window.location.href = SECTIONS_HOME;
-  return;
-}
+        // 3) Fallback
+        window.location.href = SECTIONS_HOME;
+        return;
+      }
+
       if (j && j.layout_html !== undefined) {
         const root = document.getElementById("webRoot");
         if (root) {
@@ -952,7 +1041,6 @@ async function fireOnInputWeb(payload){
   try { await nlRunLocalPostNodaScript("onInputWeb", payload || {}); } catch(_){}
   try { nlRefreshUI(); } catch(_) {}
 }
-
 
 function snapshotWebFormIntoData(){
   const root = document.getElementById("webRoot");
@@ -1222,6 +1310,8 @@ function bindClicks() {
       setByPath(nlGetDataCtx(), fieldId, null);
       setByPath(nlGetDataCtx(), `${fieldId}_data`, null);
       setByPath(nlGetDataCtx(), `${fieldId}_view`, null);
+
+
 
       // update UI (readonly input)
       const inp = nlFindFieldInput(fieldId);
@@ -1857,6 +1947,9 @@ async function openNodePickDialog(fieldId, kind, dsRaw){
         setByPath(nlGetDataCtx(), `${fieldId}_data`, it.data || null);
         setByPath(nlGetDataCtx(), `${fieldId}_view`, view);
 
+
+        
+
   
         const inp = nlFindFieldInput(fieldId);
         if (inp) inp.value = view;
@@ -1939,6 +2032,8 @@ async function openDatasetPickDialog(fieldId, dsName){
         setByPath(nlGetDataCtx(), fieldId, key);
         setByPath(nlGetDataCtx(), `${fieldId}_data`, it.data || null);
         setByPath(nlGetDataCtx(), `${fieldId}_view`, view);
+
+
 
         const inp = nlFindFieldInput(fieldId);
         if (inp) inp.value = view;
