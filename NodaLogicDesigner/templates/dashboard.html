@@ -85,9 +85,19 @@
                         </div>
                         <div class="card-body">
                             <form method="POST" action="{{ url_for('create_room') }}" class="mb-3">
-                                <div class="input-group">
-                                    <input type="text" class="form-control" name="name" placeholder="{{ _('Room name') }}" required>
-                                    <button type="submit" class="btn btn-primary">{{ _('Create room') }}</button>
+                                <div class="row g-2">
+                                    <div class="col-md-6">
+                                        <input type="text" class="form-control" name="name" placeholder="{{ _('Room name') }}" required>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <select class="form-select" name="transport">
+                                            <option value="websocket">WebSocket</option>
+                                            <option value="fcm">FCM</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2 d-grid">
+                                        <button type="submit" class="btn btn-primary">{{ _('Create room') }}</button>
+                                    </div>
                                 </div>
                             </form>
                             
@@ -105,7 +115,7 @@
                         <div class="list-group-item d-flex justify-content-between align-items-center">
                             <div>
                                 <h5 class="mb-1">{{ room.name }}</h5>
-                                <small class="text-muted">{{ _('Created ') }}: {{ room.created_at.strftime('%d.%m.%Y %H:%M') }}</small>
+                                <small class="text-muted">{{ _('Created ') }}: {{ room.created_at.strftime('%d.%m.%Y %H:%M') }} · {{ room.transport or 'websocket' }}</small>
                             </div>
                             <div class="btn-group">
                                 {% if room.name == _('Debug room') or _('debug') in room.name|lower or 'debug' in room.name|lower or 'отладк' in room.name|lower %}

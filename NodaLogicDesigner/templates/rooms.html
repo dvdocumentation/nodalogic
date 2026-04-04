@@ -20,6 +20,13 @@
                     <label for="roomName" class="form-label">{{ _('Room Name') }}</label>
                     <input type="text" class="form-control" id="roomName" name="name" required>
                 </div>
+                <div class="mb-3">
+                    <label for="roomTransport" class="form-label">Transport</label>
+                    <select class="form-select" id="roomTransport" name="transport">
+                        <option value="websocket">WebSocket</option>
+                        <option value="fcm">FCM</option>
+                    </select>
+                </div>
                 <button type="submit" class="btn btn-primary">{{ _('Create') }}</button>
             </form>
         </div>
@@ -31,7 +38,7 @@
         <div class="list-group">
             {% for room in rooms %}
             <div class="list-group-item d-flex justify-content-between align-items-center">
-                {{ room.name }}
+                {{ room.name }} <small class="text-muted">({{ room.transport or 'websocket' }})</small>
                 <div>
                     <a href="{{ url_for('room_detail', room_uid=room.uid) }}" 
                        class="btn btn-sm btn-outline-primary me-2">

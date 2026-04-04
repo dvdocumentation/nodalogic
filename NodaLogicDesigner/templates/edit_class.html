@@ -53,6 +53,12 @@
           <i class="bi bi-arrow-left-right"></i> {{ _('Migration') }}
         </button>
       </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="indexes-tab" data-bs-toggle="tab" data-bs-target="#indexes"
+                type="button" role="tab">
+          <i class="bi bi-filter-square"></i> {{ _('Indexes') }}
+        </button>
+      </li>
     </ul>
   </div>
 
@@ -61,6 +67,7 @@
     <form method="POST">
       <input type="hidden" name="active_tab" value="{{ request.args.get('tab', 'classes') }}">
 
+      <input type="hidden" id="indexesJson" name="indexes_json" value='{{ (class_obj.indexes_json or []) | tojson | forceescape }}'>
       <div class="tab-content">
 
         <!-- GENERAL -->
@@ -354,6 +361,32 @@
           </div>
         </div>
 
+        <div class="tab-pane fade" id="indexes" role="tabpanel">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+              <div class="fw-semibold">{{ _('Class indexes') }}</div>
+              <div class="text-muted small">{{ _('Hash indexes by _data fields. Use | to combine multiple keys.') }}</div>
+            </div>
+            <button type="button" class="btn btn-sm btn-success" id="btnAddIndex">
+              <i class="bi bi-plus-circle"></i> {{ _('Add index') }}
+            </button>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>{{ _('Name') }}</th>
+                  <th>{{ _('Kind') }}</th>
+                  <th>{{ _('Keys') }}</th>
+                  <th>{{ _('Filter') }}</th>
+                  <th style="width: 140px;">{{ _('Actions') }}</th>
+                </tr>
+              </thead>
+              <tbody id="indexesTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
       </div>
 
       <button type="submit" class="btn btn-primary mt-3">
@@ -362,6 +395,179 @@
     </form>
   </div>
 </div>
+
+<div class="modal fade" id="indexModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">{{ _('Index') }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="indexEditPos" value="">
+        <div class="mb-3">
+          <label class="form-label" for="idxName">{{ _('Name') }}</label>
+          <input type="text" class="form-control" id="idxName">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="idxKind">{{ _('Kind') }}</label>
+          <select class="form-select" id="idxKind">
+            <option value="hash_index">hash_index</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="idxKeys">{{ _('Keys') }}</label>
+          <input type="text" class="form-control" id="idxKeys" placeholder="field_a|field_b">
+          <small class="text-muted">{{ _('One or many _data fields separated by |') }}</small>
+        </div>
+        <div class="border rounded p-3 bg-light">
+          <div class="mb-2 form-check">
+            <input type="checkbox" class="form-check-input" id="idxFilterEnabled">
+            <label class="form-check-label" for="idxFilterEnabled">{{ _('Show in filter panel') }}</label>
+          </div>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label" for="idxFilterLabel">{{ _('Filter title') }}</label>
+              <input class="form-control" id="idxFilterLabel" placeholder="{{ _('For example: Barcode') }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="idxFilterType">{{ _('Filter type') }}</label>
+              <input class="form-control" id="idxFilterType" list="idxFilterTypeList">
+              <datalist id="idxFilterTypeList">
+                <option value="string"></option>
+                <option value="number"></option>
+                <option value="boolean"></option>
+              </datalist>
+              <small class="text-muted">{{ _('You can type string, number, boolean, Node(ClassName) or Dataset(DatasetName).') }}</small>
+            </div>
+          </div>
+          <div class="form-check mt-3">
+            <input type="checkbox" class="form-check-input" id="idxFilterListEnabled">
+            <label class="form-check-label" for="idxFilterListEnabled">{{ _('List available') }}</label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+        <button type="button" class="btn btn-primary" id="btnSaveIndex">{{ _('Save') }}</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const hidden = document.getElementById('indexesJson');
+  const tbody = document.getElementById('indexesTableBody');
+  const modalEl = document.getElementById('indexModal');
+  if (!hidden || !tbody || !modalEl || !window.bootstrap) return;
+
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  const form = hidden.form;
+  let items = [];
+  let quietSaveTimer = null;
+  let quietSaveInFlight = false;
+  let quietSaveQueued = false;
+  try { items = JSON.parse(hidden.value || '[]'); if (!Array.isArray(items)) items = []; } catch(_) { items = []; }
+
+  function sync(){ hidden.value = JSON.stringify(items); }
+  async function saveQuietly(){
+    if (!form) return;
+    if (quietSaveInFlight) { quietSaveQueued = true; return; }
+    quietSaveInFlight = true;
+    try {
+      const activeTabEl = form.querySelector('input[name="active_tab"]');
+      if (activeTabEl) activeTabEl.value = 'classes';
+      await fetch(form.action || window.location.href, {
+        method: 'POST',
+        body: new FormData(form),
+        credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      });
+    } catch (_) {
+    } finally {
+      quietSaveInFlight = false;
+      if (quietSaveQueued) {
+        quietSaveQueued = false;
+        saveQuietly();
+      }
+    }
+  }
+  function queueQuietSave(){
+    clearTimeout(quietSaveTimer);
+    quietSaveTimer = setTimeout(saveQuietly, 150);
+  }
+  function badge(v, cls){ return `<span class="badge ${cls}">${String(v||'')}</span>`; }
+  function render(){
+    tbody.innerHTML = '';
+    if (!items.length){
+      tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">{{ _('No indexes') }}</td></tr>`;
+      sync();
+      return;
+    }
+    items.forEach((it, idx) => {
+      const tr = document.createElement('tr');
+      const filterParts = [];
+      if (it.filter_enabled) filterParts.push(badge(it.filter_type || 'string', 'bg-primary'));
+      else filterParts.push(badge('{{ _('Disabled') }}', 'bg-secondary'));
+      if (it.filter_label) filterParts.push(badge(it.filter_label, 'bg-light text-dark border'));
+      if (it.filter_list_enabled) filterParts.push(badge('{{ _('List') }}', 'bg-info text-dark'));
+      tr.innerHTML = `
+        <td><strong>${it.name || ''}</strong></td>
+        <td>${it.kind || 'hash_index'}</td>
+        <td><code>${it.keys || ''}</code></td>
+        <td>${filterParts.join(' ')}</td>
+        <td class="text-nowrap">
+          <div class="d-inline-flex gap-1">
+            <button type="button" class="btn btn-sm btn-outline-primary" data-act="edit" data-idx="${idx}">{{ _('Edit') }}</button>
+            <button type="button" class="btn btn-sm btn-outline-danger" data-act="del" data-idx="${idx}">{{ _('Delete') }}</button>
+          </div>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+    sync();
+  }
+  function openEditor(idx){
+    const it = (idx >= 0 && items[idx]) ? items[idx] : {kind:'hash_index', filter_type:'string'};
+    document.getElementById('indexEditPos').value = (idx >= 0 ? String(idx) : '');
+    document.getElementById('idxName').value = it.name || '';
+    document.getElementById('idxKind').value = it.kind || 'hash_index';
+    document.getElementById('idxKeys').value = it.keys || '';
+    document.getElementById('idxFilterEnabled').checked = !!it.filter_enabled;
+    document.getElementById('idxFilterLabel').value = it.filter_label || '';
+    document.getElementById('idxFilterType').value = it.filter_type || 'string';
+    document.getElementById('idxFilterListEnabled').checked = !!it.filter_list_enabled;
+    modal.show();
+  }
+  document.getElementById('btnAddIndex')?.addEventListener('click', () => openEditor(-1));
+  tbody.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const idx = parseInt(btn.getAttribute('data-idx') || '-1', 10);
+    if (btn.getAttribute('data-act') === 'edit') openEditor(idx);
+    if (btn.getAttribute('data-act') === 'del' && idx >= 0){ items.splice(idx, 1); render(); queueQuietSave(); }
+  });
+  document.getElementById('btnSaveIndex')?.addEventListener('click', () => {
+    const item = {
+      name: document.getElementById('idxName').value.trim(),
+      kind: document.getElementById('idxKind').value || 'hash_index',
+      keys: document.getElementById('idxKeys').value.trim(),
+      filter_enabled: document.getElementById('idxFilterEnabled').checked,
+      filter_label: document.getElementById('idxFilterLabel').value.trim(),
+      filter_type: document.getElementById('idxFilterType').value || 'string',
+      filter_list_enabled: document.getElementById('idxFilterListEnabled').checked,
+    };
+    if (!item.name) return;
+    const pos = document.getElementById('indexEditPos').value;
+    if (pos === '') items.push(item);
+    else items[parseInt(pos, 10)] = item;
+    modal.hide();
+    render();
+    queueQuietSave();
+  });
+  render();
+});
+</script>
 
 
     <!-- Methods and events -->
@@ -670,6 +876,9 @@ return True,{}
               <option value="onInputWeb">onInputWeb</option>
               <option value="onAcceptServer">onAcceptServer</option>
               <option value="onAfterAcceptServer">onAfterAcceptServer</option>
+              <option value="onAccept">onAccept</option>
+              <option value="onAfterAccept">onAfterAccept</option>
+              
 
             </select>
           </div>
@@ -940,14 +1149,18 @@ codeInput.registerTemplate("syntax-highlighted",
         });
         
 
-        document.getElementById('eventSource').addEventListener('change', function() {
-            const serverField = document.getElementById('serverField');
-            if (this.value === 'external') {
-                serverField.style.display = 'block';
-            } else {
-                serverField.style.display = 'none';
-            }
-        });
+        const eventSourceEl = document.getElementById('eventSource');
+        if (eventSourceEl) {
+            eventSourceEl.addEventListener('change', function() {
+                const serverField = document.getElementById('serverField');
+                if (!serverField) return;
+                if (this.value === 'external') {
+                    serverField.style.display = 'block';
+                } else {
+                    serverField.style.display = 'none';
+                }
+            });
+        }
     }
 
   
@@ -1244,6 +1457,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <option value="">-- (no) --</option>
             ${METHODS.map(m => `<option value="${m}" ${m===action.method?'selected':''}>${m}</option>`).join('')}
             <option value="NodaScript" ${action.method==='NodaScript'?'selected':''}>NodaScript</option>
+            <option value="HTTP Request" ${action.method==='HTTP Request'?'selected':''}>HTTP Request</option>
           </select>
         </div>
         <div style="width:160px">
@@ -1252,6 +1466,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <option value="">(no)</option>
             ${METHODS.map(m => `<option value="${m}" ${m===action.postExecuteMethod?'selected':''}>${m}</option>`).join('')}
             <option value="NodaScript" ${action.postExecuteMethod==='NodaScript'?'selected':''}>NodaScript</option>
+            <option value="HTTP Request" ${action.postExecuteMethod==='HTTP Request'?'selected':''}>HTTP Request</option>
           </select>
         </div>
         <div style="width:130px">
@@ -1280,9 +1495,21 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
           </div>
           <div class="col-12">
+            <div class="method-http" style="display:none;">
+              <label class="form-label small">HTTP Request function name (method)</label>
+              <input class="form-control action-field" data-field="httpFunctionName" value="${action.httpFunctionName || ""}" placeholder="sendInvoice">
+            </div>
+          </div>
+          <div class="col-12">
             <div class="post-script" style="display:none;">
               <label class="form-label small">NodaScript (postExecuteMethod)</label>
               <code-input class="action-field noda-script-editor" data-field="postExecuteMethodText" language="nodascript">${(action.postExecuteMethodText || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</code-input>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="post-http" style="display:none;">
+              <label class="form-label small">HTTP Request function name (postExecuteMethod)</label>
+              <input class="form-control action-field" data-field="postHttpFunctionName" value="${action.postHttpFunctionName || ""}" placeholder="afterSend">
             </div>
           </div>
         </div>
@@ -1307,8 +1534,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const nodaBlock = row.querySelector('.noda-script-block');
     const methodBox = row.querySelector('.method-script');
     const postBox = row.querySelector('.post-script');
+    const methodHttpBox = row.querySelector('.method-http');
+    const postHttpBox = row.querySelector('.post-http');
     const methodCi = row.querySelector('[data-field="methodText"]');
     const postCi = row.querySelector('[data-field="postExecuteMethodText"]');
+    const methodHttpInput = row.querySelector('[data-field="httpFunctionName"]');
+    const postHttpInput = row.querySelector('[data-field="postHttpFunctionName"]');
 
     function ensureCodeInput(ci) {
       if (!ci) return;
@@ -1351,13 +1582,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
       const isMethodScript = methodSelect.value === 'NodaScript';
       const isPostScript = postSelect.value === 'NodaScript';
+      const isMethodHttp = methodSelect.value === 'HTTP Request';
+      const isPostHttp = postSelect.value === 'HTTP Request';
 
       if (!isMethodScript) clearCodeInput(methodCi);
       if (!isPostScript) clearCodeInput(postCi);
+      if (!isMethodHttp && methodHttpInput) methodHttpInput.value = '';
+      if (!isPostHttp && postHttpInput) postHttpInput.value = '';
 
       methodBox.style.display = isMethodScript ? '' : 'none';
       postBox.style.display = isPostScript ? '' : 'none';
-      nodaBlock.style.display = (isMethodScript || isPostScript) ? '' : 'none';
+      methodHttpBox.style.display = isMethodHttp ? '' : 'none';
+      postHttpBox.style.display = isPostHttp ? '' : 'none';
+      nodaBlock.style.display = (isMethodScript || isPostScript || isMethodHttp || isPostHttp) ? '' : 'none';
 
       if (isMethodScript) autoResize(methodCi);
       if (isPostScript) autoResize(postCi);
@@ -1680,6 +1917,11 @@ document.addEventListener('click', (e) => {
 
 .event-onaccept {
     background-color: #dc3545;
+    color: white;
+}
+
+.event-onafteraccept {
+    background-color: #ee077a;
     color: white;
 }
 

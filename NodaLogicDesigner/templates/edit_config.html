@@ -849,6 +849,8 @@
               <option value="onTextFile">onTextFile</option>
               <option value="onStartMenuCommandWeb">onStartMenuCommandWeb</option>
               <option value="onClassCommand">onClassCommand</option>
+              <option value="onPush">onPush</option>
+              <option value="onIncomingNodes">onIncomingNodes</option>
               
 
             </select>
@@ -1637,7 +1639,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-  const COMMON_EVENT_TYPES = ['onLaunch', 'onBarcode', 'onStartMenuCommand', 'onTimer', 'onDialogResult','onJSONFile','onTextFile','onClassCommand','onStartMenuCommandWeb'];
+  const COMMON_EVENT_TYPES = ['onLaunch', 'onBarcode', 'onStartMenuCommand', 'onTimer', 'onDialogResult','onJSONFile','onTextFile','onClassCommand','onStartMenuCommandWeb','onPush','onIncomingNodes'];
   const ACTION_TYPES = ['run','runprogress','runasync'];
 
  
@@ -1678,6 +1680,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <option value="">-- {{ _('none') }} --</option>
             ${methods.map(m => `<option value="${m}" ${m===action.method?'selected':''}>${m}</option>`).join('')}
             <option value="NodaScript" ${action.method==='NodaScript'?'selected':''}>NodaScript</option>
+            <option value="HTTP Request" ${action.method==='HTTP Request'?'selected':''}>HTTP Request</option>
           </select>
         </div>
         <div style="width:160px">
@@ -1686,6 +1689,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <option value="">({{ _('none') }})</option>
             ${methods.map(m => `<option value="${m}" ${m===action.postExecuteMethod?'selected':''}>${m}</option>`).join('')}
             <option value="NodaScript" ${action.postExecuteMethod==='NodaScript'?'selected':''}>NodaScript</option>
+            <option value="HTTP Request" ${action.postExecuteMethod==='HTTP Request'?'selected':''}>HTTP Request</option>
           </select>
         </div>
         <div style="width:130px">
@@ -1714,9 +1718,21 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
           </div>
           <div class="col-12">
+            <div class="method-http" style="display:none;">
+              <label class="form-label small">HTTP Request function name (method)</label>
+              <input class="form-control common-action-field" data-field="httpFunctionName" value="${action.httpFunctionName || ""}" placeholder="sendInvoice">
+            </div>
+          </div>
+          <div class="col-12">
             <div class="post-script" style="display:none;">
               <label class="form-label small">NodaScript (postExecuteMethod)</label>
               <textarea class="form-control common-action-field noda-script-textarea" data-field="postExecuteMethodText" rows="4" placeholder="// NodaScript for postExecuteMethod">${action.postExecuteMethodText || ''}</textarea>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="post-http" style="display:none;">
+              <label class="form-label small">HTTP Request function name (postExecuteMethod)</label>
+              <input class="form-control common-action-field" data-field="postHttpFunctionName" value="${action.postHttpFunctionName || ""}" placeholder="afterSend">
             </div>
           </div>
         </div>
@@ -1744,8 +1760,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const nodaBlock = row.querySelector('.noda-script-block');
     const methodBox = row.querySelector('.method-script');
     const postBox = row.querySelector('.post-script');
+    const methodHttpBox = row.querySelector('.method-http');
+    const postHttpBox = row.querySelector('.post-http');
     const methodTa = row.querySelector('[data-field="methodText"]');
     const postTa = row.querySelector('[data-field="postExecuteMethodText"]');
+    const methodHttpInput = row.querySelector('[data-field="httpFunctionName"]');
+    const postHttpInput = row.querySelector('[data-field="postHttpFunctionName"]');
 
     function autoResize(ta) {
       if (!ta) return;
@@ -1762,13 +1782,19 @@ document.addEventListener('DOMContentLoaded', function() {
     function toggleNoda() {
       const isMethodScript = methodSelect.value === 'NodaScript';
       const isPostScript = postSelect.value === 'NodaScript';
+      const isMethodHttp = methodSelect.value === 'HTTP Request';
+      const isPostHttp = postSelect.value === 'HTTP Request';
 
       if (!isMethodScript) methodTa.value = '';
       if (!isPostScript) postTa.value = '';
+      if (!isMethodHttp && methodHttpInput) methodHttpInput.value = '';
+      if (!isPostHttp && postHttpInput) postHttpInput.value = '';
 
       methodBox.style.display = isMethodScript ? '' : 'none';
       postBox.style.display = isPostScript ? '' : 'none';
-      nodaBlock.style.display = (isMethodScript || isPostScript) ? '' : 'none';
+      methodHttpBox.style.display = isMethodHttp ? '' : 'none';
+      postHttpBox.style.display = isPostHttp ? '' : 'none';
+      nodaBlock.style.display = (isMethodScript || isPostScript || isMethodHttp || isPostHttp) ? '' : 'none';
 
       if (isMethodScript) autoResize(methodTa);
       if (isPostScript) autoResize(postTa);
@@ -2272,7 +2298,7 @@ fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
 
 .event-onstartmenucommand {
     background-color: #20c997;
-    color: white;
+    color: rgb(0, 0, 0);
 }
 
 .event-onstartmenucommandweb {
@@ -2281,8 +2307,8 @@ fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
 }
 
 .event-ontimer {
-    background-color: #e83e8c;
-    color: white;
+    background-color: #ffd95b;
+    color: rgb(0, 0, 0);
 }
 
 .event-ondialogresult {
@@ -2302,6 +2328,16 @@ fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
 
 .event-onclasscommand {
     background-color: #801237;
+    color: white;
+}
+
+.event-onpush {
+    background-color: #128065;
+    color: white;
+}
+
+.event-onincomingnodes {
+    background-color: #f1239b;
     color: white;
 }
 
