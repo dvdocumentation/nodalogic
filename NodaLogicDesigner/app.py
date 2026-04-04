@@ -11,6 +11,8 @@ from sqlalchemy import select, text
 import sqlalchemy as sa
 import base64
 import requests
+import urllib.request
+import urllib.error
 from urllib.parse import urlparse
 from flask import send_file
 import io
@@ -31,6 +33,14 @@ import ast
 import inspect
 from pathlib import Path
 import secrets
+
+try:
+    import firebase_admin
+    from firebase_admin import credentials as firebase_credentials, messaging as firebase_messaging
+except Exception:
+    firebase_admin = None
+    firebase_credentials = None
+    firebase_messaging = None
 
 # ==================================================================
 # Handlers loading (server): file-first, DB blob fallback
@@ -113,10 +123,17 @@ LMSTUDIO_API_KEY = os.environ.get("LMSTUDIO_API_KEY", "")
 
 NL_FORMAT = "1.1"
 
+DEFAULT_PUSH_GATEWAY_TOKEN = "I2YixHv7-5e5s2s45SWiQ2GPufGWkdz9Zn05DFY7Ip2wxRpI"
+NMAKER_SERVER_URL = os.environ.get("NMAKER_SERVER_URL", "https://nmaker.pw").rstrip("/")
+PUSH_GATEWAY_URL = os.environ.get("PUSH_GATEWAY_URL", "").rstrip("/")
+PUSH_GATEWAY_TOKEN = os.environ.get("PUSH_GATEWAY_TOKEN", DEFAULT_PUSH_GATEWAY_TOKEN)
+PUBLIC_API_BASE_URL = os.environ.get("PUBLIC_API_BASE_URL", "").rstrip("/")
+
+
 
 
 NODE_CLASS_CODE = '''
-from nodes import Node, message, Dialog, to_uid, from_uid, CloseNode, DataSets, convertBase64ArrayToFilePaths,convertImageFilesToBase64Array,getBase64FromImageFile,saveBase64ToFile
+from nodes import Node, message, Dialog, to_uid, from_uid, CloseNode, DataSets, convertBase64ArrayToFilePaths,convertImageFilesToBase64Array,getBase64FromImageFile,saveBase64ToFile, getByIndex, findByIndex, getByGlobalIndex, findByGlobalIndex
 '''
 
 NODE_CLASS_CODE_ANDROID = '''
@@ -125,7 +142,7 @@ from nodes import Node
 
 ANDROID_IMPORTS_TEMPLATE = '''from nodesclient import RefreshTab,SetTitle,CloseNode,RunGPS,StopGPS,UpdateView,Dialog,ScanBarcode,GetLocation,AddTimer,StopTimer,ShowProgressButton,HideProgressButton,ShowProgressGlobal,HideProgressGlobal,Controls,SetCover,getBase64FromImageFile,convertImageFilesToBase64Array,saveBase64ToFile,convertBase64ArrayToFilePaths,UpdateMediaGallery
 from android import *
-from nodes import NewNode, DeleteNode, GetAllNodes, GetNode, GetAllNodesStr, GetRemoteClass, CreateDataSet, GetDataSet, DeleteDataSet,to_uid, from_uid
+from nodes import NewNode, DeleteNode, GetAllNodes, GetNode, GetAllNodesStr, GetRemoteClass, CreateDataSet, GetDataSet, DeleteDataSet,to_uid, from_uid, getByIndex, findByIndex, getByGlobalIndex, findByGlobalIndex
 from com.dv.noda import DataSet
 from com.dv.noda import DataSets
 from com.dv.noda import SimpleUtilites as su
@@ -1220,6 +1237,8 @@ def _ensure_sqlite_schema():
             _add_col("config_class", 'migration_default_room_uid VARCHAR(36) DEFAULT ""', "migration_default_room_uid")
         if "migration_default_room_alias" not in cols:
             _add_col("config_class", 'migration_default_room_alias VARCHAR(100) DEFAULT ""', "migration_default_room_alias")
+        if "indexes_json" not in cols:
+            _add_col("config_class", 'indexes_json JSON', "indexes_json")
 
     # ------------------------------------------------------------
     # class_method migrations
@@ -1234,6 +1253,29 @@ def _ensure_sqlite_schema():
     # ------------------------------------------------------------
     # room_objects migrations
     # ------------------------------------------------------------
+    if _table_exists("room"):
+        room_cols = _get_cols("room")
+        if "transport" not in room_cols:
+            _add_col("room", 'transport VARCHAR(30) DEFAULT "websocket"', "transport")
+
+    try:
+        if not _table_exists("room_device"):
+            db.create_all()
+    except Exception as e:
+        print("Could not ensure room_device table:", e)
+
+    if _table_exists("user_device"):
+        udcols = _get_cols("user_device")
+        if "device_uid" not in udcols:
+            _add_col("user_device", 'device_uid VARCHAR(120) DEFAULT ""', "device_uid")
+        if "extra_json" not in udcols:
+            _add_col("user_device", 'extra_json JSON', "extra_json")
+    else:
+        try:
+            db.create_all()
+        except Exception as e:
+            print("Could not ensure user_device table:", e)
+
     if _table_exists("room_objects"):
         rocols = _get_cols("room_objects")
         if "acknowledged_by" not in rocols:
@@ -1272,6 +1314,10 @@ def _ensure_sqlite_schema():
             _add_col("config_event_action", 'method_text TEXT DEFAULT ""', "method_text")
         if "post_execute_text" not in eacols:
             _add_col("config_event_action", 'post_execute_text TEXT DEFAULT ""', "post_execute_text")
+        if "http_function_name" not in eacols:
+            _add_col("config_event_action", 'http_function_name VARCHAR(255) DEFAULT ""', "http_function_name")
+        if "post_http_function_name" not in eacols:
+            _add_col("config_event_action", 'post_http_function_name VARCHAR(255) DEFAULT ""', "post_http_function_name")
 
     # ------------------------------------------------------------
     # event_action migrations (ClassEvent actions)
@@ -1283,6 +1329,10 @@ def _ensure_sqlite_schema():
             _add_col("event_action", 'method_text TEXT DEFAULT ""', "method_text")
         if "post_execute_text" not in acols:
             _add_col("event_action", 'post_execute_text TEXT DEFAULT ""', "post_execute_text")
+        if "http_function_name" not in acols:
+            _add_col("event_action", 'http_function_name VARCHAR(255) DEFAULT ""', "http_function_name")
+        if "post_http_function_name" not in acols:
+            _add_col("event_action", 'post_http_function_name VARCHAR(255) DEFAULT ""', "post_http_function_name")
 
 # Run schema check immediately on import (works for `flask run` too)
 try:
@@ -1341,8 +1391,31 @@ class Room(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     uid = db.Column(db.String(36), default=lambda: str(uuid.uuid4()))
     name = db.Column(db.String(100))
+    transport = db.Column(db.String(30), default='websocket')
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+
+
+class RoomDevice(db.Model):
+    __tablename__ = 'room_device'
+
+    id = db.Column(db.Integer, primary_key=True)
+    room_uid = db.Column(db.String(36), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    device_uid = db.Column(db.String(120), nullable=False, index=True)
+    user_key = db.Column(db.String(200), default='', nullable=False, index=True)
+    push_channel = db.Column(db.String(30), default='websocket', nullable=False)
+    fcm_token = db.Column(db.Text, default='')
+    android_id = db.Column(db.String(100), default='')
+    device_model = db.Column(db.String(200), default='')
+    extra_json = db.Column(db.JSON, default=dict)
+    last_seen = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+
+    __table_args__ = (
+        db.UniqueConstraint('room_uid', 'device_uid', name='uq_room_device_room_uid_device_uid'),
+        db.Index('idx_room_device_room_channel', 'room_uid', 'push_channel'),
+    )
 
 
 class RoomAlias(db.Model):
@@ -1396,9 +1469,11 @@ class UserConfigAccess(db.Model):
 class UserDevice(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    android_id = db.Column(db.String(100), nullable=False)
+    device_uid = db.Column(db.String(120), default='', nullable=False, index=True)
+    android_id = db.Column(db.String(100), nullable=False, index=True)
     device_model = db.Column(db.String(200))
-    token = db.Column(db.String(200))
+    token = db.Column(db.Text)
+    extra_json = db.Column(db.JSON, default=dict)
     last_connected = db.Column(db.DateTime, default=datetime.now(timezone.utc))
 
     user = db.relationship('User', backref=db.backref('devices', lazy=True))  
@@ -1426,6 +1501,8 @@ class ConfigEvent(db.Model):
                 "postExecuteMethod": action.post_execute_method,
                 "methodText": action.method_text,
                 "postExecuteMethodText": action.post_execute_text,
+                "httpFunctionName": action.http_function_name,
+                "postHttpFunctionName": action.post_http_function_name,
             }
             
             action_dict = {k: v for k, v in action_dict.items() if v is not None and v != ""}
@@ -1443,6 +1520,8 @@ class ConfigEventAction(db.Model):
     # If method/post_execute_method == 'NodaScript', store the script text here
     method_text = db.Column(db.Text, default="")
     post_execute_text = db.Column(db.Text, default="")
+    http_function_name = db.Column(db.String(255), default="")
+    post_http_function_name = db.Column(db.String(255), default="")
     order = db.Column(db.Integer, default=0)  
 
     event_id = db.Column(db.Integer, db.ForeignKey('config_event.id', ondelete='CASCADE'), nullable=False)
@@ -1457,6 +1536,8 @@ class ConfigEventAction(db.Model):
             "postExecuteMethod": self.post_execute_method,
             "methodText": self.method_text,
             "postExecuteMethodText": self.post_execute_text,
+            "httpFunctionName": self.http_function_name,
+            "postHttpFunctionName": self.post_http_function_name,
             "order": self.order,
         }
     
@@ -1539,6 +1620,7 @@ class ConfigClass(db.Model):
     migration_default_room_uid = db.Column(db.String(36), default="")
     # Stores RoomAlias.alias (string)
     migration_default_room_alias = db.Column(db.String(100), default="")
+    indexes_json = db.Column(db.JSON, default=list)
     
 
 class ClassMethod(db.Model):
@@ -1577,6 +1659,8 @@ class ClassEvent(db.Model):
                 "postExecuteMethod": action.post_execute_method,
                 "methodText": action.method_text,
                 "postExecuteMethodText": action.post_execute_text,
+                "httpFunctionName": action.http_function_name,
+                "postHttpFunctionName": action.post_http_function_name,
             }
             
             action_dict = {k: v for k, v in action_dict.items() if v is not None and v != ""}
@@ -1594,6 +1678,8 @@ class EventAction(db.Model):
     # If method/post_execute_method == 'NodaScript', store the script text here
     method_text = db.Column(db.Text, default="")
     post_execute_text = db.Column(db.Text, default="")
+    http_function_name = db.Column(db.String(255), default="")
+    post_http_function_name = db.Column(db.String(255), default="")
     order = db.Column(db.Integer, default=0)  
 
     event_id = db.Column(db.Integer, db.ForeignKey('class_event.id', ondelete='CASCADE'), nullable=False)
@@ -1608,6 +1694,8 @@ class EventAction(db.Model):
             "postExecuteMethod": self.post_execute_method,
             "methodText": self.method_text,
             "postExecuteMethodText": self.post_execute_text,
+            "httpFunctionName": self.http_function_name,
+            "postHttpFunctionName": self.post_http_function_name,
             "order": self.order,
         }
 
@@ -1678,9 +1766,38 @@ def edit_profile():
         db.session.commit()
         flash(_('Profile updated successfully'), 'success')
         return redirect(url_for('dashboard'))
-    
+
     devices = UserDevice.query.filter_by(user_id=current_user.id).all()
-    return render_template('edit_profile.html', devices=devices)
+    qr_img = None
+    qr_payload = None
+
+    forwarded_host = (request.headers.get('X-Forwarded-Host') or '').split(',')[0].strip().lower()
+    request_host = (request.host or '').strip().lower()
+
+    current_host = forwarded_host or request_host
+    current_host = current_host.split(':')[0]
+
+    nmaker_host = urlparse(NMAKER_SERVER_URL).netloc.strip().lower().split(':')[0]
+
+    if current_host == nmaker_host:
+        qr_payload = json.dumps({
+            'type': 'account_connect',
+            'server_url': NMAKER_SERVER_URL,
+            'register_device_url': f'{NMAKER_SERVER_URL}/api/me/register-device',
+            'login_url': f'{NMAKER_SERVER_URL}/api/auth/login',
+            'email': current_user.email,
+        }, ensure_ascii=False)
+        qr_img = generate_qr_code(qr_payload)
+
+    
+
+    return render_template(
+        'edit_profile.html',
+        devices=devices,
+        qr_img=qr_img,
+        qr_payload=qr_payload,
+        nmaker_server_url=NMAKER_SERVER_URL
+    )
 
 class ApiToken(db.Model):
     __tablename__ = "api_token"
@@ -1706,6 +1823,72 @@ def check_api_token(token: str):
         return None
     tok = ApiToken.query.filter_by(token=token, revoked_at=None).first()
     return tok.user if tok else None
+
+@app.route("/api/auth/register", methods=["POST"])
+def api_auth_register():
+    data = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+
+    if not email or not password:
+        return jsonify({"error": "email and password are required"}), 400
+
+    existing = User.query.filter_by(email=email).first()
+    if existing:
+        return jsonify({"error": "user already exists"}), 409
+
+    user = User(
+        email=email,
+        password=generate_password_hash(password),
+        can_api=True,
+    )
+    db.session.add(user)
+    db.session.flush()
+
+    device_uid = (data.get('device_uid') or data.get('uid') or data.get('android_id') or '').strip()
+    android_id = (data.get('android_id') or device_uid).strip()
+    device_model = (data.get('device_model') or '').strip()
+    fcm_token = (data.get('fcm_token') or data.get('token') or '').strip()
+
+    device_info = None
+    if device_uid or android_id or fcm_token:
+        effective_device_uid = device_uid or android_id
+        if not effective_device_uid:
+            db.session.rollback()
+            return jsonify({'error': 'device_uid or android_id is required when registering a device'}), 400
+
+        user_device = UserDevice.query.filter_by(user_id=user.id, android_id=android_id or effective_device_uid).first()
+        if not user_device:
+            user_device = UserDevice(
+                user_id=user.id,
+                device_uid=effective_device_uid,
+                android_id=android_id or effective_device_uid,
+            )
+            db.session.add(user_device)
+
+        user_device.device_uid = effective_device_uid
+        user_device.android_id = android_id or effective_device_uid
+        user_device.device_model = device_model
+        user_device.token = fcm_token
+        user_device.extra_json = data
+        user_device.last_connected = datetime.now(timezone.utc)
+
+        device_info = {
+            'device_uid': user_device.device_uid,
+            'android_id': user_device.android_id,
+        }
+
+    db.session.commit()
+
+    token_value = issue_api_token(user)
+
+    response = {
+        'user': {'id': user.id, 'email': user.email},
+        'access_token': token_value,
+    }
+    if device_info:
+        response['device'] = device_info
+    return jsonify(response), 201    
 
 @app.route("/api/auth/login", methods=["POST"])
 def api_auth_login():
@@ -2062,8 +2245,12 @@ def logout():
 @login_required
 def create_room():
     name = request.form.get('name', 'New room')
+    transport = (request.form.get('transport') or 'websocket').strip().lower()
+    if transport not in ('websocket', 'fcm'):
+        transport = 'websocket'
     new_room = Room(
         name=name,
+        transport=transport,
         user_id=current_user.id
     )
     db.session.add(new_room)
@@ -2088,25 +2275,39 @@ def generate_qr_code(data):
 @login_required
 def room_detail(room_uid):
     room = Room.query.filter_by(uid=room_uid, user_id=current_user.id).first_or_404()
-    
+
     with SqliteDict(TASKS_DB_PATH) as tasks_db:
         tasks = tasks_db.get(room_uid, [])
         active_tasks = [t for t in tasks if not t.get('_done')]
-    
-    
+
     ws_scheme = get_ws_scheme()
     ws_url = f"{ws_scheme}://{request.host}/ws?room={room.uid}"
+    api_base = request.url_root.rstrip('/')
+    if (room.transport or 'websocket') == 'websocket':
+        qr_payload =  ws_url
+        qr_payload_text = ws_url
+    else:       
+        qr_payload = {
+            "type": "room_connect",
+            "room_uid": room.uid,
+            "transport": (room.transport or 'websocket'),
+            "ws_url": ws_url if (room.transport or 'websocket') == 'websocket' else '',
+            "register_device_url": f"{api_base}/api/room/{room.uid}/register-device",
+            "room_url": f"{api_base}/api/room/{room_uid}/objects"
+        }
+        qr_payload_text = json.dumps(qr_payload, ensure_ascii=False)
+    qr_img = generate_qr_code(qr_payload_text)
 
-    qr_img = generate_qr_code(ws_url)
+    room_devices = RoomDevice.query.filter_by(room_uid=room.uid).order_by(RoomDevice.last_seen.desc()).all()
 
-    
-    
-    return render_template('room_detail.html', 
+    return render_template('room_detail.html',
                          room=room,
                          tasks=tasks,
                          active_tasks=active_tasks,
                          ws_url=ws_url,
-                         qr_img=qr_img)
+                         qr_img=qr_img,
+                         qr_payload=qr_payload_text,
+                         room_devices=room_devices)
 
 
 
@@ -2143,7 +2344,19 @@ def get_connected_users(room_uid):
 
 # Websocket handlers
 def handle_websocket(ws, room_uid):
-    
+    with app.app_context():
+        room = Room.query.filter_by(uid=room_uid).first()
+    if room and (room.transport or 'websocket') != 'websocket':
+        try:
+            ws.send(json.dumps({'error': 'This room uses FCM transport'}))
+        except Exception:
+            pass
+        try:
+            ws.close()
+        except Exception:
+            pass
+        return
+
     print(f"New connection for room {room_uid}")
     user = None
     
@@ -2783,6 +2996,7 @@ def get_config(uid):
                 'migration_register_on_save': bool(getattr(c, 'migration_register_on_save', False)),
                 'migration_default_room_uid': getattr(c, 'migration_default_room_uid', '') or '',
                 'migration_default_room_alias': getattr(c, 'migration_default_room_alias', '') or '',
+                'indexes': getattr(c, 'indexes_json', None) or [],
                 'class_type': c.class_type,
                 'hidden': c.hidden,
                 'methods': [{
@@ -2805,6 +3019,8 @@ def get_config(uid):
                                 # NodaScript texts (plain JSON-escaped strings)
                                 **({"methodText": a.method_text} if (a.method or '') == 'NodaScript' else {}),
                                 **({"postExecuteMethodText": a.post_execute_text} if (a.post_execute_method or '') == 'NodaScript' else {}),
+                                **({"httpFunctionName": a.http_function_name} if (a.method or '') == 'HTTP Request' else {}),
+                                **({"postHttpFunctionName": a.post_http_function_name} if (a.post_execute_method or '') == 'HTTP Request' else {}),
                             }
                             for a in e.actions
                         ]
@@ -2855,6 +3071,8 @@ def get_config(uid):
                         # NodaScript texts (plain JSON-escaped strings)
                         **({"methodText": a.method_text} if (a.method or '') == 'NodaScript' else {}),
                         **({"postExecuteMethodText": a.post_execute_text} if (a.post_execute_method or '') == 'NodaScript' else {}),
+                        **({"httpFunctionName": a.http_function_name} if (a.method or '') == 'HTTP Request' else {}),
+                        **({"postHttpFunctionName": a.post_http_function_name} if (a.post_execute_method or '') == 'HTTP Request' else {}),
                     }
                     for a in e.actions
                 ]
@@ -2960,6 +3178,8 @@ def add_config_event(config_uid):
             post_execute_method=action_data.get('postExecuteMethod', ''),
             method_text=(action_data.get('methodText', '') or '') if (action_data.get('method', '') or '') == 'NodaScript' else '',
             post_execute_text=(action_data.get('postExecuteMethodText', '') or '') if (action_data.get('postExecuteMethod', '') or '') == 'NodaScript' else '',
+            http_function_name=(action_data.get('httpFunctionName', '') or '') if (action_data.get('method', '') or '') == 'HTTP Request' else '',
+            post_http_function_name=(action_data.get('postHttpFunctionName', '') or '') if (action_data.get('postExecuteMethod', '') or '') == 'HTTP Request' else '',
             order=action_data.get('order', 0)
         )
         db.session.add(action)
@@ -3808,6 +4028,8 @@ def edit_config_event(config_uid):
             post_execute_method=action_data.get('postExecuteMethod', ''),
             method_text=(action_data.get('methodText', '') or '') if (action_data.get('method', '') or '') == 'NodaScript' else '',
             post_execute_text=(action_data.get('postExecuteMethodText', '') or '') if (action_data.get('postExecuteMethod', '') or '') == 'NodaScript' else '',
+            http_function_name=(action_data.get('httpFunctionName', '') or '') if (action_data.get('method', '') or '') == 'HTTP Request' else '',
+            post_http_function_name=(action_data.get('postHttpFunctionName', '') or '') if (action_data.get('postExecuteMethod', '') or '') == 'HTTP Request' else '',
             order=action_data.get('order', 0)
         )
         db.session.add(action)
@@ -4140,6 +4362,31 @@ def edit_class(class_id):
         if 'migration_default_room_uid' in request.form:
             class_obj.migration_default_room_uid = (request.form.get('migration_default_room_uid') or '').strip()
 
+        indexes_raw = request.form.get('indexes_json') or '[]'
+        try:
+            parsed_indexes = json.loads(indexes_raw)
+            if not isinstance(parsed_indexes, list):
+                parsed_indexes = []
+        except Exception:
+            parsed_indexes = []
+        normalized_indexes = []
+        for idx in parsed_indexes:
+            if not isinstance(idx, dict):
+                continue
+            name = str(idx.get('name') or '').strip()
+            if not name:
+                continue
+            normalized_indexes.append({
+                'name': name,
+                'kind': str(idx.get('kind') or 'hash_index').strip() or 'hash_index',
+                'keys': str(idx.get('keys') or '').strip(),
+                'filter_enabled': bool(idx.get('filter_enabled')),
+                'filter_label': str(idx.get('filter_label') or '').strip(),
+                'filter_type': str(idx.get('filter_type') or 'string').strip() or 'string',
+                'filter_list_enabled': bool(idx.get('filter_list_enabled')),
+            })
+        class_obj.indexes_json = normalized_indexes
+
         class_obj.has_storage = 'has_storage' in request.form
         class_obj.class_type = request.form.get('class_type')
         class_obj.hidden = 'hidden' in request.form 
@@ -4156,6 +4403,8 @@ def edit_class(class_id):
         class_obj.section = section_name
         class_obj.section_code = section_code
         db.session.commit()
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"ok": True, "class_id": class_obj.id})
         flash(_('Class saved'), 'success')
         active_tab = request.form.get("active_tab", "config")
         return redirect(url_for('edit_config', uid=class_obj.config.uid, tab=active_tab))
@@ -4176,7 +4425,7 @@ def edit_class(class_id):
                          plugin_tpl_map=plugin_tpl_map,
                          wizard_active_buttons=get_wizard_active_templates(),
                          wizard_cover_buttons=get_wizard_cover_templates(),
-                         event_types=['onShow', 'onInput', 'onChange', 'onShowWeb', 'onInputWeb', "onAcceptServer", "onAfterAcceptServer"])
+                         event_types=['onShow', 'onInput', 'onChange', 'onShowWeb', 'onInputWeb', "onAcceptServer", "onAfterAcceptServer", "onAccept","onAfterAcccept"])
 
 
 @app.route('/add-method/<int:class_id>', methods=['POST'])
@@ -4321,7 +4570,7 @@ def add_event(class_id):
     
     for a in actions:
         mname = a.get('method','').strip()
-        if mname and mname != 'NodaScript':
+        if mname and mname not in ('NodaScript', 'HTTP Request'):
             m = db.session.execute(
                 select(ClassMethod).where(ClassMethod.name == mname, ClassMethod.class_id == class_id)
             ).scalar_one_or_none()
@@ -4355,6 +4604,8 @@ def add_event(class_id):
             post_execute_method = a.get('postExecuteMethod','') or '',
             method_text = (a.get('methodText','') or '') if (a.get('method','') or '') == 'NodaScript' else '',
             post_execute_text = (a.get('postExecuteMethodText','') or '') if (a.get('postExecuteMethod','') or '') == 'NodaScript' else '',
+            http_function_name = (a.get('httpFunctionName','') or '') if (a.get('method','') or '') == 'HTTP Request' else '',
+            post_http_function_name = (a.get('postHttpFunctionName','') or '') if (a.get('postExecuteMethod','') or '') == 'HTTP Request' else '',
             order = order,
             event_id = ce.id
         )
@@ -4403,7 +4654,7 @@ def edit_event(class_id):
     
     for a in actions:
         mname = a.get('method','').strip()
-        if mname and mname != 'NodaScript':
+        if mname and mname not in ('NodaScript', 'HTTP Request'):
             m = db.session.execute(
                 select(ClassMethod).where(ClassMethod.name == mname, ClassMethod.class_id == class_id)
             ).first()
@@ -4431,6 +4682,8 @@ def edit_event(class_id):
             post_execute_method = a.get('postExecuteMethod','') or '',
             method_text = (a.get('methodText','') or '') if (a.get('method','') or '') == 'NodaScript' else '',
             post_execute_text = (a.get('postExecuteMethodText','') or '') if (a.get('postExecuteMethod','') or '') == 'NodaScript' else '',
+            http_function_name = (a.get('httpFunctionName','') or '') if (a.get('method','') or '') == 'HTTP Request' else '',
+            post_http_function_name = (a.get('postHttpFunctionName','') or '') if (a.get('postExecuteMethod','') or '') == 'HTTP Request' else '',
             order = order,
             event_id = target.id
         )
@@ -5567,6 +5820,8 @@ def nodes_api_page(config_uid, class_name):
     offset = int(request.args.get("offset", 0) or 0)
     limit = int(request.args.get("limit", 50) or 50)
     q = (request.args.get("q") or "").strip().lower()
+    index_name = (request.args.get("index_name") or "").strip()
+    index_value = request.args.get("index_value")
 
     storage_key = f"{class_name}_{config_uid}"
     db_path = os.path.join("node_storage", f"{storage_key}.sqlite")
@@ -5581,6 +5836,31 @@ def nodes_api_page(config_uid, class_name):
             return pickle.loads(blob)
         except Exception:
             return None
+
+    if index_name and index_value not in (None, ""):
+        try:
+            isolated_globals = _load_server_handlers_ns(config_uid, config)
+            node_class = isolated_globals.get(class_name)
+            if node_class is None:
+                return jsonify({"total": 0, "offset": offset, "limit": limit, "items": []})
+            node_ids = node_class.find_ids_by_index(index_name, index_value, config_uid)
+            conn = sqlite3.connect(db_path)
+            try:
+                cur = conn.cursor()
+                items = []
+                for nid in node_ids[offset: offset + limit]:
+                    cur.execute(f"SELECT value FROM {table} WHERE key = ?", (str(nid),))
+                    row = cur.fetchone()
+                    if not row:
+                        continue
+                    obj = unpack(row[0])
+                    if obj is not None:
+                        items.append(obj)
+                return jsonify({"total": len(node_ids), "offset": offset, "limit": limit, "items": items})
+            finally:
+                conn.close()
+        except Exception:
+            pass
 
     # FAST PATH: no search -> return page ordered by key, without scanning whole DB
     # (Sorting by _sort_string would require unpickling everything anyway.)
@@ -5664,33 +5944,39 @@ def nodes_api_page(config_uid, class_name):
 
 def handle_room_objects(config_uid, class_name, room_uid,data):
     """Processing objects across the room"""
-    #data = request.get_json() or {}
-    
+
     if not isinstance(data, list):
         data = [data]
-    
-    # Saving objects to the room database
+
     room_objects = RoomObjects(
         room_uid=room_uid,
         config_uid=config_uid,
         class_name=class_name,
         objects_data=data,
-        expires_at=datetime.now(timezone.utc) ,
-        acknowledged_by=[] 
+        expires_at=datetime.now(timezone.utc),
+        acknowledged_by=[]
     )
     db.session.add(room_objects)
     db.session.commit()
-    
-    # We send a message to all connected clients of the room
-    send_nodes_update(room_uid)
-    
+
+    room = Room.query.filter_by(uid=room_uid).first()
+    transport = (getattr(room, 'transport', 'websocket') or 'websocket').strip().lower()
+
+    push_result = None
+    if transport == 'fcm':
+        push_result = notify_room_transport(room_uid, config_uid=config_uid, class_name=class_name, object_id=room_objects.id)
+    else:
+        send_nodes_update(room_uid)
+
     return jsonify({
         "status": "objects_queued",
         "count": len(data),
         "room_uid": room_uid,
-        "object_id": room_objects.id,  # Return the ID of the created object
+        "object_id": room_objects.id,
+        "transport": transport,
+        "push": push_result,
         "message": "Objects sent to room for client processing"
-    }), 202 
+    }), 202
 
 def send_objects_update(room_uid, config_uid, class_name, objects_data):
     """Sends an object update to all clients of the room"""
@@ -5711,16 +5997,591 @@ def send_objects_update(room_uid, config_uid, class_name, objects_data):
                 active_connections[room_uid].pop(user, None)
                 print(f"Removed dead connection for {user}")
 
+def _get_firebase_app():
+    if firebase_admin is None or firebase_credentials is None:
+        return None, 'firebase_admin is not installed'
+    try:
+        if firebase_admin._apps:
+            return firebase_admin.get_app(), None
+    except Exception:
+        pass
+
+    service_account_path = (
+        os.environ.get('FIREBASE_SERVICE_ACCOUNT')
+        or os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+        or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'firebase-service-account.json')
+    )
+    if not service_account_path or not os.path.isfile(service_account_path):
+        return None, 'Firebase service account file is not configured'
+    try:
+        cred = firebase_credentials.Certificate(service_account_path)
+        app_obj = firebase_admin.initialize_app(cred)
+        return app_obj, None
+    except Exception as e:
+        return None, str(e)
+
+
+
+
+def _gateway_headers():
+    return {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {PUSH_GATEWAY_TOKEN}',
+    }
+
+
+def _gateway_send_fcm(tokens, title, body, data_payload=None):
+    gateway_url = (PUSH_GATEWAY_URL or '').strip().rstrip('/')
+    if not gateway_url:
+        return {'ok': False, 'error': 'gateway url is not configured', 'tokens': len(tokens or [])}
+    payload = {
+        'tokens': [str(t).strip() for t in (tokens or []) if str(t).strip()],
+        'title': str(title or ''),
+        'body': str(body or ''),
+        'data': data_payload or {},
+    }
+    req = urllib.request.Request(
+        gateway_url + '/api/push/fcm/send',
+        data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+        headers=_gateway_headers(),
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read().decode('utf-8')
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = {'ok': False, 'error': raw or 'invalid gateway response'}
+            data.setdefault('via', 'gateway')
+            return data
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode('utf-8', errors='ignore')
+        return {'ok': False, 'error': f'gateway http {e.code}', 'details': raw, 'tokens': len(payload['tokens'])}
+    except Exception as e:
+        return {'ok': False, 'error': f'gateway request failed: {e}', 'tokens': len(payload['tokens'])}
+
+
+
+
+def _gateway_send_user(user_key, title, body, data_payload=None):
+    gateway_url = (NMAKER_SERVER_URL or PUSH_GATEWAY_URL or '').strip().rstrip('/')
+    if not gateway_url:
+        return {'ok': False, 'error': 'gateway url is not configured', 'user_key': str(user_key or '').strip()}
+    payload = {
+        'user_key': str(user_key or '').strip(),
+        'title': str(title or ''),
+        'body': str(body or ''),
+        'data': data_payload or {},
+    }
+    req = urllib.request.Request(
+        gateway_url + '/api/push/user/send',
+        data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+        headers=_gateway_headers(),
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read().decode('utf-8')
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = {'ok': False, 'error': raw or 'invalid gateway response'}
+            data.setdefault('via', 'gateway-user')
+            return data
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode('utf-8', errors='ignore')
+        return {'ok': False, 'error': f'gateway http {e.code}', 'details': raw, 'user_key': str(user_key or '').strip()}
+    except Exception as e:
+        return {'ok': False, 'error': f'gateway request failed: {e}', 'user_key': str(user_key or '').strip()}
+
+
+def _gateway_send_device(device_uid, title, body, data_payload=None):
+    gateway_url = (NMAKER_SERVER_URL or PUSH_GATEWAY_URL or '').strip().rstrip('/')
+    if not gateway_url:
+        return {'ok': False, 'error': 'gateway url is not configured', 'device_uid': str(device_uid or '').strip()}
+    payload = {
+        'device_uid': str(device_uid or '').strip(),
+        'title': str(title or ''),
+        'body': str(body or ''),
+        'data': data_payload or {},
+    }
+    req = urllib.request.Request(
+        gateway_url + '/api/push/device/send',
+        data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+        headers=_gateway_headers(),
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read().decode('utf-8')
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = {'ok': False, 'error': raw or 'invalid gateway response'}
+            data.setdefault('via', 'gateway-device')
+            return data
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode('utf-8', errors='ignore')
+        return {'ok': False, 'error': f'gateway http {e.code}', 'details': raw, 'device_uid': str(device_uid or '').strip()}
+    except Exception as e:
+        return {'ok': False, 'error': f'gateway request failed: {e}', 'device_uid': str(device_uid or '').strip()}
+
+
+def _public_api_base_url():
+    base = (PUBLIC_API_BASE_URL or '').strip().rstrip('/')
+    if base:
+        return base
+    try:
+        return request.url_root.rstrip('/')
+    except Exception:
+        return ''
+
+
+def _node_download_url(config_uid, class_name, node_id):
+    config_uid = str(config_uid or '').strip()
+    class_name = str(class_name or '').strip()
+    node_id = _nodes_mod.extract_internal_id(node_id) or str(node_id or '').strip()
+    base = _public_api_base_url()
+    if not (base and config_uid and class_name and node_id):
+        return ''
+    return f"{base}/api/config/{config_uid}/node/{class_name}/{node_id}"
+
+
+def _get_sender_user(explicit_sender=None):
+    sender = str(explicit_sender or '').strip()
+    if sender:
+        return sender
+    try:
+        api_user = getattr(g, 'api_user', None)
+        if api_user and getattr(api_user, 'email', None):
+            return str(api_user.email).strip()
+    except Exception:
+        pass
+    try:
+        if getattr(current_user, 'is_authenticated', False) and getattr(current_user, 'email', None):
+            return str(current_user.email).strip()
+    except Exception:
+        pass
+    return ''
+
+
+def _normalize_message_payload(payload, sender_user=None):
+    sender_user = _get_sender_user(sender_user)
+
+    if isinstance(payload, dict):
+        return {str(k): v for k, v in payload.items()}, {'kind': 'json', 'sender_user': sender_user}
+
+    is_node_like = hasattr(payload, '_config_uid') and hasattr(payload, '_id')
+    if is_node_like:
+        config_uid = str(getattr(payload, '_config_uid', '') or '').strip()
+        class_name = str(getattr(payload, '_schema_class_name', None) or getattr(payload.__class__, '__name__', '') or '').strip()
+        node_id = str(getattr(payload, '_id', '') or '').strip()
+        download_url = _node_download_url(config_uid, class_name, node_id)
+        if not download_url:
+            return None, {'kind': 'node', 'error': 'cannot build node download_url'}
+        out = {
+            'type': 'node_download',
+            'config_uid': config_uid,
+            'class_name': class_name,
+            'node_id': _nodes_mod.extract_internal_id(node_id) or node_id,
+            'node_uid': _nodes_mod.normalize_own_uid(config_uid, class_name, node_id),
+            'download_url': download_url,
+        }
+        if sender_user:
+            out['sender_user'] = sender_user
+        return out, {'kind': 'node', 'sender_user': sender_user}
+
+    if isinstance(payload, str):
+        raw = payload.strip()
+        cfg_uid, cls_name, internal_id = _nodes_mod.parse_uid_any(raw)
+        if cfg_uid and cls_name and internal_id:
+            download_url = _node_download_url(cfg_uid, cls_name, internal_id)
+            if not download_url:
+                return None, {'kind': 'node', 'error': 'cannot build node download_url'}
+            out = {
+                'type': 'node_download',
+                'config_uid': cfg_uid,
+                'class_name': cls_name,
+                'node_id': internal_id,
+                'node_uid': _nodes_mod.normalize_own_uid(cfg_uid, cls_name, internal_id),
+                'download_url': download_url,
+            }
+            if sender_user:
+                out['sender_user'] = sender_user
+            return out, {'kind': 'node', 'sender_user': sender_user}
+        return {'value': raw}, {'kind': 'json', 'sender_user': sender_user}
+
+    if payload is None:
+        return {}, {'kind': 'json', 'sender_user': sender_user}
+
+    try:
+        return {'value': json.dumps(payload, ensure_ascii=False, default=str)}, {'kind': 'json', 'sender_user': sender_user}
+    except Exception:
+        return {'value': str(payload)}, {'kind': 'json', 'sender_user': sender_user}
+
+
+def send_message_to_user_global(user_key, title, body, payload=None, sender_user=None):
+    user_key = str(user_key or '').strip()
+    if not user_key:
+        return {'ok': False, 'error': 'user_key is required'}
+    normalized_payload, meta = _normalize_message_payload(payload, sender_user=sender_user)
+    if normalized_payload is None:
+        return {'ok': False, 'error': meta.get('error') or 'payload normalization failed', 'user_key': user_key}
+    if isinstance(normalized_payload, dict):
+        normalized_payload.setdefault('user_key', user_key)
+    return _gateway_send_user(user_key, title, body, normalized_payload)
+
+
+def send_message_to_device_global(device_uid, title, body, payload=None, sender_user=None):
+    device_uid = str(device_uid or '').strip()
+    if not device_uid:
+        return {'ok': False, 'error': 'device_uid is required'}
+    normalized_payload, meta = _normalize_message_payload(payload, sender_user=sender_user)
+    if normalized_payload is None:
+        return {'ok': False, 'error': meta.get('error') or 'payload normalization failed', 'device_uid': device_uid}
+    if isinstance(normalized_payload, dict):
+        normalized_payload.setdefault('device_uid', device_uid)
+    return _gateway_send_device(device_uid, title, body, normalized_payload)
+def _gateway_token_ok():
+    auth_header = request.headers.get('Authorization', '')
+    token = ''
+    if auth_header.lower().startswith('bearer '):
+        token = auth_header.split(' ', 1)[1].strip()
+    elif request.headers.get('X-API-Token'):
+        token = request.headers.get('X-API-Token', '').strip()
+    expected = str(PUSH_GATEWAY_TOKEN or '').strip()
+    if not expected:
+        return False, 'gateway token is not configured'
+    if not token:
+        return False, 'missing gateway token'
+    if token != expected:
+        return False, 'invalid gateway token'
+    return True, ''
+
+
+def send_message_to_user_internal(user_key, title, body, payload=None):
+    user_key = str(user_key or '').strip()
+    if not user_key:
+        return {'ok': False, 'error': 'user_key is required'}
+    payload = payload if isinstance(payload, dict) else {}
+    tokens = []
+    room_devices = RoomDevice.query.filter_by(user_key=user_key).all()
+    tokens.extend([(d.fcm_token or '').strip() for d in room_devices if (d.fcm_token or '').strip()])
+    user_obj = User.query.filter_by(email=user_key).first()
+    if user_obj:
+        user_devices = UserDevice.query.filter_by(user_id=user_obj.id).all()
+        tokens.extend([(d.token or '').strip() for d in user_devices if (d.token or '').strip()])
+    dedup_tokens = list(dict.fromkeys([t for t in tokens if t]))
+    if not dedup_tokens:
+        return {'ok': False, 'error': 'no FCM tokens for user', 'user_key': user_key}
+    return _send_fcm_to_tokens(dedup_tokens, title, body, payload)
+
+
+def send_message_to_device_internal(device_uid, title, body, payload=None):
+    device_uid = str(device_uid or '').strip()
+    if not device_uid:
+        return {'ok': False, 'error': 'device_uid is required'}
+    payload = payload if isinstance(payload, dict) else {}
+    tokens = []
+    room_devices = RoomDevice.query.filter_by(device_uid=device_uid).all()
+    tokens.extend([(d.fcm_token or '').strip() for d in room_devices if (d.fcm_token or '').strip()])
+    user_devices = UserDevice.query.filter((UserDevice.device_uid == device_uid) | (UserDevice.android_id == device_uid)).all()
+    tokens.extend([(d.token or '').strip() for d in user_devices if (d.token or '').strip()])
+    dedup_tokens = list(dict.fromkeys([t for t in tokens if t]))
+    if not dedup_tokens:
+        return {'ok': False, 'error': 'device has no FCM token', 'device_uid': device_uid}
+    return _send_fcm_to_tokens(dedup_tokens, title, body, payload)
+
+def _send_fcm_to_tokens(tokens, title, body, data_payload=None):
+    data_payload = {str(k): '' if v is None else str(v) for k, v in (data_payload or {}).items()}
+    tokens = [str(t).strip() for t in (tokens or []) if str(t).strip()]
+    if not tokens:
+        return {'ok': False, 'error': 'no tokens'}
+    app_obj, err = _get_firebase_app()
+    if app_obj is None:
+        if (PUSH_GATEWAY_URL or '').strip():
+            return _gateway_send_fcm(tokens, title, body, data_payload)
+        return {'ok': False, 'error': err or 'firebase unavailable', 'tokens': len(tokens)}
+    success = 0
+    failures = []
+    for token in tokens:
+        try:
+            msg = firebase_messaging.Message(
+                token=token,
+                notification=firebase_messaging.Notification(title=str(title or ''), body=str(body or '')),
+                data=data_payload,
+            )
+            firebase_messaging.send(msg, app=app_obj)
+            success += 1
+        except Exception as e:
+            failures.append({'token': token, 'error': str(e)})
+    return {'ok': success > 0 and not failures, 'success': success, 'failures': failures, 'tokens': len(tokens), 'via': 'local'}
+
+
+def notify_room_transport(room_uid, title='Receiving nodes', body='New nodes is available', data_payload=None, config_uid=None, class_name=None, object_id=None):
+    room = Room.query.filter_by(uid=room_uid).first()
+    if not room:
+        return {'ok': False, 'error': 'room not found'}
+    transport = (room.transport or 'websocket').strip().lower()
+    if transport != 'fcm':
+        send_nodes_update(room_uid)
+        return {'ok': True, 'transport': 'websocket'}
+
+    devices = RoomDevice.query.filter_by(room_uid=room_uid, push_channel='fcm').all()
+    tokens = [d.fcm_token for d in devices if (d.fcm_token or '').strip()]
+
+    payload = dict(data_payload or {})
+    payload.setdefault('type', 'room_objects_available')
+    payload.setdefault('room_uid', room_uid)
+    if config_uid:
+        payload.setdefault('config_uid', config_uid)
+    if class_name:
+        payload.setdefault('class_name', class_name)
+    if object_id is not None:
+        payload.setdefault('object_id', str(object_id))
+    api_base = (request.url_root.rstrip('/') if request else '')
+    if api_base:
+        download_url = f"{api_base}/api/room/{room_uid}/objects"
+        params = []
+        if config_uid:
+            params.append(f"config_uid={config_uid}")
+        if class_name:
+            params.append(f"class_name={class_name}")
+        if object_id is not None:
+            params.append(f"object_id={object_id}")
+        if params:
+            download_url += '?' + '&'.join(params)
+        payload.setdefault('download_url', download_url)
+
+    return _send_fcm_to_tokens(tokens, title, body, payload)
+
+
+
+
+@app.route('/api/push/fcm/send', methods=['POST'])
+def gateway_push_fcm_send():
+    ok, err = _gateway_token_ok()
+    if not ok:
+        return jsonify({'ok': False, 'error': err}), 401
+    data = request.get_json(silent=True) or {}
+    tokens = data.get('tokens') if isinstance(data.get('tokens'), list) else []
+    title = data.get('title') or 'Message'
+    body = data.get('body') or ''
+    payload = data.get('data') if isinstance(data.get('data'), dict) else {}
+    app_obj, fb_err = _get_firebase_app()
+    if app_obj is None:
+        return jsonify({'ok': False, 'error': fb_err or 'firebase unavailable'}), 503
+    result = _send_fcm_to_tokens(tokens, title, body, payload)
+    result['gateway'] = True
+    return jsonify(result), (200 if result.get('ok') else 400)
+
+
+
+
+@app.route('/api/push/user/send', methods=['POST'])
+def gateway_push_user_send():
+    ok, err = _gateway_token_ok()
+    if not ok:
+        return jsonify({'ok': False, 'error': err}), 401
+    data = request.get_json(silent=True) or {}
+    user_key = (data.get('user_key') or '').strip()
+    if not user_key:
+        return jsonify({'ok': False, 'error': 'user_key is required'}), 400
+    title = data.get('title') or 'Direct message'
+    body = data.get('body') or ''
+    payload = data.get('data') if isinstance(data.get('data'), dict) else {}
+    payload.setdefault('user_key', user_key)
+    result = send_message_to_user_internal(user_key, title, body, payload)
+    result['gateway'] = True
+    return jsonify(result), (200 if result.get('ok') else 400)
+
+
+@app.route('/api/push/device/send', methods=['POST'])
+def gateway_push_device_send():
+    ok, err = _gateway_token_ok()
+    if not ok:
+        return jsonify({'ok': False, 'error': err}), 401
+    data = request.get_json(silent=True) or {}
+    device_uid = (data.get('device_uid') or '').strip()
+    if not device_uid:
+        return jsonify({'ok': False, 'error': 'device_uid is required'}), 400
+    title = data.get('title') or 'Direct message'
+    body = data.get('body') or ''
+    payload = data.get('data') if isinstance(data.get('data'), dict) else {}
+    payload.setdefault('device_uid', device_uid)
+    result = send_message_to_device_internal(device_uid, title, body, payload)
+    result['gateway'] = True
+    return jsonify(result), (200 if result.get('ok') else 400)
+
+
+@app.route('/api/me/register-device', methods=['POST'])
+@api_auth_required
+def register_my_device():
+    api_user = getattr(g, 'api_user', None)
+    data = request.get_json(silent=True) or {}
+    device_uid = (data.get('device_uid') or data.get('uid') or data.get('android_id') or '').strip()
+    if not device_uid:
+        return jsonify({'error': 'device_uid is required'}), 400
+    android_id = (data.get('android_id') or device_uid).strip()
+    device_model = (data.get('device_model') or '').strip()
+    fcm_token = (data.get('fcm_token') or data.get('token') or '').strip()
+    ud = UserDevice.query.filter_by(user_id=api_user.id, android_id=android_id).first()
+    if not ud:
+        ud = UserDevice(user_id=api_user.id, android_id=android_id)
+        db.session.add(ud)
+    ud.device_uid = device_uid
+    ud.device_model = device_model
+    ud.token = fcm_token
+    ud.extra_json = data
+    ud.last_connected = datetime.now(timezone.utc)
+    db.session.commit()
+    return jsonify({'ok': True, 'user_id': api_user.id, 'device_uid': device_uid, 'android_id': android_id})
+
+
+@app.route('/api/room/<room_uid>/register-device', methods=['POST'])
+@api_auth_required
+def register_room_device(room_uid):
+    room = Room.query.filter_by(uid=room_uid).first_or_404()
+    data = request.get_json(silent=True) or {}
+    api_user = getattr(g, 'api_user', None)
+
+    device_uid = (data.get('device_uid') or data.get('uid') or data.get('android_id') or '').strip()
+    if not device_uid:
+        return jsonify({'error': 'device_uid is required'}), 400
+
+    push_channel = (data.get('push_channel') or room.transport or 'websocket').strip().lower()
+    if push_channel not in ('websocket', 'fcm'):
+        push_channel = room.transport or 'websocket'
+
+    fcm_token = (data.get('fcm_token') or data.get('token') or '').strip()
+    android_id = (data.get('android_id') or device_uid).strip()
+    device_model = (data.get('device_model') or '').strip()
+    user_key = (data.get('user_key') or (api_user.email if api_user else '') or '').strip()
+
+    room_device = RoomDevice.query.filter_by(room_uid=room_uid, device_uid=device_uid).first()
+    if not room_device:
+        room_device = RoomDevice(room_uid=room_uid, device_uid=device_uid)
+        db.session.add(room_device)
+
+    room_device.user_id = api_user.id if api_user else None
+    room_device.user_key = user_key
+    room_device.push_channel = push_channel
+    room_device.fcm_token = fcm_token
+    room_device.android_id = android_id
+    room_device.device_model = device_model
+    room_device.extra_json = data
+    room_device.last_seen = datetime.now(timezone.utc)
+
+    if api_user:
+        user_device = UserDevice.query.filter_by(user_id=api_user.id, android_id=android_id).first()
+        if not user_device:
+            user_device = UserDevice(
+                user_id=api_user.id,
+                device_uid=device_uid,
+                android_id=android_id,
+                device_model=device_model or 'Unknown',
+                token=fcm_token,
+                extra_json=data,
+                last_connected=datetime.now(timezone.utc)
+            )
+            db.session.add(user_device)
+        else:
+            user_device.device_uid = device_uid
+            user_device.device_model = device_model or user_device.device_model
+            user_device.last_connected = datetime.now(timezone.utc)
+            user_device.extra_json = data
+            if fcm_token:
+                user_device.token = fcm_token
+
+    db.session.commit()
+
+    return jsonify({
+        'ok': True,
+        'room_uid': room_uid,
+        'device_uid': device_uid,
+        'transport': room.transport or 'websocket',
+        'push_channel': push_channel,
+    })
+
+
+@app.route('/api/room/<room_uid>/messages', methods=['POST'])
+@api_auth_required
+def push_room_message(room_uid):
+    room = Room.query.filter_by(uid=room_uid).first_or_404()
+    data = request.get_json(silent=True) or {}
+    title = data.get('title') or 'Room message'
+    body = data.get('body') or data.get('message') or 'New message'
+    payload = data.get('data') if isinstance(data.get('data'), dict) else {}
+    result = notify_room_transport(room_uid, title=title, body=body, data_payload=payload)
+    return jsonify({'ok': True, 'room_uid': room_uid, 'transport': room.transport or 'websocket', 'result': result})
+
+
+@app.route('/api/user/<user_key>/messages', methods=['POST'])
+@api_auth_required
+def push_user_message(user_key):
+    data = request.get_json(silent=True) or {}
+    title = data.get('title') or 'Direct message'
+    body = data.get('body') or data.get('message') or 'New message'
+    payload = data.get('data')
+    sender_user = data.get('sender_user')
+    result = send_message_to_user_global(user_key, title, body, payload, sender_user=sender_user)
+    return jsonify({'ok': bool(result.get('ok')), 'user_key': user_key, 'result': result}), (200 if result.get('ok') else 400)
+
+
+@app.route('/api/device/<device_uid>/messages', methods=['POST'])
+@api_auth_required
+def push_device_message(device_uid):
+    data = request.get_json(silent=True) or {}
+    title = data.get('title') or 'Direct message'
+    body = data.get('body') or data.get('message') or 'New message'
+    payload = data.get('data')
+    sender_user = data.get('sender_user')
+    result = send_message_to_device_global(device_uid, title, body, payload, sender_user=sender_user)
+    return jsonify({'ok': bool(result.get('ok')), 'device_uid': device_uid, 'result': result}), (200 if result.get('ok') else 400)
+
+
+
+@app.route('/webapi/messages/user/<user_key>', methods=['POST'])
+@login_required
+def web_push_user_message(user_key):
+    data = request.get_json(silent=True) or {}
+    title = data.get('title') or 'Direct message'
+    body = data.get('body') or data.get('message') or 'New message'
+    payload = data.get('data')
+    sender_user = data.get('sender_user')
+    result = send_message_to_user_global(user_key, title, body, payload, sender_user=sender_user)
+    return jsonify({'ok': bool(result.get('ok')), 'user_key': user_key, 'result': result}), (200 if result.get('ok') else 400)
+
+
+@app.route('/webapi/messages/device/<device_uid>', methods=['POST'])
+@login_required
+def web_push_device_message(device_uid):
+    data = request.get_json(silent=True) or {}
+    title = data.get('title') or 'Direct message'
+    body = data.get('body') or data.get('message') or 'New message'
+    payload = data.get('data')
+    sender_user = data.get('sender_user')
+    result = send_message_to_device_global(device_uid, title, body, payload, sender_user=sender_user)
+    return jsonify({'ok': bool(result.get('ok')), 'device_uid': device_uid, 'result': result}), (200 if result.get('ok') else 400)
+
+
 @app.route('/api/room/<room_uid>/objects', methods=['GET'])
 @api_auth_required
 def get_room_objects(room_uid):
     """Get objects for the room"""
     config_uid = request.args.get('config_uid')
     class_name = request.args.get('class_name')
-    since = request.args.get('since')  # Optional: Get objects after the specified date
-    
+    since = request.args.get('since')
+    object_id = request.args.get('object_id')
+
     query = RoomObjects.query.filter_by(room_uid=room_uid)
-    
+
+    if object_id:
+        try:
+            query = query.filter(RoomObjects.id == int(object_id))
+        except Exception:
+            pass
     if config_uid:
         query = query.filter_by(config_uid=config_uid)
     if class_name:
@@ -5731,21 +6592,81 @@ def get_room_objects(room_uid):
             query = query.filter(RoomObjects.created_at > since_date)
         except ValueError:
             pass
-    
+
+    api_user = getattr(g, 'api_user', None)
+    ack_user = api_user.email if api_user else None
+
     objects = query.order_by(RoomObjects.created_at.desc()).all()
-    
-    result = []
+
+    if ack_user:
+        objects = [o for o in objects if ack_user not in (o.acknowledged_by or [])]
+
+    objects_data = []
     for obj in objects:
-        result.append({
+        objects_data.append({
             'id': obj.id,
             'config_uid': obj.config_uid,
             'class_name': obj.class_name,
             'objects': obj.objects_data,
             'created_at': obj.created_at.isoformat(),
-            'expires_at': obj.expires_at.isoformat()
+            'expires_at': obj.expires_at.isoformat() if obj.expires_at else None
         })
-    
-    return jsonify(result)
+
+    return jsonify(objects_data)
+
+@app.route('/api/room/<room_uid>/objects/ack', methods=['POST'])
+@api_auth_required
+def acknowledge_room_objects(room_uid):
+    Room.query.filter_by(uid=room_uid).first_or_404()
+
+    data = request.get_json(silent=True) or {}
+    object_ids = data.get('object_ids', [])
+
+    if not isinstance(object_ids, list):
+        return jsonify({
+            'ok': False,
+            'error': 'object_ids must be a list'
+        }), 400
+
+    api_user = getattr(g, 'api_user', None)
+    if not api_user:
+        return jsonify({
+            'ok': False,
+            'error': 'Unauthorized'
+        }), 401
+
+    ack_user = api_user.email
+
+    updated_ids = []
+    not_found_ids = []
+
+    for obj_id in object_ids:
+        try:
+            obj_id_int = int(obj_id)
+        except Exception:
+            not_found_ids.append(obj_id)
+            continue
+
+        room_object = db.session.get(RoomObjects, obj_id_int)
+        if not room_object or room_object.room_uid != room_uid:
+            not_found_ids.append(obj_id)
+            continue
+
+        acknowledged = set(room_object.acknowledged_by or [])
+        acknowledged.add(ack_user)
+        room_object.acknowledged_by = list(acknowledged)
+        updated_ids.append(obj_id_int)
+
+    db.session.commit()
+
+    return jsonify({
+        'ok': True,
+        'room_uid': room_uid,
+        'acknowledged_by': ack_user,
+        'updated_object_ids': updated_ids,
+        'not_found_object_ids': not_found_ids
+    })
+  
 
 @app.route('/api/room/<room_uid>/objects', methods=['DELETE'])
 @api_auth_required
@@ -5880,6 +6801,7 @@ def export_config(uid):
                 'migration_register_on_save': bool(getattr(c, 'migration_register_on_save', False)),
                 'migration_default_room_uid': getattr(c, 'migration_default_room_uid', '') or '',
                 'migration_default_room_alias': getattr(c, 'migration_default_room_alias', '') or '',
+                'indexes': getattr(c, 'indexes_json', None) or [],
 
                 'class_type': c.class_type,
                 'hidden': c.hidden,
@@ -5902,6 +6824,8 @@ def export_config(uid):
                                 'postExecuteMethod': a.post_execute_method,
                                 **({"methodText": a.method_text} if (a.method or '') == 'NodaScript' else {}),
                                 **({"postExecuteMethodText": a.post_execute_text} if (a.post_execute_method or '') == 'NodaScript' else {}),
+                                **({"httpFunctionName": a.http_function_name} if (a.method or '') == 'HTTP Request' else {}),
+                                **({"postHttpFunctionName": a.post_http_function_name} if (a.post_execute_method or '') == 'HTTP Request' else {}),
                             }
                             for a in e.actions
                         ]
@@ -5948,7 +6872,9 @@ def export_config(uid):
                         'source': a.source,
                         'server': a.server,
                         'method': a.method,
-                        'postExecuteMethod': a.post_execute_method
+                        'postExecuteMethod': a.post_execute_method,
+                        **({'httpFunctionName': a.http_function_name} if (a.method or '') == 'HTTP Request' else {}),
+                        **({'postHttpFunctionName': a.post_http_function_name} if (a.post_execute_method or '') == 'HTTP Request' else {})
                     }
                     for a in e.actions
                 ]
@@ -6290,6 +7216,7 @@ def import_config_new():
                 migration_register_on_save=bool(class_data.get('migration_register_on_save', False)),
                 migration_default_room_uid=class_data.get('migration_default_room_uid', ''),
                 migration_default_room_alias=class_data.get('migration_default_room_alias', ''),
+                indexes_json=class_data.get('indexes', class_data.get('indexes_json', [])) or [],
 
                 class_type=class_data.get('class_type', ''),
                 hidden=class_data.get('hidden', False),
@@ -6521,6 +7448,7 @@ def apply_full_config_from_json(config, data):
                 migration_register_on_save=bool(class_data.get('migration_register_on_save', False)),
                 migration_default_room_uid=class_data.get('migration_default_room_uid', ''),
                 migration_default_room_alias=class_data.get('migration_default_room_alias', ''),
+                indexes_json=class_data.get('indexes', class_data.get('indexes_json', [])) or [],
 
                 class_type=class_data.get('class_type', ''),
                 hidden=class_data.get('hidden', False),
@@ -9266,6 +10194,8 @@ if __name__ == '__main__':
                     conn.execute(text('ALTER TABLE config_class ADD COLUMN migration_default_room_uid VARCHAR(36) DEFAULT ""'))
                 if 'migration_default_room_alias' not in col_names:
                     conn.execute(text('ALTER TABLE config_class ADD COLUMN migration_default_room_alias VARCHAR(100) DEFAULT ""'))
+                if 'indexes_json' not in col_names:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN indexes_json JSON'))
         except Exception as e:
             print('Could not migrate config_class Migration fields:', e)
 

@@ -33,6 +33,15 @@ def userfiles_dir(config_uid: str | None = None) -> str:
     base = _userfiles_root_dir()
     return os.path.join(base, uid) if uid else base
 
+def _config_uid_from_node_or_uid(node_or_uid):
+    raw = node_or_uid if isinstance(node_or_uid, str) else getattr(node_or_uid, "_id", None)
+    raw = str(raw or "").strip()
+    if not raw:
+        return ""
+    parts = raw.split("$")
+    if len(parts) >= 3:
+        return parts[0].strip()
+    return ""
 
 _DATA_URL_RE = re.compile(r"^data:(?P<mime>[^;]+);base64,(?P<data>.+)$", re.IGNORECASE | re.DOTALL)
 
@@ -174,6 +183,225 @@ DATASET_OBJ_CACHE  = ContextVar("DATASET_OBJ_CACHE", default=None)    # (cfg_uid
 DATASET_ID_CACHE   = ContextVar("DATASET_ID_CACHE", default=None)     # (cfg_uid, ds_name) -> int(dataset_id)
 
 
+def debug_compare_index_values(class_or_name, node_or_id, index_names, config_uid=None):
+    cls = Node._resolve_node_class(class_or_name)
+    if cls is None:
+        raise ValueError(f"Unknown node class: {class_or_name}")
+
+    node = node_or_id if not isinstance(node_or_id, str) else cls.get(node_or_id, str(config_uid or "").strip())
+    if node is None:
+        raise ValueError(f"Node not found: {node_or_id}")
+
+    data = dict(getattr(node, "_data", {}) or {})
+
+    cfg_uid = str(config_uid or "").strip()
+    if not cfg_uid:
+        cfg_uid = _config_uid_from_node_or_uid(node)
+
+    defs = cls._get_defined_indexes(cfg_uid) or []
+
+    result = {
+        "class": cls.__name__,
+        "config_uid": cfg_uid,
+        "node_id": getattr(node, "_id", None),
+        "raw_data": data,
+        "defined_indexes": defs,
+        "indexes": {}
+    }
+
+    wanted = set(index_names or [])
+    for idx_def in defs:
+        if not isinstance(idx_def, dict):
+            continue
+        name = str(idx_def.get("name") or "").strip()
+        if name not in wanted:
+            continue
+
+        keys_spec = idx_def.get("keys")
+        try:
+            extracted = cls._extract_index_values(data, keys_spec)
+        except Exception as e:
+            extracted = f"ERROR: {e!r}"
+
+        result["indexes"][name] = {
+            "index_def": idx_def,
+            "keys_spec": keys_spec,
+            "raw_value": data.get(keys_spec) if isinstance(keys_spec, str) else None,
+            "extracted_index_values": extracted,
+        }
+
+    return result
+
+def debug_defined_index(class_or_name, index_name: str, value=None, config_uid=None, limit=50):
+    import os
+
+    cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+    cls = Node._resolve_node_class(class_or_name)
+    if cls is None:
+        raise ValueError(f"Unknown node class: {class_or_name}")
+
+    index_name = str(index_name or "").strip()
+    if not index_name:
+        raise ValueError("index_name is empty")
+
+    storage_key = f"{cls.__name__}_{cfg_uid}__idx__{index_name}" if cfg_uid else f"{cls.__name__}__idx__{index_name}"
+    db_path = os.path.join(STORAGE_BASE_PATH, f"{storage_key}.sqlite")
+    store = cls._defined_index_storage(index_name, cfg_uid)
+
+    def _lookup_variants(one):
+        raw = "" if one is None else str(one).strip()
+        if raw == "":
+            return []
+        variants = []
+        seen = set()
+
+        def add(v):
+            s = str(v or "").strip()
+            if not s or s in seen:
+                return
+            seen.add(s)
+            variants.append(s)
+
+        add(raw)
+        try:
+            uid_cfg, uid_cls, internal_id = parse_uid_any(raw)
+        except Exception:
+            uid_cfg, uid_cls, internal_id = None, None, None
+
+        if internal_id:
+            add(internal_id)
+            if uid_cls:
+                add(f"{uid_cls}${internal_id}")
+                if cfg_uid:
+                    add(f"{cfg_uid}${uid_cls}${internal_id}")
+        return variants
+
+    def _normalized_node_ref(one):
+        raw = "" if one is None else str(one).strip()
+        if not raw:
+            return None
+        try:
+            _cfg, ref_cls, ref_id = parse_uid_any(raw)
+        except Exception:
+            ref_cls, ref_id = None, None
+        if ref_cls and ref_id:
+            return (str(ref_cls).strip(), str(ref_id).strip())
+        return None
+
+    result = {
+        "class": cls.__name__,
+        "config_uid": cfg_uid,
+        "index_name": index_name,
+        "db_path": db_path,
+        "value": value,
+        "variants": [],
+        "exact_hits": {},
+        "normalized_value": _normalized_node_ref(value),
+        "normalized_hits": {},
+        "sample_keys": [],
+        "sample_size": 0,
+    }
+
+    variants = _lookup_variants(value)
+    result["variants"] = variants
+
+    for v in variants:
+        try:
+            bucket = list(store.get(v, []) or [])
+        except Exception as e:
+            bucket = [f"ERROR: {e}"]
+        result["exact_hits"][v] = bucket
+
+    try:
+        keys = list(store.keys())
+    except Exception as e:
+        result["sample_keys"] = [f"ERROR reading keys: {e}"]
+        return result
+
+    result["sample_size"] = len(keys)
+    result["sample_keys"] = [str(k) for k in keys[:limit]]
+
+    wanted = _normalized_node_ref(value)
+    if wanted:
+        for k in keys:
+            sk = str(k or "").strip()
+            nref = _normalized_node_ref(sk)
+            if nref == wanted:
+                try:
+                    bucket = list(store.get(k, []) or [])
+                except Exception as e:
+                    bucket = [f"ERROR: {e}"]
+                result["normalized_hits"][sk] = bucket
+
+    return result
+
+def debug_class_indexes(class_or_name, config_uid=None):
+    cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+    cls = Node._resolve_node_class(class_or_name)
+    if cls is None:
+        raise ValueError(f"Unknown node class: {class_or_name}")
+    return {
+        "class": cls.__name__,
+        "config_uid": cfg_uid,
+        "defined_indexes": cls._get_defined_indexes(cfg_uid),
+    }
+
+def dump_defined_index_keys(class_or_name, index_name: str, config_uid=None, limit=200):
+    cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+    cls = Node._resolve_node_class(class_or_name)
+    if cls is None:
+        raise ValueError(f"Unknown node class: {class_or_name}")
+
+    store = cls._defined_index_storage(index_name, cfg_uid)
+
+    out = {}
+    count = 0
+    for k in store.keys():
+        sk = str(k)
+        out[sk] = list(store.get(k, []) or [])
+        count += 1
+        if count >= limit:
+            break
+    return out
+
+def debug_node_index_value(class_or_name, node_or_id, index_name: str, config_uid=None):
+    cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+    cls = Node._resolve_node_class(class_or_name)
+    if cls is None:
+        raise ValueError(f"Unknown node class: {class_or_name}")
+
+    if isinstance(node_or_id, str):
+        node = cls.get(node_or_id, cfg_uid)
+        if node is None:
+            raise ValueError(f"Node not found: {node_or_id}")
+    else:
+        node = node_or_id
+
+    defs = cls._get_defined_indexes(cfg_uid)
+    idx_def = None
+    for x in defs:
+        if isinstance(x, dict) and str(x.get("name") or "").strip() == str(index_name).strip():
+            idx_def = x
+            break
+
+    if not idx_def:
+        raise ValueError(f"Index not found: {index_name}")
+
+    data = dict(getattr(node, "_data", {}) or {})
+    keys_spec = idx_def.get("keys")
+    extracted = cls._extract_index_values(data, keys_spec)
+
+    return {
+        "class": cls.__name__,
+        "config_uid": cfg_uid,
+        "node_id": getattr(node, "_id", None),
+        "index_name": index_name,
+        "index_def": idx_def,
+        "keys_spec": keys_spec,
+        "node_value_by_keys": {k.strip(): data.get(k.strip()) for k in str(keys_spec or "").split("|") if k.strip()},
+        "extracted_index_values": extracted,
+    }
+
 def current_handlers_dir() -> str:
     # ищем в стеке фрейм, который выполняется из Handlers/<uid>/handlers.py
     for fi in inspect.stack():
@@ -229,6 +457,29 @@ def push_message(text: str, level: str = "info"):
         lst.append(msg)
     except Exception:
         pass
+
+
+
+def message_user(user_key: str, payload=None, title: str = "Direct message", body: str = "New message", sender_user: str | None = None) -> dict:
+    try:
+        import __main__ as main
+        fn = getattr(main, 'send_message_to_user_global', None)
+        if not callable(fn):
+            return {'ok': False, 'error': 'send_message_to_user_global is unavailable'}
+        return fn(str(user_key or '').strip(), title, body, payload, sender_user=sender_user)
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+
+def message_device(device_uid: str, payload=None, title: str = "Direct message", body: str = "New message", sender_user: str | None = None) -> dict:
+    try:
+        import __main__ as main
+        fn = getattr(main, 'send_message_to_device_global', None)
+        if not callable(fn):
+            return {'ok': False, 'error': 'send_message_to_device_global is unavailable'}
+        return fn(str(device_uid or '').strip(), title, body, payload, sender_user=sender_user)
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
 
 
 def _accept_guard_key(node) -> str:
@@ -395,6 +646,10 @@ class Node:
     
     _date_index_storages = {}
     _date_index_locks = {}
+    _defined_index_storages = {}
+    _defined_index_locks = {}
+    _global_index_storages = {}
+    _global_index_locks = {}
     
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -714,11 +969,38 @@ class Node:
                 except Exception:
                     pass
 
+                try:
+                    self.__class__._update_defined_indexes(self._config_uid, self._id, saved_state, node_data.get("_data") or {})
+                except Exception:
+                    pass
+
+                try:
+                    self.__class__._update_global_indexes(
+                        normalize_own_uid(self._config_uid, self.__class__.__name__, self._id),
+                        saved_state,
+                        node_data.get("_data") or {}
+                    )
+                except Exception:
+                    pass
+
                 # run post-save hook AFTER persisting (only once per request)
                 run_on_after_accept_server_once(self, saved_state)
                 return True
             return False
         
+
+    def message_user(self, user_key: str, payload=None, title: str = "Direct message", body: str = "New message", sender_user: str | None = None) -> dict:
+        return message_user(user_key, payload, title=title, body=body, sender_user=sender_user)
+
+    def message_device(self, device_uid: str, payload=None, title: str = "Direct message", body: str = "New message", sender_user: str | None = None) -> dict:
+        return message_device(device_uid, payload, title=title, body=body, sender_user=sender_user)
+
+    def send_to_user(self, user_key: str, title: str = "Direct message", body: str = "New message", sender_user: str | None = None) -> dict:
+        return message_user(user_key, self, title=title, body=body, sender_user=sender_user)
+
+    def send_to_device(self, device_uid: str, title: str = "Direct message", body: str = "New message", sender_user: str | None = None) -> dict:
+        return message_device(device_uid, self, title=title, body=body, sender_user=sender_user)
+
     def _register(self, room_alias: str) -> bool:
         """
         Register this node into a room by alias.
@@ -974,6 +1256,20 @@ class Node:
                 except Exception:
                     pass
 
+                try:
+                    self.__class__._update_defined_indexes(self._config_uid, self._id, saved_state, node_data.get("_data") or {})
+                except Exception:
+                    pass
+
+                try:
+                    self.__class__._update_global_indexes(
+                        normalize_own_uid(self._config_uid, self.__class__.__name__, self._id),
+                        saved_state,
+                        node_data.get("_data") or {}
+                    )
+                except Exception:
+                    pass
+
                 # run post-save hook AFTER persisting (only once per request)
                 run_on_after_accept_server_once(self, saved_state)
 
@@ -1043,6 +1339,20 @@ class Node:
                 except Exception:
                     pass
 
+                try:
+                    self.__class__._update_defined_indexes(self._config_uid, self._id, saved_state, node_data.get("_data") or {})
+                except Exception:
+                    pass
+
+                try:
+                    self.__class__._update_global_indexes(
+                        normalize_own_uid(self._config_uid, self.__class__.__name__, self._id),
+                        saved_state,
+                        node_data.get("_data") or {}
+                    )
+                except Exception:
+                    pass
+
                 # run post-save hook AFTER persisting (only once per request)
                 run_on_after_accept_server_once(self, saved_state)
 
@@ -1058,6 +1368,22 @@ class Node:
             
             # Затем удаляем узел сам
             if self._id in self._storage:
+                try:
+                    old_state = dict((self._storage.get(self._id) or {}).get('_data') or {})
+                except Exception:
+                    old_state = {}
+                try:
+                    self.__class__._update_defined_indexes(self._config_uid, self._id, old_state, {})
+                except Exception:
+                    pass
+                try:
+                    self.__class__._update_global_indexes(
+                        normalize_own_uid(self._config_uid, self.__class__.__name__, self._id),
+                        old_state,
+                        {}
+                    )
+                except Exception:
+                    pass
                 del self._storage[self._id]
                 if self._id in Node._instance_locks:
                     del Node._instance_locks[self._id]
@@ -1155,6 +1481,327 @@ class Node:
         
         storage = cls._class_storages[storage_key]
         return {node_id: cls(node_id, config_uid) for node_id in storage.keys()}
+
+    @staticmethod
+    def _normalize_global_index_name(index_name: str) -> str:
+        name = str(index_name or "").strip()
+        if name.startswith("__"):
+            name = name[2:]
+        return name.strip()
+
+    @classmethod
+    def _global_index_storage(cls, index_name: str):
+        name = cls._normalize_global_index_name(index_name)
+        if not name:
+            return None
+        storage_key = f"__global_idx__{name}"
+        if storage_key not in cls._global_index_storages:
+            if storage_key not in cls._global_index_locks:
+                cls._global_index_locks[storage_key] = threading.RLock()
+            with cls._global_index_locks[storage_key]:
+                if storage_key not in cls._global_index_storages:
+                    db_path = os.path.join(STORAGE_BASE_PATH, f"{storage_key}.sqlite")
+                    cls._global_index_storages[storage_key] = SqliteDict(db_path, autocommit=True)
+        return cls._global_index_storages[storage_key]
+
+    @classmethod
+    def _extract_global_index_values(cls, data: dict) -> dict[str, list[str]]:
+        out = {}
+        if not isinstance(data, dict):
+            return out
+        for raw_key, raw_val in data.items():
+            key = str(raw_key or "").strip()
+            if not key.startswith("__"):
+                continue
+            name = cls._normalize_global_index_name(key)
+            if not name:
+                continue
+            vals = []
+            if isinstance(raw_val, dict):
+                vv = raw_val.get("_id") or raw_val.get("id") or raw_val.get("uid") or ""
+                if vv:
+                    vals.append(str(vv))
+            elif isinstance(raw_val, (list, tuple, set)):
+                for item in raw_val:
+                    if isinstance(item, dict):
+                        vv = item.get("_id") or item.get("id") or item.get("uid") or ""
+                    else:
+                        vv = item
+                    vv = str(vv or "").strip()
+                    if vv:
+                        vals.append(vv)
+            elif raw_val is not None:
+                vv = str(raw_val).strip()
+                if vv:
+                    vals.append(vv)
+            if vals:
+                out[name] = vals
+        return out
+
+    @classmethod
+    def _update_global_indexes(cls, node_uid: str, old_state, new_state):
+        old_map = cls._extract_global_index_values(old_state or {})
+        new_map = cls._extract_global_index_values(new_state or {})
+        names = sorted(set(old_map.keys()) | set(new_map.keys()))
+        for name in names:
+            store = cls._global_index_storage(name)
+            if store is None:
+                continue
+            old_vals = list(old_map.get(name, []) or [])
+            new_vals = list(new_map.get(name, []) or [])
+            for val in old_vals:
+                if val not in new_vals:
+                    try:
+                        bucket = list(store.get(str(val), []) or [])
+                        bucket = [x for x in bucket if str(x) != str(node_uid)]
+                        if bucket:
+                            store[str(val)] = bucket
+                        elif str(val) in store:
+                            del store[str(val)]
+                    except Exception:
+                        pass
+            for val in new_vals:
+                try:
+                    bucket = list(store.get(str(val), []) or [])
+                    sid = str(node_uid)
+                    if sid not in bucket:
+                        bucket.append(sid)
+                    store[str(val)] = bucket
+                except Exception:
+                    pass
+
+    @classmethod
+    def _get_defined_indexes(cls, config_uid=None):
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        if not cfg_uid:
+            return []
+        try:
+            import __main__ as main
+            Configuration = getattr(main, "Configuration", None)
+            ConfigClass = getattr(main, "ConfigClass", None)
+            db = getattr(main, "db", None)
+            if Configuration is None or ConfigClass is None or db is None:
+                return []
+            cfg = db.session.query(Configuration).filter(Configuration.uid == cfg_uid).first()
+            if not cfg:
+                return []
+            cls_row = db.session.query(ConfigClass).filter(ConfigClass.config_id == cfg.id, ConfigClass.name == cls.__name__).first()
+            arr = getattr(cls_row, "indexes_json", None) or []
+            return arr if isinstance(arr, list) else []
+        except Exception:
+            return []
+
+    @classmethod
+    def _defined_index_storage(cls, index_name: str, config_uid=None):
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        storage_key = f"{cls.__name__}_{cfg_uid}__idx__{index_name}" if cfg_uid else f"{cls.__name__}__idx__{index_name}"
+        if storage_key not in cls._defined_index_storages:
+            if storage_key not in cls._defined_index_locks:
+                cls._defined_index_locks[storage_key] = threading.RLock()
+            with cls._defined_index_locks[storage_key]:
+                if storage_key not in cls._defined_index_storages:
+                    db_path = os.path.join(STORAGE_BASE_PATH, f"{storage_key}.sqlite")
+                    cls._defined_index_storages[storage_key] = SqliteDict(db_path, autocommit=True)
+        return cls._defined_index_storages[storage_key]
+
+    @staticmethod
+    def _extract_index_values(data: dict, keys_spec: str) -> list[str]:
+        if not isinstance(data, dict):
+            return []
+        raw_keys = [str(x or "").strip() for x in str(keys_spec or "").split("|") if str(x or "").strip()]
+        if not raw_keys:
+            return []
+        parts = []
+        for rk in raw_keys:
+            v = data.get(rk)
+            if isinstance(v, dict):
+                v = v.get("_id") or v.get("id") or v.get("uid") or ""
+            elif isinstance(v, (list, tuple, set)):
+                vals = []
+                for item in v:
+                    if isinstance(item, dict):
+                        vals.append(str(item.get("_id") or item.get("id") or item.get("uid") or ""))
+                    else:
+                        vals.append(str(item or ""))
+                v = "|".join([x for x in vals if x])
+            elif v is None:
+                v = ""
+            else:
+                v = str(v)
+            parts.append(v.strip())
+        if not any(parts):
+            return []
+        return ["|".join(parts)]
+
+    @classmethod
+    def _update_defined_indexes(cls, config_uid, node_id, old_state, new_state):
+        defs = cls._get_defined_indexes(config_uid)
+        if not defs:
+            return
+        for idx in defs:
+            if not isinstance(idx, dict):
+                continue
+            name = str(idx.get("name") or "").strip()
+            if not name:
+                continue
+            store = cls._defined_index_storage(name, config_uid)
+            old_vals = cls._extract_index_values(old_state or {}, idx.get("keys"))
+            new_vals = cls._extract_index_values(new_state or {}, idx.get("keys"))
+            for val in old_vals:
+                if val not in new_vals:
+                    try:
+                        bucket = list(store.get(val, []) or [])
+                        bucket = [x for x in bucket if str(x) != str(node_id)]
+                        if bucket:
+                            store[val] = bucket
+                        elif val in store:
+                            del store[val]
+                    except Exception:
+                        pass
+            for val in new_vals:
+                try:
+                    bucket = list(store.get(val, []) or [])
+                    sid = str(node_id)
+                    if sid not in bucket:
+                        bucket.append(sid)
+                    store[val] = bucket
+                    print("IDX WRITE", name, config_uid, val, bucket)
+                except Exception:
+                    pass
+
+    @classmethod
+    def find_ids_by_index(cls, index_name: str, value, config_uid=None) -> list[str]:
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        name = str(index_name or "").strip()
+        if not name:
+            return []
+        store = cls._defined_index_storage(name, cfg_uid)
+
+        def _lookup_variants(one):
+            raw = "" if one is None else str(one).strip()
+            if raw == "":
+                return []
+            variants = []
+            seen_variants = set()
+
+            def add_variant(v):
+                s = str(v or "").strip()
+                if not s or s in seen_variants:
+                    return
+                seen_variants.add(s)
+                variants.append(s)
+
+            add_variant(raw)
+            try:
+                uid_cfg, uid_cls, internal_id = parse_uid_any(raw)
+            except Exception:
+                uid_cfg, uid_cls, internal_id = None, None, None
+            if internal_id:
+                add_variant(internal_id)
+                if uid_cls:
+                    add_variant(f"{uid_cls}${internal_id}")
+                    if cfg_uid:
+                        add_variant(f"{cfg_uid}${uid_cls}${internal_id}")
+                elif cfg_uid and cls.__name__:
+                    add_variant(f"{cls.__name__}${internal_id}")
+                    add_variant(f"{cfg_uid}${cls.__name__}${internal_id}")
+            return variants
+
+        def _normalized_node_ref(one):
+            raw = "" if one is None else str(one).strip()
+            if not raw:
+                return None
+            try:
+                _cfg, ref_cls, ref_id = parse_uid_any(raw)
+            except Exception:
+                ref_cls, ref_id = None, None
+            if ref_cls and ref_id:
+                return (str(ref_cls).strip(), str(ref_id).strip())
+            return None
+
+        values = value
+        if isinstance(values, str):
+            raw = values.strip()
+            if raw.startswith('[') and raw.endswith(']'):
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        values = parsed
+                except Exception:
+                    values = raw
+
+        def _collect_many(seq):
+            out = []
+            seen = set()
+            wanted_refs = []
+            wanted_refs_seen = set()
+
+            for one in seq:
+                for variant in _lookup_variants(one):
+                    try:
+                        res = store.get(str(variant), []) or []
+                    except Exception:
+                        res = []
+                    for x in res:
+                        sx = str(x)
+                        if sx not in seen:
+                            seen.add(sx)
+                            out.append(sx)
+                nref = _normalized_node_ref(one)
+                if nref and nref not in wanted_refs_seen:
+                    wanted_refs_seen.add(nref)
+                    wanted_refs.append(nref)
+
+            if not wanted_refs:
+                return out
+
+            try:
+                store_keys = list(store.keys())
+            except Exception:
+                store_keys = []
+
+            for store_key in store_keys:
+                skey = str(store_key or "").strip()
+                if not skey:
+                    continue
+                snref = _normalized_node_ref(skey)
+                if not snref or snref not in wanted_refs_seen:
+                    continue
+                try:
+                    res = store.get(store_key, []) or []
+                except Exception:
+                    res = []
+                for x in res:
+                    sx = str(x)
+                    if sx not in seen:
+                        seen.add(sx)
+                        out.append(sx)
+            return out
+
+        if isinstance(values, (list, tuple, set)):
+            return _collect_many(values)
+        return _collect_many([values])
+
+    @classmethod
+    def find_by_index(cls, index_name: str, value, config_uid=None):
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        ids = cls.find_ids_by_index(index_name, value, cfg_uid)
+        out = {}
+        for nid in ids:
+            try:
+                obj = cls.get(nid, cfg_uid)
+                if obj:
+                    out[str(nid)] = obj
+            except Exception:
+                pass
+        return out
+
+    @classmethod
+    def get_by_index(cls, index_name: str, value, config_uid=None):
+        found = cls.find_by_index(index_name, value, config_uid)
+        for _nid, obj in found.items():
+            return obj
+        return None
 
     # --- date index (fast queries by _data._date_key) ---
 
@@ -2346,3 +2993,76 @@ class DataSets:
             return None
 
 
+
+
+def find_node_ids_by_index(class_or_name, index_name: str, value, config_uid=None):
+    cls = Node._resolve_node_class(class_or_name)
+    if cls is None:
+        raise ValueError(f"Unknown node class: {class_or_name}")
+    return cls.find_ids_by_index(index_name, value, config_uid)
+
+
+def findByIndex(class_or_name, index_name: str, value, config_uid=None):
+    cls = Node._resolve_node_class(class_or_name)
+    if cls is None:
+        raise ValueError(f"Unknown node class: {class_or_name}")
+    return cls.find_by_index(index_name, value, config_uid)
+
+
+def getByIndex(class_or_name, index_name: str, value, config_uid=None):
+    cls = Node._resolve_node_class(class_or_name)
+    if cls is None:
+        raise ValueError(f"Unknown node class: {class_or_name}")
+    return cls.get_by_index(index_name, value, config_uid)
+
+
+def _resolve_node_by_global_uid(global_uid: str):
+    cfg_uid, class_name, internal_id = parse_uid_any(global_uid)
+    if not cfg_uid or not class_name or not internal_id:
+        return None
+    try:
+        import __main__ as main
+        Configuration = getattr(main, "Configuration", None)
+        db = getattr(main, "db", None)
+        loader = getattr(main, "_load_server_handlers_ns", None)
+        if Configuration is None or db is None or loader is None:
+            return None
+        cfg = db.session.query(Configuration).filter(Configuration.uid == cfg_uid).first()
+        if not cfg:
+            return None
+        isolated_globals = loader(cfg_uid, cfg) or {}
+        node_class = isolated_globals.get(class_name)
+        if node_class is None:
+            return None
+        return node_class.get(internal_id, cfg_uid)
+    except Exception:
+        return None
+
+
+def findByGlobalIndex(index: str, value):
+    store = Node._global_index_storage(index)
+    if store is None:
+        return {}
+    try:
+        ids = list(store.get(str(value), []) or [])
+    except Exception:
+        ids = []
+    out = {}
+    for uid in ids:
+        obj = _resolve_node_by_global_uid(uid)
+        if obj is not None:
+            out[str(uid)] = obj
+    return out
+
+
+def getByGlobalIndex(index: str, value):
+    found = findByGlobalIndex(index, value)
+    for _uid, obj in found.items():
+        return obj
+    return None
+
+
+find_by_global_index = findByGlobalIndex
+get_by_global_index = getByGlobalIndex
+find_by_index = findByIndex
+get_by_index = getByIndex
