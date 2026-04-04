@@ -222,24 +222,26 @@ def _node_cover_html(repo: models.Repo, class_name: str, node_id: str, mode: str
     # compact look in the future. Currently we render the same cover.
     data = _fetch_node_data_for_repo(repo, class_name, node_id)
     assets_base_dir = _userfiles_dir_for_repo(repo)
+    parsed = get_parsed_config(repo, models.db) or {}
+    nl_context = _nl_context(repo, class_name=class_name, node_id=node_id)
 
     try:
         cov = data.get("_cover") if isinstance(data, dict) else None
         if cov:
             if isinstance(cov, (dict, list)):
-                html = str(render_nodalayout_html(cov, data, assets_base_dir=assets_base_dir) or "").strip()
+                html = str(render_nodalayout_html(cov, data, assets_base_dir=assets_base_dir, context=nl_context) or "").strip()
                 if html:
                     return _wrap_client_tpl_html(html, data)
             elif isinstance(cov, str):
                 s = cov.strip()
                 # json layout as string
                 if (s.startswith("[") or s.startswith("{")):
-                    html = str(render_nodalayout_html(s, data, assets_base_dir=assets_base_dir) or "").strip()
+                    html = str(render_nodalayout_html(s, data, assets_base_dir=assets_base_dir, context=nl_context) or "").strip()
                     if html:
                         return _wrap_client_tpl_html(html, data)
                 # plain image src
                 pic_layout = [[{"type": "Picture", "value": s, "width": -1}]]
-                html = str(render_nodalayout_html(pic_layout, data, assets_base_dir=assets_base_dir) or "").strip()
+                html = str(render_nodalayout_html(pic_layout, data, assets_base_dir=assets_base_dir, context=nl_context) or "").strip()
                 if html:
                     return _wrap_client_tpl_html(html, data)
     except Exception:
@@ -247,7 +249,6 @@ def _node_cover_html(repo: models.Repo, class_name: str, node_id: str, mode: str
 
     
     try:
-        parsed = get_parsed_config(repo, models.db) or {}
         cls = (parsed.get("classes") or {}).get(class_name) or {}
 
         cover_web_layout = (cls.get("display_image_web") or "").strip()
@@ -260,8 +261,8 @@ def _node_cover_html(repo: models.Repo, class_name: str, node_id: str, mode: str
             layout_to_use = cover_layout
 
         if layout_to_use:
-            
-            html = str(render_nodalayout_html(layout_to_use, data, assets_base_dir=assets_base_dir) or "").strip()
+            _fill_nodeinput_views(repo, parsed, layout_to_use, data)
+            html = str(render_nodalayout_html(layout_to_use, data, assets_base_dir=assets_base_dir, context=nl_context) or "").strip()
             if html:
                 return _wrap_client_tpl_html(html, data)
     except Exception:
@@ -743,6 +744,7 @@ def fetch_config_from_local_db(config_uid: str) -> Dict[str, Any]:
             "migration_register_on_save": bool(getattr(c, "migration_register_on_save", False)),
             "migration_default_room_uid": getattr(c, "migration_default_room_uid", "") or "",
             "migration_default_room_alias": getattr(c, "migration_default_room_alias", "") or "",
+            "indexes": getattr(c, "indexes_json", None) or [],
             "class_type": c.class_type,
             "hidden": getattr(c, "hidden", False),
             "init_screen_layout": getattr(c, "init_screen_layout", "") or "",
@@ -969,7 +971,7 @@ def _node_id(node: Dict[str, Any]) -> str:
     )
 
 
-def _nodes_storage_page(config_uid: str, class_name: str, *, offset: int, limit: int, q: str = "") -> List[Dict[str, Any]]:
+def _nodes_storage_page(config_uid: str, class_name: str, *, offset: int, limit: int, q: str = "", index_name: str = "", index_value: str = "") -> List[Dict[str, Any]]:
     """Read nodes directly from the same storage as /api/.../page (no HTTP call)."""
     storage_key = f"{class_name}_{config_uid}"
     db_path = os.path.join("node_storage", f"{storage_key}.sqlite")
@@ -978,6 +980,8 @@ def _nodes_storage_page(config_uid: str, class_name: str, *, offset: int, limit:
 
     table = "unnamed"
     q = (q or "").strip().lower()
+    index_name = (index_name or "").strip()
+    index_value = "" if index_value is None else str(index_value)
 
     def unpack(blob):
         try:
@@ -988,6 +992,29 @@ def _nodes_storage_page(config_uid: str, class_name: str, *, offset: int, limit:
     conn = sqlite3.connect(db_path)
     try:
         cur = conn.cursor()
+
+        if index_name and index_value != "":
+            try:
+                node_cls = _load_server_node_class(config_uid, class_name)
+                ids = node_cls.find_ids_by_index(index_name, index_value, config_uid)
+            except Exception:
+                ids = []
+
+            items = []
+            for nid in ids[offset: offset + limit]:
+                try:
+                    node = node_cls.get(nid, config_uid)
+                except Exception:
+                    node = None
+                if not node:
+                    continue
+                try:
+                    obj = node.to_dict() or {}
+                except Exception:
+                    obj = {}
+                if obj:
+                    items.append(obj)
+            return items
 
         if not q:
             cur.execute(
@@ -1059,7 +1086,7 @@ def _api_get_remote(repo: models.Repo, path: str, *, params: Optional[dict] = No
     return resp.json()
 
 
-def _fetch_nodes_for_class(repo: models.Repo, *, config_uid: str, class_name: str, q: str, limit: int) -> List[Dict[str, Any]]:
+def _fetch_nodes_for_class(repo: models.Repo, *, config_uid: str, class_name: str, q: str, limit: int, index_name: str = "", index_value: str = "") -> List[Dict[str, Any]]:
     """Fetch nodes either locally (same server) or remotely (repo.base_url override)."""
     # Default: no base_url override or points to this server -> read local storage.
     # If base_url is configured and does not match current host, do remote HTTP.
@@ -1067,14 +1094,14 @@ def _fetch_nodes_for_class(repo: models.Repo, *, config_uid: str, class_name: st
     current = (request.host_url or "").rstrip("/")
 
     if not base_url or base_url == current:
-        return _nodes_storage_page(config_uid, class_name, offset=0, limit=limit, q=q)
+        return _nodes_storage_page(config_uid, class_name, offset=0, limit=limit, q=q, index_name=index_name, index_value=index_value)
 
     # Remote
     try:
         payload = _api_get_remote(
             repo,
             f"/api/config/{config_uid}/node/{class_name}/page",
-            params={"offset": 0, "limit": limit, "q": q} if q else {"offset": 0, "limit": limit},
+            params=({"offset": 0, "limit": limit, "q": q} if q else {"offset": 0, "limit": limit}) | ({"index_name": index_name, "index_value": index_value} if index_name and index_value != "" else {}),
         )
         items = payload.get("items", [])
         return items if isinstance(items, list) else []
@@ -1987,6 +2014,8 @@ def _parse_display_image_table(spec: str, data: Dict[str, Any]) -> Tuple[List[st
 def api_section_data():
     section_code = request.args.get("section_code", "")
     q = (request.args.get("q") or "").strip().lower()
+    index_name = (request.args.get("index_name") or "").strip()
+    index_value = request.args.get("index_value")
 
     repos = models.Repo.query.filter_by(user_id=current_user.id).all()
     merged: List[Dict[str, Any]] = []
@@ -1999,6 +2028,7 @@ def api_section_data():
 
     table_headers: List[str] = []
     table_headers_set: set = set()
+    filter_indexes_map: Dict[str, Dict[str, Any]] = {}
 
     def parse_table_spec(spec: str) -> List[Tuple[str, str, bool]]:
         """
@@ -2042,7 +2072,7 @@ def api_section_data():
             values[title] = s
         return headers, values
 
-    def build_cover_html(cover_web_layout: Any, cover_layout: Any, data: Dict[str, Any]) -> str:
+    def build_cover_html(cover_web_layout: Any, cover_layout: Any, data: Dict[str, Any], class_name: str, node_id: str) -> str:
         """Cover renderer with per-node override via _data['_cover'].
 
         Priority:
@@ -2050,26 +2080,30 @@ def api_section_data():
         2) display_image_web
         3) cover_image
         """
+        assets_base_dir = _userfiles_dir_for_repo(repo)
+        nl_context = _nl_context(repo, class_name=class_name, node_id=node_id)
+
         # 1) _cover override
         try:
             cov = data.get("_cover") if isinstance(data, dict) else None
             if cov:
                 if isinstance(cov, (dict, list)):
-                    return _wrap_client_tpl_html(str(render_nodalayout_html(cov, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or ""), data)
+                    return _wrap_client_tpl_html(str(render_nodalayout_html(cov, data, assets_base_dir=assets_base_dir, context=nl_context) or ""), data)
                 if isinstance(cov, str):
                     s = cov.strip()
                     if s.startswith("[") or s.startswith("{"):
-                        return _wrap_client_tpl_html(str(render_nodalayout_html(s, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or ""), data)
+                        return _wrap_client_tpl_html(str(render_nodalayout_html(s, data, assets_base_dir=assets_base_dir, context=nl_context) or ""), data)
                     pic_layout = [[{"type": "Picture", "value": s, "width": -1}]]
-                    return _wrap_client_tpl_html(str(render_nodalayout_html(pic_layout, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or ""), data)
+                    return _wrap_client_tpl_html(str(render_nodalayout_html(pic_layout, data, assets_base_dir=assets_base_dir, context=nl_context) or ""), data)
         except Exception:
             pass
 
         # 2) class cover layouts (existing)
         try:
-            if (str(cover_web_layout or "").strip()):
-                return _wrap_client_tpl_html(str(render_nodalayout_html(cover_web_layout, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or ""), data)
-            return _wrap_client_tpl_html(str(render_nodalayout_html(cover_layout, data, assets_base_dir=_userfiles_dir_for_repo(repo)) or ""), data)
+            layout_to_use = cover_web_layout if str(cover_web_layout or "").strip() else cover_layout
+            if layout_to_use is not None and isinstance(data, dict):
+                _fill_nodeinput_views(repo, parsed, layout_to_use, data)
+            return _wrap_client_tpl_html(str(render_nodalayout_html(layout_to_use, data, assets_base_dir=assets_base_dir, context=nl_context) or ""), data)
         except Exception:
             return ""
 
@@ -2123,6 +2157,27 @@ def api_section_data():
             std_map[(repo.id, cn)] = use_std
             display_name_map[(repo.id, cn)] = disp
             commands_map[(repo.id, cn)] = cmds
+            for idx in (c.get("indexes") or []):
+                if not isinstance(idx, dict) or not idx.get("filter_enabled"):
+                    continue
+                iname = str(idx.get("name") or "").strip()
+                if not iname:
+                    continue
+                cur = filter_indexes_map.get(iname)
+                item = {
+                    "name": iname,
+                    "kind": str(idx.get("kind") or "hash_index"),
+                    "keys": str(idx.get("keys") or ""),
+                    "filter_type": str(idx.get("filter_type") or "string"),
+                    "filter_label": str(idx.get("filter_label") or "").strip(),
+                    "filter_list_enabled": bool(idx.get("filter_list_enabled")),
+                    "classes": [],
+                }
+                if not cur:
+                    filter_indexes_map[iname] = item
+                    cur = item
+                if cn not in cur["classes"]:
+                    cur["classes"].append(cn)
 
             classes_ui.append({
                 "repo": repo.name,
@@ -2181,7 +2236,7 @@ def api_section_data():
 
                 # cover html for web (priority: display_image_web else cover_image)
                 display_image_html = ""
-                display_image_html = build_cover_html(cover_web_layout, cover_layout, data)
+                display_image_html = build_cover_html(cover_web_layout, cover_layout, data, cn, node_id)
                 # try:
                 #     if (cover_web_layout or "").strip():
                 #         display_image_html = str(render_nodalayout_html(cover_web_layout, data))
@@ -2216,7 +2271,7 @@ def api_section_data():
                 continue
 
             # data_node
-            nodes = _fetch_nodes_for_class(repo, config_uid=repo.config_uid, class_name=cn, q=q, limit=DEFAULT_LIMIT_PER_CLASS)
+            nodes = _fetch_nodes_for_class(repo, config_uid=repo.config_uid, class_name=cn, q=q, limit=DEFAULT_LIMIT_PER_CLASS, index_name=index_name, index_value=index_value)
             for n in nodes:
                 data = n.get("_data") or {}
                 node_id = n.get("_id") or data.get("_id") or ""
@@ -2226,7 +2281,7 @@ def api_section_data():
 
                 # cover html for web (priority: display_image_web else cover_image)
                 display_image_html = ""
-                display_image_html = build_cover_html(cover_web_layout, cover_layout, data)
+                display_image_html = build_cover_html(cover_web_layout, cover_layout, data, cn, node_id)
                 # try:
                 #     if (cover_web_layout or "").strip():
                 #         display_image_html = str(render_nodalayout_html(cover_web_layout, data))
@@ -2278,6 +2333,7 @@ def api_section_data():
             "classes_ui": classes_ui,
             "table_headers": table_headers,
             "start_menu_cmds_ui": start_menu_cmds_ui,
+            "filter_indexes": list(filter_indexes_map.values()),
         }
     })
 
@@ -3596,37 +3652,53 @@ def api_class_nodes():
     q = (request.args.get("q") or "").strip()
     limit = int(request.args.get("limit") or 50)
 
-    if not repo_id or not class_name:
+    if not class_name:
         return jsonify({"ok": False, "error": "bad args"}), 400
 
-    repo = models.Repo.query.filter_by(id=repo_id, user_id=current_user.id).first()
-    if not repo:
+    if repo_id:
+        repos = [models.Repo.query.filter_by(id=repo_id, user_id=current_user.id).first()]
+    else:
+        repos = models.Repo.query.filter_by(user_id=current_user.id).all()
+    repos = [r for r in repos if r]
+    if not repos:
         return jsonify({"ok": False, "error": "repo not found"}), 404
 
-    nodes = _fetch_nodes_for_class(repo, config_uid=repo.config_uid, class_name=class_name, q=q, limit=limit) or []
-
-   
-
     items = []
-    for n in nodes:
-        data = n.get("_data") or {}
-        nid = n.get("_id") or data.get("_id") or ""
-        if not nid:
-            continue
-        view = _render_class_record_view(get_parsed_config(repo, models.db), class_name, str(nid), data)
-        cover_html = ""
+    seen = set()
+    for repo in repos:
         try:
-            cover_html = _node_cover_html(repo, class_name, str(nid), mode="table")
+            nodes = _fetch_nodes_for_class(repo, config_uid=repo.config_uid, class_name=class_name, q=q, limit=limit) or []
         except Exception:
+            nodes = []
+
+        parsed_cfg = get_parsed_config(repo, models.db)
+        for n in nodes:
+            data = n.get("_data") or {}
+            nid = n.get("_id") or data.get("_id") or ""
+            if not nid:
+                continue
+            uid = _nodes_mod.normalize_own_uid(repo.config_uid, class_name, str(nid))
+            if not uid or uid in seen:
+                continue
+            seen.add(uid)
+            view = _render_class_record_view(parsed_cfg, class_name, str(nid), data)
             cover_html = ""
-        items.append({
-            "uid": f"{class_name}${nid}",
-            "_id": str(nid),
-            "_class": class_name,
-            "_view": str(view),
-            "cover_html": cover_html,
-            "data": data,
-        })
+            try:
+                cover_html = _node_cover_html(repo, class_name, str(nid), mode="table")
+            except Exception:
+                cover_html = ""
+            items.append({
+                "uid": uid,
+                "_id": str(nid),
+                "_class": class_name,
+                "_view": str(view),
+                "cover_html": cover_html,
+                "data": data,
+                "repo_id": repo.id,
+                "repo_uid": repo.config_uid,
+            })
+            if len(items) >= limit:
+                return jsonify({"ok": True, "items": items})
 
     return jsonify({"ok": True, "items": items})
 
@@ -3638,29 +3710,35 @@ def api_dataset_items():
     q = (request.args.get("q") or "").strip().lower()
     limit = int(request.args.get("limit") or 100)
 
-    if not repo_id or not ds_name:
+    if not ds_name:
         return jsonify({"ok": False, "error": "bad args"}), 400
 
-    # repo -> config_id
-    repo = models.Repo.query.filter_by(id=repo_id, user_id=current_user.id).first()
-    if not repo:
+    if repo_id:
+        repos = [models.Repo.query.filter_by(id=repo_id, user_id=current_user.id).first()]
+    else:
+        repos = models.Repo.query.filter_by(user_id=current_user.id).all()
+    repos = [r for r in repos if r]
+    if not repos:
         return jsonify({"ok": False, "error": "repo not found"}), 404
 
-    # Dataset is bound to configuration
-    # IMPORTANT: pick correct config_id field depending on your Repo model
-    #
-    cfg_uid = (repo.config_uid or "").strip()
-    if not cfg_uid:
-        return jsonify({"ok": False, "error": "repo has no config_uid"}), 400
+    ds = None
+    repo = None
+    cfg = None
+    for candidate_repo in repos:
+        cfg_uid = (candidate_repo.config_uid or "").strip()
+        if not cfg_uid:
+            continue
+        candidate_cfg = main.Configuration.query.filter_by(uid=cfg_uid).first()
+        if not candidate_cfg:
+            continue
+        candidate_ds = main.Dataset.query.filter_by(config_id=candidate_cfg.id, name=ds_name).first()
+        if candidate_ds:
+            repo = candidate_repo
+            cfg = candidate_cfg
+            ds = candidate_ds
+            break
 
-    cfg = main.Configuration.query.filter_by(uid=cfg_uid).first()
-    if not cfg:
-        return jsonify({"ok": False, "error": "configuration not found"}), 404
-
-    ds = main.Dataset.query.filter_by(config_id=cfg.id, name=ds_name).first()
-
-
-    if not ds:
+    if not repo or not cfg or not ds:
         return jsonify({"ok": False, "error": "dataset not found"}), 404
 
     # helper: render view_template like "Item: @name (@code)"

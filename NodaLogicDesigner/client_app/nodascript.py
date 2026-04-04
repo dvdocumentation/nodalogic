@@ -72,6 +72,11 @@ class NodaScriptEngine:
             "NewStructure": self._new_structure,
             "Length": lambda x: len(x),
             "HasProperty": lambda o, k: k in o,
+            "FindNodeIdsByIndex": self._find_node_ids_by_index,
+            "FindByIndex": self._find_by_index,
+            "GetByIndex": self._get_by_index,
+            "FindByGlobalIndex": self._find_by_global_index,
+            "GetByGlobalIndex": self._get_by_global_index,
         }
 
     def _parse_date(self, text, pattern=None):
@@ -101,3 +106,40 @@ class NodaScriptEngine:
         for i in range(0, len(args), 2):
             d[str(args[i])] = args[i+1]
         return d
+
+
+    def _find_node_ids_by_index(self, class_name, index_name, value, config_uid=None):
+        try:
+            import nodes as server_nodes
+            return server_nodes.find_node_ids_by_index(class_name, index_name, value, config_uid)
+        except Exception as e:
+            raise NodaScriptError(str(e))
+
+
+    def _find_by_index(self, class_name, index_name, value, config_uid=None):
+        try:
+            import nodes as server_nodes
+            return server_nodes.findByIndex(class_name, index_name, value, config_uid)
+        except Exception as e:
+            raise NodaScriptError(str(e))
+
+    def _get_by_index(self, class_name, index_name, value, config_uid=None):
+        try:
+            import nodes as server_nodes
+            return server_nodes.getByIndex(class_name, index_name, value, config_uid)
+        except Exception as e:
+            raise NodaScriptError(str(e))
+
+    def _find_by_global_index(self, index_name, value):
+        try:
+            import nodes as server_nodes
+            return server_nodes.findByGlobalIndex(index_name, value)
+        except Exception as e:
+            raise NodaScriptError(str(e))
+
+    def _get_by_global_index(self, index_name, value):
+        try:
+            import nodes as server_nodes
+            return server_nodes.getByGlobalIndex(index_name, value)
+        except Exception as e:
+            raise NodaScriptError(str(e))
