@@ -359,6 +359,23 @@
             </datalist>
             <small class="text-muted">{{_('The class stores an alias. The alias → room_uid mapping is set in the configuration (section "Rooms").')}} </small>
           </div>
+
+          <div class="mb-3">
+            <label for="linkShareMode" class="form-label">{{ _('Link sharing mode') }}</label>
+            <select class="form-select" id="linkShareMode" name="link_share_mode">
+              <option value="">{{ _('-- Not specified --') }}</option>
+              <option value="share_link" {% if class_obj.link_share_mode == 'share_link' %}selected{% endif %}>{{ _('Share by link') }}</option>
+              <option value="package_class" {% if class_obj.link_share_mode == 'package_class' %}selected{% endif %}>{{ _('Package class') }}</option>
+            </select>
+            <small class="text-muted">{{ _('Choose how this class should be shared by link.') }}</small>
+          </div>
+
+          <div class="mb-3">
+            <a class="btn btn-outline-primary" href="{{ url_for('export_class_json', class_id=class_obj.id) }}">
+              <i class="bi bi-download"></i> {{ _('Export class JSON') }}
+            </a>
+            <small class="text-muted d-block mt-2">{{ _('Downloads only meaningful class fields. Empty fields are omitted.') }}</small>
+          </div>
         </div>
 
         <div class="tab-pane fade" id="indexes" role="tabpanel">

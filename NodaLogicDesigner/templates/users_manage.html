@@ -82,7 +82,7 @@
                 <div class="col-md-4">
                   <label class="form-label">{{_('Configurations')}}</label>
                   <select class="form-select" name="config_ids" multiple size="6">
-                    {% set selected = access_map.get(u.id) or set() %}
+                    {% set selected = access_map.get(u.id) or [] %}
                     {% for c in configs %}
                       <option value="{{ c.id }}" {% if c.id in selected %}selected{% endif %}>{{ c.name or '—' }} · {{ c.uid[:8] }}</option>
                     {% endfor %}

@@ -16,6 +16,12 @@
       </a>
     {% endif %}
 
+    {% if current_user.can_designer %}
+      <a class="btn btn-lg btn-outline-secondary py-4" href="{{ url_for('contracts_page') }}">
+        {{ _('Contracts') }}
+      </a>
+    {% endif %}
+
     {% if not current_user.can_designer and not current_user.can_client %}
       <div class="alert alert-warning text-start">
         {{_('        Your account does not have access to web interfaces. 
