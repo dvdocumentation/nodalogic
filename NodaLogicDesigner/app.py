@@ -33,6 +33,11 @@ import ast
 import inspect
 from pathlib import Path
 import secrets
+import socket
+import boto3
+from botocore.client import Config
+
+print("APP LOAD:", __name__, __file__, id(object()))
 
 try:
     import firebase_admin
@@ -112,6 +117,19 @@ import inspect
 DEEPSEEK_API_KEY = ''
 ADMIN_LOGIN = ''
 FLASK_SECRET= ''
+
+S3_ENDPOINT = ""
+S3_BUCKET = ""
+
+s3 = boto3.client(
+    "s3",
+    endpoint_url=S3_ENDPOINT,
+    aws_access_key_id="6IQFBHS4BOEVXO5W5K6C",
+    aws_secret_access_key="HXiBRr2qc1X8f34bEjZlfJGf4gAvWZNsfA52Abod",
+    config=Config(signature_version="s3v4"),
+    region_name="ru1",
+)
+
 #******************************************************************
 
 
@@ -142,7 +160,7 @@ from nodes import Node
 
 ANDROID_IMPORTS_TEMPLATE = '''from nodesclient import RefreshTab,SetTitle,CloseNode,RunGPS,StopGPS,UpdateView,Dialog,ScanBarcode,GetLocation,AddTimer,StopTimer,ShowProgressButton,HideProgressButton,ShowProgressGlobal,HideProgressGlobal,Controls,SetCover,getBase64FromImageFile,convertImageFilesToBase64Array,saveBase64ToFile,convertBase64ArrayToFilePaths,UpdateMediaGallery
 from android import *
-from nodes import NewNode, DeleteNode, GetAllNodes, GetNode, GetAllNodesStr, GetRemoteClass, CreateDataSet, GetDataSet, DeleteDataSet,to_uid, from_uid, getByIndex, findByIndex, getByGlobalIndex, findByGlobalIndex
+from nodes import NewNode, DeleteNode, GetAllNodes, GetNode, GetAllNodesStr, GetRemoteClass, CreateDataSet, GetDataSet, DeleteDataSet,to_uid, from_uid, getByIndex, findByIndex, getByGlobalIndex, findByGlobalIndex, sendTextMessage, sendImageMessage
 from com.dv.noda import DataSet
 from com.dv.noda import DataSets
 from com.dv.noda import SimpleUtilites as su
@@ -694,6 +712,8 @@ def get_timezone():
         return user.timezone
 
 app = Flask(__name__)
+print("FLASK APP ID:", id(app))
+print("DB ID:", id(db))
 app.config['BABEL_DEFAULT_LOCALE'] = 'en'
 
 # -----------------------------------------------------------------------------
@@ -1014,7 +1034,29 @@ def _ensure_sqlite_schema():
     - db.create_all() does NOT add missing columns on SQLite.
     - SQLAlchemy selects all mapped columns; if a column is missing -> crash on SELECT.
     - This function must run BEFORE any queries.
+    
+
     """
+
+    try:
+        if not _table_exists('raw_node'):
+            with db.engine.begin() as conn:
+                conn.execute(text("""
+                    CREATE TABLE raw_node (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        node_id VARCHAR(255) NOT NULL UNIQUE,
+                        payload_json JSON NOT NULL,
+                        content_type VARCHAR(64) NOT NULL DEFAULT 'node',
+                        owner_user_id INTEGER NULL,
+                        created_at DATETIME NULL,
+                        updated_at DATETIME NULL
+                    )
+                """))
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_raw_node_node_id ON raw_node(node_id)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_raw_node_owner_user_id ON raw_node(owner_user_id)"))
+    except Exception as e:
+        print("Could not ensure raw_node table:", e)
+
     try:
         inspector = sa.inspect(db.engine)
     except Exception as e:
@@ -1237,6 +1279,8 @@ def _ensure_sqlite_schema():
             _add_col("config_class", 'migration_default_room_uid VARCHAR(36) DEFAULT ""', "migration_default_room_uid")
         if "migration_default_room_alias" not in cols:
             _add_col("config_class", 'migration_default_room_alias VARCHAR(100) DEFAULT ""', "migration_default_room_alias")
+        if "link_share_mode" not in cols:
+            _add_col("config_class", 'link_share_mode VARCHAR(30) DEFAULT ""', "link_share_mode")
         if "indexes_json" not in cols:
             _add_col("config_class", 'indexes_json JSON', "indexes_json")
 
@@ -1320,6 +1364,154 @@ def _ensure_sqlite_schema():
             _add_col("config_event_action", 'post_http_function_name VARCHAR(255) DEFAULT ""', "post_http_function_name")
 
     # ------------------------------------------------------------
+    # outgoing_message_log migrations
+    # ------------------------------------------------------------
+    if _table_exists("outgoing_message_log"):
+        mcols = _get_cols("outgoing_message_log")
+        if "client_message_id" not in mcols:
+            _add_col("outgoing_message_log", 'client_message_id VARCHAR(128)', "client_message_id")
+        if "sender_user" not in mcols:
+            _add_col("outgoing_message_log", 'sender_user VARCHAR(255)', "sender_user")
+        if "target_type" not in mcols:
+            _add_col("outgoing_message_log", 'target_type VARCHAR(32) DEFAULT "user"', "target_type")
+        if "target_id" not in mcols:
+            _add_col("outgoing_message_log", 'target_id VARCHAR(255)', "target_id")
+        if "title" not in mcols:
+            _add_col("outgoing_message_log", 'title VARCHAR(255)', "title")
+        if "body" not in mcols:
+            _add_col("outgoing_message_log", 'body TEXT', "body")
+        if "payload_json" not in mcols:
+            _add_col("outgoing_message_log", 'payload_json JSON', "payload_json")
+        if "status" not in mcols:
+            _add_col("outgoing_message_log", 'status VARCHAR(32) DEFAULT "queued"', "status")
+        if "created_at" not in mcols:
+            _add_col("outgoing_message_log", 'created_at DATETIME', "created_at")
+        if "accepted_at" not in mcols:
+            _add_col("outgoing_message_log", 'accepted_at DATETIME', "accepted_at")
+        if "pushed_at" not in mcols:
+            _add_col("outgoing_message_log", 'pushed_at DATETIME', "pushed_at")
+        if "ack_at" not in mcols:
+            _add_col("outgoing_message_log", 'ack_at DATETIME', "ack_at")
+        if "ack_by" not in mcols:
+            _add_col("outgoing_message_log", 'ack_by VARCHAR(255)', "ack_by")
+        if "ack_payload" not in mcols:
+            _add_col("outgoing_message_log", 'ack_payload JSON', "ack_payload")
+        if "last_error" not in mcols:
+            _add_col("outgoing_message_log", 'last_error TEXT', "last_error")
+
+        _create_index('CREATE UNIQUE INDEX IF NOT EXISTS ux_outgoing_message_client_message_id ON outgoing_message_log (client_message_id)', 'ux_outgoing_message_client_message_id')
+        _create_index('CREATE INDEX IF NOT EXISTS ix_outgoing_message_target ON outgoing_message_log (target_type, target_id)', 'ix_outgoing_message_target')
+        _create_index('CREATE INDEX IF NOT EXISTS ix_outgoing_message_status ON outgoing_message_log (status)', 'ix_outgoing_message_status')
+
+
+    # ------------------------------------------------------------
+    # outgoing_message_device_ack migrations
+    # ------------------------------------------------------------
+    try:
+        if not _table_exists('outgoing_message_device_ack'):
+            with db.engine.begin() as conn:
+                conn.execute(text("""
+                    CREATE TABLE outgoing_message_device_ack (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        message_id INTEGER NOT NULL,
+                        client_message_id VARCHAR(128),
+                        user_key VARCHAR(255),
+                        device_uid VARCHAR(120) NOT NULL,
+                        ack_at DATETIME,
+                        ack_by VARCHAR(255),
+                        ack_payload JSON,
+                        created_at DATETIME,
+                        updated_at DATETIME
+                    )
+                """))
+        if _table_exists('outgoing_message_device_ack'):
+            dacols = _get_cols('outgoing_message_device_ack')
+            if 'message_id' not in dacols:
+                _add_col('outgoing_message_device_ack', 'message_id INTEGER', 'message_id')
+            if 'client_message_id' not in dacols:
+                _add_col('outgoing_message_device_ack', 'client_message_id VARCHAR(128)', 'client_message_id')
+            if 'user_key' not in dacols:
+                _add_col('outgoing_message_device_ack', 'user_key VARCHAR(255)', 'user_key')
+            if 'device_uid' not in dacols:
+                _add_col('outgoing_message_device_ack', 'device_uid VARCHAR(120)', 'device_uid')
+            if 'ack_at' not in dacols:
+                _add_col('outgoing_message_device_ack', 'ack_at DATETIME', 'ack_at')
+            if 'ack_by' not in dacols:
+                _add_col('outgoing_message_device_ack', 'ack_by VARCHAR(255)', 'ack_by')
+            if 'ack_payload' not in dacols:
+                _add_col('outgoing_message_device_ack', 'ack_payload JSON', 'ack_payload')
+            if 'created_at' not in dacols:
+                _add_col('outgoing_message_device_ack', 'created_at DATETIME', 'created_at')
+            if 'updated_at' not in dacols:
+                _add_col('outgoing_message_device_ack', 'updated_at DATETIME', 'updated_at')
+            _create_index('CREATE UNIQUE INDEX IF NOT EXISTS ux_outgoing_message_device_ack_msg_device ON outgoing_message_device_ack (message_id, device_uid)', 'ux_outgoing_message_device_ack_msg_device')
+            _create_index('CREATE INDEX IF NOT EXISTS ix_outgoing_message_device_ack_user_device ON outgoing_message_device_ack (user_key, device_uid)', 'ix_outgoing_message_device_ack_user_device')
+            _create_index('CREATE INDEX IF NOT EXISTS ix_outgoing_message_device_ack_client_message_id ON outgoing_message_device_ack (client_message_id)', 'ix_outgoing_message_device_ack_client_message_id')
+    except Exception as e:
+        print('Could not ensure outgoing_message_device_ack table:', e)
+
+    # ------------------------------------------------------------
+    # message_group / message_group_member migrations
+    # ------------------------------------------------------------
+    try:
+        if not _table_exists('message_group'):
+            with db.engine.begin() as conn:
+                conn.execute(text("""
+                    CREATE TABLE message_group (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        group_id VARCHAR(64) NOT NULL UNIQUE,
+                        title VARCHAR(255) NOT NULL,
+                        created_by VARCHAR(255),
+                        created_at DATETIME,
+                        updated_at DATETIME
+                    )
+                """))
+            _create_index('CREATE UNIQUE INDEX IF NOT EXISTS ux_message_group_group_id ON message_group (group_id)', 'ux_message_group_group_id')
+            _create_index('CREATE INDEX IF NOT EXISTS ix_message_group_created_by ON message_group (created_by)', 'ix_message_group_created_by')
+        if _table_exists('message_group'):
+            gcols = _get_cols('message_group')
+            if 'group_id' not in gcols:
+                _add_col('message_group', 'group_id VARCHAR(64)', 'group_id')
+            if 'title' not in gcols:
+                _add_col('message_group', 'title VARCHAR(255)', 'title')
+            if 'created_by' not in gcols:
+                _add_col('message_group', 'created_by VARCHAR(255)', 'created_by')
+            if 'created_at' not in gcols:
+                _add_col('message_group', 'created_at DATETIME', 'created_at')
+            if 'updated_at' not in gcols:
+                _add_col('message_group', 'updated_at DATETIME', 'updated_at')
+            _create_index('CREATE UNIQUE INDEX IF NOT EXISTS ux_message_group_group_id ON message_group (group_id)', 'ux_message_group_group_id')
+            _create_index('CREATE INDEX IF NOT EXISTS ix_message_group_created_by ON message_group (created_by)', 'ix_message_group_created_by')
+    except Exception as e:
+        print('Could not ensure message_group table:', e)
+
+    try:
+        if not _table_exists('message_group_member'):
+            with db.engine.begin() as conn:
+                conn.execute(text("""
+                    CREATE TABLE message_group_member (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        group_id VARCHAR(64) NOT NULL,
+                        user_key VARCHAR(255) NOT NULL,
+                        created_at DATETIME
+                    )
+                """))
+            _create_index('CREATE UNIQUE INDEX IF NOT EXISTS uq_message_group_member_group_user ON message_group_member (group_id, user_key)', 'uq_message_group_member_group_user')
+            _create_index('CREATE INDEX IF NOT EXISTS ix_message_group_member_user_group ON message_group_member (user_key, group_id)', 'ix_message_group_member_user_group')
+        if _table_exists('message_group_member'):
+            gmcols = _get_cols('message_group_member')
+            if 'group_id' not in gmcols:
+                _add_col('message_group_member', 'group_id VARCHAR(64)', 'group_id')
+            if 'user_key' not in gmcols:
+                _add_col('message_group_member', 'user_key VARCHAR(255)', 'user_key')
+            if 'created_at' not in gmcols:
+                _add_col('message_group_member', 'created_at DATETIME', 'created_at')
+            _create_index('CREATE UNIQUE INDEX IF NOT EXISTS uq_message_group_member_group_user ON message_group_member (group_id, user_key)', 'uq_message_group_member_group_user')
+            _create_index('CREATE INDEX IF NOT EXISTS ix_message_group_member_user_group ON message_group_member (user_key, group_id)', 'ix_message_group_member_user_group')
+    except Exception as e:
+        print('Could not ensure message_group_member table:', e)
+
+    # ------------------------------------------------------------
     # event_action migrations (ClassEvent actions)
     # ------------------------------------------------------------
     if _table_exists("event_action"):
@@ -1357,6 +1549,21 @@ try:
 except Exception as _e:
     print('SQLite schema ensure (late) skipped:', _e)
 
+
+class RawNode(db.Model):
+    __tablename__ = 'raw_node'
+
+    id = db.Column(db.Integer, primary_key=True)
+    node_id = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    payload_json = db.Column(db.JSON, nullable=False, default=dict)
+    content_type = db.Column(db.String(64), nullable=False, default='node')
+    owner_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
 class Dataset(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -1620,6 +1827,8 @@ class ConfigClass(db.Model):
     migration_default_room_uid = db.Column(db.String(36), default="")
     # Stores RoomAlias.alias (string)
     migration_default_room_alias = db.Column(db.String(100), default="")
+    # How the class should be shared by link: share_link / package_class
+    link_share_mode = db.Column(db.String(30), default="")
     indexes_json = db.Column(db.JSON, default=list)
     
 
@@ -1700,6 +1909,67 @@ class EventAction(db.Model):
         }
 
 
+class Contract(db.Model):
+    __tablename__ = 'contract'
+
+    id = db.Column(db.Integer, primary_key=True)
+    uid = db.Column(db.String(36), default=lambda: str(uuid.uuid4()), unique=True, nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    name = db.Column(db.String(100), nullable=False)
+    display_name = db.Column(db.String(100), default="")
+
+    # class / global_index / external_only
+    source_type = db.Column(db.String(30), default='class', nullable=False)
+    source_config_uid = db.Column(db.String(36), default="", index=True)
+    class_name = db.Column(db.String(100), default="", index=True)
+    global_index_name = db.Column(db.String(100), default="")
+    global_index_value = db.Column(db.String(255), default="")
+
+    # Last externally provided class JSON, used by POST-only contracts and as an override when needed
+    external_class_json = db.Column(db.JSON, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
+
+    owner = db.relationship('User', backref=db.backref('contracts', cascade='all, delete-orphan', lazy=True))
+    pushed_objects = db.relationship('ContractObject', backref='contract', cascade='all, delete-orphan', lazy=True)
+    acknowledgements = db.relationship('ContractAck', backref='contract', cascade='all, delete-orphan', lazy=True)
+
+
+class ContractObject(db.Model):
+    __tablename__ = 'contract_object'
+
+    id = db.Column(db.Integer, primary_key=True)
+    contract_id = db.Column(db.Integer, db.ForeignKey('contract.id', ondelete='CASCADE'), nullable=False, index=True)
+    object_id = db.Column(db.String(255), nullable=False)
+    payload_json = db.Column(db.JSON, nullable=False)
+    object_version = db.Column(db.String(120), default="", nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
+
+    __table_args__ = (
+        db.UniqueConstraint('contract_id', 'object_id', name='uq_contract_object_contract_object_id'),
+        db.Index('idx_contract_object_contract', 'contract_id'),
+    )
+
+
+class ContractAck(db.Model):
+    __tablename__ = 'contract_ack'
+
+    id = db.Column(db.Integer, primary_key=True)
+    contract_id = db.Column(db.Integer, db.ForeignKey('contract.id', ondelete='CASCADE'), nullable=False, index=True)
+    device_id = db.Column(db.String(120), nullable=False, index=True)
+    object_id = db.Column(db.String(255), nullable=False)
+    object_version = db.Column(db.String(120), default="", nullable=False)
+    acked_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+
+    __table_args__ = (
+        db.UniqueConstraint('contract_id', 'device_id', 'object_id', name='uq_contract_ack_contract_device_object'),
+        db.Index('idx_contract_ack_lookup', 'contract_id', 'device_id'),
+    )
+
+
 class RoomObjects(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     room_uid = db.Column(db.String(36))
@@ -1714,6 +1984,79 @@ class RoomObjects(db.Model):
     __table_args__ = (
         db.Index('idx_room_objects', 'room_uid', 'config_uid', 'class_name'),
     )  
+
+
+class OutgoingMessageLog(db.Model):
+    __tablename__ = 'outgoing_message_log'
+
+    id = db.Column(db.Integer, primary_key=True)
+    client_message_id = db.Column(db.String(128), unique=True, nullable=False, index=True)
+    sender_user = db.Column(db.String(255), nullable=True, index=True)
+    target_type = db.Column(db.String(32), nullable=False, index=True)   # user / device
+    target_id = db.Column(db.String(255), nullable=False, index=True)
+    title = db.Column(db.String(255), nullable=True)
+    body = db.Column(db.Text, nullable=True)
+    payload_json = db.Column(db.JSON, nullable=True)
+    status = db.Column(db.String(32), default='queued', nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    accepted_at = db.Column(db.DateTime, nullable=True)
+    pushed_at = db.Column(db.DateTime, nullable=True)
+    ack_at = db.Column(db.DateTime, nullable=True)
+    ack_by = db.Column(db.String(255), nullable=True)
+    ack_payload = db.Column(db.JSON, nullable=True)
+    last_error = db.Column(db.Text, nullable=True)
+
+
+class OutgoingMessageDeviceAck(db.Model):
+    __tablename__ = 'outgoing_message_device_ack'
+
+    id = db.Column(db.Integer, primary_key=True)
+    message_id = db.Column(db.Integer, db.ForeignKey('outgoing_message_log.id'), nullable=False, index=True)
+    client_message_id = db.Column(db.String(128), nullable=True, index=True)
+    user_key = db.Column(db.String(255), nullable=True, index=True)
+    device_uid = db.Column(db.String(120), nullable=False, index=True)
+    ack_at = db.Column(db.DateTime, nullable=True)
+    ack_by = db.Column(db.String(255), nullable=True)
+    ack_payload = db.Column(db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        db.UniqueConstraint('message_id', 'device_uid', name='uq_outgoing_message_device_ack_message_device'),
+        db.Index('idx_outgoing_message_device_ack_user_device', 'user_key', 'device_uid'),
+    )
+
+
+class MessageGroup(db.Model):
+    __tablename__ = 'message_group'
+
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    title = db.Column(db.String(255), nullable=False)
+    created_by = db.Column(db.String(255), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class MessageGroupMember(db.Model):
+    __tablename__ = 'message_group_member'
+
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.String(64), db.ForeignKey('message_group.group_id', ondelete='CASCADE'), nullable=False, index=True)
+    user_key = db.Column(db.String(255), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    group = db.relationship(
+        'MessageGroup',
+        backref=db.backref('memberships', cascade='all, delete-orphan', lazy=True),
+        primaryjoin='MessageGroupMember.group_id == MessageGroup.group_id',
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint('group_id', 'user_key', name='uq_message_group_member_group_user'),
+        db.Index('ix_message_group_member_user_group', 'user_key', 'group_id'),
+    )
+
 
 class Server(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -1786,6 +2129,7 @@ def edit_profile():
             'register_device_url': f'{NMAKER_SERVER_URL}/api/me/register-device',
             'login_url': f'{NMAKER_SERVER_URL}/api/auth/login',
             'email': current_user.email,
+            'display_name': current_user.config_display_name,
         }, ensure_ascii=False)
         qr_img = generate_qr_code(qr_payload)
 
@@ -1829,6 +2173,7 @@ def api_auth_register():
     data = request.get_json(silent=True) or {}
     email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
+    name = (data.get("name") or email).strip().lower()
 
     if not email or not password:
         return jsonify({"error": "email and password are required"}), 400
@@ -1840,6 +2185,7 @@ def api_auth_register():
     user = User(
         email=email,
         password=generate_password_hash(password),
+        config_display_name=name,
         can_api=True,
     )
     db.session.add(user)
@@ -1883,7 +2229,7 @@ def api_auth_register():
     token_value = issue_api_token(user)
 
     response = {
-        'user': {'id': user.id, 'email': user.email},
+        'user': {'id': user.id, 'email': user.email,'name':user.config_display_name},
         'access_token': token_value,
     }
     if device_info:
@@ -1913,7 +2259,7 @@ def api_auth_login():
     token_value = tok.token if tok else issue_api_token(user)
 
     return jsonify({
-        "user": {"id": user.id, "email": user.email},
+        "user": {"id": user.id, "email": user.email, "name":user.config_display_name},
         "access_token": token_value
     }), 200
 
@@ -2084,6 +2430,380 @@ def users_manage():
         access_map[u.id] = ids
 
     return render_template('users_manage.html', users=users, configs=cfgs, access_map=access_map)
+
+
+@app.route("/api/s3/upload-url", methods=["POST"])
+def get_upload_url():
+    data = request.get_json(silent=True) or {}
+
+    original_name = data.get("filename", "file.bin")
+    content_type = data.get("content_type", "application/octet-stream")
+
+    ext = ""
+    if "." in original_name:
+        ext = "." + original_name.rsplit(".", 1)[1].lower()
+
+    object_key = f"uploads/{uuid.uuid4().hex}{ext}"
+
+    url = s3.generate_presigned_url(
+        ClientMethod="put_object",
+        Params={
+            "Bucket": S3_BUCKET,
+            "Key": object_key,
+            "ContentType": content_type,
+        },
+        ExpiresIn=600,  # 10 минут
+    )
+
+    public_url = f"{S3_ENDPOINT}/{S3_BUCKET}/{object_key}"
+
+    return jsonify({
+        "upload_url": url,
+        "object_key": object_key,
+        "method": "PUT",
+        "expires_in": 600,
+        "headers": {
+            "Content-Type": content_type
+        },
+        "file_url": public_url
+    })
+
+#Row nodes
+@app.route('/api/raw-node/<node_id>', methods=['POST'])
+@api_auth_required
+def api_raw_node_post(node_id):
+    data = request.get_json(silent=True) or {}
+
+    payload = data.get('payload', data)
+    content_type = str(data.get('content_type') or 'node').strip() or 'node'
+
+    obj = db.session.execute(
+        select(RawNode).where(RawNode.node_id == str(node_id))
+    ).scalar_one_or_none()
+
+    now = datetime.now(timezone.utc)
+    api_user = getattr(g, 'api_user', None)
+
+    if obj is None:
+        obj = RawNode(
+            node_id=str(node_id),
+            payload_json=payload,
+            content_type=content_type,
+            owner_user_id=getattr(api_user, 'id', None),
+            created_at=now,
+            updated_at=now,
+        )
+        db.session.add(obj)
+    else:
+        obj.payload_json = payload
+        obj.content_type = content_type
+        obj.updated_at = now
+
+    db.session.commit()
+
+    return jsonify({
+        'ok': True,
+        'node_id': obj.node_id,
+        'content_type': obj.content_type,
+        'created_at': obj.created_at.isoformat() if obj.created_at else None,
+        'updated_at': obj.updated_at.isoformat() if obj.updated_at else None,
+        'url': f"{request.url_root.rstrip('/')}/api/raw-node/{obj.node_id}"
+    })
+
+
+@app.route('/api/raw-node/<node_id>', methods=['GET'])
+@api_auth_required
+def api_raw_node_get(node_id):
+    obj = db.session.execute(
+        select(RawNode).where(RawNode.node_id == str(node_id))
+    ).scalar_one_or_none()
+
+    if obj is None:
+        return jsonify({'ok': False, 'error': 'not_found'}), 404
+
+    return jsonify(obj.payload_json or {})
+
+
+def _normalized_base_url(value: str) -> str:
+    return str(value or '').strip().rstrip('/')
+
+
+def _current_public_base_url() -> str:
+    base = _normalized_base_url(PUBLIC_API_BASE_URL)
+    if base:
+        return base
+    try:
+        return _normalized_base_url(request.url_root)
+    except Exception:
+        return ''
+
+
+def _hostname_candidates(host: str) -> set[str]:
+    host = str(host or '').strip().lower()
+    result = {host} if host else set()
+    if not host:
+        return result
+    try:
+        canon, aliases, addrs = socket.gethostbyname_ex(host)
+        if canon:
+            result.add(canon.lower())
+        for item in aliases or []:
+            if item:
+                result.add(str(item).lower())
+        for item in addrs or []:
+            if item:
+                result.add(str(item).lower())
+    except Exception:
+        pass
+    return {x for x in result if x}
+
+
+def _local_host_candidates() -> set[str]:
+    result = {
+        'localhost',
+        '127.0.0.1',
+        '::1',
+    }
+
+    for value in [
+        request.host.split(':', 1)[0] if getattr(request, 'host', None) else '',
+        urlparse(_current_public_base_url()).hostname or '',
+        os.environ.get('SERVER_NAME', ''),
+        socket.gethostname(),
+        socket.getfqdn(),
+    ]:
+        result.update(_hostname_candidates(value))
+
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None):
+            addr = info[4][0]
+            if addr:
+                result.add(str(addr).lower())
+    except Exception:
+        pass
+
+    extra = os.environ.get('SELF_BASE_URL_ALIASES', '')
+    for item in extra.split(','):
+        item = item.strip()
+        if not item:
+            continue
+        parsed = urlparse(item if '://' in item else f'http://{item}')
+        result.update(_hostname_candidates(parsed.hostname or item))
+
+    return {x for x in result if x}
+
+
+def _same_server_base_url(a: str, b: str) -> bool:
+    a = _normalized_base_url(a)
+    b = _normalized_base_url(b)
+    if not a or not b:
+        return False
+
+    pa = urlparse(a)
+    pb = urlparse(b)
+
+    def _normalized_port(p):
+        if p.port is not None:
+            return p.port
+        scheme = (p.scheme or '').lower()
+        return 443 if scheme == 'https' else 80
+
+    host_a = (pa.hostname or '').lower()
+    host_b = (pb.hostname or '').lower()
+
+    if not host_a or not host_b:
+        return False
+
+    candidates_a = _hostname_candidates(host_a)
+    candidates_b = _hostname_candidates(host_b)
+    local_candidates = _local_host_candidates()
+
+    same_host = bool(candidates_a & candidates_b)
+    if not same_host:
+        same_host = bool((candidates_a & local_candidates) and (candidates_b & local_candidates))
+
+    if not same_host:
+        return False
+
+    port_a = _normalized_port(pa)
+    port_b = _normalized_port(pb)
+    if port_a == port_b:
+        return True
+    # Reverse proxy / internal bind case: treat as same server when both hosts resolve to local machine.
+    return bool((candidates_a & local_candidates) and (candidates_b & local_candidates))
+
+
+def _extract_node_class_name(value) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ('full_name', 'code', 'uid', 'id', 'name'):
+            item = value.get(key)
+            if isinstance(item, str) and item.strip():
+                return item.strip()
+    return str(value or '').strip()
+
+
+def _raw_node_public_url(base_url: str, node_id: str) -> str:
+    return f"{_normalized_base_url(base_url)}/api/raw-node/{str(node_id or '').strip()}"
+
+
+def _save_raw_node_local(node_id: str, payload: dict, owner_user_id=None, content_type='node'):
+    obj = db.session.execute(
+        select(RawNode).where(RawNode.node_id == str(node_id))
+    ).scalar_one_or_none()
+
+    now = datetime.now(timezone.utc)
+
+    if obj is None:
+        obj = RawNode(
+            node_id=str(node_id),
+            payload_json=payload,
+            content_type=content_type,
+            owner_user_id=owner_user_id,
+            created_at=now,
+            updated_at=now,
+        )
+        db.session.add(obj)
+    else:
+        obj.payload_json = payload
+        obj.content_type = content_type
+        obj.updated_at = now
+        if owner_user_id is not None:
+            obj.owner_user_id = owner_user_id
+
+    db.session.commit()
+    return obj
+
+
+def _place_uploaded_node(upload_url: str, node: dict, auth=None, api_user=None):
+    if not isinstance(node, dict):
+        raise ValueError('each item in nodes must be an object')
+
+    raw_class = node.get('_class')
+    class_name = _extract_node_class_name(raw_class)
+    node_id = str(node.get('_id') or '').strip()
+    node_data = node.get('_data', {})
+
+    if raw_class is None or (isinstance(raw_class, str) and not raw_class.strip()):
+        raise ValueError('node._class is required')
+    if not class_name:
+        raise ValueError('node._class must contain a valid class identifier')
+    if not node_id:
+        raise ValueError('node._id is required')
+    if not isinstance(node_data, dict):
+        raise ValueError('node._data must be an object')
+
+    payload = {
+        '_class': raw_class,
+        '_id': node_id,
+        '_data': node_data,
+    }
+
+    current_base = _current_public_base_url()
+    target_base = _normalized_base_url(upload_url) or current_base
+    same_server = _same_server_base_url(target_base, current_base)
+
+    if same_server:
+        _save_raw_node_local(
+            node_id=node_id,
+            payload=payload,
+            owner_user_id=getattr(api_user, 'id', None),
+            content_type='node',
+        )
+    else:
+        resp = requests.post(
+            _raw_node_public_url(target_base, node_id),
+            json={
+                'payload': payload,
+                'content_type': 'node',
+            },
+            auth=auth,
+            timeout=20,
+        )
+        if resp.status_code >= 300:
+            raise RuntimeError(f'remote upload failed: {resp.status_code} {resp.text}')
+
+    raw_node_url = _raw_node_public_url(target_base, node_id)
+    return {
+        '_class': class_name,
+        '_id': node_id,
+        'raw_node_url': raw_node_url,
+        'push_payload': {
+            'type': 'node_download',
+            'class_name': class_name,
+            'node_id': node_id,
+            'node_uid': node_id,
+            'download_url': raw_node_url,
+            '_client_message_id': uuid.uuid4().hex,
+        }
+    }
+
+
+def _build_nodes_message_payload(placed_items):
+    push_items = [item.get('push_payload') for item in placed_items if isinstance(item.get('push_payload'), dict)]
+    if len(push_items) == 1:
+        return push_items[0]
+    return {
+        'type': 'node_download_list',
+        'items_json': json.dumps(push_items, ensure_ascii=False),
+        'count': str(len(push_items)),
+        '_client_message_id': uuid.uuid4().hex,
+    }
+
+
+@app.route('/api/user/<user_key>/nodes-message', methods=['POST'])
+@api_auth_required
+def push_user_nodes_message(user_key):
+    data = request.get_json(silent=True) or {}
+    upload_url = _normalized_base_url(data.get('upload_url')) or _current_public_base_url()
+    nodes = data.get('nodes')
+
+    if not isinstance(nodes, list) or not nodes:
+        return jsonify({
+            'ok': False,
+            'error': "'nodes' must be a non-empty array"
+        }), 400
+
+    auth = None
+    req_auth = request.authorization
+    if req_auth:
+        auth = (req_auth.username, req_auth.password)
+
+    api_user = getattr(g, 'api_user', None)
+
+    try:
+        placed_items = [
+            _place_uploaded_node(upload_url, node, auth=auth, api_user=api_user)
+            for node in nodes
+        ]
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+    payload = _build_nodes_message_payload(placed_items)
+    title = data.get('title') or (placed_items[0].get('_id') if len(placed_items) == 1 else f'Nodes:{len(placed_items)}')
+    body = data.get('body') or ('Node' if len(placed_items) == 1 else f'{len(placed_items)} nodes')
+    explicit_sender = data.get('sender_user')
+    sender_user = _get_sender_user(explicit_sender)
+
+    result = send_message_to_user_global(user_key, title, body, payload, sender_user=sender_user)
+
+    response_items = [{
+        '_class': item.get('_class'),
+        '_id': item.get('_id'),
+        'raw_node_url': item.get('raw_node_url'),
+    } for item in placed_items]
+
+    return jsonify({
+        'ok': bool(result.get('ok')),
+        'user_key': user_key,
+        'upload_url': upload_url,
+        'placed': response_items,
+        'message': payload,
+        'result': result,
+    }), (200 if result.get('ok') else 400)
 
 
 @app.route('/users/create', methods=['POST'])
@@ -2702,6 +3422,116 @@ def dashboard():
     
     return render_template('dashboard.html', configs=configs, rooms=rooms)
 
+
+def _contract_total_object_count(contract: Contract):
+    try:
+        live_items = _load_live_contract_snapshot(contract)[1] or {}
+    except Exception:
+        live_items = {}
+    try:
+        pushed_items = _load_pushed_contract_snapshot(contract) or {}
+    except Exception:
+        pushed_items = {}
+    merged = dict(live_items)
+    merged.update(pushed_items)
+    return len(merged)
+
+
+@app.route('/contracts')
+@login_required
+def contracts_page():
+    contracts = db.session.execute(
+        select(Contract).where(Contract.user_id == current_user.id).order_by(Contract.updated_at.desc(), Contract.created_at.desc())
+    ).scalars().all()
+    contracts_with_stats = []
+    for contract in contracts:
+        contracts_with_stats.append({
+            'model': contract,
+            'object_count': _contract_total_object_count(contract),
+        })
+    configs = _contract_accessible_configs(current_user)
+    config_classes = {str(cfg.uid): [str(getattr(c, 'name', '') or '') for c in (cfg.classes or []) if str(getattr(c, 'name', '') or '').strip()] for cfg in configs}
+    return render_template('contracts.html', contracts=contracts_with_stats, configs=configs, config_classes=config_classes)
+
+
+@app.route('/contracts/create', methods=['POST'])
+@login_required
+def contracts_create():
+    data = {
+        'name': request.form.get('name'),
+        'display_name': request.form.get('display_name'),
+        'source_type': request.form.get('source_type'),
+        'source_config_uid': request.form.get('source_config_uid'),
+        'class_name': request.form.get('class_name'),
+        'global_index_name': request.form.get('global_index_name'),
+        'global_index_value': request.form.get('global_index_value'),
+    }
+
+    contract = Contract(user_id=current_user.id)
+    try:
+        _contract_update_from_data(contract, data, current_user)
+    except ValueError as e:
+        flash(str(e), 'error')
+        return redirect(url_for('contracts_page'))
+    except PermissionError:
+        abort(403)
+
+    db.session.add(contract)
+    db.session.commit()
+    flash(_('Contract created'), 'success')
+    return redirect(url_for('contracts_page'))
+
+
+@app.route('/contracts/<contract_uid>/update', methods=['POST'])
+@login_required
+def contracts_update(contract_uid):
+    contract = _get_owned_contract_or_404(contract_uid, actor=current_user)
+
+    data = {
+        'name': request.form.get('name'),
+        'display_name': request.form.get('display_name'),
+        'source_type': request.form.get('source_type'),
+        'source_config_uid': request.form.get('source_config_uid'),
+        'class_name': request.form.get('class_name'),
+        'global_index_name': request.form.get('global_index_name'),
+        'global_index_value': request.form.get('global_index_value'),
+    }
+
+    try:
+        _contract_update_from_data(contract, data, current_user)
+    except ValueError as e:
+        flash(str(e), 'error')
+        return redirect(url_for('contracts_page'))
+    except PermissionError:
+        abort(403)
+
+    db.session.commit()
+    flash(_('Contract updated'), 'success')
+    return redirect(url_for('contracts_page'))
+
+
+@app.route('/contracts/<contract_uid>/delete', methods=['POST'])
+@login_required
+def contracts_delete(contract_uid):
+    contract = _get_owned_contract_or_404(contract_uid, actor=current_user)
+    db.session.delete(contract)
+    db.session.commit()
+    flash(_('Contract deleted'), 'success')
+    return redirect(url_for('contracts_page'))
+
+
+@app.route('/contracts/<contract_uid>/qr.png', methods=['GET'])
+@login_required
+def contracts_qr(contract_uid):
+    contract = _get_owned_contract_or_404(contract_uid, actor=current_user)
+    qr_payload = json.dumps(_contract_add_payload(contract), ensure_ascii=False, separators=(',', ':'))
+    img = qrcode.make(qr_payload)
+    buf = BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+    return send_file(buf, mimetype='image/png', download_name=f'contract-{contract.uid}.png')
+
+
 @app.route('/delete-config/<uid>')
 @login_required
 def delete_config(uid):
@@ -2996,6 +3826,7 @@ def get_config(uid):
                 'migration_register_on_save': bool(getattr(c, 'migration_register_on_save', False)),
                 'migration_default_room_uid': getattr(c, 'migration_default_room_uid', '') or '',
                 'migration_default_room_alias': getattr(c, 'migration_default_room_alias', '') or '',
+                'link_share_mode': getattr(c, 'link_share_mode', '') or '',
                 'indexes': getattr(c, 'indexes_json', None) or [],
                 'class_type': c.class_type,
                 'hidden': c.hidden,
@@ -4358,6 +5189,7 @@ def edit_class(class_id):
         class_obj.migration_register_command = 'migration_register_command' in request.form
         class_obj.migration_register_on_save = 'migration_register_on_save' in request.form
         class_obj.migration_default_room_alias = (request.form.get('migration_default_room_alias') or '').strip()
+        class_obj.link_share_mode = (request.form.get('link_share_mode') or '').strip()
         # Backward compatibility: keep old UID if it's still posted
         if 'migration_default_room_uid' in request.form:
             class_obj.migration_default_room_uid = (request.form.get('migration_default_room_uid') or '').strip()
@@ -4897,6 +5729,587 @@ def _build_runtime_parsed_config(config: Configuration) -> dict:
     except Exception:
         pass
     return {"classes": classes}
+
+
+
+def _compact_clean(value):
+    if isinstance(value, dict):
+        cleaned = {}
+        for k, v in value.items():
+            vv = _compact_clean(v)
+            if vv in (None, "", [], {}):
+                continue
+            cleaned[k] = vv
+        return cleaned
+    if isinstance(value, list):
+        cleaned = [_compact_clean(v) for v in value]
+        return [v for v in cleaned if v not in (None, "", [], {})]
+    return value
+
+
+def _export_class_json(class_obj: ConfigClass) -> dict:
+    data = {
+        'name': class_obj.name,
+    }
+
+    if getattr(class_obj, 'section', None):
+        data['section'] = class_obj.section
+    if getattr(class_obj, 'section_code', None):
+        data['section_code'] = class_obj.section_code
+    if bool(getattr(class_obj, 'has_storage', False)):
+        data['has_storage'] = True
+    if (getattr(class_obj, 'display_name', '') or '').strip() and (class_obj.display_name or '').strip() != (class_obj.name or '').strip():
+        data['display_name'] = class_obj.display_name
+    if (getattr(class_obj, 'record_view', '') or '').strip():
+        data['record_view'] = class_obj.record_view
+    if (getattr(class_obj, 'cover_image', '') or '').strip():
+        data['cover_image'] = class_obj.cover_image
+    if (getattr(class_obj, 'display_image_web', '') or '').strip():
+        data['display_image_web'] = class_obj.display_image_web
+    if (getattr(class_obj, 'display_image_table', '') or '').strip():
+        data['display_image_table'] = class_obj.display_image_table
+    if (getattr(class_obj, 'init_screen_layout', '') or '').strip():
+        data['init_screen_layout'] = class_obj.init_screen_layout
+    if (getattr(class_obj, 'init_screen_layout_web', '') or '').strip():
+        data['init_screen_layout_web'] = class_obj.init_screen_layout_web
+    if (getattr(class_obj, 'plug_in', '') or '').strip():
+        data['plug_in'] = class_obj.plug_in
+    if (getattr(class_obj, 'plug_in_web', '') or '').strip():
+        data['plug_in_web'] = class_obj.plug_in_web
+    if (getattr(class_obj, 'commands', '') or '').strip():
+        data['commands'] = class_obj.commands
+    if bool(getattr(class_obj, 'use_standard_commands', True)) is False:
+        data['use_standard_commands'] = False
+    if (getattr(class_obj, 'svg_commands', '') or '').strip():
+        data['svg_commands'] = class_obj.svg_commands
+    if bool(getattr(class_obj, 'migration_register_command', False)):
+        data['migration_register_command'] = True
+    if bool(getattr(class_obj, 'migration_register_on_save', False)):
+        data['migration_register_on_save'] = True
+    if (getattr(class_obj, 'migration_default_room_uid', '') or '').strip():
+        data['migration_default_room_uid'] = class_obj.migration_default_room_uid
+    if (getattr(class_obj, 'migration_default_room_alias', '') or '').strip():
+        data['migration_default_room_alias'] = class_obj.migration_default_room_alias
+    if (getattr(class_obj, 'link_share_mode', '') or '').strip():
+        data['link_share_mode'] = class_obj.link_share_mode
+    if getattr(class_obj, 'indexes_json', None):
+        data['indexes'] = class_obj.indexes_json
+    if (getattr(class_obj, 'class_type', '') or '').strip():
+        data['class_type'] = class_obj.class_type
+    if bool(getattr(class_obj, 'hidden', False)):
+        data['hidden'] = True
+
+    methods = []
+    for m in (getattr(class_obj, 'methods', None) or []):
+        md = {
+            'name': m.name,
+            'code': m.code,
+        }
+        if (getattr(m, 'source', '') or '').strip() and (m.source or '').strip() != 'internal':
+            md['source'] = m.source
+        if (getattr(m, 'engine', '') or '').strip():
+            md['engine'] = m.engine
+        if (getattr(m, 'server', '') or '').strip() and (m.server or '').strip() != 'internal':
+            md['server'] = m.server
+        methods.append(_compact_clean(md))
+    if methods:
+        data['methods'] = methods
+
+    events = []
+    for e in (getattr(class_obj, 'event_objs', None) or []):
+        ed = {
+            'event': getattr(e, 'event', ''),
+        }
+        if (getattr(e, 'listener', '') or '').strip():
+            ed['listener'] = e.listener
+        actions = []
+        for a in (getattr(e, 'actions', None) or []):
+            actions.append(_compact_clean({
+                'action': getattr(a, 'action', ''),
+                'source': getattr(a, 'source', ''),
+                'server': getattr(a, 'server', ''),
+                'method': getattr(a, 'method', ''),
+                'postExecuteMethod': getattr(a, 'post_execute_method', ''),
+                'methodText': getattr(a, 'method_text', ''),
+                'postExecuteMethodText': getattr(a, 'post_execute_text', ''),
+                'httpFunctionName': getattr(a, 'http_function_name', ''),
+                'postHttpFunctionName': getattr(a, 'post_http_function_name', ''),
+            }))
+        if actions:
+            ed['actions'] = actions
+        events.append(_compact_clean(ed))
+    if events:
+        data['events'] = events
+
+    return _compact_clean(data)
+
+
+def _normalize_contract_source_type(raw_value: str) -> str:
+    val = str(raw_value or '').strip().lower()
+    if val in {'class', 'global_index', 'external_only'}:
+        return val
+    if val in {'external', 'post', 'push', 'post_only'}:
+        return 'external_only'
+    return 'class'
+
+
+def _object_id_from_payload(payload: dict) -> str:
+    if not isinstance(payload, dict):
+        return ''
+    for key in ('_id', 'id', 'uid'):
+        v = payload.get(key)
+        if v:
+            return str(v).strip()
+    data = payload.get('_data')
+    if isinstance(data, dict):
+        for key in ('_id', 'id', 'uid'):
+            v = data.get(key)
+            if v:
+                return str(v).strip()
+    return ''
+
+
+def _object_version_from_payload(payload: dict) -> str:
+    if not isinstance(payload, dict):
+        return ''
+    for key in ('_updated_at', '_version', 'updated_at', 'version'):
+        v = payload.get(key)
+        if v:
+            return str(v).strip()
+    data = payload.get('_data')
+    if isinstance(data, dict):
+        for key in ('_updated_at', '_version', 'updated_at', 'version'):
+            v = data.get(key)
+            if v:
+                return str(v).strip()
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _contract_public_url(contract: Contract) -> str:
+    return url_for('contract_download', contract_uid=contract.uid, _external=True)
+
+
+def _contract_ack_url(contract: Contract) -> str:
+    return url_for('contract_ack', contract_uid=contract.uid, _external=True)
+
+
+def _contract_add_url(contract: Contract) -> str:
+    return url_for('contract_add_info', contract_uid=contract.uid, _external=True)
+
+
+def _contract_add_payload(contract: Contract) -> dict:
+    return {
+        'name': contract.name or '',
+        'display_name': contract.display_name or '',
+        'download_url': _contract_public_url(contract),
+        'ack_url': _contract_ack_url(contract),
+    }
+
+
+def _contract_accessible_configs(user):
+    if not user:
+        return []
+    shared_cfg_ids = select(UserConfigAccess.config_id).where(UserConfigAccess.user_id == user.id)
+    stmt = (
+        select(Configuration)
+        .where(sa.or_(Configuration.user_id == user.id, Configuration.id.in_(shared_cfg_ids)))
+        .order_by(Configuration.name)
+    )
+    return db.session.execute(stmt).scalars().all()
+
+
+def _contract_update_from_data(contract: Contract, data: dict, actor) -> Contract:
+    name = str((data or {}).get('name') or '').strip()
+    if not name:
+        raise ValueError(_('Name is required'))
+
+    source_type = _normalize_contract_source_type((data or {}).get('source_type'))
+    source_config_uid = str((data or {}).get('source_config_uid') or (data or {}).get('config_uid') or '').strip()
+    if source_config_uid and actor and not user_can_access_config(actor, source_config_uid):
+        own_cfg = db.session.execute(
+            select(Configuration).where(Configuration.uid == source_config_uid, Configuration.user_id == actor.id)
+        ).scalar_one_or_none()
+        if own_cfg is None:
+            raise PermissionError('Forbidden')
+
+    contract.name = name
+    contract.display_name = str((data or {}).get('display_name') or '').strip()
+    contract.source_type = source_type
+    contract.source_config_uid = source_config_uid
+    contract.class_name = str((data or {}).get('class_name') or '').strip()
+    contract.global_index_name = str((data or {}).get('global_index_name') or (data or {}).get('index_name') or '').strip()
+    contract.global_index_value = str((data or {}).get('global_index_value') or (data or {}).get('index_value') or '').strip()
+    if 'external_class_json' in (data or {}):
+        contract.external_class_json = (data or {}).get('external_class_json') if isinstance((data or {}).get('external_class_json'), dict) else None
+    contract.updated_at = datetime.now(timezone.utc)
+    return contract
+
+
+def _request_actor_for_contract_write():
+    auth = request.authorization
+    if auth:
+        user = check_api_auth(auth.username, auth.password)
+        if user and bool(getattr(user, 'can_api', False)):
+            return user
+    if getattr(current_user, 'is_authenticated', False):
+        return current_user
+    return None
+
+
+def _get_owned_contract_or_404(contract_uid: str, actor=None) -> Contract:
+    actor = actor or _request_actor_for_contract_write()
+    if actor is None:
+        abort(401)
+    contract = db.session.execute(
+        select(Contract).where(Contract.uid == str(contract_uid).strip())
+    ).scalar_one_or_none()
+    if not contract:
+        abort(404)
+    if int(contract.user_id) != int(actor.id):
+        abort(403)
+    return contract
+
+
+def _load_live_contract_snapshot(contract: Contract):
+    class_json = None
+    items = {}
+
+    cfg_uid = str(getattr(contract, 'source_config_uid', '') or '').strip()
+    class_name = str(getattr(contract, 'class_name', '') or '').strip()
+    source_type = _normalize_contract_source_type(getattr(contract, 'source_type', 'class'))
+    if not cfg_uid or not class_name:
+        return class_json, items
+
+    config = db.session.execute(select(Configuration).where(Configuration.uid == cfg_uid)).scalar_one_or_none()
+    if not config:
+        return class_json, items
+
+    class_obj = next((c for c in (config.classes or []) if str(c.name or '') == class_name), None)
+    if class_obj is not None:
+        class_json = _export_class_json(class_obj)
+
+    runtime_parsed = _build_runtime_parsed_config(config)
+    ctx_tokens = _nodes_mod.set_runtime_context(cfg_uid, runtime_parsed)
+    try:
+        isolated_globals = _load_server_handlers_ns(cfg_uid, config) or {}
+        node_class = isolated_globals.get(class_name)
+        if node_class is None:
+            return class_json, items
+
+        if source_type == 'global_index' and (str(getattr(contract, 'global_index_name', '') or '').strip()):
+            idx_name = str(contract.global_index_name or '').strip()
+            idx_value = str(contract.global_index_value or '').strip()
+            global_finder = getattr(_nodes_mod, 'findByGlobalIndex', None) or getattr(_nodes_mod, 'find_by_global_index', None)
+            global_getter = getattr(_nodes_mod, 'getByGlobalIndex', None) or getattr(_nodes_mod, 'get_by_global_index', None)
+            if callable(global_finder):
+                raw_nodes = global_finder(idx_name, idx_value)
+                if isinstance(raw_nodes, dict):
+                    iterable = list((raw_nodes or {}).values())
+                elif isinstance(raw_nodes, (list, tuple, set)):
+                    iterable = list(raw_nodes)
+                elif raw_nodes is None:
+                    iterable = []
+                else:
+                    iterable = [raw_nodes]
+            elif callable(global_getter):
+                one_node = global_getter(idx_name, idx_value)
+                iterable = [one_node] if one_node is not None else []
+            else:
+                iterable = []
+        else:
+            raw_nodes = node_class.get_all(cfg_uid) or {}
+            iterable = list(raw_nodes.values())
+
+        for node in iterable:
+            try:
+                payload = node.to_dict()
+            except Exception:
+                continue
+            if not isinstance(payload, dict):
+                continue
+
+            payload_cfg = str(payload.get('_config_uid') or getattr(node, '_config_uid', '') or '').strip()
+            payload_class = str(payload.get('_class') or payload.get('_data', {}).get('_class') or node.__class__.__name__ or '').strip()
+            if payload_cfg and payload_cfg != cfg_uid:
+                continue
+            if payload_class and payload_class != class_name:
+                continue
+
+            object_id = _object_id_from_payload(payload)
+            if not object_id:
+                continue
+            items[object_id] = {
+                'payload': payload,
+                'version': _object_version_from_payload(payload),
+                'source': 'live',
+            }
+    finally:
+        _nodes_mod.reset_runtime_context(ctx_tokens)
+
+    return class_json, items
+
+
+def _load_pushed_contract_snapshot(contract: Contract):
+    items = {}
+    for row in (getattr(contract, 'pushed_objects', None) or []):
+        payload = row.payload_json if isinstance(row.payload_json, dict) else {}
+        object_id = str(row.object_id or '').strip() or _object_id_from_payload(payload)
+        if not object_id:
+            continue
+        items[object_id] = {
+            'payload': payload,
+            'version': str(row.object_version or (row.updated_at.isoformat() if row.updated_at else '')),
+            'source': 'push',
+        }
+    return items
+
+
+def _build_contract_delivery(contract: Contract, device_id: str = ''):
+    live_class_json, live_items = _load_live_contract_snapshot(contract)
+    pushed_items = _load_pushed_contract_snapshot(contract)
+
+    items = dict(live_items or {})
+    items.update(pushed_items or {})
+
+    class_json = contract.external_class_json or live_class_json
+
+    ack_map = {}
+    if device_id:
+        ack_rows = db.session.execute(
+            select(ContractAck).where(ContractAck.contract_id == contract.id, ContractAck.device_id == device_id)
+        ).scalars().all()
+        ack_map = {str(a.object_id): str(a.object_version or '') for a in ack_rows}
+
+    out_objects = []
+    for object_id, item in sorted(items.items(), key=lambda kv: str(kv[0])):
+        version = str(item.get('version') or '')
+        if device_id and ack_map.get(str(object_id)) == version:
+            continue
+        payload = item.get('payload') if isinstance(item.get('payload'), dict) else {}
+        if isinstance(payload, dict):
+            out_objects.append(payload)
+
+    return {
+        '_class': class_json or {},
+        '_data_objects': out_objects,
+    }
+
+
+def _upsert_contract_pushed_objects(contract: Contract, payload, external_class_json=None):
+    if isinstance(payload, dict) and '_data_objects' in payload:
+        objects = payload.get('_data_objects') or []
+        external_class_json = payload.get('_class') if '_class' in payload else external_class_json
+    elif isinstance(payload, dict):
+        objects = [payload]
+    elif isinstance(payload, list):
+        objects = payload
+    else:
+        objects = []
+
+    if external_class_json is not None:
+        contract.external_class_json = external_class_json if isinstance(external_class_json, dict) else None
+
+    upserted = []
+    now_version = datetime.now(timezone.utc).isoformat()
+
+    for raw in (objects or []):
+        if not isinstance(raw, dict):
+            continue
+        object_id = _object_id_from_payload(raw)
+        if not object_id:
+            continue
+        object_version = _object_version_from_payload(raw) or now_version
+        row = db.session.execute(
+            select(ContractObject).where(ContractObject.contract_id == contract.id, ContractObject.object_id == object_id)
+        ).scalar_one_or_none()
+        if row is None:
+            row = ContractObject(
+                contract_id=contract.id,
+                object_id=object_id,
+                payload_json=raw,
+                object_version=object_version,
+            )
+            db.session.add(row)
+        else:
+            row.payload_json = raw
+            row.object_version = object_version
+            row.updated_at = datetime.now(timezone.utc)
+        upserted.append(object_id)
+
+    contract.updated_at = datetime.now(timezone.utc)
+    return upserted
+
+
+def _contract_to_dict(contract: Contract) -> dict:
+    return {
+        'uid': contract.uid,
+        'name': contract.name,
+        'display_name': contract.display_name or '',
+        'source_type': contract.source_type,
+        'source_config_uid': contract.source_config_uid or '',
+        'class_name': contract.class_name or '',
+        'global_index_name': contract.global_index_name or '',
+        'global_index_value': contract.global_index_value or '',
+        'download_url': _contract_public_url(contract),
+        'ack_url': _contract_ack_url(contract),
+        'add_url': _contract_add_url(contract),
+        'created_at': contract.created_at.isoformat() if contract.created_at else None,
+        'updated_at': contract.updated_at.isoformat() if contract.updated_at else None,
+    }
+
+
+@app.route('/class/<int:class_id>/export-json', methods=['GET'])
+@login_required
+def export_class_json(class_id):
+    class_obj = db.session.get(ConfigClass, class_id)
+    if not class_obj:
+        abort(404)
+    if class_obj.config.user_id != current_user.id:
+        abort(403)
+
+    payload = _export_class_json(class_obj)
+    buf = io.BytesIO(json.dumps(payload, ensure_ascii=False, indent=2).encode('utf-8'))
+    filename = f"{class_obj.name or 'class'}.json"
+    return send_file(buf, as_attachment=True, download_name=filename, mimetype='application/json')
+
+
+@app.route('/api/contracts', methods=['POST'])
+def create_contract_api():
+    actor = _request_actor_for_contract_write()
+    if actor is None:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data = request.get_json(silent=True) or {}
+    contract = Contract(user_id=actor.id)
+    try:
+        _contract_update_from_data(contract, data, actor)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except PermissionError:
+        return jsonify({'error': 'Forbidden'}), 403
+
+    db.session.add(contract)
+    db.session.commit()
+    return jsonify({'ok': True, 'contract': _contract_to_dict(contract)}), 201
+
+
+@app.route('/api/contracts/<contract_uid>', methods=['DELETE'])
+def delete_contract_api(contract_uid):
+    contract = _get_owned_contract_or_404(contract_uid)
+    db.session.delete(contract)
+    db.session.commit()
+    return jsonify({'ok': True, 'uid': contract_uid})
+
+
+@app.route('/api/contracts/<contract_uid>', methods=['PUT', 'PATCH'])
+def update_contract_api(contract_uid):
+    actor = _request_actor_for_contract_write()
+    contract = _get_owned_contract_or_404(contract_uid, actor=actor)
+    data = request.get_json(silent=True) or {}
+    try:
+        _contract_update_from_data(contract, data, actor)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except PermissionError:
+        return jsonify({'error': 'Forbidden'}), 403
+
+    db.session.commit()
+    return jsonify({'ok': True, 'contract': _contract_to_dict(contract)})
+
+
+@app.route('/api/contracts/<contract_uid>', methods=['GET'])
+def contract_download(contract_uid):
+    contract = db.session.execute(
+        select(Contract).where(Contract.uid == str(contract_uid).strip())
+    ).scalar_one_or_none()
+    if not contract:
+        return jsonify({'error': 'Not found'}), 404
+
+    device_id = str(request.args.get('device_id') or '').strip()
+    payload = _build_contract_delivery(contract, device_id=device_id)
+    return jsonify(payload)
+
+
+@app.route('/api/contracts/<contract_uid>/add', methods=['GET'])
+def contract_add_info(contract_uid):
+    contract = db.session.execute(
+        select(Contract).where(Contract.uid == str(contract_uid).strip())
+    ).scalar_one_or_none()
+    if not contract:
+        return jsonify({'error': 'Not found'}), 404
+
+    return jsonify(_contract_add_payload(contract))
+
+
+@app.route('/api/contracts/<contract_uid>/ack', methods=['POST'])
+def contract_ack(contract_uid):
+    contract = db.session.execute(
+        select(Contract).where(Contract.uid == str(contract_uid).strip())
+    ).scalar_one_or_none()
+    if not contract:
+        return jsonify({'error': 'Not found'}), 404
+
+    data = request.get_json(silent=True) or {}
+    device_id = str(data.get('device_id') or request.args.get('device_id') or '').strip()
+    if not device_id:
+        return jsonify({'error': 'device_id is required'}), 400
+
+    raw_ids = data.get('_ids', data.get('ids', []))
+    if isinstance(raw_ids, str):
+        object_ids = [raw_ids]
+    else:
+        object_ids = [str(x).strip() for x in (raw_ids or []) if str(x).strip()]
+
+    live_class_json, live_items = _load_live_contract_snapshot(contract)
+    pushed_items = _load_pushed_contract_snapshot(contract)
+    merged = dict(live_items or {})
+    merged.update(pushed_items or {})
+    version_map = {str(oid): str(item.get('version') or '') for oid, item in merged.items()}
+
+    acked = []
+    for object_id in object_ids:
+        row = db.session.execute(
+            select(ContractAck).where(
+                ContractAck.contract_id == contract.id,
+                ContractAck.device_id == device_id,
+                ContractAck.object_id == object_id,
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            row = ContractAck(contract_id=contract.id, device_id=device_id, object_id=object_id)
+            db.session.add(row)
+        row.object_version = version_map.get(object_id, '')
+        row.acked_at = datetime.now(timezone.utc)
+        acked.append(object_id)
+
+    db.session.commit()
+    return jsonify({'ok': True, 'device_id': device_id, 'acked_ids': acked})
+
+
+@app.route('/api/contracts/<contract_uid>/push', methods=['POST'])
+def contract_push(contract_uid):
+    contract = db.session.execute(
+        select(Contract).where(Contract.uid == str(contract_uid).strip())
+    ).scalar_one_or_none()
+    if not contract:
+        return jsonify({'error': 'Not found'}), 404
+
+    payload = request.get_json(silent=True)
+    if payload is None:
+        return jsonify({'error': 'JSON body is required'}), 400
+
+    upserted = _upsert_contract_pushed_objects(contract, payload)
+    db.session.commit()
+    return jsonify({'ok': True, 'updated_ids': upserted, 'count': len(upserted)})
+
+
+
+# Best-effort creation of newly added tables when the app is imported via WSGI/flask run.
+try:
+    with app.app_context():
+        db.create_all()
+except Exception as _e:
+    print('Late db.create_all skipped:', _e)
 
 @app.route('/api/config/<config_uid>/node/<class_name>/<node_id>/<method_name>', methods=['POST'])
 @api_auth_required
@@ -6166,11 +7579,87 @@ def _get_sender_user(explicit_sender=None):
     return ''
 
 
+def _get_sender_display_name(explicit_sender=None):
+    sender_user = _get_sender_user(explicit_sender)
+    if not sender_user:
+        return ''
+
+    try:
+        api_user = getattr(g, 'api_user', None)
+        if api_user and getattr(api_user, 'email', None):
+            api_email = str(api_user.email).strip()
+            if api_email.lower() == sender_user.lower():
+                return str(getattr(api_user, 'config_display_name', '') or api_email).strip()
+    except Exception:
+        pass
+
+    try:
+        if getattr(current_user, 'is_authenticated', False) and getattr(current_user, 'email', None):
+            current_email = str(current_user.email).strip()
+            if current_email.lower() == sender_user.lower():
+                return str(getattr(current_user, 'config_display_name', '') or current_email).strip()
+    except Exception:
+        pass
+
+    try:
+        user = User.query.filter_by(email=sender_user).first()
+        if user:
+            return str(getattr(user, 'config_display_name', '') or getattr(user, 'email', '') or sender_user).strip()
+    except Exception:
+        pass
+
+    return sender_user
+
+
 def _normalize_message_payload(payload, sender_user=None):
     sender_user = _get_sender_user(sender_user)
+    sender_display_name = _get_sender_display_name(sender_user)
 
     if isinstance(payload, dict):
-        return {str(k): v for k, v in payload.items()}, {'kind': 'json', 'sender_user': sender_user}
+        out = {str(k): v for k, v in payload.items()}
+
+        if sender_user:
+            out.setdefault('sender_user', sender_user)
+        if sender_display_name:
+            out.setdefault('sender_display_name', sender_display_name)
+
+        is_node_download = bool(out.get('download_url') or out.get('node_uid'))
+        is_node_download_list = str(out.get('type') or '').strip() == 'node_download_list'
+
+        if sender_user and (is_node_download or is_node_download_list):
+            out['sender_user'] = sender_user
+        if sender_display_name and (is_node_download or is_node_download_list):
+            out['sender_display_name'] = sender_display_name
+
+        if sender_user and is_node_download_list:
+            items = None
+            if isinstance(out.get('items'), list):
+                items = out.get('items')
+            elif isinstance(out.get('items_json'), str):
+                try:
+                    parsed = json.loads(out.get('items_json') or '[]')
+                    if isinstance(parsed, list):
+                        items = parsed
+                except Exception:
+                    items = None
+
+            if isinstance(items, list):
+                normalized_items = []
+                for item in items:
+                    if isinstance(item, dict):
+                        item_out = {str(k): v for k, v in item.items()}
+                        if item_out.get('download_url') or item_out.get('node_uid'):
+                            item_out['sender_user'] = sender_user
+                            if sender_display_name:
+                                item_out['sender_display_name'] = sender_display_name
+                        normalized_items.append(item_out)
+                    else:
+                        normalized_items.append(item)
+                out['items_json'] = json.dumps(normalized_items, ensure_ascii=False)
+                if 'items' in out:
+                    out['items'] = normalized_items
+
+        return out, {'kind': 'json', 'sender_user': sender_user, 'sender_display_name': sender_display_name}
 
     is_node_like = hasattr(payload, '_config_uid') and hasattr(payload, '_id')
     if is_node_like:
@@ -6190,7 +7679,9 @@ def _normalize_message_payload(payload, sender_user=None):
         }
         if sender_user:
             out['sender_user'] = sender_user
-        return out, {'kind': 'node', 'sender_user': sender_user}
+        if sender_display_name:
+            out['sender_display_name'] = sender_display_name
+        return out, {'kind': 'node', 'sender_user': sender_user, 'sender_display_name': sender_display_name}
 
     if isinstance(payload, str):
         raw = payload.strip()
@@ -6209,40 +7700,416 @@ def _normalize_message_payload(payload, sender_user=None):
             }
             if sender_user:
                 out['sender_user'] = sender_user
-            return out, {'kind': 'node', 'sender_user': sender_user}
-        return {'value': raw}, {'kind': 'json', 'sender_user': sender_user}
+            if sender_display_name:
+                out['sender_display_name'] = sender_display_name
+            return out, {'kind': 'node', 'sender_user': sender_user, 'sender_display_name': sender_display_name}
+        out = {'value': raw}
+        if sender_user:
+            out.setdefault('sender_user', sender_user)
+        if sender_display_name:
+            out.setdefault('sender_display_name', sender_display_name)
+        return out, {'kind': 'json', 'sender_user': sender_user, 'sender_display_name': sender_display_name}
 
     if payload is None:
-        return {}, {'kind': 'json', 'sender_user': sender_user}
+        out = {}
+        if sender_user:
+            out.setdefault('sender_user', sender_user)
+        if sender_display_name:
+            out.setdefault('sender_display_name', sender_display_name)
+        return out, {'kind': 'json', 'sender_user': sender_user, 'sender_display_name': sender_display_name}
 
     try:
-        return {'value': json.dumps(payload, ensure_ascii=False, default=str)}, {'kind': 'json', 'sender_user': sender_user}
+        out = {'value': json.dumps(payload, ensure_ascii=False, default=str)}
     except Exception:
-        return {'value': str(payload)}, {'kind': 'json', 'sender_user': sender_user}
+        out = {'value': str(payload)}
+    if sender_user:
+        out.setdefault('sender_user', sender_user)
+    if sender_display_name:
+        out.setdefault('sender_display_name', sender_display_name)
+    return out, {'kind': 'json', 'sender_user': sender_user, 'sender_display_name': sender_display_name}
 
 
+def _ensure_payload_client_message_id(payload):
+    if not isinstance(payload, dict):
+        payload = {}
+    client_message_id = str(payload.get('_client_message_id') or payload.get('client_message_id') or '').strip()
+    if not client_message_id:
+        client_message_id = uuid.uuid4().hex
+    payload['_client_message_id'] = client_message_id
+    payload.setdefault('client_message_id', client_message_id)
+    return payload, client_message_id
+
+
+def _upsert_outgoing_message_log(client_message_id, target_type, target_id, title, body, payload, sender_user=None):
+    client_message_id = str(client_message_id or '').strip()
+    if not client_message_id:
+        return None
+
+    msg = OutgoingMessageLog.query.filter_by(client_message_id=client_message_id).first()
+    now = datetime.now(timezone.utc)
+    if not msg:
+        msg = OutgoingMessageLog(
+            client_message_id=client_message_id,
+            created_at=now,
+        )
+        db.session.add(msg)
+
+    msg.sender_user = str(sender_user or '').strip() or None
+    msg.target_type = str(target_type or '').strip() or 'user'
+    msg.target_id = str(target_id or '').strip()
+    msg.title = str(title or '')
+    msg.body = str(body or '')
+    msg.payload_json = payload if isinstance(payload, dict) else {'value': str(payload or '')}
+    msg.status = 'accepted'
+    msg.accepted_at = now
+    if msg.last_error:
+        msg.last_error = None
+    db.session.commit()
+    return msg
+
+
+def _mark_outgoing_message_push_result(client_message_id, result):
+    client_message_id = str(client_message_id or '').strip()
+    if not client_message_id:
+        return None
+    msg = OutgoingMessageLog.query.filter_by(client_message_id=client_message_id).first()
+    if not msg:
+        return None
+
+    now = datetime.now(timezone.utc)
+    if bool((result or {}).get('ok')):
+        msg.status = 'pushed'
+        msg.pushed_at = now
+        msg.last_error = None
+    else:
+        msg.status = 'error'
+        msg.last_error = str((result or {}).get('error') or (result or {}).get('details') or '')
+    db.session.commit()
+    return msg
+
+
+def _is_same_gateway_host() -> bool:
+    try:
+        current = (request.host_url or '').strip().rstrip('/')
+        gateway = (NMAKER_SERVER_URL or PUSH_GATEWAY_URL or '').strip().rstrip('/')
+        if not current or not gateway:
+            return False
+        return urlparse(current).netloc.lower() == urlparse(gateway).netloc.lower()
+    except Exception:
+        return False
+    
 def send_message_to_user_global(user_key, title, body, payload=None, sender_user=None):
     user_key = str(user_key or '').strip()
     if not user_key:
         return {'ok': False, 'error': 'user_key is required'}
+
     normalized_payload, meta = _normalize_message_payload(payload, sender_user=sender_user)
     if normalized_payload is None:
         return {'ok': False, 'error': meta.get('error') or 'payload normalization failed', 'user_key': user_key}
+
     if isinstance(normalized_payload, dict):
         normalized_payload.setdefault('user_key', user_key)
-    return _gateway_send_user(user_key, title, body, normalized_payload)
+    normalized_payload, client_message_id = _ensure_payload_client_message_id(normalized_payload)
+
+    _upsert_outgoing_message_log(
+        client_message_id=client_message_id,
+        target_type='user',
+        target_id=user_key,
+        title=title,
+        body=body,
+        payload=normalized_payload,
+        sender_user=sender_user,
+    )
+
+    if _is_same_gateway_host():
+        result = send_message_to_user_internal(user_key, title, body, normalized_payload)
+        result.setdefault('via', 'internal-user')
+    else:
+        result = _gateway_send_user(user_key, title, body, normalized_payload)
+
+    _mark_outgoing_message_push_result(client_message_id, result)
+    if isinstance(result, dict):
+        result.setdefault('client_message_id', client_message_id)
+    return result
 
 
 def send_message_to_device_global(device_uid, title, body, payload=None, sender_user=None):
     device_uid = str(device_uid or '').strip()
     if not device_uid:
         return {'ok': False, 'error': 'device_uid is required'}
+
     normalized_payload, meta = _normalize_message_payload(payload, sender_user=sender_user)
     if normalized_payload is None:
         return {'ok': False, 'error': meta.get('error') or 'payload normalization failed', 'device_uid': device_uid}
+
     if isinstance(normalized_payload, dict):
         normalized_payload.setdefault('device_uid', device_uid)
-    return _gateway_send_device(device_uid, title, body, normalized_payload)
+    normalized_payload, client_message_id = _ensure_payload_client_message_id(normalized_payload)
+
+    _upsert_outgoing_message_log(
+        client_message_id=client_message_id,
+        target_type='device',
+        target_id=device_uid,
+        title=title,
+        body=body,
+        payload=normalized_payload,
+        sender_user=sender_user,
+    )
+
+    if _is_same_gateway_host():
+        result = send_message_to_device_internal(device_uid, title, body, normalized_payload)
+        result.setdefault('via', 'internal-device')
+    else:
+        result = _gateway_send_device(device_uid, title, body, normalized_payload)
+
+    _mark_outgoing_message_push_result(client_message_id, result)
+    if isinstance(result, dict):
+        result.setdefault('client_message_id', client_message_id)
+    return result
+
+
+def _normalize_group_id(value):
+    return str(value or '').strip()
+
+
+def _make_group_id():
+    return f"g_{uuid.uuid4().hex[:12]}"
+
+
+def _normalize_member_user_keys(values, include_user_key=None):
+    raw_items = []
+    if isinstance(values, (list, tuple, set)):
+        raw_items.extend(list(values))
+    elif values not in (None, ''):
+        raw_items.append(values)
+    if include_user_key not in (None, ''):
+        raw_items.append(include_user_key)
+
+    normalized = []
+    seen = set()
+    for item in raw_items:
+        user_key = _normalize_user_key(item)
+        if not user_key:
+            continue
+        key_lower = user_key.lower()
+        if key_lower in seen:
+            continue
+        seen.add(key_lower)
+        normalized.append(user_key)
+    return normalized
+
+
+def _get_group_member_keys(group_id):
+    group_id = _normalize_group_id(group_id)
+    if not group_id:
+        return []
+    rows = MessageGroupMember.query.filter_by(group_id=group_id).order_by(MessageGroupMember.user_key.asc()).all()
+    return [str(row.user_key or '').strip() for row in rows if str(row.user_key or '').strip()]
+
+
+def _user_can_access_group(user_key, group_id):
+    user_key = _normalize_user_key(user_key)
+    group_id = _normalize_group_id(group_id)
+    if not user_key or not group_id:
+        return False
+    return MessageGroupMember.query.filter(
+        MessageGroupMember.group_id == group_id,
+        sa.func.lower(MessageGroupMember.user_key) == user_key.lower(),
+    ).first() is not None
+
+
+def _serialize_group(group, include_members=False):
+    if not group:
+        return None
+    data = {
+        'group_id': group.group_id,
+        'title': group.title or '',
+        'created_by': group.created_by or None,
+        'created_at': group.created_at.isoformat() if getattr(group, 'created_at', None) else None,
+        'updated_at': group.updated_at.isoformat() if getattr(group, 'updated_at', None) else None,
+    }
+    if include_members:
+        members = _get_group_member_keys(group.group_id)
+        data['members'] = members
+        data['member_count'] = len(members)
+    return data
+
+
+def _collect_user_tokens(user_key):
+    user_key = _normalize_user_key(user_key)
+    if not user_key:
+        return []
+
+    tokens = []
+    room_devices = RoomDevice.query.filter_by(user_key=user_key).all()
+    tokens.extend([(d.fcm_token or '').strip() for d in room_devices if (d.fcm_token or '').strip()])
+
+    user_obj = User.query.filter_by(email=user_key).first()
+    if user_obj:
+        user_devices = UserDevice.query.filter_by(user_id=user_obj.id).all()
+        tokens.extend([(d.token or '').strip() for d in user_devices if (d.token or '').strip()])
+
+    return list(dict.fromkeys([token for token in tokens if token]))
+
+
+def send_message_to_group_internal(group_id, title, body, payload=None):
+    group_id = _normalize_group_id(group_id)
+    if not group_id:
+        return {'ok': False, 'error': 'group_id is required'}
+
+    group = MessageGroup.query.filter_by(group_id=group_id).first()
+    if not group:
+        return {'ok': False, 'error': 'group_not_found', 'group_id': group_id}
+
+    payload = payload if isinstance(payload, dict) else {}
+    member_keys = _get_group_member_keys(group_id)
+    if not member_keys:
+        return {'ok': False, 'error': 'group_has_no_members', 'group_id': group_id}
+
+    tokens = []
+    for member_key in member_keys:
+        tokens.extend(_collect_user_tokens(member_key))
+
+    dedup_tokens = list(dict.fromkeys([token for token in tokens if token]))
+    if not dedup_tokens:
+        return {'ok': False, 'error': 'no FCM tokens for group', 'group_id': group_id, 'member_count': len(member_keys)}
+
+    result = _send_fcm_to_tokens(dedup_tokens, title, body, payload)
+    if isinstance(result, dict):
+        result.setdefault('group_id', group_id)
+        result.setdefault('group_title', group.title or '')
+        result.setdefault('member_count', len(member_keys))
+    return result
+
+
+def _gateway_send_group(group_id, title, body, data_payload=None):
+    group_id = _normalize_group_id(group_id)
+    if not group_id:
+        return {'ok': False, 'error': 'group_id is required'}
+
+    group = MessageGroup.query.filter_by(group_id=group_id).first()
+    if not group:
+        return {'ok': False, 'error': 'group_not_found', 'group_id': group_id}
+
+    member_keys = _get_group_member_keys(group_id)
+    if not member_keys:
+        return {'ok': False, 'error': 'group_has_no_members', 'group_id': group_id}
+
+    success = 0
+    failures = []
+    for member_key in member_keys:
+        result = _gateway_send_user(member_key, title, body, data_payload or {})
+        if bool((result or {}).get('ok')):
+            success += 1
+        else:
+            failures.append({
+                'user_key': member_key,
+                'error': str((result or {}).get('error') or (result or {}).get('details') or 'delivery_failed'),
+            })
+
+    return {
+        'ok': success > 0 and not failures,
+        'success': success,
+        'failures': failures,
+        'member_count': len(member_keys),
+        'group_id': group_id,
+        'group_title': group.title or '',
+        'via': 'gateway-group',
+    }
+
+
+def send_message_to_group_global(group_id, title, body, payload=None, sender_user=None):
+    group_id = _normalize_group_id(group_id)
+    if not group_id:
+        return {'ok': False, 'error': 'group_id is required'}
+
+    group = MessageGroup.query.filter_by(group_id=group_id).first()
+    if not group:
+        return {'ok': False, 'error': 'group_not_found', 'group_id': group_id}
+
+    normalized_payload, meta = _normalize_message_payload(payload, sender_user=sender_user)
+    if normalized_payload is None:
+        return {'ok': False, 'error': meta.get('error') or 'payload normalization failed', 'group_id': group_id}
+
+    if isinstance(normalized_payload, dict):
+        normalized_payload['group_id'] = group.group_id
+        normalized_payload['group_title'] = group.title or ''
+    normalized_payload, client_message_id = _ensure_payload_client_message_id(normalized_payload)
+
+    _upsert_outgoing_message_log(
+        client_message_id=client_message_id,
+        target_type='group',
+        target_id=group.group_id,
+        title=title,
+        body=body,
+        payload=normalized_payload,
+        sender_user=sender_user,
+    )
+
+    if _is_same_gateway_host():
+        result = send_message_to_group_internal(group.group_id, title, body, normalized_payload)
+        result.setdefault('via', 'internal-group')
+    else:
+        result = _gateway_send_group(group.group_id, title, body, normalized_payload)
+
+    _mark_outgoing_message_push_result(client_message_id, result)
+    if isinstance(result, dict):
+        result.setdefault('client_message_id', client_message_id)
+    return result
+
+
+def _group_history_before_dt(before):
+    before_value = str(before or '').strip()
+    if not before_value:
+        return None, None
+    try:
+        return datetime.fromisoformat(before_value.replace('Z', '+00:00')), None
+    except Exception:
+        pass
+    msg = OutgoingMessageLog.query.filter_by(client_message_id=before_value).first()
+    if msg and msg.created_at:
+        return msg.created_at, None
+    return None, {'ok': False, 'error': 'invalid_before', 'details': 'Use ISO datetime or existing client_message_id'}
+
+
+def _get_group_messages_history_impl(group_id, limit=100, before=None):
+    group_id = _normalize_group_id(group_id)
+    if not group_id:
+        return {'ok': False, 'error': 'group_id is required'}, 400
+
+    group = MessageGroup.query.filter_by(group_id=group_id).first()
+    if not group:
+        return {'ok': False, 'error': 'group_not_found', 'group_id': group_id}, 404
+
+    try:
+        limit = int(limit or 100)
+    except Exception:
+        limit = 100
+    if limit <= 0:
+        limit = 100
+    if limit > 1000:
+        limit = 1000
+
+    before_dt, before_error = _group_history_before_dt(before)
+    if before_error:
+        return before_error, 400
+
+    query = OutgoingMessageLog.query.filter_by(target_type='group', target_id=group_id)
+    if before_dt is not None:
+        query = query.filter(OutgoingMessageLog.created_at < before_dt)
+
+    messages = query.order_by(OutgoingMessageLog.created_at.desc()).limit(limit).all()
+    items = [_serialize_outgoing_message(msg) for msg in messages]
+
+    return {
+        'ok': True,
+        'group_id': group_id,
+        'title': group.title or '',
+        'count': len(items),
+        'messages': items,
+    }, 200
+
+
 def _gateway_token_ok():
     auth_header = request.headers.get('Authorization', '')
     token = ''
@@ -6521,12 +8388,218 @@ def push_room_message(room_uid):
 @api_auth_required
 def push_user_message(user_key):
     data = request.get_json(silent=True) or {}
-    title = data.get('title') or 'Direct message'
+    explicit_sender = data.get('sender_user')
+    sender_display_name = _get_sender_display_name(explicit_sender)
+    title = data.get('title') or sender_display_name or 'Direct message'
     body = data.get('body') or data.get('message') or 'New message'
     payload = data.get('data')
-    sender_user = data.get('sender_user')
+    sender_user = _get_sender_user(explicit_sender)
+    
     result = send_message_to_user_global(user_key, title, body, payload, sender_user=sender_user)
+    if isinstance(result, dict):
+        if sender_user:
+            result.setdefault('sender_user', sender_user)
+        if sender_display_name:
+            result.setdefault('sender_display_name', sender_display_name)
     return jsonify({'ok': bool(result.get('ok')), 'user_key': user_key, 'result': result}), (200 if result.get('ok') else 400)
+
+
+@app.route('/api/groups', methods=['POST'])
+@api_auth_required
+def api_create_group():
+    data = request.get_json(silent=True) or {}
+    api_user = getattr(g, 'api_user', None)
+    current_user_key = _normalize_user_key(getattr(api_user, 'email', None))
+
+    title = str(data.get('title') or '').strip()
+    members = _normalize_member_user_keys(data.get('members'), include_user_key=current_user_key)
+
+    if not title:
+        return jsonify({'ok': False, 'error': 'title is required'}), 400
+    if not members:
+        return jsonify({'ok': False, 'error': 'members must contain at least one user'}), 400
+
+    group = MessageGroup(
+        group_id=_make_group_id(),
+        title=title,
+        created_by=current_user_key or None,
+    )
+    db.session.add(group)
+    db.session.flush()
+
+    for member_key in members:
+        db.session.add(MessageGroupMember(group_id=group.group_id, user_key=member_key))
+
+    db.session.commit()
+    return jsonify({'group_id': group.group_id, 'title': group.title or ''}), 201
+
+
+@app.route('/api/groups', methods=['GET'])
+@api_auth_required
+def api_list_groups():
+    api_user = getattr(g, 'api_user', None)
+    current_user_key = _normalize_user_key(getattr(api_user, 'email', None))
+    groups = MessageGroup.query.join(
+        MessageGroupMember,
+        MessageGroupMember.group_id == MessageGroup.group_id,
+    ).filter(
+        sa.func.lower(MessageGroupMember.user_key) == current_user_key.lower()
+    ).order_by(MessageGroup.updated_at.desc(), MessageGroup.created_at.desc()).all()
+
+    items = [_serialize_group(group) for group in groups]
+    return jsonify({'ok': True, 'count': len(items), 'groups': items})
+
+
+@app.route('/api/groups/<group_id>', methods=['GET'])
+@api_auth_required
+def api_get_group(group_id):
+    api_user = getattr(g, 'api_user', None)
+    current_user_key = _normalize_user_key(getattr(api_user, 'email', None))
+    group = MessageGroup.query.filter_by(group_id=_normalize_group_id(group_id)).first()
+    if not group:
+        return jsonify({'ok': False, 'error': 'group_not_found', 'group_id': _normalize_group_id(group_id)}), 404
+    if not _user_can_access_group(current_user_key, group.group_id):
+        return jsonify({'ok': False, 'error': 'forbidden', 'group_id': group.group_id}), 403
+    return jsonify({'ok': True, 'group': _serialize_group(group, include_members=True)})
+
+
+@app.route('/api/groups/<group_id>/members', methods=['GET'])
+@api_auth_required
+def api_get_group_members(group_id):
+    api_user = getattr(g, 'api_user', None)
+    current_user_key = _normalize_user_key(getattr(api_user, 'email', None))
+    normalized_group_id = _normalize_group_id(group_id)
+    group = MessageGroup.query.filter_by(group_id=normalized_group_id).first()
+    if not group:
+        return jsonify({'ok': False, 'error': 'group_not_found', 'group_id': normalized_group_id}), 404
+    if not _user_can_access_group(current_user_key, normalized_group_id):
+        return jsonify({'ok': False, 'error': 'forbidden', 'group_id': normalized_group_id}), 403
+
+    members = _get_group_member_keys(normalized_group_id)
+    return jsonify({'ok': True, 'group_id': normalized_group_id, 'title': group.title or '', 'count': len(members), 'members': members})
+
+
+@app.route('/api/groups/<group_id>/members', methods=['POST'])
+@api_auth_required
+def api_add_group_members(group_id):
+    api_user = getattr(g, 'api_user', None)
+    current_user_key = _normalize_user_key(getattr(api_user, 'email', None))
+    normalized_group_id = _normalize_group_id(group_id)
+    group = MessageGroup.query.filter_by(group_id=normalized_group_id).first()
+    if not group:
+        return jsonify({'ok': False, 'error': 'group_not_found', 'group_id': normalized_group_id}), 404
+    if not _user_can_access_group(current_user_key, normalized_group_id):
+        return jsonify({'ok': False, 'error': 'forbidden', 'group_id': normalized_group_id}), 403
+
+    data = request.get_json(silent=True) or {}
+    members = _normalize_member_user_keys(data.get('members'))
+    if not members:
+        return jsonify({'ok': False, 'error': 'members must be a non-empty list', 'group_id': normalized_group_id}), 400
+
+    existing = {user_key.lower() for user_key in _get_group_member_keys(normalized_group_id)}
+    added = []
+    for member_key in members:
+        if member_key.lower() in existing:
+            continue
+        db.session.add(MessageGroupMember(group_id=normalized_group_id, user_key=member_key))
+        existing.add(member_key.lower())
+        added.append(member_key)
+
+    group.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
+    return jsonify({
+        'ok': True,
+        'group_id': normalized_group_id,
+        'added_members': added,
+        'members': _get_group_member_keys(normalized_group_id),
+    })
+
+
+@app.route('/api/groups/<group_id>/members/<user_key>', methods=['DELETE'])
+@api_auth_required
+def api_remove_group_member(group_id, user_key):
+    api_user = getattr(g, 'api_user', None)
+    current_user_key = _normalize_user_key(getattr(api_user, 'email', None))
+    normalized_group_id = _normalize_group_id(group_id)
+    normalized_user_key = _normalize_user_key(user_key)
+
+    group = MessageGroup.query.filter_by(group_id=normalized_group_id).first()
+    if not group:
+        return jsonify({'ok': False, 'error': 'group_not_found', 'group_id': normalized_group_id}), 404
+    if not _user_can_access_group(current_user_key, normalized_group_id):
+        return jsonify({'ok': False, 'error': 'forbidden', 'group_id': normalized_group_id}), 403
+
+    members_before = _get_group_member_keys(normalized_group_id)
+    if len(members_before) <= 1 and any(m.lower() == normalized_user_key.lower() for m in members_before):
+        return jsonify({'ok': False, 'error': 'group_must_have_at_least_one_member', 'group_id': normalized_group_id}), 400
+
+    membership = MessageGroupMember.query.filter(
+        MessageGroupMember.group_id == normalized_group_id,
+        sa.func.lower(MessageGroupMember.user_key) == normalized_user_key.lower(),
+    ).first()
+    if not membership:
+        return jsonify({'ok': False, 'error': 'member_not_found', 'group_id': normalized_group_id, 'user_key': normalized_user_key}), 404
+
+    db.session.delete(membership)
+    group.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
+    return jsonify({
+        'ok': True,
+        'group_id': normalized_group_id,
+        'removed_user': normalized_user_key,
+        'members': _get_group_member_keys(normalized_group_id),
+    })
+
+
+@app.route('/api/groups/<group_id>/messages', methods=['POST'])
+@api_auth_required
+def api_push_group_message(group_id):
+    api_user = getattr(g, 'api_user', None)
+    current_user_key = _normalize_user_key(getattr(api_user, 'email', None))
+    normalized_group_id = _normalize_group_id(group_id)
+
+    group = MessageGroup.query.filter_by(group_id=normalized_group_id).first()
+    if not group:
+        return jsonify({'ok': False, 'error': 'group_not_found', 'group_id': normalized_group_id}), 404
+    if not _user_can_access_group(current_user_key, normalized_group_id):
+        return jsonify({'ok': False, 'error': 'forbidden', 'group_id': normalized_group_id}), 403
+
+    data = request.get_json(silent=True) or {}
+    explicit_sender = data.get('sender_user')
+    sender_display_name = _get_sender_display_name(explicit_sender)
+    title = data.get('title') or sender_display_name or group.title or 'Group message'
+    body = data.get('body') or data.get('message') or 'New message'
+    payload = data.get('data') if isinstance(data.get('data'), dict) else {}
+    sender_user = _get_sender_user(explicit_sender)
+
+    result = send_message_to_group_global(normalized_group_id, title, body, payload, sender_user=sender_user)
+    if isinstance(result, dict):
+        result.setdefault('group_id', normalized_group_id)
+        result.setdefault('group_title', group.title or '')
+        if sender_user:
+            result.setdefault('sender_user', sender_user)
+        if sender_display_name:
+            result.setdefault('sender_display_name', sender_display_name)
+
+    return jsonify({'ok': bool(result.get('ok')), 'group_id': normalized_group_id, 'title': group.title or '', 'result': result}), (200 if result.get('ok') else 400)
+
+
+@app.route('/api/groups/<group_id>/messages', methods=['GET'])
+@api_auth_required
+def api_group_messages_history(group_id):
+    api_user = getattr(g, 'api_user', None)
+    current_user_key = _normalize_user_key(getattr(api_user, 'email', None))
+    normalized_group_id = _normalize_group_id(group_id)
+    if not _user_can_access_group(current_user_key, normalized_group_id):
+        group_exists = MessageGroup.query.filter_by(group_id=normalized_group_id).first() is not None
+        if not group_exists:
+            return jsonify({'ok': False, 'error': 'group_not_found', 'group_id': normalized_group_id}), 404
+        return jsonify({'ok': False, 'error': 'forbidden', 'group_id': normalized_group_id}), 403
+
+    limit = request.args.get('limit', 100)
+    before = request.args.get('before')
+    payload, status = _get_group_messages_history_impl(normalized_group_id, limit=limit, before=before)
+    return jsonify(payload), status
 
 
 @app.route('/api/device/<device_uid>/messages', methods=['POST'])
@@ -6536,7 +8609,7 @@ def push_device_message(device_uid):
     title = data.get('title') or 'Direct message'
     body = data.get('body') or data.get('message') or 'New message'
     payload = data.get('data')
-    sender_user = data.get('sender_user')
+    sender_user = _get_sender_user()
     result = send_message_to_device_global(device_uid, title, body, payload, sender_user=sender_user)
     return jsonify({'ok': bool(result.get('ok')), 'device_uid': device_uid, 'result': result}), (200 if result.get('ok') else 400)
 
@@ -6546,11 +8619,19 @@ def push_device_message(device_uid):
 @login_required
 def web_push_user_message(user_key):
     data = request.get_json(silent=True) or {}
-    title = data.get('title') or 'Direct message'
+    explicit_sender = data.get('sender_user')
+    sender_display_name = _get_sender_display_name(explicit_sender)
+    title = data.get('title') or sender_display_name or 'Direct message'
     body = data.get('body') or data.get('message') or 'New message'
     payload = data.get('data')
-    sender_user = data.get('sender_user')
+    sender_user = _get_sender_user(explicit_sender)
+    
     result = send_message_to_user_global(user_key, title, body, payload, sender_user=sender_user)
+    if isinstance(result, dict):
+        if sender_user:
+            result.setdefault('sender_user', sender_user)
+        if sender_display_name:
+            result.setdefault('sender_display_name', sender_display_name)
     return jsonify({'ok': bool(result.get('ok')), 'user_key': user_key, 'result': result}), (200 if result.get('ok') else 400)
 
 
@@ -6561,9 +8642,409 @@ def web_push_device_message(device_uid):
     title = data.get('title') or 'Direct message'
     body = data.get('body') or data.get('message') or 'New message'
     payload = data.get('data')
-    sender_user = data.get('sender_user')
+    explicit_sender = data.get('sender_user')
+    sender_user = _get_sender_user(explicit_sender)
     result = send_message_to_device_global(device_uid, title, body, payload, sender_user=sender_user)
     return jsonify({'ok': bool(result.get('ok')), 'device_uid': device_uid, 'result': result}), (200 if result.get('ok') else 400)
+
+
+def _normalize_device_uid(value):
+    return str(value or '').strip()
+
+
+def _normalize_user_key(value):
+    return str(value or '').strip()
+
+
+def _resolve_sender_display_name(sender_user=None, payload=None):
+    if isinstance(payload, dict):
+        payload_name = str(payload.get('sender_display_name') or '').strip()
+        if payload_name:
+            return payload_name
+    return _get_sender_display_name(sender_user)
+
+
+def _serialize_outgoing_message(msg, device_uid=None, group_title_map=None):
+    payload = msg.payload_json if isinstance(msg.payload_json, dict) else {}
+    group_id = None
+    group_title = None
+    if str(msg.target_type or '').strip() == 'group':
+        group_id = _normalize_group_id(msg.target_id or payload.get('group_id')) or None
+        payload_title = str(payload.get('group_title') or '').strip()
+        map_title = str((group_title_map or {}).get(group_id) or '').strip() if group_id else ''
+        group_title = payload_title or map_title or None
+
+    msg_type = str(payload.get('type') or '').strip() or None
+    text_value = payload.get('text')
+    if text_value is None:
+        text_value = msg.body or ''
+
+    return {
+        'client_message_id': msg.client_message_id,
+        'title': msg.title or '',
+        'body': msg.body or '',
+        'data': payload,
+        'status': msg.status,
+        'target_type': msg.target_type,
+        'target_id': msg.target_id,
+        'sender_user': msg.sender_user,
+        'sender_display_name': _resolve_sender_display_name(msg.sender_user, payload),
+        'group_id': group_id,
+        'group_title': group_title,
+        'type': msg_type,
+        'text': text_value,
+        'created_at': msg.created_at.isoformat() if msg.created_at else None,
+        'accepted_at': msg.accepted_at.isoformat() if msg.accepted_at else None,
+        'pushed_at': msg.pushed_at.isoformat() if msg.pushed_at else None,
+        'ack_at': msg.ack_at.isoformat() if msg.ack_at else None,
+        'last_error': msg.last_error,
+        'device_uid': device_uid,
+        'acked_for_device': False,
+    }
+
+
+def _list_pending_user_messages_impl(user_key, device_uid, limit=200, since=None):
+    user_key = _normalize_user_key(user_key)
+    device_uid = _normalize_device_uid(device_uid)
+    if not user_key:
+        return {'ok': False, 'error': 'user_key is required'}, 400
+    if not device_uid:
+        return {'ok': False, 'error': 'device_uid is required'}, 400
+
+    try:
+        limit = int(limit or 200)
+    except Exception:
+        limit = 200
+    if limit <= 0:
+        limit = 200
+    if limit > 1000:
+        limit = 1000
+
+    group_ids = [row.group_id for row in MessageGroupMember.query.filter(
+        sa.func.lower(MessageGroupMember.user_key) == user_key.lower()
+    ).all() if _normalize_group_id(row.group_id)]
+
+    query = OutgoingMessageLog.query.filter(
+        sa.or_(
+            sa.and_(OutgoingMessageLog.target_type == 'user', OutgoingMessageLog.target_id == user_key),
+            sa.and_(OutgoingMessageLog.target_type == 'group', OutgoingMessageLog.target_id.in_(group_ids)) if group_ids else sa.false(),
+        )
+    )
+
+    since_dt = None
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(str(since).replace('Z', '+00:00'))
+        except Exception:
+            return {'ok': False, 'error': 'invalid_since', 'details': 'Use ISO datetime'}, 400
+
+    if since_dt is not None:
+        query = query.filter(
+            sa.or_(
+                OutgoingMessageLog.accepted_at >= since_dt,
+                OutgoingMessageLog.pushed_at >= since_dt,
+                OutgoingMessageLog.created_at >= since_dt,
+            )
+        )
+
+    ack_exists = sa.exists().where(sa.and_(
+        OutgoingMessageDeviceAck.message_id == OutgoingMessageLog.id,
+        OutgoingMessageDeviceAck.device_uid == device_uid,
+    ))
+    query = query.filter(~ack_exists)
+
+    messages = query.order_by(
+        OutgoingMessageLog.accepted_at.desc().nullslast(),
+        OutgoingMessageLog.created_at.desc()
+    ).limit(limit).all()
+
+    group_title_map = {}
+    effective_group_ids = sorted({_normalize_group_id(msg.target_id) for msg in messages if str(msg.target_type or '').strip() == 'group' and _normalize_group_id(msg.target_id)})
+    if effective_group_ids:
+        groups = MessageGroup.query.filter(MessageGroup.group_id.in_(effective_group_ids)).all()
+        group_title_map = {group.group_id: group.title or '' for group in groups}
+
+    items = [_serialize_outgoing_message(msg, device_uid=device_uid, group_title_map=group_title_map) for msg in messages]
+
+    return {
+        'ok': True,
+        'user_key': user_key,
+        'device_uid': device_uid,
+        'count': len(items),
+        'messages': items,
+    }, 200
+
+
+def _ack_message_impl(client_message_id, ack_by=None, ack_payload=None, device_uid=None, user_key=None):
+    client_message_id = str(client_message_id or '').strip()
+    if not client_message_id:
+        return {'ok': False, 'error': 'client_message_id is required'}, 400
+
+    msg = OutgoingMessageLog.query.filter_by(client_message_id=client_message_id).first()
+    if not msg:
+        return {'ok': False, 'error': 'message_not_found', 'client_message_id': client_message_id}, 404
+
+    ack_payload = ack_payload if isinstance(ack_payload, dict) else {}
+    ack_by = _normalize_user_key(ack_by) or None
+    device_uid = _normalize_device_uid(device_uid or ack_payload.get('device_uid'))
+    user_key = _normalize_user_key(user_key or ack_payload.get('user_key'))
+
+    if not user_key:
+        try:
+            api_user = getattr(g, 'api_user', None)
+            if api_user and getattr(api_user, 'email', None):
+                user_key = _normalize_user_key(api_user.email)
+        except Exception:
+            pass
+
+    if msg.target_type == 'user':
+        expected_user = _normalize_user_key(msg.target_id)
+        if not device_uid:
+            return {'ok': False, 'error': 'device_uid is required', 'client_message_id': client_message_id}, 400
+        if user_key and expected_user and user_key.lower() != expected_user.lower():
+            return {'ok': False, 'error': 'forbidden', 'client_message_id': client_message_id}, 403
+        if ack_by and expected_user and ack_by.lower() != expected_user.lower():
+            return {'ok': False, 'error': 'forbidden', 'client_message_id': client_message_id}, 403
+
+        device_ack = OutgoingMessageDeviceAck.query.filter_by(message_id=msg.id, device_uid=device_uid).first()
+        already_acked = bool(device_ack and device_ack.ack_at)
+        now = datetime.now(timezone.utc)
+        if not device_ack:
+            device_ack = OutgoingMessageDeviceAck(
+                message_id=msg.id,
+                client_message_id=msg.client_message_id,
+                user_key=expected_user or user_key or '',
+                device_uid=device_uid,
+                ack_at=now,
+                ack_by=ack_by,
+                ack_payload=ack_payload,
+            )
+            db.session.add(device_ack)
+        elif not already_acked:
+            device_ack.ack_at = now
+            device_ack.ack_by = ack_by
+            device_ack.ack_payload = ack_payload
+
+        msg.last_error = None
+        db.session.commit()
+
+        sender_user = str(msg.sender_user or '').strip() or None
+        original_payload = msg.payload_json if isinstance(msg.payload_json, dict) else {}
+        original_type = str(original_payload.get('type') or '').strip().lower()
+        ack_target_user = expected_user or user_key or None
+        should_notify_sender = (
+            bool(sender_user)
+            and original_type != 'message_ack'
+        )
+        if should_notify_sender:
+            ack_notice_payload = {
+                'type': 'message_ack',
+                '_client_message_id': client_message_id,
+                'device_uid': device_uid,
+            }
+            if ack_target_user:
+                ack_notice_payload['user_key'] = sender_user
+                ack_notice_payload['ack_user'] = ack_target_user
+                ack_notice_payload['target_user'] = ack_target_user
+            if ack_by:
+                ack_notice_payload['ack_by'] = ack_by
+            if device_ack and device_ack.ack_at:
+                ack_notice_payload['ack_at'] = device_ack.ack_at.isoformat()
+                ack_notice_payload['received_at'] = int(device_ack.ack_at.timestamp())
+            if isinstance(ack_payload, dict) and ack_payload:
+                ack_notice_payload['ack_payload_json'] = json.dumps(ack_payload, ensure_ascii=False)
+
+            try:
+                send_message_to_user_global(
+                    sender_user,
+                    'Message acknowledged',
+                    '',
+                    ack_notice_payload,
+                    sender_user=ack_target_user or ack_by,
+                )
+            except Exception:
+                app.logger.exception('Failed to notify sender about ack for %s', client_message_id)
+
+        return {
+            'ok': True,
+            'client_message_id': client_message_id,
+            'status': msg.status,
+            'ack_at': device_ack.ack_at.isoformat() if device_ack and device_ack.ack_at else None,
+            'received_at': int(device_ack.ack_at.timestamp()) if device_ack and device_ack.ack_at else None,
+            'ack_by': device_ack.ack_by if device_ack else ack_by,
+            'already_acked': already_acked,
+            'device_uid': device_uid,
+            'user_key': expected_user or user_key,
+            'group_id': None,
+        }, 200
+
+    if msg.target_type == 'group':
+        expected_group_id = _normalize_group_id(msg.target_id)
+        ack_user = _normalize_user_key(ack_by or user_key)
+        if not expected_group_id:
+            return {'ok': False, 'error': 'group_id is required', 'client_message_id': client_message_id}, 400
+        if not device_uid:
+            return {'ok': False, 'error': 'device_uid is required', 'client_message_id': client_message_id}, 400
+        if not ack_user:
+            return {'ok': False, 'error': 'user_key is required', 'client_message_id': client_message_id, 'group_id': expected_group_id}, 400
+        if not _user_can_access_group(ack_user, expected_group_id):
+            return {'ok': False, 'error': 'forbidden', 'client_message_id': client_message_id, 'group_id': expected_group_id}, 403
+
+        device_ack = OutgoingMessageDeviceAck.query.filter_by(message_id=msg.id, device_uid=device_uid).first()
+        already_acked = bool(device_ack and device_ack.ack_at)
+        now = datetime.now(timezone.utc)
+        if not device_ack:
+            device_ack = OutgoingMessageDeviceAck(
+                message_id=msg.id,
+                client_message_id=msg.client_message_id,
+                user_key=ack_user,
+                device_uid=device_uid,
+                ack_at=now,
+                ack_by=ack_by or ack_user,
+                ack_payload=ack_payload,
+            )
+            db.session.add(device_ack)
+        elif not already_acked:
+            device_ack.user_key = device_ack.user_key or ack_user
+            device_ack.ack_at = now
+            device_ack.ack_by = ack_by or ack_user
+            device_ack.ack_payload = ack_payload
+
+        msg.last_error = None
+        msg.ack_at = device_ack.ack_at
+        msg.ack_by = device_ack.ack_by
+        msg.ack_payload = ack_payload
+        db.session.commit()
+
+        sender_user = str(msg.sender_user or '').strip() or None
+        original_payload = msg.payload_json if isinstance(msg.payload_json, dict) else {}
+        original_type = str(original_payload.get('type') or '').strip().lower()
+        group_title = str(original_payload.get('group_title') or '').strip()
+        if not group_title:
+            group = MessageGroup.query.filter_by(group_id=expected_group_id).first()
+            if group:
+                group_title = group.title or ''
+
+        should_notify_sender = bool(sender_user) and original_type != 'message_ack'
+        if should_notify_sender:
+            ack_notice_payload = {
+                'type': 'message_ack',
+                '_client_message_id': client_message_id,
+                'device_uid': device_uid,
+                'user_key': sender_user,
+                'ack_user': ack_user,
+                'target_user': ack_user,
+                'group_id': expected_group_id,
+            }
+            if group_title:
+                ack_notice_payload['group_title'] = group_title
+            if ack_by or ack_user:
+                ack_notice_payload['ack_by'] = ack_by or ack_user
+            if device_ack and device_ack.ack_at:
+                ack_notice_payload['ack_at'] = device_ack.ack_at.isoformat()
+                ack_notice_payload['received_at'] = int(device_ack.ack_at.timestamp())
+            if isinstance(ack_payload, dict) and ack_payload:
+                ack_notice_payload['ack_payload_json'] = json.dumps(ack_payload, ensure_ascii=False)
+
+            try:
+                send_message_to_user_global(
+                    sender_user,
+                    'Message acknowledged',
+                    '',
+                    ack_notice_payload,
+                    sender_user=ack_user,
+                )
+            except Exception:
+                app.logger.exception('Failed to notify sender about group ack for %s', client_message_id)
+
+        return {
+            'ok': True,
+            'client_message_id': client_message_id,
+            'status': msg.status,
+            'ack_at': device_ack.ack_at.isoformat() if device_ack and device_ack.ack_at else None,
+            'received_at': int(device_ack.ack_at.timestamp()) if device_ack and device_ack.ack_at else None,
+            'ack_by': device_ack.ack_by if device_ack else (ack_by or ack_user),
+            'already_acked': already_acked,
+            'device_uid': device_uid,
+            'user_key': ack_user,
+            'group_id': expected_group_id,
+        }, 200
+
+    already_acked = bool(msg.ack_at)
+    if not already_acked:
+        msg.ack_at = datetime.now(timezone.utc)
+        msg.ack_by = ack_by
+        msg.ack_payload = ack_payload
+        msg.status = 'acked'
+        msg.last_error = None
+        db.session.commit()
+
+    return {
+        'ok': True,
+        'client_message_id': client_message_id,
+        'status': msg.status,
+        'ack_at': msg.ack_at.isoformat() if msg.ack_at else None,
+        'received_at': int(msg.ack_at.timestamp()) if msg.ack_at else None,
+        'ack_by': msg.ack_by,
+        'already_acked': already_acked,
+        'device_uid': device_uid or None,
+        'user_key': user_key or None,
+        'group_id': _normalize_group_id(msg.target_id) if str(msg.target_type or '').strip() == 'group' else None,
+    }, 200
+
+
+@app.route('/webapi/messages/ack/<client_message_id>', methods=['POST'])
+@login_required
+def webapi_message_ack(client_message_id):
+    data = request.get_json(silent=True) or {}
+    ack_by = getattr(current_user, 'email', None)
+    device_uid = data.get('device_uid') or request.args.get('device_uid')
+    payload, status = _ack_message_impl(
+        client_message_id,
+        ack_by=ack_by,
+        ack_payload=data,
+        device_uid=device_uid,
+        user_key=ack_by,
+    )
+    return jsonify(payload), status
+
+
+@app.route('/api/messages/ack/<client_message_id>', methods=['POST'])
+@api_auth_required
+def api_message_ack(client_message_id):
+    data = request.get_json(silent=True) or {}
+    device_uid = data.get('device_uid') or request.args.get('device_uid')
+    user_key = data.get('user_key') or request.args.get('user_key')
+    payload, status = _ack_message_impl(
+        client_message_id,
+        ack_by=None,
+        ack_payload=data,
+        device_uid=device_uid,
+        user_key=user_key,
+    )
+    return jsonify(payload), status
+
+@app.route('/webapi/messages/pending', methods=['GET'])
+@login_required
+def webapi_pending_messages():
+    limit = request.args.get('limit', 200)
+    since = request.args.get('since')
+    user_key = request.args.get('user_key') or getattr(current_user, 'email', None)
+    device_uid = request.args.get('device_uid')
+    payload, status = _list_pending_user_messages_impl(user_key, device_uid, limit=limit, since=since)
+    return jsonify(payload), status
+
+
+@app.route('/api/messages/pending', methods=['GET'])
+@api_auth_required
+def api_pending_messages():
+    limit = request.args.get('limit', 200)
+    since = request.args.get('since')
+    user_key = request.args.get('user_key')
+    device_uid = request.args.get('device_uid')
+    payload, status = _list_pending_user_messages_impl(user_key, device_uid, limit=limit, since=since)
+    return jsonify(payload), status
+
 
 
 @app.route('/api/room/<room_uid>/objects', methods=['GET'])
@@ -6801,6 +9282,7 @@ def export_config(uid):
                 'migration_register_on_save': bool(getattr(c, 'migration_register_on_save', False)),
                 'migration_default_room_uid': getattr(c, 'migration_default_room_uid', '') or '',
                 'migration_default_room_alias': getattr(c, 'migration_default_room_alias', '') or '',
+                'link_share_mode': getattr(c, 'link_share_mode', '') or '',
                 'indexes': getattr(c, 'indexes_json', None) or [],
 
                 'class_type': c.class_type,
@@ -7216,6 +9698,7 @@ def import_config_new():
                 migration_register_on_save=bool(class_data.get('migration_register_on_save', False)),
                 migration_default_room_uid=class_data.get('migration_default_room_uid', ''),
                 migration_default_room_alias=class_data.get('migration_default_room_alias', ''),
+                link_share_mode=class_data.get('link_share_mode', ''),
                 indexes_json=class_data.get('indexes', class_data.get('indexes_json', [])) or [],
 
                 class_type=class_data.get('class_type', ''),
@@ -7448,6 +9931,7 @@ def apply_full_config_from_json(config, data):
                 migration_register_on_save=bool(class_data.get('migration_register_on_save', False)),
                 migration_default_room_uid=class_data.get('migration_default_room_uid', ''),
                 migration_default_room_alias=class_data.get('migration_default_room_alias', ''),
+                link_share_mode=class_data.get('link_share_mode', ''),
                 indexes_json=class_data.get('indexes', class_data.get('indexes_json', [])) or [],
 
                 class_type=class_data.get('class_type', ''),
@@ -10194,6 +12678,8 @@ if __name__ == '__main__':
                     conn.execute(text('ALTER TABLE config_class ADD COLUMN migration_default_room_uid VARCHAR(36) DEFAULT ""'))
                 if 'migration_default_room_alias' not in col_names:
                     conn.execute(text('ALTER TABLE config_class ADD COLUMN migration_default_room_alias VARCHAR(100) DEFAULT ""'))
+                if 'link_share_mode' not in col_names:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN link_share_mode VARCHAR(30) DEFAULT ""'))
                 if 'indexes_json' not in col_names:
                     conn.execute(text('ALTER TABLE config_class ADD COLUMN indexes_json JSON'))
         except Exception as e:
