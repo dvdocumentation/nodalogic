@@ -1,0 +1,286 @@
+{
+    "name": "Chat samples",
+    "server_name": "",
+    "uid": "06e92481-127e-47cf-919b-9992e2456899",
+    "url": "http://nmaker.pw/api/config/06e92481-127e-47cf-919b-9992e2456899",
+    "content_uid": "7dca36e8-0386-4111-9639-e06e2ad3d9cc",
+    "vendor": "Dmitry Vorontsov",
+    "nodes_handlers": "ZnJvbSBub2Rlc2NsaWVudCBpbXBvcnQgUmVmcmVzaFRhYixTZXRUaXRsZSxDbG9zZU5vZGUsUnVuR1BTLFN0b3BHUFMsVXBkYXRlVmlldyxEaWFsb2csU2NhbkJhcmNvZGUsR2V0TG9jYXRpb24sQWRkVGltZXIsU3RvcFRpbWVyLFNob3dQcm9ncmVzc0J1dHRvbixIaWRlUHJvZ3Jlc3NCdXR0b24sU2hvd1Byb2dyZXNzR2xvYmFsLEhpZGVQcm9ncmVzc0dsb2JhbCxDb250cm9scyxTZXRDb3ZlcixnZXRCYXNlNjRGcm9tSW1hZ2VGaWxlLGNvbnZlcnRJbWFnZUZpbGVzVG9CYXNlNjRBcnJheSxzYXZlQmFzZTY0VG9GaWxlLGNvbnZlcnRCYXNlNjRBcnJheVRvRmlsZVBhdGhzLFVwZGF0ZU1lZGlhR2FsbGVyeQ0KZnJvbSBhbmRyb2lkIGltcG9ydCAqDQpmcm9tIG5vZGVzIGltcG9ydCBOZXdOb2RlLCBEZWxldGVOb2RlLCBHZXRBbGxOb2RlcywgR2V0Tm9kZSwgR2V0QWxsTm9kZXNTdHIsIEdldFJlbW90ZUNsYXNzLCBDcmVhdGVEYXRhU2V0LCBHZXREYXRhU2V0LCBEZWxldGVEYXRhU2V0LHRvX3VpZCwgZnJvbV91aWQsIGdldEJ5SW5kZXgsIGZpbmRCeUluZGV4LCBnZXRCeUdsb2JhbEluZGV4LCBmaW5kQnlHbG9iYWxJbmRleCwgc2VuZFRleHRNZXNzYWdlLCBzZW5kSW1hZ2VNZXNzYWdlDQpmcm9tIGNvbS5kdi5ub2RhIGltcG9ydCBEYXRhU2V0DQpmcm9tIGNvbS5kdi5ub2RhIGltcG9ydCBEYXRhU2V0cw0KZnJvbSBjb20uZHYubm9kYSBpbXBvcnQgU2ltcGxlVXRpbGl0ZXMgYXMgc3UNCmZyb20gZGF0YXNldHMgaW1wb3J0IEdldERhdGFTZXREYXRhDQoNCiMgQ29uZmlndXJhdGlvbiBjb25zdGFudHMNCmN1cnJlbnRfbW9kdWxlX25hbWU9IjA2ZTkyNDgxLTEyN2UtNDdjZi05MTliLTk5OTJlMjQ1Njg5OSINCmN1cnJlbnRfY29uZmlndXJhdGlvbl91cmw9Imh0dHA6Ly9ubWFrZXIucHcvYXBpL2NvbmZpZy8wNmU5MjQ4MS0xMjdlLTQ3Y2YtOTE5Yi05OTkyZTI0NTY4OTkiDQpfZGF0YV9kaXIgPSBzdS5nZXRfZGF0YV9kaXIoY3VycmVudF9tb2R1bGVfbmFtZSkNCl9kb3dubG9hZHNfZGlyID0gc3UuZ2V0X2Rvd25sb2Fkc19kaXIoY3VycmVudF9tb2R1bGVfbmFtZSkNCg0KDQpmcm9tIG5vZGVzIGltcG9ydCBOb2RlDQoNCg0KDQpjbGFzcyBJbnN0YWxsYXRpb25PcmRlcihOb2RlKToNCiAgICBkZWYgX19pbml0X18oc2VsZiwgbW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpOg0KICAgICAgICBzdXBlcigpLl9faW5pdF9fKG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKQ0KDQogICAgIiIiQ2xhc3MgSW5zdGFsbGF0aW9uT3JkZXIiIiINCg0KDQoNCmNsYXNzIENsaWVudChOb2RlKToNCiAgICBkZWYgX19pbml0X18oc2VsZiwgbW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpOg0KICAgICAgICBzdXBlcigpLl9faW5pdF9fKG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKQ0KDQogICAgIiIiQ2xhc3MgQ2xpZW50IiIiDQoNCg0KDQpjbGFzcyBNeVRhc2tTYW1wbGUoTm9kZSk6DQogICAgZGVmIF9faW5pdF9fKHNlbGYsIG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKToNCiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSkNCg0KICAgICIiIkNsYXNzIE15VGFza1NhbXBsZSIiIg0KDQoNCg0KY2xhc3MgVGVzdENvZGUoTm9kZSk6DQogICAgZGVmIF9faW5pdF9fKHNlbGYsIG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKToNCiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSkNCg0KICAgICIiIkNsYXNzIFRlc3RDb2RlIiIiDQoKICAgIGRlZiBpbnB1dChzZWxmLCBpbnB1dF9kYXRhPU5vbmUpOgogICAgICAgIGlmIHNlbGYuX2RhdGEuZ2V0KCJsaXN0ZW5lciIpID09ImJ0bl9zZW5kX3RleHQiOg0KICAgICAgICAgIGJlZXAoKQ0KICAgICAgICAgIHNlbmRUZXh0TWVzc2FnZShzZWxmLl9kYXRhLmdldCgidG8iKSwi0J7RgtC/0YDQsNCy0LvQtdC90L4g0YEgUHl0aG9uIikNCiAgICAgICAgcmV0dXJuIFRydWUsIHt9",
+    "nodes_handlers_meta": null,
+    "nodes_server_handlers": "CmZyb20gbm9kZXMgaW1wb3J0IE5vZGUsIG1lc3NhZ2UsIERpYWxvZywgdG9fdWlkLCBmcm9tX3VpZCwgQ2xvc2VOb2RlLCBEYXRhU2V0cywgY29udmVydEJhc2U2NEFycmF5VG9GaWxlUGF0aHMsY29udmVydEltYWdlRmlsZXNUb0Jhc2U2NEFycmF5LGdldEJhc2U2NEZyb21JbWFnZUZpbGUsc2F2ZUJhc2U2NFRvRmlsZSwgZ2V0QnlJbmRleCwgZmluZEJ5SW5kZXgsIGdldEJ5R2xvYmFsSW5kZXgsIGZpbmRCeUdsb2JhbEluZGV4CgoKCmNsYXNzIEluc3RhbGxhdGlvbk9yZGVyKE5vZGUpOgogICAgCiAgICBkZWYgX19pbml0X18oc2VsZiwgbm9kZV9pZD1Ob25lLCBjb25maWdfdWlkPU5vbmUpOgogICAgICAgIHN1cGVyKCkuX19pbml0X18obm9kZV9pZCwgY29uZmlnX3VpZCkKICAgICAgICAjIEFkZGl0aW9uYWwgaW5pdGlhbG96YXRpb24gZm9yIEluc3RhbGxhdGlvbk9yZGVyCgoKCmNsYXNzIENsaWVudChOb2RlKToKICAgIAogICAgZGVmIF9faW5pdF9fKHNlbGYsIG5vZGVfaWQ9Tm9uZSwgY29uZmlnX3VpZD1Ob25lKToKICAgICAgICBzdXBlcigpLl9faW5pdF9fKG5vZGVfaWQsIGNvbmZpZ191aWQpCiAgICAgICAgIyBBZGRpdGlvbmFsIGluaXRpYWxvemF0aW9uIGZvciBDbGllbnQKCgoKY2xhc3MgTXlUYXNrU2FtcGxlKE5vZGUpOgogICAgCiAgICBkZWYgX19pbml0X18oc2VsZiwgbm9kZV9pZD1Ob25lLCBjb25maWdfdWlkPU5vbmUpOgogICAgICAgIHN1cGVyKCkuX19pbml0X18obm9kZV9pZCwgY29uZmlnX3VpZCkKICAgICAgICAjIEFkZGl0aW9uYWwgaW5pdGlhbG96YXRpb24gZm9yIE15VGFza1NhbXBsZQoKCgpjbGFzcyBUZXN0Q29kZShOb2RlKToKICAgIAogICAgZGVmIF9faW5pdF9fKHNlbGYsIG5vZGVfaWQ9Tm9uZSwgY29uZmlnX3VpZD1Ob25lKToKICAgICAgICBzdXBlcigpLl9faW5pdF9fKG5vZGVfaWQsIGNvbmZpZ191aWQpCiAgICAgICAgIyBBZGRpdGlvbmFsIGluaXRpYWxvemF0aW9uIGZvciBUZXN0Q29kZQo=",
+    "nodes_server_handlers_meta": null,
+    "version": "00.00.01",
+    "NodaLogicFormat": "1.1",
+    "NodaLogicType": "ANDROID_SERVER",
+    "last_modified": "2026-04-23T12:55:36.487984+03:00",
+    "provider": "Dmitry Vorontsov",
+    "CommonLayouts": [],
+    "classes": [
+        {
+            "name": "InstallationOrder",
+            "section": "Примеры чатов",
+            "section_code": "chats_samples_documents",
+            "has_storage": false,
+            "display_name": "InstallationOrder",
+            "record_view": "#{number} , {date} , {client}",
+            "cover_image": "[\r\n  [ {\"type\":\"Text\",\"value\":\"Номер\"}, {\"type\":\"Text\",\"value\":\"@num\",\"bold\":true}, {\"type\":\"Text\",\"value\":\"Date\"}, {\"type\":\"Text\",\"value\":\"@date\",\"bold\":true} ],\r\n  [ {\"type\":\"Text\",\"value\":\"Клиент\"}, {\"type\":\"NodeLink\",\"value\":\"@client\",\"bold\":true} ],\r\n  [ {\"type\":\"Text\",\"value\":\"Статус\"}, {\"type\":\"Text\",\"value\":\"@status_view\",\"bold\":true} ]\r\n]",
+            "display_image_web": "",
+            "display_image_table": "",
+            "init_screen_layout": "[\r\n  [ {\"type\":\"Input\",\"caption\":\"Номер заявки\",\"id\":\"num\",\"value\":\"@num\",\"input_type\":\"number\"}, {\"type\":\"Input\",\"caption\":\"Дата выезда\",\"id\":\"date\",\"value\":\"@date\",\"input_type\":\"date\"} ],\r\n  [ {\"type\":\"NodeInput\",\"caption\":\"Клиент\",\"id\":\"client\",\"dataset\":\"Client\",\"value\":\"@client\"} ],\r\n  [ {\"type\":\"Input\",\"caption\":\"Адрес\",\"id\":\"address\",\"value\":\"@address\", \"input_type\":\"multiline\"} ],\r\n  [ {\"type\":\"Spinner\",\"caption\":\"Статус\",\"id\":\"status\",\"value\":\"@status\",\"dataset\":[{\"_view\":\"Принят в работу\",\"_id\":\"accepted\"},{\"_view\":\"Выезд\",\"_id\":\"visit_in_progress\"},{\"_view\":\"Работа начата\",\"_id\":\"inprogres\"},{\"_view\":\"Завершен\",\"_id\":\"done\"}]} ],\r\n  [ {\"type\":\"Tabs\",\"value\":[\r\n    {\"type\":\"Tab\",\"id\":\"tab_1\",\"caption\":\"Показания счетчиков\",\"layout\":[[{\"type\":\"Table\",\"id\":\"measurements\",\"virtual_node\":{\"layout\":[[{\"type\":\"Input\",\"caption\":\"Показатель\",\"id\":\"id\",\"value\":\"@id\"},{\"type\":\"Input\",\"caption\":\"Значение\",\"id\":\"value\",\"value\":\"@value\",\"input_type\":\"number\"}]],\"cover\":[[{\"type\":\"Text\",\"value\":\"@id\",\"bold\":true},{\"type\":\"Text\",\"value\":\"@value\",\"bold\":true}]]}}]]},\r\n    {\"type\":\"Tab\",\"id\":\"tab_2\",\"caption\":\"Материалы\",\"layout\":[[{\"type\":\"Table\",\"id\":\"tab2\",\"virtual_node\":{\"layout\":[[{\"type\":\"DatasetField\",\"caption\":\"Материал\",\"id\":\"materis\",\"dataset\":\"rawmaterials\",\"value\":\"@materis\"},{\"type\":\"Input\",\"caption\":\"Количество\",\"id\":\"qty\",\"value\":\"@qty\",\"input_type\":\"number\"}]],\"cover\":[[{\"type\":\"DatasetLink\",\"value\":\"@materis\",\"bold\":true},{\"type\":\"Text\",\"value\":\"@qty\",\"bold\":true}]]}}]]},\r\n    {\"type\":\"Tab\",\"id\":\"tab_1\",\"caption\":\"Чек-лист\",\"layout\":[[{\"type\":\"VerticalLayout\",\"width\":-1,\"value\":[{\"type\":\"CheckBox\",\"caption\":\"Доставка\",\"id\":\"check_delivery\",\"value\":\"@check_delivery\"},{\"type\":\"CheckBox\",\"caption\":\"Проверка комплектации\",\"id\":\"check_complete\",\"value\":\"@check_complete\"},{\"type\":\"CheckBox\",\"caption\":\"Монтаж\",\"id\":\"check_installation\",\"value\":\"@check_installation\"},{\"type\":\"CheckBox\",\"caption\":\"Подключение\",\"id\":\"check_plugin\",\"value\":\"@check_plugin\"}]}]]}\r\n   ]} ]\r\n]",
+            "init_screen_layout_web": "",
+            "plug_in": "",
+            "plug_in_web": "",
+            "commands": "",
+            "use_standard_commands": true,
+            "svg_commands": "",
+            "migration_register_command": false,
+            "migration_register_on_save": false,
+            "migration_default_room_uid": "",
+            "migration_default_room_alias": "",
+            "link_share_mode": "",
+            "indexes": [],
+            "class_type": "data_node",
+            "hidden": false,
+            "methods": [],
+            "events": [
+                {
+                    "event": "onShow",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "if not (\"measurements\" in _data)  {\n  _data.measurements= [];\n  _data.measurements.add({\"id\":\"Расходомер 1\",\"_parent_table\" : \"measurements\",\"_parent_node\" :_data._id,\"_id\":_data._id+\"_1\"});\n  _data.measurements.add({\"id\":\"Расходомер 2\",\"_parent_table\" : \"measurements\",\"_parent_node\" :_data._id,\"_id\":_data._id+\"_2\"});\n  _data.measurements.add({\"id\":\"Температура потока\",\"_parent_table\" : \"measurements\",\"_parent_node\" :_data._id,\"_id\":_data._id+\"_3\"});\n  _data.measurements.add({\"id\":\"Температура обратного потока\",\"_parent_table\" : \"measurements\",\"_parent_node\" :_data._id,\"_id\":_data._id+\"_4\"});\n \n}\n\n"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Client",
+            "section": "Примеры чатов: справочники",
+            "section_code": "chats_samples_catalogs",
+            "has_storage": false,
+            "display_name": "Client",
+            "record_view": "{name}",
+            "cover_image": "[\r\n  [{\"type\":\"Text\",\"value\":\"@name\",\"bold\":true} ],\r\n  [ {\"type\":\"Text\",\"value\":\"Телефон\"}, {\"type\":\"Text\",\"value\":\"@phone\",\"bold\":true} ]\r\n]",
+            "display_image_web": "",
+            "display_image_table": "",
+            "init_screen_layout": "[\r\n  [ {\"type\":\"Input\",\"caption\":\"Имя\",\"id\":\"name\",\"value\":\"@name\"} ],\r\n  [ {\"type\":\"Input\",\"caption\":\"Телефон\",\"id\":\"phone\",\"value\":\"@phone\"} ]\r\n]",
+            "init_screen_layout_web": "",
+            "plug_in": "",
+            "plug_in_web": "",
+            "commands": "",
+            "use_standard_commands": true,
+            "svg_commands": "",
+            "migration_register_command": false,
+            "migration_register_on_save": false,
+            "migration_default_room_uid": "",
+            "migration_default_room_alias": "",
+            "link_share_mode": "",
+            "indexes": [],
+            "class_type": "data_node",
+            "hidden": false,
+            "methods": [],
+            "events": []
+        },
+        {
+            "name": "MyTaskSample",
+            "section": "Примеры чатов",
+            "section_code": "chats_samples_documents",
+            "has_storage": false,
+            "display_name": "MyTaskSample",
+            "record_view": "{title}",
+            "cover_image": "[\r\n  [  {\"type\":\"Text\",\"value\":\"@title\",\"bold\":true} ],\r\n  [  {\"type\":\"Text\",\"value\":\"@address\"} ],\r\n[  {\"type\":\"Text\",\"value\":\"\"} ],\r\n  [{\"type\":\"Button\",\"id\":\"btn_accept\",\"caption\":\"Accept\",\"visible\":\"@accept_visibility\"},{\"type\":\"Button\",\"id\":\"btn_done\",\"caption\":\"Done\",\"background\":\"#378228\",\"visible\":\"@done_visibility\"},{\"type\":\"Button\",\"id\":\"btn_decline\",\"caption\":\"Decline\",\"background\":\"#F54927\",\"visible\":\"@decline_visibility\"}],\r\n[{\"type\":\"Text\",\"value\":\"@status\",\"radius\":10,\"visible\":\"@status_visibility\",\"width\":-2,\"w\":0,\"stroke\":1}]\r\n]",
+            "display_image_web": "",
+            "display_image_table": "",
+            "init_screen_layout": "[\r\n  [ {\"type\":\"Input\",\"caption\":\"Title\",\"id\":\"title\",\"value\":\"@title\"} ],\r\n  [ {\"type\":\"Input\",\"caption\":\"Address\",\"id\":\"address\",\"value\":\"@address\"} ],\r\n  [{\"type\":\"Input\",\"caption\":\"Description\",\"id\":\"body\",\"input_type\":\"muliline\",\"value\":\"@body\"}]\r\n]",
+            "init_screen_layout_web": "",
+            "plug_in": "[{\"type\":\"ToolbarButton\",\"id\":\"btn_reset\",\"caption\":\"Сбросить задачу\"}]",
+            "plug_in_web": "",
+            "commands": "",
+            "use_standard_commands": true,
+            "svg_commands": "",
+            "migration_register_command": false,
+            "migration_register_on_save": false,
+            "migration_default_room_uid": "",
+            "migration_default_room_alias": "",
+            "link_share_mode": "",
+            "indexes": [],
+            "class_type": "data_node",
+            "hidden": false,
+            "methods": [],
+            "events": [
+                {
+                    "event": "onAccept",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "if not (\"started\" in _data){\n      message(\"стартуем задачу\");\n  _data.accept_visibility = 1;\n  _data.done_visibility = 1;\n  _data.decline_visibility = 1;\n  _data.status_visibility = -1;\n}else{\n  if _data.done=true or _data.decline=true {\n    message(\"завершаем задачу\");\n     _data.accept_visibility = -1;\n     _data.done_visibility = -1;\n     _data.decline_visibility = -1;\n     _data.status_visibility = 1;\n\n  }\n}"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "btn_accept",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "message(\"*Accepted\");\n_data.accept_visibility = -1;\n_data.started = true;\n_data.status=\"Принято\";\nSave();\nRefreshTab();\n"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "btn_done",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "_data.done=true;\n_data.status=\"Завершена\";\nSave();\nRefreshTab();"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "btn_decline",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "_data.decline=true;\n_data.status = \"Отклонена\";\nSave();\nRefreshTab();"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "btn_reset",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "_data.remove(\"started\");\n_data.remove(\"done\");\n_data.remove(\"decline\");\nSave();\nRefreshTab();"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "TestCode",
+            "section": "Примеры чатов",
+            "section_code": "chats_samples_documents",
+            "has_storage": true,
+            "display_name": "TestCode",
+            "record_view": "",
+            "cover_image": "[[{\"type\":\"Text\",\"value\":\"Примеры вызова функций из кода\",\"bold\":\"true\"}],\r\n[\"sendTextMessage, sendImageMessage и др.\"]\r\n]",
+            "display_image_web": "",
+            "display_image_table": "",
+            "init_screen_layout": "[\r\n[{\"type\":\"Input\",\"caption\":\"Recipient\",\"id\":\"to\",\"value\":\"@to\"}],\r\n[{\"type\":\"NodeInput\",\"dataset\":\"Client\",\"value\":\"@node\", \"id\":\"node\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_deploy\",\"caption\":\"deploy (py)\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_send\",\"caption\":\"send(py)\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_send_text\",\"caption\":\"sendTextMessage (PY)\"},{\"type\":\"Button\",\"id\":\"btn_send_text_discussion\",\"caption\":\"_messageTextDiscussion (PY)\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_send_text_ns\",\"caption\":\"sendTextMessage (NS)\"}]\r\n]",
+            "init_screen_layout_web": "",
+            "plug_in": "",
+            "plug_in_web": "",
+            "commands": "",
+            "use_standard_commands": true,
+            "svg_commands": "",
+            "migration_register_command": false,
+            "migration_register_on_save": false,
+            "migration_default_room_uid": "",
+            "migration_default_room_alias": "",
+            "link_share_mode": "",
+            "indexes": [],
+            "class_type": "custom_process",
+            "hidden": false,
+            "methods": [
+                {
+                    "name": "input",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "input"
+                }
+            ],
+            "events": [
+                {
+                    "event": "onInput",
+                    "listener": "btn_send_text_ns",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "sendTextMessage(_data.to,\"Отправлено с NodaScript\")"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "input",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "datasets": [
+        {
+            "name": "rawmaterials",
+            "hash_indexes": [
+                "barcode",
+                "article"
+            ],
+            "text_indexes": [
+                "name"
+            ],
+            "view_template": "{name}, {barcode}",
+            "autoload": false,
+            "created_at": "2026-04-13T05:47:35.813452",
+            "updated_at": "2026-04-13T05:47:35.813473",
+            "api_url": "http://nmaker.pw/api/config/06e92481-127e-47cf-919b-9992e2456899/dataset/rawmaterials/items",
+            "item_count": 0
+        }
+    ],
+    "sections": [
+        {
+            "name": "Примеры чатов",
+            "code": "chats_samples_documents",
+            "commands": ""
+        },
+        {
+            "name": "Примеры чатов: справочники",
+            "code": "chats_samples_catalogs",
+            "commands": ""
+        }
+    ],
+    "servers": [],
+    "rooms": [],
+    "CommonEvents": []
+}
