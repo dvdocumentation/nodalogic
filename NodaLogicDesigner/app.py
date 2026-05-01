@@ -124,8 +124,8 @@ S3_BUCKET = ""
 s3 = boto3.client(
     "s3",
     endpoint_url=S3_ENDPOINT,
-    aws_access_key_id="6IQFBHS4BOEVXO5W5K6C",
-    aws_secret_access_key="HXiBRr2qc1X8f34bEjZlfJGf4gAvWZNsfA52Abod",
+    aws_access_key_id="",
+    aws_secret_access_key="",
     config=Config(signature_version="s3v4"),
     region_name="ru1",
 )
