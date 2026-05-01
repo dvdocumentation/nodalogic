@@ -1108,6 +1108,38 @@ def _ensure_sqlite_schema():
             # indexes may already exist; keep silent-ish
             print(f"Could not create index ({label}):", e)
 
+
+    # ------------------------------------------------------------
+    # node_discussion_message migrations
+    # Permanent history for node-discussion messages only.
+    # ------------------------------------------------------------
+    try:
+        if not _table_exists('node_discussion_message'):
+            with db.engine.begin() as conn:
+                conn.execute(text("""
+                    CREATE TABLE node_discussion_message (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        node_id VARCHAR(255) NOT NULL,
+                        client_message_id VARCHAR(128) NOT NULL UNIQUE,
+                        sender_user VARCHAR(255),
+                        sender_display_name VARCHAR(255) DEFAULT '',
+                        target_type VARCHAR(32) NOT NULL DEFAULT 'user',
+                        target_id VARCHAR(255) NOT NULL,
+                        text TEXT DEFAULT '',
+                        image TEXT,
+                        image_url TEXT,
+                        payload_json JSON,
+                        delivery_status VARCHAR(32) DEFAULT 'accepted',
+                        created_at DATETIME
+                    )
+                """))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_node_discussion_message_node_id ON node_discussion_message(node_id)"))
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_node_discussion_message_client_message_id ON node_discussion_message(client_message_id)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_node_discussion_message_created_at ON node_discussion_message(created_at)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_node_discussion_message_target ON node_discussion_message(target_type, target_id)"))
+    except Exception as e:
+        print("Could not ensure node_discussion_message table:", e)
+
     # ------------------------------------------------------------
     # user table migrations
     # ------------------------------------------------------------
@@ -1564,6 +1596,68 @@ class RawNode(db.Model):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+
+class NodeDiscussionMessage(db.Model):
+    """Permanent history for node-discussion messages only.
+
+    Delivery/pending/FCM continue to use OutgoingMessageLog and existing flows.
+    This table is used only by /api/node-discussion/by-node/<node_id>/messages.
+    """
+    __tablename__ = 'node_discussion_message'
+
+    id = db.Column(db.Integer, primary_key=True)
+    node_id = db.Column(db.String(255), nullable=False, index=True)
+    client_message_id = db.Column(db.String(128), unique=True, nullable=False, index=True)
+
+    sender_user = db.Column(db.String(255), nullable=True, index=True)
+    sender_display_name = db.Column(db.String(255), default='')
+
+    target_type = db.Column(db.String(32), nullable=False, default='user')
+    target_id = db.Column(db.String(255), nullable=False, index=True)
+
+    text = db.Column(db.Text, default='')
+    image = db.Column(db.Text)
+    image_url = db.Column(db.Text)
+    payload_json = db.Column(db.JSON, default=dict)
+    delivery_status = db.Column(db.String(32), default='accepted')
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
+
+
+def _ensure_node_discussion_message_table_runtime():
+    """Ensure permanent node-discussion history table exists after the model is defined."""
+    try:
+        with db.engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS node_discussion_message (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    node_id VARCHAR(255) NOT NULL,
+                    client_message_id VARCHAR(128) NOT NULL UNIQUE,
+                    sender_user VARCHAR(255),
+                    sender_display_name VARCHAR(255) DEFAULT '',
+                    target_type VARCHAR(32) NOT NULL DEFAULT 'user',
+                    target_id VARCHAR(255) NOT NULL,
+                    text TEXT DEFAULT '',
+                    image TEXT,
+                    image_url TEXT,
+                    payload_json JSON,
+                    delivery_status VARCHAR(32) DEFAULT 'accepted',
+                    created_at DATETIME
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_node_discussion_message_node_id ON node_discussion_message(node_id)"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_node_discussion_message_client_message_id ON node_discussion_message(client_message_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_node_discussion_message_created_at ON node_discussion_message(created_at)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_node_discussion_message_target ON node_discussion_message(target_type, target_id)"))
+    except Exception as e:
+        print('Could not ensure node_discussion_message table at runtime:', e)
+
+try:
+    with app.app_context():
+        _ensure_node_discussion_message_table_runtime()
+except Exception as _e:
+    print('Node discussion runtime schema ensure skipped:', _e)
 
 class Dataset(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -2675,15 +2769,1095 @@ def _save_raw_node_local(node_id: str, payload: dict, owner_user_id=None, conten
     db.session.commit()
     return obj
 
+def _node_discussion_group_id(class_name, node_id):
+    class_name = str(class_name or '').strip()
+    node_id = str(node_id or '').strip()
+    return f"node:{class_name}:{node_id}"
+
+
+def _ensure_node_discussion_group(class_name, node_id, title=None, members=None):
+    group_id = _node_discussion_group_id(class_name, node_id)
+    group = MessageGroup.query.filter_by(group_id=group_id).first()
+
+    if group is None:
+        group = MessageGroup(
+            group_id=group_id,
+            title=title or f"{class_name}:{node_id}",
+            created_by=_normalize_user_key(getattr(getattr(g, 'api_user', None), 'email', None)) or None,
+        )
+        db.session.add(group)
+        db.session.flush()
+
+    current_user_key = _normalize_user_key(getattr(getattr(g, 'api_user', None), 'email', None))
+    all_members = _normalize_member_user_keys(members, include_user_key=current_user_key)
+
+    existing = {
+        m.user_key.lower()
+        for m in MessageGroupMember.query.filter_by(group_id=group_id).all()
+    }
+
+    for user_key in all_members:
+        if user_key.lower() not in existing:
+            db.session.add(MessageGroupMember(group_id=group_id, user_key=user_key))
+
+    group.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
+    return group
+
+@app.route('/api/node-discussion/<class_name>/<node_id>/messages', methods=['GET'])
+@api_auth_required
+def api_node_discussion_messages(class_name, node_id):
+    group_id = _node_discussion_group_id(class_name, node_id)
+
+    group = MessageGroup.query.filter_by(group_id=group_id).first()
+    if not group:
+        return jsonify({
+            'ok': True,
+            'group_id': group_id,
+            'class_name': class_name,
+            'node_id': node_id,
+            'count': 0,
+            'messages': [],
+        }), 200
+
+    limit = request.args.get('limit', 1000)
+    before = request.args.get('before')
+
+    payload, status = _get_group_messages_history_impl(group_id, limit=limit, before=before)
+
+    if status == 200 and payload.get('ok'):
+        messages = []
+        for m in payload.get('messages', []):
+            data = m.get('data') if isinstance(m.get('data'), dict) else {}
+
+            messages.append({
+                'client_message_id': m.get('client_message_id'),
+                'sender_user': m.get('sender_user'),
+                'sender_display_name': m.get('sender_display_name'),
+                'created_at': m.get('created_at'),
+                'text': data.get('text') if data.get('text') is not None else m.get('text'),
+                'image': data.get('image'),
+                'image_url': data.get('image_url'),
+                'data': data,
+            })
+
+        payload.update({
+            'class_name': class_name,
+            'node_id': node_id,
+            'messages': messages,
+            'count': len(messages),
+        })
+
+    return jsonify(payload), status
+
+
+@app.route('/api/node-discussion/<class_name>/<node_id>/messages', methods=['POST'])
+@api_auth_required
+def api_post_node_discussion_message(class_name, node_id):
+    data = request.get_json(silent=True) or {}
+
+    group = _ensure_node_discussion_group(
+        class_name,
+        node_id,
+        title=data.get('title') or f"{class_name}:{node_id}",
+        members=data.get('members'),
+    )
+
+    explicit_sender = data.get('sender_user')
+    sender_user = _get_sender_user(explicit_sender)
+    sender_display_name = _get_sender_display_name(explicit_sender)
+
+    text = data.get('text')
+    image = data.get('image')
+    image_url = data.get('image_url')
+
+    payload = {
+        'type': 'node_discussion_message',
+        'class_name': class_name,
+        'node_id': node_id,
+        'text': text or '',
+    }
+
+    if image is not None:
+        payload['image'] = image
+    if image_url is not None:
+        payload['image_url'] = image_url
+    if sender_display_name:
+        payload['sender_display_name'] = sender_display_name
+
+    extra = data.get('data')
+    if isinstance(extra, dict):
+        payload.update(extra)
+
+    body = text or data.get('body') or data.get('message') or 'New message'
+    title = data.get('title') or sender_display_name or group.title or 'Node discussion'
+
+    result = send_message_to_group_global(
+        group.group_id,
+        title,
+        body,
+        payload,
+        sender_user=sender_user,
+    )
+
+    return jsonify({
+        'ok': bool(result.get('ok')),
+        'group_id': group.group_id,
+        'class_name': class_name,
+        'node_id': node_id,
+        'result': result,
+    }), (200 if result.get('ok') else 400)
+
+
+def _node_discussion_ref_candidates(node_id):
+    node_id = str(node_id or '').strip()
+    if not node_id:
+        return set()
+    candidates = {node_id}
+    try:
+        candidates.add(_raw_node_public_url(_current_public_base_url(), node_id))
+    except Exception:
+        pass
+    candidates.add(f'/api/raw-node/{node_id}')
+    candidates.add(f'raw-node/{node_id}')
+    return {str(x).strip() for x in candidates if str(x or '').strip()}
+
+
+def _node_discussion_value_matches_node(value, node_id):
+    node_id = str(node_id or '').strip()
+    value = str(value or '').strip()
+    if not node_id or not value:
+        return False
+    if value == node_id:
+        return True
+    if value.rstrip('/').endswith('/' + node_id):
+        return True
+    if f'/api/raw-node/{node_id}' in value or f'raw-node/{node_id}' in value:
+        return True
+    return False
+
+
+def _node_discussion_payload_matches_node(payload, node_id):
+    if not isinstance(payload, dict):
+        return False
+
+    for key in ('node_id', 'node_uid', '_id', 'discussion_node_id', 'discussion_node_uid'):
+        if _node_discussion_value_matches_node(payload.get(key), node_id):
+            return True
+
+    for key in ('thread_ref', 'download_url', 'node_url', 'raw_node_url'):
+        if _node_discussion_value_matches_node(payload.get(key), node_id):
+            return True
+
+    # Some clients put nested data into a stringified JSON field.
+    for key in ('payload', 'data'):
+        nested = payload.get(key)
+        if isinstance(nested, dict) and _node_discussion_payload_matches_node(nested, node_id):
+            return True
+
+    return False
+
+
+
+# -----------------------------------------------------------------------------
+# Node discussion diagnostics / API datetime formatting
+# -----------------------------------------------------------------------------
+def _node_discussion_debug(event, **fields):
+    """Small stdout logger for node-discussion delivery/pending diagnostics."""
+    try:
+        safe = []
+        for key, value in fields.items():
+            key_s = str(key)
+            if 'token' in key_s.lower():
+                value = '<redacted>'
+            elif isinstance(value, (dict, list, tuple)):
+                try:
+                    value = json.dumps(value, ensure_ascii=False, default=str)
+                except Exception:
+                    value = str(value)
+            safe.append(f"{key_s}={value}")
+        print('[node-discussion-debug] ' + str(event) + (' | ' + ' | '.join(safe) if safe else ''), flush=True)
+    except Exception:
+        pass
+
+
+def _node_discussion_response_timezone_name():
+    """Timezone used only by GET /api/node-discussion/by-node/.../messages."""
+    try:
+        tz_arg = request.args.get('tz') or request.args.get('timezone')
+        if tz_arg:
+            return str(tz_arg).strip()
+    except Exception:
+        pass
+
+    try:
+        api_user = getattr(g, 'api_user', None)
+        tz_name = getattr(api_user, 'timezone', None)
+        if tz_name:
+            return str(tz_name).strip()
+    except Exception:
+        pass
+
+    try:
+        g_user = getattr(g, 'user', None)
+        tz_name = getattr(g_user, 'timezone', None)
+        if tz_name:
+            return str(tz_name).strip()
+    except Exception:
+        pass
+
+    try:
+        return str(app.config.get('USER_TIMEZONE') or 'Europe/Moscow').strip()
+    except Exception:
+        return 'Europe/Moscow'
+
+
+def _node_discussion_parse_dt(value):
+    if value in (None, ''):
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        try:
+            dt = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        except Exception:
+            return None
+    if dt.tzinfo is None:
+        # SQLite often returns timezone-aware columns as naive datetimes.
+        # In this app those values are stored as UTC, so treat naive as UTC.
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _node_discussion_format_dt(value, tz_name=None):
+    dt = _node_discussion_parse_dt(value)
+    if dt is None:
+        return value if value in (None, '') else str(value)
+    tz_name = str(tz_name or _node_discussion_response_timezone_name() or 'Europe/Moscow').strip()
+    try:
+        tz = pytz.timezone(tz_name)
+    except Exception:
+        tz = pytz.timezone('Europe/Moscow')
+    return dt.astimezone(tz).isoformat()
+
+
+def _node_discussion_format_dt_utc(value):
+    dt = _node_discussion_parse_dt(value)
+    if dt is None:
+        return value if value in (None, '') else str(value)
+    return dt.isoformat().replace('+00:00', 'Z')
+
+
+def _localize_node_discussion_message_times(message, tz_name=None):
+    """Return a copy with local timestamps for by-node GET only.
+
+    Backward compatible: existing fields such as created_at become local-time
+    strings; additional *_utc fields preserve the original UTC value.
+    """
+    if not isinstance(message, dict):
+        return message
+    result = dict(message)
+    for field in ('created_at', 'accepted_at', 'pushed_at', 'ack_at'):
+        value = result.get(field)
+        if value in (None, ''):
+            continue
+        result[field + '_utc'] = _node_discussion_format_dt_utc(value)
+        result[field] = _node_discussion_format_dt(value, tz_name=tz_name)
+    return result
+
+def _node_discussion_group_matches_node(group_id, node_id):
+    group_id = str(group_id or '').strip()
+    node_id = str(node_id or '').strip()
+    return bool(group_id and node_id and group_id.startswith('node:') and group_id.rstrip('/').endswith(':' + node_id))
+
+
+def _node_discussion_text_from_msg(msg, payload=None):
+    payload = payload if isinstance(payload, dict) else (msg.payload_json if isinstance(msg.payload_json, dict) else {})
+    for key in ('text', 'message', 'body', 'caption'):
+        value = payload.get(key)
+        if value not in (None, ''):
+            return value
+    return msg.body or ''
+
+
+def _serialize_node_discussion_message(msg):
+    payload = msg.payload_json if isinstance(msg.payload_json, dict) else {}
+    data = dict(payload)
+    text_value = _node_discussion_text_from_msg(msg, payload)
+    return {
+        'id': msg.id,
+        'client_message_id': msg.client_message_id,
+        'target_type': msg.target_type,
+        'target_id': msg.target_id,
+        'sender_user': msg.sender_user,
+        'sender_display_name': _resolve_sender_display_name(msg.sender_user, payload),
+        'title': msg.title or '',
+        'body': msg.body or '',
+        'text': text_value,
+        'image': payload.get('image'),
+        'image_url': payload.get('image_url'),
+        'thread_type': payload.get('thread_type'),
+        'thread_ref': payload.get('thread_ref') or payload.get('download_url'),
+        'node_id': payload.get('node_id') or payload.get('node_uid') or payload.get('_id'),
+        'type': payload.get('type'),
+        'data': data,
+        'status': msg.status,
+        'created_at': msg.created_at.isoformat() if msg.created_at else None,
+        'accepted_at': msg.accepted_at.isoformat() if msg.accepted_at else None,
+        'pushed_at': msg.pushed_at.isoformat() if msg.pushed_at else None,
+        'ack_at': msg.ack_at.isoformat() if msg.ack_at else None,
+        'last_error': msg.last_error,
+    }
+
+
+def _extract_node_discussion_node_id(payload):
+    if not isinstance(payload, dict):
+        return ''
+
+    thread_type = str(payload.get('thread_type') or '').strip()
+    msg_type = str(payload.get('type') or '').strip()
+
+    # Strict enough not to capture ordinary type='node' payloads.
+    if thread_type != 'node_discussion' and msg_type not in ('node_discussion_message', 'node_discussion'):
+        return ''
+
+    node_id = (
+        payload.get('node_id')
+        or payload.get('node_uid')
+        or payload.get('_id')
+        or payload.get('raw_node_id')
+    )
+
+    if not node_id:
+        for key in ('thread_ref', 'raw_node_url', 'download_url', 'node_url'):
+            value = str(payload.get(key) or '')
+            if '/api/raw-node/' in value:
+                node_id = value.rsplit('/api/raw-node/', 1)[-1].split('?', 1)[0].split('#', 1)[0]
+                break
+
+    return str(node_id or '').strip()
+
+
+def _save_node_discussion_history_message(
+    node_id,
+    client_message_id,
+    sender_user=None,
+    sender_display_name='',
+    target_type='user',
+    target_id='',
+    text='',
+    image=None,
+    image_url=None,
+    payload=None,
+    delivery_status='accepted',
+):
+    node_id = str(node_id or '').strip()
+    client_message_id = str(client_message_id or '').strip()
+    if not node_id or not client_message_id:
+        return None
+
+    try:
+        msg = NodeDiscussionMessage.query.filter_by(client_message_id=client_message_id).first()
+        if msg is None:
+            msg = NodeDiscussionMessage(
+                node_id=node_id,
+                client_message_id=client_message_id,
+                created_at=datetime.now(timezone.utc),
+            )
+            db.session.add(msg)
+
+        msg.node_id = node_id
+        msg.sender_user = str(sender_user or '').strip() or None
+        msg.sender_display_name = str(sender_display_name or '')
+        msg.target_type = str(target_type or 'user').strip() or 'user'
+        msg.target_id = str(target_id or '').strip()
+        msg.text = str(text or '')
+        msg.image = image
+        msg.image_url = image_url
+        msg.payload_json = payload if isinstance(payload, dict) else {}
+        msg.delivery_status = str(delivery_status or 'accepted')
+        db.session.commit()
+        return msg
+    except Exception as e:
+        db.session.rollback()
+        print('Could not save node discussion history:', e)
+        return None
+
+
+def _update_node_discussion_delivery_status(client_message_id, delivery_status):
+    client_message_id = str(client_message_id or '').strip()
+    if not client_message_id:
+        return None
+
+    try:
+        msg = NodeDiscussionMessage.query.filter_by(client_message_id=client_message_id).first()
+        if not msg:
+            return None
+        msg.delivery_status = str(delivery_status or msg.delivery_status or 'accepted')
+        db.session.commit()
+        return msg
+    except Exception as e:
+        db.session.rollback()
+        print('Could not update node discussion delivery status:', e)
+        return None
+
+
+def _serialize_node_discussion_history_message(msg):
+    payload = msg.payload_json if isinstance(msg.payload_json, dict) else {}
+    text_value = msg.text or payload.get('text') or payload.get('message') or payload.get('body') or ''
+    return {
+        'id': msg.id,
+        'client_message_id': msg.client_message_id,
+        'target_type': msg.target_type,
+        'target_id': msg.target_id,
+        'sender_user': msg.sender_user,
+        'sender_display_name': msg.sender_display_name or _resolve_sender_display_name(msg.sender_user, payload),
+        'title': payload.get('title') or '',
+        'body': payload.get('body') or '',
+        'text': text_value,
+        'image': msg.image or payload.get('image'),
+        'image_url': msg.image_url or payload.get('image_url'),
+        'thread_type': 'node_discussion',
+        'thread_ref': payload.get('thread_ref') or payload.get('download_url') or payload.get('raw_node_url'),
+        'node_id': msg.node_id,
+        'type': payload.get('type') or 'node_discussion_message',
+        'data': dict(payload),
+        'status': msg.delivery_status,
+        'delivery_status': msg.delivery_status,
+        'created_at': msg.created_at.isoformat() if msg.created_at else None,
+    }
+
+
+def _maybe_save_node_discussion_history_from_payload(
+    *,
+    target_type,
+    target_id,
+    title='',
+    body='',
+    payload=None,
+    sender_user=None,
+    delivery_status='accepted',
+):
+    if not isinstance(payload, dict):
+        return None
+
+    node_id = _extract_node_discussion_node_id(payload)
+    if not node_id:
+        return None
+
+    client_message_id = str(payload.get('_client_message_id') or payload.get('client_message_id') or '').strip()
+    if not client_message_id:
+        return None
+
+    text = payload.get('text') or payload.get('message') or payload.get('body') or body or ''
+    sender_display_name = str(payload.get('sender_display_name') or '').strip()
+
+    return _save_node_discussion_history_message(
+        node_id=node_id,
+        client_message_id=client_message_id,
+        sender_user=sender_user or payload.get('sender_user'),
+        sender_display_name=sender_display_name,
+        target_type=target_type,
+        target_id=target_id,
+        text=text,
+        image=payload.get('image'),
+        image_url=payload.get('image_url'),
+        payload=payload,
+        delivery_status=delivery_status,
+    )
+
+
+def _get_node_discussion_messages_by_node_id(node_id):
+    node_id = str(node_id or '').strip()
+    if not node_id:
+        return []
+
+    messages = []
+    seen_client_ids = set()
+
+    try:
+        history_rows = NodeDiscussionMessage.query.filter_by(node_id=node_id).order_by(
+            NodeDiscussionMessage.created_at.asc(),
+            NodeDiscussionMessage.id.asc(),
+        ).all()
+        for msg in history_rows:
+            if msg.client_message_id:
+                seen_client_ids.add(msg.client_message_id)
+            messages.append(_serialize_node_discussion_history_message(msg))
+    except Exception as e:
+        print('Could not read node discussion history:', e)
+
+    # Legacy fallback for messages that were written before node_discussion_message existed.
+    try:
+        rows = OutgoingMessageLog.query.filter(
+            OutgoingMessageLog.target_type.in_(('user', 'group'))
+        ).order_by(OutgoingMessageLog.created_at.asc(), OutgoingMessageLog.id.asc()).all()
+
+        for msg in rows:
+            if msg.client_message_id in seen_client_ids:
+                continue
+            payload = msg.payload_json if isinstance(msg.payload_json, dict) else {}
+            if (
+                _extract_node_discussion_node_id(payload) == node_id
+                or _node_discussion_payload_matches_node(payload, node_id)
+                or _node_discussion_group_matches_node(msg.target_id, node_id)
+            ):
+                messages.append(_serialize_node_discussion_message(msg))
+                if msg.client_message_id:
+                    seen_client_ids.add(msg.client_message_id)
+    except Exception as e:
+        print('Could not read legacy node discussion history:', e)
+
+    return messages
+
+
+def _add_node_discussion_target(targets, target_type, target_id, group_id=None, user_key=None):
+    target_type = str(target_type or '').strip()
+    target_id = str(target_id or '').strip()
+    if not target_type or not target_id:
+        return
+    key = (target_type, target_id)
+    if key not in targets:
+        targets[key] = {
+            'target_type': target_type,
+            'target_id': target_id,
+            'group_id': group_id if group_id is not None else (target_id if target_type == 'group' else None),
+            'user_key': user_key if user_key is not None else (target_id if target_type == 'user' else None),
+        }
+
+
+
+
+def _node_delivery_payload_matches_node(payload, node_id):
+    """Match a previously delivered node payload to a raw node id.
+
+    Initial node delivery has type='node', not thread_type='node_discussion'.
+    This is used only to discover the first discussion target.
+    """
+    node_id = str(node_id or '').strip()
+    if not node_id:
+        return False
+    if isinstance(payload, dict):
+        if _node_discussion_payload_matches_node(payload, node_id):
+            return True
+        for key in ('placed', 'node', 'payload', 'data', '_data'):
+            nested = payload.get(key)
+            if isinstance(nested, dict) and _node_delivery_payload_matches_node(nested, node_id):
+                return True
+        try:
+            return node_id in json.dumps(payload, ensure_ascii=False)
+        except Exception:
+            return False
+    if isinstance(payload, str):
+        return node_id in payload or _node_discussion_value_matches_node(payload, node_id)
+    return False
+
+
+def _remember_node_delivery_target(node_id, target_type, target_id, sender_user=None):
+    """Remember who received a node so a later empty by-node discussion can start.
+
+    This does not alter delivery/FCM. It only stores a small target hint in the
+    RawNode payload for future /api/node-discussion/by-node/<node_id>/messages POSTs.
+    """
+    node_id = str(node_id or '').strip()
+    target_type = str(target_type or '').strip()
+    target_id = str(target_id or '').strip()
+    if not node_id or target_type not in ('user', 'group') or not target_id:
+        return False
+    try:
+        obj = db.session.execute(select(RawNode).where(RawNode.node_id == node_id)).scalar_one_or_none()
+        if obj is None:
+            return False
+        payload = obj.payload_json if isinstance(obj.payload_json, dict) else {}
+        hints = payload.get('_node_message_targets')
+        if not isinstance(hints, list):
+            hints = []
+        hint = {
+            'target_type': target_type,
+            'target_id': target_id,
+            'sender_user': str(sender_user or '').strip(),
+            'created_at': datetime.now(timezone.utc).isoformat(),
+        }
+        exists = False
+        for old in hints:
+            if isinstance(old, dict) and str(old.get('target_type') or '') == target_type and str(old.get('target_id') or '') == target_id:
+                old.update(hint)
+                exists = True
+                break
+        if not exists:
+            hints.append(hint)
+        payload['_node_message_targets'] = hints[-20:]
+        obj.payload_json = payload
+        db.session.add(obj)
+        db.session.commit()
+        return True
+    except Exception as e:
+        db.session.rollback()
+        print('Could not remember node delivery target:', e)
+        return False
+
+
+def _add_targets_from_node_delivery_hints(targets, hints, sender_user=None):
+    sender_lower = str(sender_user or '').strip().lower()
+    if not isinstance(hints, list):
+        return
+    for hint in hints:
+        if not isinstance(hint, dict):
+            continue
+        target_type = str(hint.get('target_type') or '').strip()
+        target_id = str(hint.get('target_id') or hint.get('user_key') or hint.get('group_id') or '').strip()
+        if target_type == 'user':
+            user_key = _normalize_user_key(target_id)
+            if user_key and user_key.lower() != sender_lower:
+                _add_node_discussion_target(targets, 'user', user_key)
+        elif target_type == 'group' and target_id:
+            _add_node_discussion_target(targets, 'group', target_id)
+
+def _find_node_discussion_targets(node_id, sender_user=None):
+    node_id = str(node_id or '').strip()
+    sender_user = str(sender_user or '').strip()
+    sender_lower = sender_user.lower()
+    targets = {}
+
+    if not node_id:
+        return []
+
+    # First use the permanent node-discussion history.
+    try:
+        rows = NodeDiscussionMessage.query.filter_by(node_id=node_id).order_by(
+            NodeDiscussionMessage.created_at.asc(),
+            NodeDiscussionMessage.id.asc(),
+        ).all()
+
+        for msg in rows:
+            target_type = str(msg.target_type or '').strip()
+            target_id = str(msg.target_id or '').strip()
+            payload = msg.payload_json if isinstance(msg.payload_json, dict) else {}
+
+            if target_type == 'group':
+                _add_node_discussion_target(targets, 'group', target_id)
+                continue
+
+            if target_type == 'user':
+                original_sender = str(msg.sender_user or payload.get('sender_user') or '').strip()
+                reply_target = target_id
+
+                # If the current API user was the previous recipient, answer back to the previous sender.
+                if sender_lower and target_id.lower() == sender_lower and original_sender and original_sender.lower() != sender_lower:
+                    reply_target = original_sender
+
+                if reply_target:
+                    _add_node_discussion_target(targets, 'user', reply_target)
+    except Exception as e:
+        print('Could not find node discussion targets from history:', e)
+
+    if targets:
+        return list(targets.values())
+
+    # Legacy fallback: old messages kept only in OutgoingMessageLog.
+    try:
+        rows = OutgoingMessageLog.query.filter(
+            OutgoingMessageLog.target_type.in_(('user', 'group'))
+        ).order_by(OutgoingMessageLog.created_at.asc(), OutgoingMessageLog.id.asc()).all()
+
+        for msg in rows:
+            payload = msg.payload_json if isinstance(msg.payload_json, dict) else {}
+            if not (
+                _extract_node_discussion_node_id(payload) == node_id
+                or _node_discussion_payload_matches_node(payload, node_id)
+                or _node_delivery_payload_matches_node(payload, node_id)
+                or _node_discussion_group_matches_node(msg.target_id, node_id)
+            ):
+                continue
+
+            target_type = str(msg.target_type or '').strip()
+            target_id = str(msg.target_id or '').strip()
+            if target_type == 'group':
+                _add_node_discussion_target(targets, 'group', target_id)
+                continue
+
+            if target_type == 'user':
+                original_sender = str(msg.sender_user or payload.get('sender_user') or '').strip()
+                reply_target = target_id
+                if sender_lower and target_id.lower() == sender_lower and original_sender and original_sender.lower() != sender_lower:
+                    reply_target = original_sender
+                if reply_target:
+                    _add_node_discussion_target(targets, 'user', reply_target)
+    except Exception as e:
+        print('Could not find node discussion targets from legacy log:', e)
+
+    # Existing legacy synthetic groups: node:<class>:<node_id>
+    try:
+        for group in MessageGroup.query.filter(MessageGroup.group_id.like('node:%')).all():
+            if _node_discussion_group_matches_node(group.group_id, node_id):
+                _add_node_discussion_target(targets, 'group', group.group_id)
+    except Exception:
+        pass
+
+    return list(targets.values())
+
+
+
+def _find_node_discussion_targets_from_raw_node(node_id, sender_user=None):
+    """Best-effort initial target discovery for a brand-new node discussion.
+
+    Used only when there is no discussion history yet and the by-node POST did
+    not explicitly provide target_user/user_key/members/group_id. It keeps the
+    general /api/user/... flow unchanged.
+    """
+    targets = {}
+    node_id = str(node_id or '').strip()
+    sender_lower = str(sender_user or '').strip().lower()
+    if not node_id:
+        return []
+
+    try:
+        obj = db.session.execute(
+            select(RawNode).where(RawNode.node_id == node_id)
+        ).scalar_one_or_none()
+    except Exception:
+        obj = None
+
+    if obj is None:
+        return []
+
+    # Common case: an external by-node client starts a discussion on a raw node
+    # owned by another API user/client. Use that owner as the first p2p target.
+    try:
+        owner_id = getattr(obj, 'owner_user_id', None)
+        if owner_id:
+            owner = db.session.execute(select(User).where(User.id == owner_id)).scalar_one_or_none()
+            owner_key = _normalize_user_key(getattr(owner, 'email', None))
+            if owner_key and owner_key.lower() != sender_lower:
+                _add_node_discussion_target(targets, 'user', owner_key)
+    except Exception:
+        pass
+
+    # Also scan the stored raw-node payload for explicit recipient hints.
+    payload = obj.payload_json if isinstance(getattr(obj, 'payload_json', None), dict) else {}
+    sources = [payload]
+    for key in ('data', '_data', 'payload', 'node'):
+        if isinstance(payload.get(key), dict):
+            sources.append(payload.get(key))
+
+    # Target hints written when the node itself was sent through /nodes-message.
+    _add_targets_from_node_delivery_hints(targets, payload.get('_node_message_targets'), sender_user=sender_user)
+
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+
+        group_id = str(source.get('group_id') or source.get('discussion_group_id') or '').strip()
+        target_key = str(source.get('target_key') or '').strip()
+        if target_key.startswith('group:') and not group_id:
+            group_id = target_key[len('group:'):].strip()
+        if group_id:
+            _add_node_discussion_target(targets, 'group', group_id)
+
+        for key in ('target_user', 'user_key', 'target_key', 'target_id', 'recipient',
+                    'recipient_user', 'to', 'to_user', 'peer', 'peer_user', 'receiver'):
+            value = source.get(key)
+            if key == 'target_key' and str(value or '').startswith('group:'):
+                continue
+            user_key = _normalize_user_key(value)
+            if user_key and user_key.lower() != sender_lower:
+                _add_node_discussion_target(targets, 'user', user_key)
+
+    return list(targets.values())
+
+
+def _create_node_discussion_targets_from_request(data, node_id, sender_user):
+    targets = {}
+    data = data if isinstance(data, dict) else {}
+    nested = data.get('data') if isinstance(data.get('data'), dict) else {}
+    sources = (data, nested)
+
+    def _first_value(*keys):
+        for source in sources:
+            for key in keys:
+                value = source.get(key)
+                if value not in (None, ''):
+                    return value
+        return None
+
+    group_id = str(_first_value('group_id', 'discussion_group_id') or '').strip()
+    members = _first_value('members', 'participants')
+
+    raw_target_key = str(_first_value('target_key') or '').strip()
+    if raw_target_key.startswith('group:') and not group_id:
+        group_id = raw_target_key[len('group:'):].strip()
+
+    if group_id:
+        group = MessageGroup.query.filter_by(group_id=group_id).first()
+        if group is None:
+            group = MessageGroup(
+                group_id=group_id,
+                title=data.get('title') or nested.get('title') or f'Node discussion: {node_id}',
+                created_by=sender_user or None,
+            )
+            db.session.add(group)
+            db.session.flush()
+
+        for member_key in _normalize_member_user_keys(members, include_user_key=sender_user):
+            exists = MessageGroupMember.query.filter_by(group_id=group.group_id, user_key=member_key).first()
+            if not exists:
+                db.session.add(MessageGroupMember(group_id=group.group_id, user_key=member_key))
+
+        group.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+        _add_node_discussion_target(targets, 'group', group.group_id)
+
+    elif isinstance(members, (list, tuple, set)) and members:
+        group = MessageGroup(
+            group_id=_make_group_id(),
+            title=data.get('title') or nested.get('title') or f'Node discussion: {node_id}',
+            created_by=sender_user or None,
+        )
+        db.session.add(group)
+        db.session.flush()
+
+        for member_key in _normalize_member_user_keys(members, include_user_key=sender_user):
+            db.session.add(MessageGroupMember(group_id=group.group_id, user_key=member_key))
+
+        db.session.commit()
+        _add_node_discussion_target(targets, 'group', group.group_id)
+
+    for source in sources:
+        for key in ('target_user', 'user_key', 'target_key', 'target_id', 'recipient',
+                    'recipient_user', 'to', 'to_user', 'peer', 'peer_user', 'receiver'):
+            value = source.get(key)
+            if key == 'target_key' and str(value or '').startswith('group:'):
+                continue
+            user_key = _normalize_user_key(value)
+            if user_key:
+                _add_node_discussion_target(targets, 'user', user_key)
+
+    return list(targets.values())
+
+@app.route('/api/node-discussion/by-node/<path:node_id>/messages', methods=['GET'])
+@api_auth_required
+def api_node_discussion_messages_by_node_id(node_id):
+    messages = _get_node_discussion_messages_by_node_id(node_id)
+    tz_name = _node_discussion_response_timezone_name()
+    messages = [_localize_node_discussion_message_times(m, tz_name=tz_name) for m in messages]
+    _node_discussion_debug('route_get_by_node.result', node_id=str(node_id or '').strip(), count=len(messages), timezone=tz_name)
+    return jsonify(messages), 200
+
+
+@app.route('/api/node-discussion/by-node/<path:node_id>/messages', methods=['POST'])
+@api_auth_required
+def api_post_node_discussion_message_by_node_id(node_id):
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        data = {}
+
+    # Allow the external by-node client to pass first-discussion targets either
+    # in JSON body or in query string. Existing clients are unaffected.
+    for _key in (
+        'target_user', 'user_key', 'target_key', 'target_id', 'recipient',
+        'recipient_user', 'to', 'to_user', 'peer', 'peer_user', 'receiver',
+        'group_id', 'discussion_group_id'
+    ):
+        if data.get(_key) in (None, '') and request.args.get(_key) not in (None, ''):
+            data[_key] = request.args.get(_key)
+
+    explicit_sender = data.get('sender_user')
+    sender_user = _get_sender_user(explicit_sender)
+    sender_display_name = _get_sender_display_name(explicit_sender)
+
+    text = data.get('text')
+    if text is None:
+        text = data.get('message')
+    if text is None:
+        text = data.get('body')
+    image = data.get('image')
+    image_url = data.get('image_url')
+
+    if text in (None, '') and image in (None, '') and image_url in (None, ''):
+        return jsonify({'ok': False, 'error': 'text_or_image_required', 'node_id': node_id}), 400
+
+    targets = _find_node_discussion_targets(node_id, sender_user=sender_user)
+    if not targets:
+        targets = _create_node_discussion_targets_from_request(data, node_id, sender_user)
+    if not targets:
+        targets = _find_node_discussion_targets_from_raw_node(node_id, sender_user=sender_user)
+
+    if not targets:
+        return jsonify({
+            'ok': False,
+            'error': 'node_discussion_target_required',
+            'details': 'No existing discussion target was found. For the first by-node message provide target_user/user_key/target_key/recipient/to/peer, or members/group_id.',
+            'node_id': str(node_id or '').strip(),
+            'results': [],
+        }), 400
+
+    thread_ref = data.get('thread_ref') or _raw_node_public_url(_current_public_base_url(), node_id)
+    message_type = 'image' if image not in (None, '') or image_url not in (None, '') else 'text'
+    # Important: Android/iOS chat clients already handle node discussion replies
+    # as ordinary chat messages with thread_type='node_discussion'. Do not send
+    # type='node_discussion_message' to FCM clients: they may ignore that custom
+    # type. Keep node_id/node_uid for server-side history, and thread_ref for
+    # older clients that identify the discussion by raw-node URL.
+    payload = {
+        'type': message_type,
+        'thread_type': 'node_discussion',
+        'thread_ref': thread_ref,
+        'node_id': str(node_id or '').strip(),
+        'node_uid': str(node_id or '').strip(),
+        'text': text or '',
+    }
+    if image is not None:
+        payload['image'] = image
+    if image_url is not None:
+        payload['image_url'] = image_url
+    if sender_user:
+        payload['sender_user'] = sender_user
+    if sender_display_name:
+        payload['sender_display_name'] = sender_display_name
+
+    extra = data.get('data')
+    if isinstance(extra, dict):
+        payload.update(extra)
+        # Preserve the externally visible chat type expected by clients.
+        # Extra data is allowed, but not allowed to change the discussion marker
+        # or node identity.
+        payload['type'] = message_type
+        payload.pop('message_type', None)
+        payload['thread_type'] = 'node_discussion'
+        payload['thread_ref'] = thread_ref
+        payload['node_id'] = str(node_id or '').strip()
+        payload['node_uid'] = str(node_id or '').strip()
+
+    title = data.get('title') or sender_display_name or 'Обсуждение узла'
+    body = text or data.get('body') or data.get('message') or 'New message'
+
+    results = []
+    delivery_ok_count = 0
+    accepted_count = 0
+    saved_messages = []
+
+    for target in targets:
+        target_type = target.get('target_type')
+        target_id = target.get('target_id')
+        item_payload = dict(payload)
+        item_payload['target_type'] = target_type
+        item_payload['target_id'] = target_id
+
+        if target_type == 'group':
+            item_payload['group_id'] = target_id
+            result = send_message_to_group_global(
+                target_id,
+                title,
+                body,
+                item_payload,
+                sender_user=sender_user,
+            )
+        elif target_type == 'user':
+            item_payload['user_key'] = target_id
+            result = send_message_to_user_global(
+                target_id,
+                title,
+                body,
+                item_payload,
+                sender_user=sender_user,
+            )
+        else:
+            result = {'ok': False, 'error': 'unsupported_target_type'}
+
+        client_message_id = result.get('client_message_id') if isinstance(result, dict) else None
+        history_msg = None
+        if client_message_id:
+            try:
+                history_msg = NodeDiscussionMessage.query.filter_by(client_message_id=client_message_id).first()
+            except Exception:
+                history_msg = None
+
+        if history_msg:
+            accepted_count += 1
+            saved_messages.append(_serialize_node_discussion_history_message(history_msg))
+
+        if bool((result or {}).get('ok')):
+            delivery_ok_count += 1
+
+        results.append({
+            'target_type': target_type,
+            'target_id': target_id,
+            'client_message_id': client_message_id,
+            # by-node success is about history acceptance; delivery result is separate.
+            'ok': bool(history_msg),
+            'delivery_ok': bool((result or {}).get('ok')),
+            'history_saved': bool(history_msg),
+            'result': result,
+        })
+
+    return jsonify({
+        'ok': accepted_count > 0,
+        'node_id': node_id,
+        'thread_ref': thread_ref,
+        'count': len(saved_messages),
+        'accepted_count': accepted_count,
+        'delivery_ok_count': delivery_ok_count,
+        'ok_count': delivery_ok_count,
+        'messages': saved_messages,
+        'results': results,
+    }), (200 if accepted_count > 0 else 400)
+
+def _is_group_target(target_key):
+    return str(target_key or '').startswith('group:')
+
+
+def _extract_group_id(target_key):
+    return str(target_key or '')[len('group:'):].strip()
+
+
+def _build_node_message_payload(
+    *,
+    class_name,
+    node_id,
+    download_url,
+    sender_user=None,
+    sender_display_name=None,
+    group_id=None,
+    thread_ref=None,
+    text='Node',
+    client_message_id=None,
+):
+    payload = {
+        'type': 'node',
+        'text': text or 'Node',
+        'class_name': class_name,
+        'node_id': node_id,
+        'node_uid': node_id,
+        'download_url': download_url,
+        '_client_message_id': client_message_id or uuid.uuid4().hex,
+    }
+
+    if sender_user:
+        payload['sender_user'] = sender_user
+    if sender_display_name:
+        payload['sender_display_name'] = sender_display_name
+    if group_id:
+        payload['group_id'] = group_id
+    # ВАЖНО: отправка самого узла через /nodes-message не является
+    # комментарием/discussion-сообщением. Не проставляем thread_type=
+    # node_discussion здесь, иначе мобильный клиент открывает обычный
+    # node-message как комментарий к узлу. thread_ref/thread_type
+    # выставляются только в роуте комментариев по узлу.
+    if thread_ref:
+        payload['thread_ref'] = thread_ref
+
+    return payload
+
 
 def _place_uploaded_node(upload_url: str, node: dict, auth=None, api_user=None):
     if not isinstance(node, dict):
-        raise ValueError('each item in nodes must be an object')
+        raise ValueError('request body must be a node object')
 
     raw_class = node.get('_class')
     class_name = _extract_node_class_name(raw_class)
     node_id = str(node.get('_id') or '').strip()
     node_data = node.get('_data', {})
+    attached_nodes = node.get('_attached_nodes', [])
 
     if raw_class is None or (isinstance(raw_class, str) and not raw_class.strip()):
         raise ValueError('node._class is required')
@@ -2693,16 +3867,26 @@ def _place_uploaded_node(upload_url: str, node: dict, auth=None, api_user=None):
         raise ValueError('node._id is required')
     if not isinstance(node_data, dict):
         raise ValueError('node._data must be an object')
-
-    payload = {
-        '_class': raw_class,
-        '_id': node_id,
-        '_data': node_data,
-    }
+    if not isinstance(attached_nodes, list):
+        raise ValueError('node._attached_nodes must be an array')
 
     current_base = _current_public_base_url()
     target_base = _normalized_base_url(upload_url) or current_base
     same_server = _same_server_base_url(target_base, current_base)
+    raw_node_url = _raw_node_public_url(target_base, node_id)
+
+    # Пишем ссылку скачивания внутрь данных самого узла до сохранения/выгрузки,
+    # чтобы получатель скачивал уже самодостаточный payload с _data._download_url.
+    node_data = dict(node_data)
+    node_data['_download_url'] = raw_node_url
+
+    # _class сохраняем как есть: строка или JSON object
+    payload = {
+        '_class': raw_class,
+        '_id': node_id,
+        '_data': node_data,
+        '_attached_nodes': attached_nodes,
+    }
 
     if same_server:
         _save_raw_node_local(
@@ -2724,46 +3908,20 @@ def _place_uploaded_node(upload_url: str, node: dict, auth=None, api_user=None):
         if resp.status_code >= 300:
             raise RuntimeError(f'remote upload failed: {resp.status_code} {resp.text}')
 
-    raw_node_url = _raw_node_public_url(target_base, node_id)
     return {
-        '_class': class_name,
+        '_class': raw_class,
+        '_class_name': class_name,
         '_id': node_id,
         'raw_node_url': raw_node_url,
-        'push_payload': {
-            'type': 'node_download',
-            'class_name': class_name,
-            'node_id': node_id,
-            'node_uid': node_id,
-            'download_url': raw_node_url,
-            '_client_message_id': uuid.uuid4().hex,
-        }
     }
 
 
-def _build_nodes_message_payload(placed_items):
-    push_items = [item.get('push_payload') for item in placed_items if isinstance(item.get('push_payload'), dict)]
-    if len(push_items) == 1:
-        return push_items[0]
-    return {
-        'type': 'node_download_list',
-        'items_json': json.dumps(push_items, ensure_ascii=False),
-        'count': str(len(push_items)),
-        '_client_message_id': uuid.uuid4().hex,
-    }
-
-
-@app.route('/api/user/<user_key>/nodes-message', methods=['POST'])
+@app.route('/api/user/<target_key>/nodes-message', methods=['POST'])
 @api_auth_required
-def push_user_nodes_message(user_key):
+def push_user_nodes_message(target_key):
     data = request.get_json(silent=True) or {}
-    upload_url = _normalized_base_url(data.get('upload_url')) or _current_public_base_url()
-    nodes = data.get('nodes')
 
-    if not isinstance(nodes, list) or not nodes:
-        return jsonify({
-            'ok': False,
-            'error': "'nodes' must be a non-empty array"
-        }), 400
+    upload_url = _normalized_base_url(data.get('upload_url')) or _current_public_base_url()
 
     auth = None
     req_auth = request.authorization
@@ -2773,37 +3931,84 @@ def push_user_nodes_message(user_key):
     api_user = getattr(g, 'api_user', None)
 
     try:
-        placed_items = [
-            _place_uploaded_node(upload_url, node, auth=auth, api_user=api_user)
-            for node in nodes
-        ]
+        placed = _place_uploaded_node(upload_url, data, auth=auth, api_user=api_user)
     except ValueError as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
-    payload = _build_nodes_message_payload(placed_items)
-    title = data.get('title') or (placed_items[0].get('_id') if len(placed_items) == 1 else f'Nodes:{len(placed_items)}')
-    body = data.get('body') or ('Node' if len(placed_items) == 1 else f'{len(placed_items)} nodes')
     explicit_sender = data.get('sender_user')
     sender_user = _get_sender_user(explicit_sender)
+    sender_display_name = _get_sender_display_name(explicit_sender)
 
-    result = send_message_to_user_global(user_key, title, body, payload, sender_user=sender_user)
+    class_name = placed['_class_name']
+    node_id = placed['_id']
+    download_url = placed['raw_node_url']
 
-    response_items = [{
-        '_class': item.get('_class'),
-        '_id': item.get('_id'),
-        'raw_node_url': item.get('raw_node_url'),
-    } for item in placed_items]
+    group_id = None
+    if _is_group_target(target_key):
+        group_id = _extract_group_id(target_key)
+        if not group_id:
+            return jsonify({'ok': False, 'error': 'group id is empty'}), 400
+
+    message_data = _build_node_message_payload(
+        class_name=class_name,
+        node_id=node_id,
+        download_url=download_url,
+        sender_user=sender_user,
+        sender_display_name=sender_display_name,
+        group_id=group_id,
+        thread_ref=data.get('thread_ref'),
+        text=data.get('text') or data.get('body') or 'Node',
+    )
+
+    title = data.get('title') or class_name or node_id or 'Node'
+    body = data.get('body') or data.get('text') or 'Node'
+
+    # Remember the recipient of the node itself. If a by-node discussion is
+    # started later on an otherwise empty thread, this is the first target.
+    try:
+        if group_id:
+            _remember_node_delivery_target(node_id, 'group', group_id, sender_user=sender_user)
+        else:
+            _remember_node_delivery_target(node_id, 'user', target_key, sender_user=sender_user)
+    except Exception as e:
+        print('Could not remember nodes-message target:', e)
+
+    if group_id:
+        result = send_message_to_group_global(
+            group_id,
+            title,
+            body,
+            message_data,
+            sender_user=sender_user,
+        )
+    else:
+        result = send_message_to_user_global(
+            target_key,
+            title,
+            body,
+            message_data,
+            sender_user=sender_user,
+        )
 
     return jsonify({
         'ok': bool(result.get('ok')),
-        'user_key': user_key,
+        'target_key': target_key,
+        'user_key': None if group_id else target_key,
+        'group_id': group_id,
         'upload_url': upload_url,
-        'placed': response_items,
-        'message': payload,
+        'placed': {
+            '_class': placed['_class'],
+            '_id': node_id,
+            'raw_node_url': download_url,
+        },
+        'message': message_data,
         'result': result,
     }), (200 if result.get('ok') else 400)
+
+
+
 
 
 @app.route('/users/create', methods=['POST'])
@@ -7811,6 +9016,21 @@ def send_message_to_user_global(user_key, title, body, payload=None, sender_user
         normalized_payload.setdefault('user_key', user_key)
     normalized_payload, client_message_id = _ensure_payload_client_message_id(normalized_payload)
 
+    # Safe isolated hook: only node_discussion payloads are copied to permanent history.
+    # This does not change delivery, FCM, pending or the return semantics for ordinary messages.
+    try:
+        _maybe_save_node_discussion_history_from_payload(
+            target_type='user',
+            target_id=user_key,
+            title=title,
+            body=body,
+            payload=normalized_payload,
+            sender_user=sender_user,
+            delivery_status='accepted',
+        )
+    except Exception as e:
+        print('Node discussion history hook failed:', e)
+
     _upsert_outgoing_message_log(
         client_message_id=client_message_id,
         target_type='user',
@@ -7821,6 +9041,13 @@ def send_message_to_user_global(user_key, title, body, payload=None, sender_user
         sender_user=sender_user,
     )
 
+    try:
+        if isinstance(normalized_payload, dict) and str(normalized_payload.get('type') or '') == 'node':
+            node_target_hint_id = normalized_payload.get('node_id') or normalized_payload.get('node_uid') or normalized_payload.get('_id')
+            _remember_node_delivery_target(node_target_hint_id, 'user', user_key, sender_user=sender_user)
+    except Exception as e:
+        print('Could not remember user node delivery target:', e)
+
     if _is_same_gateway_host():
         result = send_message_to_user_internal(user_key, title, body, normalized_payload)
         result.setdefault('via', 'internal-user')
@@ -7828,10 +9055,19 @@ def send_message_to_user_global(user_key, title, body, payload=None, sender_user
         result = _gateway_send_user(user_key, title, body, normalized_payload)
 
     _mark_outgoing_message_push_result(client_message_id, result)
+
+    try:
+        if _extract_node_discussion_node_id(normalized_payload):
+            _update_node_discussion_delivery_status(
+                client_message_id,
+                'pushed' if bool((result or {}).get('ok')) else 'accepted',
+            )
+    except Exception as e:
+        print('Node discussion status update failed:', e)
+
     if isinstance(result, dict):
         result.setdefault('client_message_id', client_message_id)
     return result
-
 
 def send_message_to_device_global(device_uid, title, body, payload=None, sender_user=None):
     device_uid = str(device_uid or '').strip()
@@ -8036,6 +9272,21 @@ def send_message_to_group_global(group_id, title, body, payload=None, sender_use
         normalized_payload['group_title'] = group.title or ''
     normalized_payload, client_message_id = _ensure_payload_client_message_id(normalized_payload)
 
+    # Safe isolated hook: only node_discussion payloads are copied to permanent history.
+    # This does not change delivery, FCM, pending or the return semantics for ordinary messages.
+    try:
+        _maybe_save_node_discussion_history_from_payload(
+            target_type='group',
+            target_id=group.group_id,
+            title=title,
+            body=body,
+            payload=normalized_payload,
+            sender_user=sender_user,
+            delivery_status='accepted',
+        )
+    except Exception as e:
+        print('Node discussion history hook failed:', e)
+
     _upsert_outgoing_message_log(
         client_message_id=client_message_id,
         target_type='group',
@@ -8046,6 +9297,13 @@ def send_message_to_group_global(group_id, title, body, payload=None, sender_use
         sender_user=sender_user,
     )
 
+    try:
+        if isinstance(normalized_payload, dict) and str(normalized_payload.get('type') or '') == 'node':
+            node_target_hint_id = normalized_payload.get('node_id') or normalized_payload.get('node_uid') or normalized_payload.get('_id')
+            _remember_node_delivery_target(node_target_hint_id, 'group', group.group_id, sender_user=sender_user)
+    except Exception as e:
+        print('Could not remember group node delivery target:', e)
+
     if _is_same_gateway_host():
         result = send_message_to_group_internal(group.group_id, title, body, normalized_payload)
         result.setdefault('via', 'internal-group')
@@ -8053,10 +9311,19 @@ def send_message_to_group_global(group_id, title, body, payload=None, sender_use
         result = _gateway_send_group(group.group_id, title, body, normalized_payload)
 
     _mark_outgoing_message_push_result(client_message_id, result)
+
+    try:
+        if _extract_node_discussion_node_id(normalized_payload):
+            _update_node_discussion_delivery_status(
+                client_message_id,
+                'pushed' if bool((result or {}).get('ok')) else 'accepted',
+            )
+    except Exception as e:
+        print('Node discussion status update failed:', e)
+
     if isinstance(result, dict):
         result.setdefault('client_message_id', client_message_id)
     return result
-
 
 def _group_history_before_dt(before):
     before_value = str(before or '').strip()
@@ -8160,30 +9427,128 @@ def send_message_to_device_internal(device_uid, title, body, payload=None):
         return {'ok': False, 'error': 'device has no FCM token', 'device_uid': device_uid}
     return _send_fcm_to_tokens(dedup_tokens, title, body, payload)
 
+
+def _sanitize_fcm_data_payload(data_payload):
+    """Return a Firebase-safe data payload.
+
+    Firebase data payload keys cannot use reserved names such as
+    message_type/from/gcm/google*/collapse_key. Keep the original payload in
+    OutgoingMessageLog; this sanitized copy is only for FCM delivery.
+    """
+    source = data_payload if isinstance(data_payload, dict) else {}
+    sanitized = {}
+    skipped = []
+    aliases = {
+        'message_type': 'noda_message_type',
+        'from': 'noda_from',
+        'collapse_key': 'noda_collapse_key',
+        'gcm': 'noda_gcm',
+    }
+
+    for raw_key, raw_value in source.items():
+        key = str(raw_key or '').strip()
+        if not key:
+            continue
+
+        lower_key = key.lower()
+        safe_key = aliases.get(lower_key)
+        if safe_key is None:
+            if lower_key.startswith('google') or lower_key.startswith('gcm.'):
+                safe_key = 'noda_' + re.sub(r'[^A-Za-z0-9_]', '_', key)
+            else:
+                safe_key = key
+
+        if safe_key != key:
+            skipped.append(key)
+
+        if raw_value is None:
+            value = ''
+        elif isinstance(raw_value, str):
+            value = raw_value
+        else:
+            try:
+                value = json.dumps(raw_value, ensure_ascii=False)
+            except Exception:
+                value = str(raw_value)
+        sanitized[str(safe_key)] = value
+
+    if skipped:
+        try:
+            print('[node-discussion-debug] fcm.send.sanitized_payload | skipped_keys=' + json.dumps(skipped, ensure_ascii=False), flush=True)
+        except Exception:
+            pass
+    return sanitized
+
 def _send_fcm_to_tokens(tokens, title, body, data_payload=None):
-    data_payload = {str(k): '' if v is None else str(v) for k, v in (data_payload or {}).items()}
-    tokens = [str(t).strip() for t in (tokens or []) if str(t).strip()]
+    data_payload = _sanitize_fcm_data_payload(data_payload)
+
+    bad_tokens = {"", "null", "none", "undefined", "nan"}
+
+    tokens = [
+        str(t).strip()
+        for t in (tokens or [])
+        if str(t).strip().lower() not in bad_tokens
+    ]
+    tokens = list(dict.fromkeys(tokens))
+
     if not tokens:
         return {'ok': False, 'error': 'no tokens'}
+
     app_obj, err = _get_firebase_app()
     if app_obj is None:
         if (PUSH_GATEWAY_URL or '').strip():
             return _gateway_send_fcm(tokens, title, body, data_payload)
         return {'ok': False, 'error': err or 'firebase unavailable', 'tokens': len(tokens)}
+
     success = 0
     failures = []
+
+    invalid_token_errors = (
+        'invalid registration token',
+        'registration token is not a valid',
+        'requested entity was not found',
+        'unregistered',
+        'UNREGISTERED',
+    )
+
     for token in tokens:
         try:
             msg = firebase_messaging.Message(
                 token=token,
-                notification=firebase_messaging.Notification(title=str(title or ''), body=str(body or '')),
+                notification=firebase_messaging.Notification(
+                    title=str(title or ''),
+                    body=str(body or '')
+                ),
                 data=data_payload,
             )
             firebase_messaging.send(msg, app=app_obj)
             success += 1
         except Exception as e:
-            failures.append({'token': token, 'error': str(e)})
-    return {'ok': success > 0 and not failures, 'success': success, 'failures': failures, 'tokens': len(tokens), 'via': 'local'}
+            err_text = str(e)
+            failures.append({'token': token, 'error': err_text})
+
+            # Do not delete FCM tokens automatically from a send error.
+            # FCM INVALID_ARGUMENT can be caused by a bad data payload key, not by
+            # the token itself. Deleting here made valid device tokens disappear.
+            # Token refresh/replace is handled by register-device endpoints.
+            if False and any(x.lower() in err_text.lower() for x in invalid_token_errors):
+                pass
+
+    _node_discussion_debug(
+        'fcm.send.finish',
+        success=success,
+        failures_count=len(failures),
+        tokens=len(tokens),
+        failure_errors=[f.get('error') for f in failures[:3]],
+    )
+
+    return {
+        'ok': success > 0,
+        'success': success,
+        'failures': failures,
+        'tokens': len(tokens),
+        'via': 'local',
+    }
 
 
 def notify_room_transport(room_uid, title='Receiving nodes', body='New nodes is available', data_payload=None, config_uid=None, class_name=None, object_id=None):
@@ -8299,7 +9664,8 @@ def register_my_device():
         db.session.add(ud)
     ud.device_uid = device_uid
     ud.device_model = device_model
-    ud.token = fcm_token
+    if fcm_token:
+        ud.token = fcm_token
     ud.extra_json = data
     ud.last_connected = datetime.now(timezone.utc)
     db.session.commit()
@@ -8334,7 +9700,8 @@ def register_room_device(room_uid):
     room_device.user_id = api_user.id if api_user else None
     room_device.user_key = user_key
     room_device.push_channel = push_channel
-    room_device.fcm_token = fcm_token
+    if fcm_token:
+        room_device.fcm_token = fcm_token
     room_device.android_id = android_id
     room_device.device_model = device_model
     room_device.extra_json = data
@@ -8388,21 +9755,64 @@ def push_room_message(room_uid):
 @api_auth_required
 def push_user_message(user_key):
     data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        data = {}
+
     explicit_sender = data.get('sender_user')
     sender_display_name = _get_sender_display_name(explicit_sender)
     title = data.get('title') or sender_display_name or 'Direct message'
-    body = data.get('body') or data.get('message') or 'New message'
-    payload = data.get('data')
+    body = data.get('body') or data.get('message') or data.get('text') or 'New message'
+
+    raw_payload = data.get('data')
+    payload = dict(raw_payload) if isinstance(raw_payload, dict) else raw_payload
+
+    # Keep ordinary /api/user/.../messages unchanged.
+    # Only when the caller explicitly marks node_discussion do we copy top-level
+    # node fields into payload so the history hook can record the discussion.
+    top_thread_type = str(data.get('thread_type') or '').strip()
+    payload_thread_type = str(payload.get('thread_type') or '').strip() if isinstance(payload, dict) else ''
+    top_type = str(data.get('type') or '').strip()
+    payload_type = str(payload.get('type') or '').strip() if isinstance(payload, dict) else ''
+
+    is_node_discussion = (
+        top_thread_type == 'node_discussion'
+        or payload_thread_type == 'node_discussion'
+        or top_type == 'node_discussion_message'
+        or payload_type == 'node_discussion_message'
+    )
+
+    if is_node_discussion:
+        if not isinstance(payload, dict):
+            payload = {}
+        payload['thread_type'] = 'node_discussion'
+        payload.setdefault('type', 'node_discussion_message')
+
+        for key in ('node_id', 'node_uid', '_id', 'raw_node_id', 'thread_ref', 'raw_node_url', 'download_url'):
+            if data.get(key) not in (None, '') and payload.get(key) in (None, ''):
+                payload[key] = data.get(key)
+
+        if payload.get('node_id') in (None, ''):
+            payload['node_id'] = payload.get('node_uid') or payload.get('_id') or payload.get('raw_node_id')
+        if payload.get('node_uid') in (None, ''):
+            payload['node_uid'] = payload.get('node_id')
+        if payload.get('text') in (None, ''):
+            payload['text'] = data.get('text') or data.get('message') or data.get('body') or ''
+
+        if explicit_sender and payload.get('sender_user') in (None, ''):
+            payload['sender_user'] = explicit_sender
+        if sender_display_name and payload.get('sender_display_name') in (None, ''):
+            payload['sender_display_name'] = sender_display_name
+
     sender_user = _get_sender_user(explicit_sender)
-    
+
     result = send_message_to_user_global(user_key, title, body, payload, sender_user=sender_user)
     if isinstance(result, dict):
         if sender_user:
             result.setdefault('sender_user', sender_user)
         if sender_display_name:
             result.setdefault('sender_display_name', sender_display_name)
-    return jsonify({'ok': bool(result.get('ok')), 'user_key': user_key, 'result': result}), (200 if result.get('ok') else 400)
 
+    return jsonify({'ok': bool(result.get('ok')), 'user_key': user_key, 'result': result}), (200 if result.get('ok') else 400)
 
 @app.route('/api/groups', methods=['POST'])
 @api_auth_required
@@ -8720,6 +10130,8 @@ def _list_pending_user_messages_impl(user_key, device_uid, limit=200, since=None
     if limit > 1000:
         limit = 1000
 
+    _node_discussion_debug('pending.start', user_key=user_key, device_uid=device_uid, limit=limit, since=since)
+
     group_ids = [row.group_id for row in MessageGroupMember.query.filter(
         sa.func.lower(MessageGroupMember.user_key) == user_key.lower()
     ).all() if _normalize_group_id(row.group_id)]
@@ -8757,6 +10169,26 @@ def _list_pending_user_messages_impl(user_key, device_uid, limit=200, since=None
         OutgoingMessageLog.accepted_at.desc().nullslast(),
         OutgoingMessageLog.created_at.desc()
     ).limit(limit).all()
+
+    _node_discussion_debug(
+        'pending.query_result',
+        user_key=user_key,
+        device_uid=device_uid,
+        count=len(messages),
+        group_ids=group_ids,
+        messages=[
+            {
+                'client_message_id': m.client_message_id,
+                'target_type': m.target_type,
+                'target_id': m.target_id,
+                'status': m.status,
+                'payload_type': (m.payload_json or {}).get('type') if isinstance(m.payload_json, dict) else None,
+                'thread_type': (m.payload_json or {}).get('thread_type') if isinstance(m.payload_json, dict) else None,
+                'node_id': (m.payload_json or {}).get('node_id') if isinstance(m.payload_json, dict) else None,
+            }
+            for m in messages[:10]
+        ],
+    )
 
     group_title_map = {}
     effective_group_ids = sorted({_normalize_group_id(msg.target_id) for msg in messages if str(msg.target_type or '').strip() == 'group' and _normalize_group_id(msg.target_id)})
