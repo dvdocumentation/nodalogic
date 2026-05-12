@@ -849,7 +849,7 @@
               <option value="onTextFile">onTextFile</option>
               <option value="onStartMenuCommandWeb">onStartMenuCommandWeb</option>
               <option value="onClassCommand">onClassCommand</option>
-              <option value="onPush">onPush</option>
+              <option value="onDataMessage">onDataMessage</option>
               <option value="onIncomingNodes">onIncomingNodes</option>
               
 
@@ -1639,7 +1639,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-  const COMMON_EVENT_TYPES = ['onLaunch', 'onBarcode', 'onStartMenuCommand', 'onTimer', 'onDialogResult','onJSONFile','onTextFile','onClassCommand','onStartMenuCommandWeb','onPush','onIncomingNodes'];
+  const COMMON_EVENT_TYPES = ['onLaunch', 'onBarcode', 'onStartMenuCommand', 'onTimer', 'onDialogResult','onJSONFile','onTextFile','onClassCommand','onStartMenuCommandWeb','onDataMessage','onIncomingNodes'];
   const ACTION_TYPES = ['run','runprogress','runasync'];
 
  
@@ -2331,7 +2331,7 @@ fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
     color: white;
 }
 
-.event-onpush {
+.event-ondatamessage {
     background-color: #128065;
     color: white;
 }

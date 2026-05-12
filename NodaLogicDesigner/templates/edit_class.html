@@ -895,6 +895,7 @@ return True,{}
               <option value="onAfterAcceptServer">onAfterAcceptServer</option>
               <option value="onAccept">onAccept</option>
               <option value="onAfterAccept">onAfterAccept</option>
+              <option value="onInputServer">onInputServer</option>
               
 
             </select>
@@ -1475,6 +1476,7 @@ document.addEventListener('DOMContentLoaded', function() {
             ${METHODS.map(m => `<option value="${m}" ${m===action.method?'selected':''}>${m}</option>`).join('')}
             <option value="NodaScript" ${action.method==='NodaScript'?'selected':''}>NodaScript</option>
             <option value="HTTP Request" ${action.method==='HTTP Request'?'selected':''}>HTTP Request</option>
+            <option value="PythonScript" ${action.method==='PythonScript'?'selected':''}>PythonScript</option>
           </select>
         </div>
         <div style="width:160px">
@@ -1484,6 +1486,7 @@ document.addEventListener('DOMContentLoaded', function() {
             ${METHODS.map(m => `<option value="${m}" ${m===action.postExecuteMethod?'selected':''}>${m}</option>`).join('')}
             <option value="NodaScript" ${action.postExecuteMethod==='NodaScript'?'selected':''}>NodaScript</option>
             <option value="HTTP Request" ${action.postExecuteMethod==='HTTP Request'?'selected':''}>HTTP Request</option>
+            <option value="PythonScript" ${action.postExecuteMethod==='PythonScript'?'selected':''}>PythonScript</option>
           </select>
         </div>
         <div style="width:130px">
@@ -1518,6 +1521,18 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
           </div>
           <div class="col-12">
+            <div class="method-python" style="display:none;">
+              <label class="form-label small">PythonScript URL (method)</label>
+              <div class="input-group input-group-sm mb-2">
+                <input class="form-control action-field python-url" data-field="methodText" value="${action.method === 'PythonScript' ? (action.methodText || '') : ''}" placeholder="https://.../script.py">
+                <button type="button" class="btn btn-outline-secondary load-python-btn" data-kind="method">Read</button>
+                <button type="button" class="btn btn-outline-primary save-python-btn" data-kind="method">Save to S3</button>
+              </div>
+              <code-input class="python-code-editor" data-python-kind="method" language="python">${action.method === 'PythonScript' ? '' : ''}</code-input>
+              
+            </div>
+          </div>
+          <div class="col-12">
             <div class="post-script" style="display:none;">
               <label class="form-label small">NodaScript (postExecuteMethod)</label>
               <code-input class="action-field noda-script-editor" data-field="postExecuteMethodText" language="nodascript">${(action.postExecuteMethodText || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</code-input>
@@ -1527,6 +1542,18 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="post-http" style="display:none;">
               <label class="form-label small">HTTP Request function name (postExecuteMethod)</label>
               <input class="form-control action-field" data-field="postHttpFunctionName" value="${action.postHttpFunctionName || ""}" placeholder="afterSend">
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="post-python" style="display:none;">
+              <label class="form-label small">PythonScript URL (postExecuteMethod)</label>
+              <div class="input-group input-group-sm mb-2">
+                <input class="form-control action-field python-url" data-field="postExecuteMethodText" value="${action.postExecuteMethod === 'PythonScript' ? (action.postExecuteMethodText || '') : ''}" placeholder="https://.../script.py">
+                <button type="button" class="btn btn-outline-secondary load-python-btn" data-kind="post">Read</button>
+                <button type="button" class="btn btn-outline-primary save-python-btn" data-kind="post">Save to S3</button>
+              </div>
+              <code-input class="python-code-editor" data-python-kind="post" language="python"></code-input>
+              <div class="form-text">В JSON сохраняется только ссылка в postExecuteMethodText. При выборе PythonScript код автоматически загружается по ссылке; Save to S3 создает новый файл и удаляет старый.</div>
             </div>
           </div>
         </div>
@@ -1553,8 +1580,14 @@ document.addEventListener('DOMContentLoaded', function() {
     const postBox = row.querySelector('.post-script');
     const methodHttpBox = row.querySelector('.method-http');
     const postHttpBox = row.querySelector('.post-http');
-    const methodCi = row.querySelector('[data-field="methodText"]');
-    const postCi = row.querySelector('[data-field="postExecuteMethodText"]');
+    const methodPythonBox = row.querySelector('.method-python');
+    const postPythonBox = row.querySelector('.post-python');
+    const methodCi = row.querySelector('.method-script [data-field="methodText"]');
+    const postCi = row.querySelector('.post-script [data-field="postExecuteMethodText"]');
+    const methodPythonUrl = row.querySelector('.method-python [data-field="methodText"]');
+    const postPythonUrl = row.querySelector('.post-python [data-field="postExecuteMethodText"]');
+    const methodPythonCi = row.querySelector('[data-python-kind="method"]');
+    const postPythonCi = row.querySelector('[data-python-kind="post"]');
     const methodHttpInput = row.querySelector('[data-field="httpFunctionName"]');
     const postHttpInput = row.querySelector('[data-field="postHttpFunctionName"]');
 
@@ -1592,6 +1625,88 @@ document.addEventListener('DOMContentLoaded', function() {
       ta.style.height = (ta.scrollHeight + 2) + 'px';
     }
 
+    function setCodeInputValue(ci, value) {
+      if (!ci) return;
+      ensureCodeInput(ci);
+      try { ci.value = value || ''; } catch(e) { ci.textContent = value || ''; }
+      autoResize(ci);
+    }
+
+    function getCodeInputValue(ci) {
+      if (!ci) return '';
+      ensureCodeInput(ci);
+      try { return ci.value || ''; } catch(e) { return ci.textContent || ''; }
+    }
+
+    async function readJsonResponse(resp) {
+      const text = await resp.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : {}; }
+      catch (e) {
+        const shortText = (text || '').replace(/\s+/g, ' ').slice(0, 240);
+        throw new Error(`Server returned non-JSON (${resp.status}). ${shortText}`);
+      }
+      return data;
+    }
+
+
+    async function putTextToS3Presigned(filename, textValue, oldUrl) {
+      const resp = await fetch("{{ url_for('save_s3_text_via_upload_url') }}", {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          filename,
+          content_type: 'text/x-python',
+          text: textValue || '',
+          old_url: oldUrl || ''
+        })
+      });
+      const data = await readJsonResponse(resp);
+      if (!resp.ok || !data.ok) throw new Error(data.error || 'PythonScript S3 save failed');
+      return data.file_url;
+    }
+
+    async function savePython(kind) {
+      const ci = kind === 'post' ? postPythonCi : methodPythonCi;
+      const urlInput = kind === 'post' ? postPythonUrl : methodPythonUrl;
+      const filename = `${('{{ class_obj.name }}' || 'class')}_${kind}.py`;
+      const oldUrl = (urlInput.value || '').trim();
+      const codeValue = getCodeInputValue(ci);
+      const fileUrl = await putTextToS3Presigned(filename, codeValue, oldUrl);
+      urlInput.value = fileUrl;
+      if (ci) {
+        ci.dataset.loadedUrl = fileUrl || '';
+        ci.dataset.loadedText = codeValue || '';
+        ci.dataset.dirty = '';
+      }
+      return fileUrl;
+    }
+
+    async function loadPython(kind) {
+      const ci = kind === 'post' ? postPythonCi : methodPythonCi;
+      const urlInput = kind === 'post' ? postPythonUrl : methodPythonUrl;
+      const scriptUrl = (urlInput.value || '').trim();
+      if (!scriptUrl) return;
+      const resp = await fetch("{{ url_for('read_s3_text') }}" + '?url=' + encodeURIComponent(scriptUrl));
+      const data = await readJsonResponse(resp);
+      if (!resp.ok || !data.ok) throw new Error(data.error || 'S3 read failed');
+      const loadedText = data.text || '';
+      setCodeInputValue(ci, loadedText);
+      if (ci) {
+        ci.dataset.loadedUrl = scriptUrl;
+        ci.dataset.loadedText = loadedText;
+        ci.dataset.dirty = '';
+      }
+    }
+
+    async function autoLoadPython(kind) {
+      const ci = kind === 'post' ? postPythonCi : methodPythonCi;
+      const urlInput = kind === 'post' ? postPythonUrl : methodPythonUrl;
+      const scriptUrl = (urlInput && urlInput.value || '').trim();
+      if (!scriptUrl || !ci || ci.dataset.loadedUrl === scriptUrl) return;
+      try { await loadPython(kind); } catch(e) { console.warn('PythonScript autoload failed:', e); }
+    }
+
     function toggleNoda() {
       // make sure code-input is ready before reading/writing .value
       ensureCodeInput(methodCi);
@@ -1601,20 +1716,28 @@ document.addEventListener('DOMContentLoaded', function() {
       const isPostScript = postSelect.value === 'NodaScript';
       const isMethodHttp = methodSelect.value === 'HTTP Request';
       const isPostHttp = postSelect.value === 'HTTP Request';
+      const isMethodPython = methodSelect.value === 'PythonScript';
+      const isPostPython = postSelect.value === 'PythonScript';
 
       if (!isMethodScript) clearCodeInput(methodCi);
       if (!isPostScript) clearCodeInput(postCi);
       if (!isMethodHttp && methodHttpInput) methodHttpInput.value = '';
       if (!isPostHttp && postHttpInput) postHttpInput.value = '';
+      if (!isMethodPython && methodPythonUrl) { methodPythonUrl.value = ''; setCodeInputValue(methodPythonCi, ''); }
+      if (!isPostPython && postPythonUrl) { postPythonUrl.value = ''; setCodeInputValue(postPythonCi, ''); }
 
       methodBox.style.display = isMethodScript ? '' : 'none';
       postBox.style.display = isPostScript ? '' : 'none';
       methodHttpBox.style.display = isMethodHttp ? '' : 'none';
       postHttpBox.style.display = isPostHttp ? '' : 'none';
-      nodaBlock.style.display = (isMethodScript || isPostScript || isMethodHttp || isPostHttp) ? '' : 'none';
+      methodPythonBox.style.display = isMethodPython ? '' : 'none';
+      postPythonBox.style.display = isPostPython ? '' : 'none';
+      nodaBlock.style.display = (isMethodScript || isPostScript || isMethodHttp || isPostHttp || isMethodPython || isPostPython) ? '' : 'none';
 
       if (isMethodScript) autoResize(methodCi);
       if (isPostScript) autoResize(postCi);
+      if (isMethodPython) { autoResize(methodPythonCi); autoLoadPython('method'); }
+      if (isPostPython) { autoResize(postPythonCi); autoLoadPython('post'); }
     }
 
     // register editors before first use
@@ -1626,17 +1749,71 @@ document.addEventListener('DOMContentLoaded', function() {
     postSelect.addEventListener('change', toggleNoda);
 
     // Prism/code-input for NodaScript editors (dynamic rows)
-    [methodCi, postCi].forEach(ci => {
+    [methodCi, postCi, methodPythonCi, postPythonCi].forEach(ci => {
       if (!ci) return;
       try { if (typeof codeInput !== 'undefined') codeInput.register(ci); } catch(e) {}
       // best-effort autoresize while typing
       const ta = getInnerTextarea(ci);
       if (ta) {
         ta.style.resize = 'vertical';
-        ta.addEventListener('input', () => autoResize(ci));
+        ta.addEventListener('input', () => {
+          ci.dataset.dirty = '1';
+          autoResize(ci);
+        });
         setTimeout(() => autoResize(ci), 0);
       }
     });
+
+    row.querySelectorAll('.save-python-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        try { await savePython(btn.getAttribute('data-kind')); alert('Saved to S3'); }
+        catch(e) { alert(e.message || e); }
+      });
+    });
+    row.querySelectorAll('.load-python-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        try { await loadPython(btn.getAttribute('data-kind')); }
+        catch(e) { alert(e.message || e); }
+      });
+    });
+    [methodPythonUrl, postPythonUrl].forEach(inp => {
+      if (!inp) return;
+      inp.addEventListener('change', () => {
+        const kind = inp === postPythonUrl ? 'post' : 'method';
+        const ci = kind === 'post' ? postPythonCi : methodPythonCi;
+        if (ci) ci.dataset.dirty = '';
+        autoLoadPython(kind);
+      });
+      inp.addEventListener('blur', () => {
+        const kind = inp === postPythonUrl ? 'post' : 'method';
+        autoLoadPython(kind);
+      });
+    });
+
+    row._savePythonIfNeeded = async function(kind) {
+      const ci = kind === 'post' ? postPythonCi : methodPythonCi;
+      const urlInput = kind === 'post' ? postPythonUrl : methodPythonUrl;
+      if (!ci || !urlInput) return '';
+
+      const currentUrl = (urlInput.value || '').trim();
+      const codeValue = getCodeInputValue(ci);
+      const hasCode = (codeValue || '').trim() !== '';
+      const loadedUrl = (ci.dataset.loadedUrl || '').trim();
+      const loadedText = ci.dataset.loadedText || '';
+      const isDirty = ci.dataset.dirty === '1';
+
+      // Existing PythonScript URL with an empty editor means: keep the URL, do not upload empty text.
+      if (!hasCode && currentUrl) return currentUrl;
+      if (!hasCode && !currentUrl) return '';
+
+      // Existing URL and editor content is exactly what was loaded: keep the URL.
+      if (currentUrl && loadedUrl === currentUrl && !isDirty && codeValue === loadedText) {
+        return currentUrl;
+      }
+
+      // New or changed code: upload first, then methodText/postExecuteMethodText becomes the returned S3 URL.
+      return await savePython(kind);
+    };
 
     return row;
   }
@@ -1683,19 +1860,54 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   });
 
-  // form submit: collect actions
-  document.getElementById('eventForm').addEventListener('submit', (e) => {
+  function collectEventActions() {
     const actions = [];
-    document.querySelectorAll('.action-row').forEach(row => {
+    document.querySelectorAll('#actionsContainer .action-row').forEach(row => {
       const action = {};
       row.querySelectorAll('.action-field').forEach(field => {
+        if (field.offsetParent === null) return;
         const key = field.getAttribute('data-field');
         action[key] = field.value;
         if (action[key] === '') delete action[key];
       });
       actions.push(action);
     });
-    document.getElementById('actionsJson').value = JSON.stringify(actions);
+    return actions;
+  }
+
+  // form submit: block native submit, save changed PythonScript code to S3, then submit with URL in actions_json.
+  document.getElementById('eventForm').addEventListener('submit', async (e) => {
+    const form = e.currentTarget;
+    e.preventDefault();
+
+    const saveBtn = document.getElementById('saveEventBtn');
+    const oldBtnText = saveBtn ? saveBtn.innerHTML : '';
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Saving...';
+    }
+
+    try {
+      const rows = Array.from(document.querySelectorAll('#actionsContainer .action-row'));
+      for (const row of rows) {
+        const methodSelect = row.querySelector('[data-field="method"]');
+        const postSelect = row.querySelector('[data-field="postExecuteMethod"]');
+        if (methodSelect && methodSelect.value === 'PythonScript' && typeof row._savePythonIfNeeded === 'function') {
+          await row._savePythonIfNeeded('method');
+        }
+        if (postSelect && postSelect.value === 'PythonScript' && typeof row._savePythonIfNeeded === 'function') {
+          await row._savePythonIfNeeded('post');
+        }
+      }
+      document.getElementById('actionsJson').value = JSON.stringify(collectEventActions());
+      HTMLFormElement.prototype.submit.call(form);
+    } catch (err) {
+      alert('PythonScript Save to S3 failed: ' + (err && err.message ? err.message : err));
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = oldBtnText;
+      }
+    }
   });
 });
 </script>
@@ -1944,6 +2156,11 @@ document.addEventListener('click', (e) => {
 
 .event-onafteracceptserver {
     background-color: #960b19;
+    color: white;
+}
+
+.event-oninputserver {
+    background-color: #500c12;
     color: white;
 }
 

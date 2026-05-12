@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-4">
+  <h3 class="mb-3">Python S3 editor</h3>
+
+  <div class="mb-3">
+    <label class="form-label">S3 URL</label>
+    <div class="input-group">
+      <input id="scriptUrl" class="form-control" value="{{ initial_url }}" placeholder="https://.../script.py">
+      <button id="loadBtn" class="btn btn-outline-secondary" type="button">Read</button>
+      <button id="saveBtn" class="btn btn-primary" type="button">Save to S3</button>
+    </div>
+    <div class="form-text">Save creates a new S3 object, writes the resulting public URL into this field, and deletes the previous S3 object when it belongs to your Python scripts folder.</div>
+  </div>
+
+  <code-input id="pythonCode" language="python"></code-input>
+</div>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css">
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/code-input.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/code-input.min.css">
+<script src="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/plugins/indent.min.js"></script>
+
+<style>
+code-input {
+  width: 100%;
+  min-height: 520px;
+  --code-input-color: #333;
+  --code-input-background: #f8f9fa;
+  --code-input-border-color: #dee2e6;
+  --code-input-border-radius: 4px;
+  --code-input-padding: 12px;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const editor = document.getElementById('pythonCode');
+  const urlInput = document.getElementById('scriptUrl');
+
+  codeInput.registerTemplate("syntax-highlighted",
+    codeInput.templates.prism(Prism, [new codeInput.plugins.Indent(true, 4)])
+  );
+  try { codeInput.register(editor); } catch(e) {}
+
+  function setEditorValue(value) {
+    try { editor.value = value || ''; } catch(e) { editor.textContent = value || ''; }
+  }
+
+  function getEditorValue() {
+    try { return editor.value || ''; } catch(e) { return editor.textContent || ''; }
+  }
+
+  async function readJsonResponse(resp) {
+    const text = await resp.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : {}; }
+    catch (e) {
+      const shortText = (text || '').replace(/\s+/g, ' ').slice(0, 240);
+      throw new Error(`Server returned non-JSON (${resp.status}). ${shortText}`);
+    }
+    return data;
+  }
+
+
+  async function putTextToS3Presigned(filename, textValue, oldUrl) {
+    const resp = await fetch("{{ url_for('save_s3_text_via_upload_url') }}", {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        filename,
+        content_type: 'text/x-python',
+        text: textValue || '',
+        old_url: oldUrl || ''
+      })
+    });
+    const data = await readJsonResponse(resp);
+    if (!resp.ok || !data.ok) throw new Error(data.error || 'PythonScript S3 save failed');
+    return data.file_url;
+  }
+
+  async function readCode() {
+    const scriptUrl = (urlInput.value || '').trim();
+    if (!scriptUrl) return;
+    const resp = await fetch("{{ url_for('read_s3_text') }}" + '?url=' + encodeURIComponent(scriptUrl));
+    const data = await readJsonResponse(resp);
+    if (!resp.ok || !data.ok) throw new Error(data.error || 'S3 read failed');
+    setEditorValue(data.text || '');
+  }
+
+  async function saveCode() {
+    const oldUrl = (urlInput.value || '').trim();
+    const fileUrl = await putTextToS3Presigned('script.py', getEditorValue(), oldUrl);
+    urlInput.value = fileUrl;
+  }
+
+  document.getElementById('loadBtn').addEventListener('click', async () => {
+    try { await readCode(); } catch(e) { alert(e.message || e); }
+  });
+  document.getElementById('saveBtn').addEventListener('click', async () => {
+    try { await saveCode(); alert('Saved to S3'); } catch(e) { alert(e.message || e); }
+  });
+
+  if ((urlInput.value || '').trim()) {
+    readCode().catch(() => {});
+  }
+});
+</script>
+{% endblock %}
