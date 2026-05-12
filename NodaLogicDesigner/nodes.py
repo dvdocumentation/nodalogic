@@ -11,6 +11,9 @@ import inspect
 import base64
 import binascii
 import re
+import sys
+import urllib.request
+import urllib.error
 
 
 def _userfiles_root_dir() -> str:
@@ -460,26 +463,133 @@ def push_message(text: str, level: str = "info"):
 
 
 
-def message_user(user_key: str, payload=None, title: str = "Direct message", body: str = "New message", sender_user: str | None = None) -> dict:
+def _bridge_func(name: str):
+    """Find a function exported by the Flask app/main module.
+
+    Under flask run / gunicorn the app is often not __main__, so we scan loaded
+    modules instead of depending only on import __main__.
+    """
+    name = str(name or '').strip()
+    if not name:
+        return None
+
+    # Fast path: common module names first.
+    for module_name in ('__main__', 'app', 'main', 'application', 'wsgi'):
+        mod = sys.modules.get(module_name)
+        fn = getattr(mod, name, None) if mod is not None else None
+        if callable(fn):
+            return fn
+
+    # Slow but robust fallback: inspect all loaded modules.
     try:
-        import __main__ as main
-        fn = getattr(main, 'send_message_to_user_global', None)
-        if not callable(fn):
-            return {'ok': False, 'error': 'send_message_to_user_global is unavailable'}
-        return fn(str(user_key or '').strip(), title, body, payload, sender_user=sender_user)
+        modules = list(sys.modules.values())
+    except Exception:
+        modules = []
+    for mod in modules:
+        try:
+            fn = getattr(mod, name, None)
+        except Exception:
+            continue
+        if callable(fn):
+            return fn
+    return None
+
+
+def _call_bridge(name: str, *args, **kwargs):
+    fn = _bridge_func(name)
+    if not callable(fn):
+        return {'ok': False, 'error': f'{name} is unavailable'}
+    try:
+        return fn(*args, **kwargs)
     except Exception as e:
         return {'ok': False, 'error': str(e)}
+
+
+def _current_config_uid() -> str:
+    return str(current_config_uid_from_handlers() or CURRENT_CONFIG_UID.get() or '').strip()
+
+
+def message_user(user_key: str, payload=None, title: str = "Direct message", body: str = "New message", sender_user: str | None = None) -> dict:
+    result = _call_bridge('send_message_to_user_global', str(user_key or '').strip(), title, body, payload, sender_user=sender_user)
+    if isinstance(result, dict) and result.get('error') == 'send_message_to_user_global is unavailable':
+        return result
+    return result if isinstance(result, dict) else {'ok': True, 'result': result}
 
 
 def message_device(device_uid: str, payload=None, title: str = "Direct message", body: str = "New message", sender_user: str | None = None) -> dict:
-    try:
-        import __main__ as main
-        fn = getattr(main, 'send_message_to_device_global', None)
-        if not callable(fn):
-            return {'ok': False, 'error': 'send_message_to_device_global is unavailable'}
-        return fn(str(device_uid or '').strip(), title, body, payload, sender_user=sender_user)
-    except Exception as e:
-        return {'ok': False, 'error': str(e)}
+    result = _call_bridge('send_message_to_device_global', str(device_uid or '').strip(), title, body, payload, sender_user=sender_user)
+    return result if isinstance(result, dict) else {'ok': True, 'result': result}
+
+
+def sendTextMessage(target: str, text: str) -> dict:
+    """Send a p2p/group text message from server-side PythonScript.
+
+    target: user key for p2p or "group:<group_id>" for group chats.
+    sender_user is fixed to "server" by the app bridge.
+    """
+    result = _call_bridge('_noda_send_text_message', str(target or '').strip(), str(text or ''))
+    return result if isinstance(result, dict) else {'ok': True, 'result': result}
+
+
+def sendImageMessage(target: str, text: str, filename: str) -> dict:
+    """Send a p2p/group image message from server-side PythonScript."""
+    result = _call_bridge(
+        '_noda_send_image_message',
+        str(target or '').strip(),
+        str(text or ''),
+        str(filename or ''),
+        config_uid=_current_config_uid(),
+    )
+    return result if isinstance(result, dict) else {'ok': True, 'result': result}
+
+
+def sendTextToNodeDiscussion(node, text: str) -> dict:
+    """Send server text into all known discussions for this node."""
+    result = _call_bridge('_noda_send_text_to_node_discussion', node, str(text or ''))
+    return result if isinstance(result, dict) else {'ok': True, 'result': result}
+
+
+def sendImageToNodeDiscussion(node, text: str, filename: str) -> dict:
+    """Send server image into all known discussions for this node."""
+    result = _call_bridge(
+        '_noda_send_image_to_node_discussion',
+        node,
+        str(text or ''),
+        str(filename or ''),
+        config_uid=_current_config_uid(),
+    )
+    return result if isinstance(result, dict) else {'ok': True, 'result': result}
+
+
+def _load_python_script_code(script_ref: str) -> str:
+    """Load PythonScript source from cache-aware app bridge; fallback to URL/inline."""
+    script_ref = str(script_ref or '').strip()
+    if not script_ref:
+        return ''
+
+    fn = _bridge_func('_noda_load_python_script_code')
+    if callable(fn):
+        return str(fn(script_ref) or '')
+
+    # Fallback if nodes.py is used outside the Flask app.
+    if script_ref.startswith(('http://', 'https://')):
+        with urllib.request.urlopen(script_ref, timeout=20) as resp:
+            return resp.read().decode('utf-8')
+    return script_ref
+
+
+def downloadJsonCached(download_url: str, force_refresh: bool = False):
+    """Load JSON object/class by download_url through the app download cache."""
+    fn = _bridge_func('_noda_download_json_cached')
+    if callable(fn):
+        return fn(str(download_url or '').strip(), force_refresh=force_refresh)
+    with urllib.request.urlopen(str(download_url or '').strip(), timeout=20) as resp:
+        return json.loads(resp.read().decode('utf-8'))
+
+
+def downloadNodeCached(download_url: str):
+    """Alias for readability when the downloaded JSON is a node payload."""
+    return downloadJsonCached(download_url)
 
 
 def _accept_guard_key(node) -> str:
@@ -506,12 +616,111 @@ def _find_class_event_actions(parsed: dict, class_name: str, event_name: str, li
 
 import inspect
 
+def _coerce_handler_result(result) -> tuple[bool, dict]:
+    if isinstance(result, tuple) and len(result) >= 1:
+        ok = bool(result[0])
+        data = result[1] if len(result) > 1 and isinstance(result[1], dict) else {}
+        return ok, data
+    if isinstance(result, dict):
+        if 'status' in result:
+            return bool(result.get('status')), result
+        if 'ok' in result and result.get('ok') is False:
+            return False, result
+        return True, result
+    if result is False:
+        return False, {}
+    return True, {}
+
+
+def _call_script_callable(fn, node, input_data):
+    try:
+        return fn(node, input_data)
+    except TypeError:
+        try:
+            return fn(input_data)
+        except TypeError:
+            return fn()
+
+
+def _run_python_script_action(node, action: dict, input_data: dict, *, text_key: str = 'methodText') -> tuple[bool, dict]:
+    alt_text_key = 'post_execute_text' if text_key == 'postExecuteMethodText' else 'method_text'
+    script_ref = str((action or {}).get(text_key) or (action or {}).get(alt_text_key) or '').strip()
+    if not script_ref:
+        return False, {'error': f'PythonScript has empty {text_key}'}
+
+    code = _load_python_script_code(script_ref)
+    if not str(code or '').strip():
+        return False, {'error': 'PythonScript source is empty'}
+
+    ns = {
+        '__name__': '__noda_python_script__',
+        'node': node,
+        'self': node,
+        'input_data': input_data if isinstance(input_data, dict) else {},
+        'CURRENT_NODE': node,
+        'CURRENT_CONFIG_UID': _current_config_uid(),
+        'sendTextMessage': sendTextMessage,
+        'sendImageMessage': sendImageMessage,
+        'sendTextToNodeDiscussion': sendTextToNodeDiscussion,
+        'sendImageToNodeDiscussion': sendImageToNodeDiscussion,
+        'message_user': message_user,
+        'message_device': message_device,
+        'push_message': push_message,
+        'json': json,
+        'datetime': datetime,
+        'timezone': timezone,
+    }
+
+    try:
+        exec(compile(code, f'<PythonScript:{hashlib.sha1(script_ref.encode("utf-8")).hexdigest()[:12]}>', 'exec'), ns, ns)
+
+        result = ns.get('result', None)
+        if result is None:
+            # Optional convention for scripts stored as function libraries.
+            for fn_name in ('handler', 'main'):
+                fn = ns.get(fn_name)
+                if callable(fn):
+                    result = _call_script_callable(fn, node, input_data if isinstance(input_data, dict) else {})
+                    break
+
+        return _coerce_handler_result(result)
+    except AcceptRejected as e:
+        return False, e.payload
+    except Exception as e:
+        return False, {'error': str(e), 'script': script_ref}
+
+
+def _execute_event_action(node, action: dict, input_data: dict, method_key: str = 'method') -> tuple[bool, dict]:
+    m = str((action or {}).get(method_key) or '').strip()
+    if not m:
+        return True, {}
+
+    if m == 'PythonScript':
+        text_key = 'postExecuteMethodText' if method_key == 'postExecuteMethod' else 'methodText'
+        return _run_python_script_action(node, action, input_data, text_key=text_key)
+
+    # NodaScript remains a client/runtime concern here.  We do not fail server
+    # saves just because an old event contains a NodaScript action.
+    if m == 'NodaScript':
+        return True, {}
+
+    fn = getattr(node, m, None)
+    if not callable(fn):
+        return False, {'error': f"Handler method '{m}' not found"}
+
+    try:
+        return _coerce_handler_result(fn(input_data))
+    except AcceptRejected as e:
+        return False, e.payload
+    except Exception as e:
+        return False, {'error': str(e), 'method': m}
+
+
 def dispatch_node_class_event(node, event_name: str, input_data: dict) -> tuple[bool, dict]:
     parsed = CURRENT_PARSED_CONFIG.get()
     if not isinstance(parsed, dict):
         return True, {}
 
-    
     cls_name = getattr(node, "_schema_class_name", None) or node.__class__.__name__
 
     listener = ""
@@ -525,37 +734,107 @@ def dispatch_node_class_event(node, event_name: str, input_data: dict) -> tuple[
     prev_current = globals().get("CURRENT_NODE")
     globals()["CURRENT_NODE"] = node
     try:
-        for a in actions:
-            m = str(a.get("method") or "").strip()
-            if not m:
-                continue
-            fn = getattr(node, m, None)
-            
-            c = fn.__code__
-            #print("FN:", fn, "qualname:", fn.__qualname__)
-            #print("file:", c.co_filename, "line:", c.co_firstlineno)
-            #print("freevars:", c.co_freevars, "vars:", c.co_varnames)
-            #print("bytecode_len:", len(c.co_code), "hash:", hash(c.co_code))
+        for action in actions:
+            ok, data = _execute_event_action(node, action, input_data, 'method')
+            if not ok:
+                return False, data or {}
 
-            if not callable(fn):
-                return False, {"error": f"Handler method '{m}' not found for event {event_name}"}
-
-            r = fn(input_data)
-
-            
-            if isinstance(r, tuple) and len(r) >= 1:
-                ok = bool(r[0])
-                data = r[1] if len(r) > 1 and isinstance(r[1], dict) else {}
+            post_method = str((action or {}).get('postExecuteMethod') or '').strip()
+            if post_method:
+                post_input = dict(input_data or {}) if isinstance(input_data, dict) else {}
+                if data:
+                    post_input['_previous_result'] = data
+                ok, post_data = _execute_event_action(node, action, post_input, 'postExecuteMethod')
                 if not ok:
-                    return False, (data or {})
-            else:
-                
-                pass
+                    return False, post_data or {}
 
         return True, {}
     finally:
         globals()["CURRENT_NODE"] = prev_current
 
+
+def _json_class_name(class_obj) -> str:
+    if isinstance(class_obj, str):
+        return class_obj.strip()
+    if isinstance(class_obj, dict):
+        for key in ('name', 'code', 'uid', 'id', 'full_name'):
+            value = class_obj.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ''
+
+
+def _json_node_events(node_payload: dict) -> tuple[str, list[dict]]:
+    if not isinstance(node_payload, dict):
+        return '', []
+    class_obj = node_payload.get('_class') or node_payload.get('class')
+    class_name = _json_class_name(class_obj)
+    events = []
+    if isinstance(class_obj, dict):
+        events = class_obj.get('events') or []
+    if not events:
+        events = node_payload.get('events') or []
+    return class_name, events if isinstance(events, list) else []
+
+
+def dispatch_json_node_event(node_payload: dict, event_name: str, input_data: dict | None = None) -> tuple[bool, dict]:
+    """Dispatch event for a JSON node whose class is embedded as JSON.
+
+    This covers the external/raw-node case: node lives by download_url, its
+    `_class` can be a JSON object with events, and PythonScript action source is
+    still loaded via the same URL cache.
+    """
+    class_name, events = _json_node_events(node_payload)
+    if not events:
+        return True, {}
+
+    listener = ''
+    if isinstance(input_data, dict):
+        listener = str(input_data.get('listener') or input_data.get('id') or '').strip()
+
+    actions = []
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        if str(ev.get('event') or '').strip() != str(event_name or '').strip():
+            continue
+        ev_listener = str(ev.get('listener') or '').strip()
+        if listener:
+            if ev_listener and ev_listener != listener:
+                continue
+        else:
+            if ev_listener:
+                continue
+        for action in (ev.get('actions') or []):
+            if isinstance(action, dict):
+                actions.append(action)
+
+    if not actions:
+        return True, {}
+
+    prev_current = globals().get('CURRENT_NODE')
+    globals()['CURRENT_NODE'] = node_payload
+    try:
+        for action in actions:
+            ok, data = _execute_event_action(node_payload, action, input_data or {}, 'method')
+            if not ok:
+                return False, data or {}
+            post_method = str(action.get('postExecuteMethod') or '').strip()
+            if post_method:
+                post_input = dict(input_data or {})
+                if data:
+                    post_input['_previous_result'] = data
+                ok, post_data = _execute_event_action(node_payload, action, post_input, 'postExecuteMethod')
+                if not ok:
+                    return False, post_data or {}
+        return True, {}
+    finally:
+        globals()['CURRENT_NODE'] = prev_current
+
+
+def dispatch_downloaded_node_event(download_url: str, event_name: str, input_data: dict | None = None, *, force_refresh: bool = False) -> tuple[bool, dict]:
+    node_payload = downloadJsonCached(download_url, force_refresh=force_refresh)
+    return dispatch_json_node_event(node_payload, event_name, input_data or {})
 
 def run_on_accept_server_once(node, saved_state: dict, input_data: dict | None = None) -> None:
     """Run config ClassEvent 'onAcceptServer' at most once per request per node.
@@ -1000,6 +1279,18 @@ class Node:
 
     def send_to_device(self, device_uid: str, title: str = "Direct message", body: str = "New message", sender_user: str | None = None) -> dict:
         return message_device(device_uid, self, title=title, body=body, sender_user=sender_user)
+
+    def sendTextMessage(self, target: str, text: str) -> dict:
+        return sendTextMessage(target, text)
+
+    def sendImageMessage(self, target: str, text: str, filename: str) -> dict:
+        return sendImageMessage(target, text, filename)
+
+    def sendTextToNodeDiscussion(self, text: str) -> dict:
+        return sendTextToNodeDiscussion(self, text)
+
+    def sendImageToNodeDiscussion(self, text: str, filename: str) -> dict:
+        return sendImageToNodeDiscussion(self, text, filename)
 
     def _register(self, room_alias: str) -> bool:
         """

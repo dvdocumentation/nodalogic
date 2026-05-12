@@ -13,7 +13,7 @@ import base64
 import requests
 import urllib.request
 import urllib.error
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 from flask import send_file
 import io
 from datetime import datetime, timezone
@@ -34,6 +34,9 @@ import inspect
 from pathlib import Path
 import secrets
 import socket
+import threading
+import hashlib
+import mimetypes
 import boto3
 from botocore.client import Config
 
@@ -65,6 +68,27 @@ def _load_server_handlers_ns(config_uid, config):
     Returns an empty dict if nothing is available.
     """
     isolated_globals = {}
+
+    # Make server messaging helpers available even in older handler files that
+    # do not import them explicitly from nodes.py.  The actual implementation
+    # stays in nodes.py and calls back into this app through bridge helpers.
+    try:
+        mod = globals().get('_nodes_mod')
+        for _helper_name in (
+            'sendTextMessage',
+            'sendImageMessage',
+            'sendTextToNodeDiscussion',
+            'sendImageToNodeDiscussion',
+            'downloadJsonCached',
+            'downloadNodeCached',
+            'dispatch_json_node_event',
+            'dispatch_downloaded_node_event',
+        ):
+            _helper = getattr(mod, _helper_name, None) if mod is not None else None
+            if callable(_helper):
+                isolated_globals[_helper_name] = _helper
+    except Exception:
+        pass
 
     fp = _handlers_file_path(config_uid)
     try:
@@ -118,8 +142,8 @@ DEEPSEEK_API_KEY = ''
 ADMIN_LOGIN = ''
 FLASK_SECRET= ''
 
-S3_ENDPOINT = ""
-S3_BUCKET = ""
+S3_ENDPOINT = "https://s3.ru1.storage.beget.cloud"
+S3_BUCKET = "bf871c2d93ee-s3noda"
 
 s3 = boto3.client(
     "s3",
@@ -129,6 +153,183 @@ s3 = boto3.client(
     config=Config(signature_version="s3v4"),
     region_name="ru1",
 )
+
+SCRIPT_TEXT_METHODS = {"NodaScript", "PythonScript"}
+HTTP_REQUEST_METHOD = "HTTP Request"
+
+def _is_script_text_method(value):
+    return (value or "") in SCRIPT_TEXT_METHODS
+
+def _is_http_request_method(value):
+    return (value or "") == HTTP_REQUEST_METHOD
+
+def _s3_key_from_public_url(file_url: str):
+    file_url = (file_url or "").strip()
+    if not file_url:
+        return ""
+    parsed = urlparse(file_url)
+    if not parsed.scheme and not parsed.netloc:
+        return file_url.lstrip("/")
+    endpoint = urlparse(S3_ENDPOINT)
+    if parsed.netloc != endpoint.netloc:
+        return ""
+    path = unquote(parsed.path or "").lstrip("/")
+    bucket_prefix = S3_BUCKET.strip("/") + "/"
+    if path.startswith(bucket_prefix):
+        return path[len(bucket_prefix):]
+    return ""
+
+
+# ------------------------------------------------------------------
+# Runtime download cache for PythonScript source and JSON nodes/classes.
+#
+# PythonScript actions store an S3/public URL in methodText/postExecuteText.
+# Raw JSON nodes also arrive by download_url.  Both are immutable enough in
+# this flow (new uploads normally get a new URL), so we deliberately cache by
+# URL and do not re-download unless force_refresh=True is passed explicitly.
+# The cache is process-local + disk-backed to survive worker reloads.
+# ------------------------------------------------------------------
+_RUNTIME_DOWNLOAD_CACHE: dict[str, bytes] = {}
+_RUNTIME_DOWNLOAD_CACHE_LOCK = threading.RLock()
+_RUNTIME_DOWNLOAD_CACHE_DIR = os.environ.get(
+    "NODA_RUNTIME_DOWNLOAD_CACHE_DIR",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "runtime_cache", "downloads"),
+)
+
+
+def _runtime_cache_key(value: str) -> str:
+    return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
+
+
+def _runtime_cache_path(value: str, suffix: str = ".bin") -> str:
+    safe_suffix = suffix if str(suffix or "").startswith(".") else ".bin"
+    return os.path.join(_RUNTIME_DOWNLOAD_CACHE_DIR, _runtime_cache_key(value) + safe_suffix)
+
+
+def _runtime_cache_invalidate(value: str) -> None:
+    """Drop one cached runtime-download entry from memory and disk."""
+    value = str(value or "").strip()
+    if not value:
+        return
+    cache_path = _runtime_cache_path(value)
+    with _RUNTIME_DOWNLOAD_CACHE_LOCK:
+        _RUNTIME_DOWNLOAD_CACHE.pop(value, None)
+        for path in (cache_path, cache_path + ".tmp"):
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception:
+                pass
+
+
+def _runtime_download_bytes_cached(url: str, *, timeout: int = 20, force_refresh: bool = False) -> bytes:
+    """Download URL/S3 object once and then serve bytes from memory/disk cache."""
+    url = str(url or "").strip()
+    if not url:
+        raise ValueError("download url is empty")
+
+    cache_path = _runtime_cache_path(url)
+    with _RUNTIME_DOWNLOAD_CACHE_LOCK:
+        if not force_refresh and url in _RUNTIME_DOWNLOAD_CACHE:
+            return _RUNTIME_DOWNLOAD_CACHE[url]
+        if not force_refresh and os.path.isfile(cache_path):
+            with open(cache_path, "rb") as f:
+                data = f.read()
+            _RUNTIME_DOWNLOAD_CACHE[url] = data
+            return data
+
+    key = _s3_key_from_public_url(url)
+    if key:
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
+        data = obj["Body"].read()
+    else:
+        resp = requests.get(url, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.content
+
+    with _RUNTIME_DOWNLOAD_CACHE_LOCK:
+        os.makedirs(_RUNTIME_DOWNLOAD_CACHE_DIR, exist_ok=True)
+        tmp_path = cache_path + ".tmp"
+        with open(tmp_path, "wb") as f:
+            f.write(data)
+        os.replace(tmp_path, cache_path)
+        _RUNTIME_DOWNLOAD_CACHE[url] = data
+    return data
+
+
+def _runtime_download_text_cached(url: str, *, timeout: int = 20, force_refresh: bool = False, encoding: str = "utf-8") -> str:
+    return _runtime_download_bytes_cached(url, timeout=timeout, force_refresh=force_refresh).decode(encoding)
+
+
+def _runtime_download_json_cached(url: str, *, timeout: int = 20, force_refresh: bool = False):
+    return json.loads(_runtime_download_text_cached(url, timeout=timeout, force_refresh=force_refresh))
+
+
+def _noda_load_python_script_code(script_ref: str, *, force_refresh: bool = False) -> str:
+    """Bridge used by nodes.py: PythonScript ref may be URL/S3 URL or inline code."""
+    ref = str(script_ref or "").strip()
+    if not ref:
+        return ""
+    parsed = urlparse(ref)
+    # Only explicit remote refs are downloaded. Do NOT call
+    # _s3_key_from_public_url(ref) for arbitrary inline code because that helper
+    # intentionally treats scheme-less strings as raw keys.
+    if parsed.scheme in ("http", "https") or ref.startswith("uploads/python_scripts/"):
+        return _runtime_download_text_cached(ref, force_refresh=force_refresh)
+    return ref
+
+
+def _raw_node_id_from_download_url(download_url: str) -> str:
+    """Extract local raw-node id from absolute or relative /api/raw-node/<id> URL."""
+    raw = str(download_url or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = urlparse(raw)
+        path = parsed.path or raw
+    except Exception:
+        path = raw
+    for marker in ("/api/raw-node/", "api/raw-node/", "/raw-node/", "raw-node/"):
+        if marker in path:
+            return unquote(path.split(marker, 1)[-1].split("?", 1)[0].split("#", 1)[0]).strip()
+    return ""
+
+
+def _raw_node_payload_from_local_db(download_url: str):
+    """Load local raw-node payload directly from DB instead of HTTP-calling this Flask app."""
+    node_id = _raw_node_id_from_download_url(download_url)
+    if not node_id:
+        return None, False
+    try:
+        model = globals().get("RawNode")
+        if model is None:
+            return None, False
+        obj = db.session.execute(select(model).where(model.node_id == str(node_id))).scalar_one_or_none()
+        if obj is None:
+            return None, True
+        return (obj.payload_json or {}), True
+    except Exception:
+        return None, False
+
+
+def _noda_download_json_cached(download_url: str, *, force_refresh: bool = False):
+    """Bridge used by nodes.py for JSON nodes/classes loaded by download_url.
+
+    Local raw-node URLs are read directly from RawNode, not through requests.get().
+    This avoids auth/self-request issues and always sees the current DB payload
+    after /api/raw-node/<id> POST or _save_raw_node_local().
+    """
+    url = str(download_url or "").strip()
+    if force_refresh:
+        _runtime_cache_invalidate(url)
+
+    payload, handled = _raw_node_payload_from_local_db(url)
+    if handled:
+        if payload is None:
+            raise FileNotFoundError(f"raw node not found: {_raw_node_id_from_download_url(url)}")
+        return payload
+
+    return _runtime_download_json_cached(url, force_refresh=force_refresh)
 
 #******************************************************************
 
@@ -151,7 +352,7 @@ PUBLIC_API_BASE_URL = os.environ.get("PUBLIC_API_BASE_URL", "").rstrip("/")
 
 
 NODE_CLASS_CODE = '''
-from nodes import Node, message, Dialog, to_uid, from_uid, CloseNode, DataSets, convertBase64ArrayToFilePaths,convertImageFilesToBase64Array,getBase64FromImageFile,saveBase64ToFile, getByIndex, findByIndex, getByGlobalIndex, findByGlobalIndex
+from nodes import Node, message, Dialog, to_uid, from_uid, CloseNode, DataSets, convertBase64ArrayToFilePaths,convertImageFilesToBase64Array,getBase64FromImageFile,saveBase64ToFile, getByIndex, findByIndex, getByGlobalIndex, findByGlobalIndex, sendTextMessage, sendImageMessage, sendTextToNodeDiscussion, sendImageToNodeDiscussion, downloadJsonCached, dispatch_json_node_event, dispatch_downloaded_node_event
 '''
 
 NODE_CLASS_CODE_ANDROID = '''
@@ -1818,7 +2019,7 @@ class ConfigEventAction(db.Model):
     server = db.Column(db.String(255), default="")
     method = db.Column(db.String(200), default="")
     post_execute_method = db.Column(db.String(200), default="")
-    # If method/post_execute_method == 'NodaScript', store the script text here
+    # NodaScript stores script text here; PythonScript stores S3 URL here
     method_text = db.Column(db.Text, default="")
     post_execute_text = db.Column(db.Text, default="")
     http_function_name = db.Column(db.String(255), default="")
@@ -1978,7 +2179,7 @@ class EventAction(db.Model):
     server = db.Column(db.String(255), default="")
     method = db.Column(db.String(200), default="")
     post_execute_method = db.Column(db.String(200), default="")
-    # If method/post_execute_method == 'NodaScript', store the script text here
+    # NodaScript stores script text here; PythonScript stores S3 URL here
     method_text = db.Column(db.Text, default="")
     post_execute_text = db.Column(db.Text, default="")
     http_function_name = db.Column(db.String(255), default="")
@@ -2562,6 +2763,369 @@ def get_upload_url():
         "file_url": public_url
     })
 
+
+@app.route("/api/s3/text-upload-url", methods=["POST"])
+@login_required
+def get_s3_text_upload_url():
+    data = request.get_json(silent=True) or {}
+    filename = secure_filename(data.get("filename") or "script.py") or "script.py"
+    if not filename.lower().endswith(".py"):
+        filename += ".py"
+
+    content_type = "text/x-python; charset=utf-8"
+    object_key = f"uploads/python_scripts/{current_user.id}/{uuid.uuid4().hex}_{filename}"
+
+    upload_url = s3.generate_presigned_url(
+        ClientMethod="put_object",
+        Params={
+            "Bucket": S3_BUCKET,
+            "Key": object_key,
+            "ContentType": content_type,
+        },
+        ExpiresIn=600,
+    )
+    public_url = f"{S3_ENDPOINT}/{S3_BUCKET}/{object_key}"
+
+    return jsonify({
+        "ok": True,
+        "upload_url": upload_url,
+        "file_url": public_url,
+        "url": public_url,
+        "public_url": public_url,
+        "object_key": object_key,
+        "key": object_key,
+        "headers": {"Content-Type": content_type},
+        "method": "PUT",
+        "expires_in": 600,
+    })
+
+
+def _s3_text_content_type(filename: str = "script.py") -> str:
+    return "text/x-python; charset=utf-8"
+
+
+def _is_remote_script_ref(value: str) -> bool:
+    """True only for explicit URL/S3-key refs, not arbitrary inline code."""
+    s = str(value or "").strip()
+    if not s:
+        return False
+    parsed = urlparse(s)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return True
+    # Accept explicit raw keys saved by this editor. Do NOT call
+    # _s3_key_from_public_url here because it treats any plain text as a key.
+    return s.startswith("uploads/python_scripts/")
+
+
+
+_PY_SCRIPT_UPLOAD_SESSION_KEY = "last_python_script_s3_upload"
+
+
+def _remember_python_script_upload(public_url: str, object_key: str = "", filename: str = "") -> None:
+    """Remember the last PythonScript S3 save for the current browser session.
+
+    Some existing editor templates save the text to S3 in a popup/editor, but the
+    parent edit-event form may still submit an empty methodText field.  The old
+    flow relied on the browser propagating file_url back into actions_json; this
+    server-side fallback prevents a successful S3 save from being lost on the
+    subsequent "Сохранить".
+    """
+    try:
+        session[_PY_SCRIPT_UPLOAD_SESSION_KEY] = {
+            "url": str(public_url or ""),
+            "file_url": str(public_url or ""),
+            "object_key": str(object_key or ""),
+            "filename": str(filename or ""),
+            "ts": time.time(),
+        }
+        session.modified = True
+    except Exception:
+        pass
+
+
+def _last_python_script_upload_url(max_age_seconds: int = 3600) -> str:
+    try:
+        rec = session.get(_PY_SCRIPT_UPLOAD_SESSION_KEY) or {}
+        url = str(rec.get("url") or rec.get("file_url") or "").strip()
+        ts = float(rec.get("ts") or 0)
+        if url and (not ts or (time.time() - ts) <= max_age_seconds):
+            return url
+    except Exception:
+        pass
+    return ""
+
+
+def _action_python_text_value(action: dict, *, post: bool = False) -> str:
+    """Return a PythonScript ref from all known UI key variants."""
+    if not isinstance(action, dict):
+        return ""
+    keys = (
+        [
+            "postExecuteMethodText",
+            "post_execute_text",
+            "postExecuteText",
+            "postMethodText",
+            "postExecuteMethodTextUrl",
+            "postExecuteMethodTextURL",
+            "postExecuteUrl",
+            "postExecuteURL",
+            "post_url",
+            "postFileUrl",
+            "post_file_url",
+        ]
+        if post else
+        [
+            "methodText",
+            "method_text",
+            "code",
+            "script",
+            "sourceCode",
+            "methodTextUrl",
+            "methodTextURL",
+            "scriptUrl",
+            "scriptURL",
+            "pythonScriptUrl",
+            "pythonScriptURL",
+            "fileUrl",
+            "file_url",
+            "url",
+        ]
+    )
+    for k in keys:
+        v = action.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return ""
+
+
+def _carry_existing_event_python_script_refs(actions: list, existing_actions) -> None:
+    """Preserve old method_text/post_execute_text when the submitted JSON is empty.
+
+    This is intentionally conservative: it only fills empty PythonScript fields,
+    and it matches by action order because EventAction rows are rewritten on save.
+    """
+    if not isinstance(actions, list):
+        return
+    old = list(existing_actions or [])
+    for idx, a in enumerate(actions):
+        if not isinstance(a, dict):
+            continue
+        old_action = old[idx] if idx < len(old) else None
+        if (a.get("method") or "") == "PythonScript" and not _action_python_text_value(a, post=False):
+            old_text = str(getattr(old_action, "method_text", "") or getattr(old_action, "methodText", "") or "").strip() if old_action is not None else ""
+            if old_text:
+                a["methodText"] = old_text
+        if (a.get("postExecuteMethod") or a.get("post_execute_method") or "") == "PythonScript" and not _action_python_text_value(a, post=True):
+            old_text = str(getattr(old_action, "post_execute_text", "") or getattr(old_action, "postExecuteMethodText", "") or "").strip() if old_action is not None else ""
+            if old_text:
+                a["postExecuteMethodText"] = old_text
+
+def _save_python_text_to_s3_via_upload_url(text_value: str, *, filename: str = "script.py", old_url: str = "") -> dict:
+    """Save PythonScript text to S3 using the same presigned PUT flow as the editor.
+
+    This keeps server-side form saves compatible with the browser's "Save to S3"
+    button and avoids boto3 put_object checksum issues on this S3-compatible storage.
+    """
+    filename = secure_filename(filename or "script.py") or "script.py"
+    if not filename.lower().endswith(".py"):
+        filename += ".py"
+
+    content_type = _s3_text_content_type(filename)
+    object_key = f"uploads/python_scripts/{current_user.id}/{uuid.uuid4().hex}_{filename}"
+    upload_url = s3.generate_presigned_url(
+        ClientMethod="put_object",
+        Params={
+            "Bucket": S3_BUCKET,
+            "Key": object_key,
+            "ContentType": content_type,
+        },
+        ExpiresIn=600,
+    )
+
+    raw = str(text_value or "").encode("utf-8")
+    resp = requests.put(upload_url, data=raw, headers={"Content-Type": content_type}, timeout=30)
+    if resp.status_code < 200 or resp.status_code >= 300:
+        raise RuntimeError(f"S3 upload failed: HTTP {resp.status_code}: {resp.text[:500]}")
+
+    public_url = f"{S3_ENDPOINT}/{S3_BUCKET}/{object_key}"
+
+    # The old URL may be reused by runtime/editor cache. Drop both old and new cache entries.
+    try:
+        if old_url:
+            _runtime_cache_invalidate(old_url)
+        _runtime_cache_invalidate(public_url)
+    except Exception:
+        pass
+
+    _remember_python_script_upload(public_url, object_key, filename)
+
+    return {
+        "ok": True,
+        "file_url": public_url,
+        "url": public_url,
+        "public_url": public_url,
+        "object_key": object_key,
+        "key": object_key,
+        "bytes": len(raw),
+    }
+
+
+def _normalize_python_script_text_for_save(value: str, *, filename: str, old_url: str = "") -> str:
+    """Return a S3 URL for inline PythonScript text; keep existing URL/key refs."""
+    s = str(value or "").strip()
+    if not s or s.lower() in {"none", "null", "undefined"}:
+        return ""
+    if _is_remote_script_ref(s):
+        return s
+    return _save_python_text_to_s3_via_upload_url(s, filename=filename, old_url=old_url).get("file_url", "")
+
+
+def _normalize_event_action_python_scripts_for_save(actions: list, *, filename_prefix: str = "script") -> None:
+    """Mutate event actions before DB save: inline PythonScript -> saved S3 URL.
+
+    Existing remote refs are kept. If the browser editor saved to S3 but did not
+    propagate the returned URL into actions_json, use the last URL saved in this
+    session when there is only one empty PythonScript field in the submitted
+    action list.
+    """
+    if not isinstance(actions, list):
+        return
+
+    # Count empty PythonScript slots. Session fallback is safe only when it is
+    # unambiguous; otherwise we preserve existing values via
+    # _carry_existing_event_python_script_refs or require the UI to submit URLs.
+    empty_slots = []
+    for idx, a in enumerate(actions):
+        if not isinstance(a, dict):
+            continue
+        if (a.get("method") or "") == "PythonScript" and not _action_python_text_value(a, post=False):
+            empty_slots.append((idx, False))
+        if (a.get("postExecuteMethod") or "") == "PythonScript" and not _action_python_text_value(a, post=True):
+            empty_slots.append((idx, True))
+
+    session_fallback_url = _last_python_script_upload_url() if len(empty_slots) == 1 else ""
+
+    for idx, a in enumerate(actions):
+        if not isinstance(a, dict):
+            continue
+
+        if (a.get("method") or "") == "PythonScript":
+            old_url = (a.get("methodTextUrl") or a.get("methodTextURL") or a.get("oldMethodText") or "")
+            value = _action_python_text_value(a, post=False)
+            if not value and session_fallback_url:
+                value = session_fallback_url
+            a["methodText"] = _normalize_python_script_text_for_save(
+                value,
+                filename=f"{filename_prefix}_action_{idx + 1}.py",
+                old_url=old_url,
+            )
+
+        if (a.get("postExecuteMethod") or "") == "PythonScript":
+            old_url = (a.get("postExecuteMethodTextUrl") or a.get("postExecuteMethodTextURL") or a.get("oldPostExecuteMethodText") or "")
+            value = _action_python_text_value(a, post=True)
+            if not value and session_fallback_url:
+                value = session_fallback_url
+            a["postExecuteMethodText"] = _normalize_python_script_text_for_save(
+                value,
+                filename=f"{filename_prefix}_post_action_{idx + 1}.py",
+                old_url=old_url,
+            )
+
+
+@app.route("/api/s3/save-text-via-upload-url", methods=["POST"], endpoint="save_s3_text_via_upload_url")
+@login_required
+def save_s3_text_via_upload_url():
+    """Backward-compatible endpoint used by edit_class/code editor.
+
+    It accepts text/code, uploads it to S3 with a presigned PUT URL, and returns
+    file_url. This is different from /api/s3/text-upload-url which only returns
+    a URL for the browser to upload itself.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        text_value = data.get("text")
+        if text_value is None:
+            text_value = data.get("code")
+        if text_value is None:
+            text_value = data.get("content")
+        if text_value is None:
+            text_value = ""
+        filename = data.get("filename") or data.get("name") or "script.py"
+        old_url = data.get("old_url") or data.get("oldUrl") or data.get("url") or ""
+        return jsonify(_save_python_text_to_s3_via_upload_url(str(text_value), filename=filename, old_url=old_url))
+    except Exception as exc:
+        app.logger.exception("PythonScript S3 save failed")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/s3/delete-text", methods=["POST"])
+@login_required
+def delete_s3_text():
+    data = request.get_json(silent=True) or {}
+    old_url = (data.get("old_url") or data.get("oldUrl") or "").strip()
+    new_url = (data.get("new_url") or data.get("newUrl") or "").strip()
+    old_key = _s3_key_from_public_url(old_url)
+    new_key = _s3_key_from_public_url(new_url)
+    user_prefix = f"uploads/python_scripts/{current_user.id}/"
+
+    deleted = False
+    if old_key and old_key != new_key and old_key.startswith(user_prefix):
+        s3.delete_object(Bucket=S3_BUCKET, Key=old_key)
+        deleted = True
+
+    return jsonify({"ok": True, "old_deleted": deleted})
+
+
+@app.route("/api/s3/text", methods=["POST"])
+@login_required
+def upload_s3_text():
+    # Backward-compatible endpoint. If text/code is posted, behave like the old
+    # server-mediated save endpoint; otherwise return a presigned upload URL.
+    data = request.get_json(silent=True) or {}
+    if any(k in data for k in ("text", "code", "content")):
+        try:
+            text_value = data.get("text")
+            if text_value is None:
+                text_value = data.get("code")
+            if text_value is None:
+                text_value = data.get("content")
+            filename = data.get("filename") or data.get("name") or "script.py"
+            old_url = data.get("old_url") or data.get("oldUrl") or data.get("url") or ""
+            return jsonify(_save_python_text_to_s3_via_upload_url(str(text_value or ""), filename=filename, old_url=old_url))
+        except Exception as exc:
+            app.logger.exception("PythonScript S3 save failed")
+            return jsonify({"ok": False, "error": str(exc)}), 500
+    return get_s3_text_upload_url()
+
+
+@app.route("/api/s3/read-text", methods=["GET"])
+@login_required
+def read_s3_text():
+    try:
+        key = _s3_key_from_public_url(request.args.get("url") or request.args.get("key") or "")
+        if not key:
+            return jsonify({"ok": False, "error": "Invalid or unsupported S3 URL"}), 400
+        source_url = request.args.get("url") or request.args.get("key") or ""
+        force_refresh = str(request.args.get("force") or request.args.get("refresh") or "").lower() in {"1", "true", "yes"}
+        # Read through the same cache used by server-side PythonScript execution.
+        # This keeps the editor/debug endpoint and runtime behavior consistent.
+        body = _runtime_download_text_cached(source_url, force_refresh=force_refresh)
+        return jsonify({"ok": True, "object_key": key, "text": body, "cached": not force_refresh})
+    except Exception as exc:
+        app.logger.exception("PythonScript S3 read failed")
+        return jsonify({"ok": False, "error": str(exc)}), 404
+
+
+@app.route("/python_s3.html", methods=["GET"])
+@login_required
+def python_s3_editor():
+    return render_template("code_editor.html", initial_url=(request.args.get("url") or ""))
+
+@app.route("/code-editor", methods=["GET"])
+@login_required
+def code_editor():
+    return redirect(url_for("python_s3_editor", url=(request.args.get("url") or "")))
+
 #Row nodes
 @app.route('/api/raw-node/<node_id>', methods=['POST'])
 @api_auth_required
@@ -2595,6 +3159,18 @@ def api_raw_node_post(node_id):
 
     db.session.commit()
 
+    # Raw-node URLs may be reused for updated JSON payloads; drop any old
+    # cached variants so event dispatch sees fresh class/events data.
+    try:
+        for _u in (
+            f"{request.url_root.rstrip('/')}/api/raw-node/{obj.node_id}",
+            f"/api/raw-node/{obj.node_id}",
+            f"raw-node/{obj.node_id}",
+        ):
+            _runtime_cache_invalidate(_u)
+    except Exception:
+        pass
+
     return jsonify({
         'ok': True,
         'node_id': obj.node_id,
@@ -2626,6 +3202,30 @@ def _current_public_base_url() -> str:
     base = _normalized_base_url(PUBLIC_API_BASE_URL)
     if base:
         return base
+
+    # Behind nginx / reverse proxy Flask often sees http://localhost, while
+    # mobile clients work with the public https:// host. Use forwarded headers
+    # first so generated raw-node thread_ref matches the client-side thread_ref.
+    try:
+        forwarded_proto = str(
+            request.headers.get('X-Forwarded-Proto')
+            or request.headers.get('X-Forwarded-Scheme')
+            or request.headers.get('X-Scheme')
+            or ''
+        ).split(',', 1)[0].strip()
+        forwarded_host = str(
+            request.headers.get('X-Forwarded-Host')
+            or request.headers.get('Host')
+            or ''
+        ).split(',', 1)[0].strip()
+        if forwarded_host:
+            if not forwarded_proto:
+                forwarded_proto = 'https' if (request.is_secure or str(request.headers.get('X-Forwarded-Ssl') or '').lower() == 'on') else ''
+            if forwarded_proto in ('http', 'https'):
+                return _normalized_base_url(f'{forwarded_proto}://{forwarded_host}')
+    except Exception:
+        pass
+
     try:
         return _normalized_base_url(request.url_root)
     except Exception:
@@ -2742,6 +3342,69 @@ def _raw_node_public_url(base_url: str, node_id: str) -> str:
     return f"{_normalized_base_url(base_url)}/api/raw-node/{str(node_id or '').strip()}"
 
 
+def _node_discussion_existing_thread_ref(node_id: str) -> str:
+    """Return the thread_ref already used by clients for this raw node, if known."""
+    node_id = str(node_id or '').strip()
+    if not node_id:
+        return ''
+
+    def _pick(payload):
+        if not isinstance(payload, dict):
+            return ''
+        for key in ('thread_ref', 'download_url', 'raw_node_url', 'node_url'):
+            value = str(payload.get(key) or '').strip()
+            if '/api/raw-node/' in value:
+                return value
+        return ''
+
+    try:
+        rows = NodeDiscussionMessage.query.filter_by(node_id=node_id).order_by(
+            NodeDiscussionMessage.created_at.desc(),
+            NodeDiscussionMessage.id.desc(),
+        ).limit(50).all()
+        for msg in rows:
+            ref = _pick(msg.payload_json if isinstance(msg.payload_json, dict) else {})
+            if ref:
+                return ref
+    except Exception:
+        pass
+
+    try:
+        rows = OutgoingMessageLog.query.filter(
+            OutgoingMessageLog.target_type.in_(('user', 'group'))
+        ).order_by(OutgoingMessageLog.created_at.desc(), OutgoingMessageLog.id.desc()).limit(500).all()
+        for msg in rows:
+            payload = msg.payload_json if isinstance(msg.payload_json, dict) else {}
+            if not (
+                _extract_node_discussion_node_id(payload) == node_id
+                or _node_discussion_payload_matches_node(payload, node_id)
+                or _node_delivery_payload_matches_node(payload, node_id)
+            ):
+                continue
+            ref = _pick(payload)
+            if ref:
+                return ref
+    except Exception:
+        pass
+
+    return ''
+
+
+def _node_discussion_thread_ref(node_id: str, preferred: str = '') -> str:
+    """Build a client-compatible raw-node thread_ref.
+
+    Prefer an existing thread_ref from discussion history to avoid http/https
+    mismatches on Android clients that key chats by exact thread_ref string.
+    """
+    preferred = str(preferred or '').strip()
+    if '/api/raw-node/' in preferred:
+        return preferred
+    existing = _node_discussion_existing_thread_ref(node_id)
+    if existing:
+        return existing
+    return _raw_node_public_url(_current_public_base_url(), node_id)
+
+
 def _save_raw_node_local(node_id: str, payload: dict, owner_user_id=None, content_type='node'):
     obj = db.session.execute(
         select(RawNode).where(RawNode.node_id == str(node_id))
@@ -2767,6 +3430,15 @@ def _save_raw_node_local(node_id: str, payload: dict, owner_user_id=None, conten
             obj.owner_user_id = owner_user_id
 
     db.session.commit()
+    try:
+        for _u in (
+            _raw_node_public_url(_current_public_base_url(), node_id),
+            f"/api/raw-node/{node_id}",
+            f"raw-node/{node_id}",
+        ):
+            _runtime_cache_invalidate(_u)
+    except Exception:
+        pass
     return obj
 
 def _node_discussion_group_id(class_name, node_id):
@@ -2963,8 +3635,20 @@ def _node_discussion_payload_matches_node(payload, node_id):
 # Node discussion diagnostics / API datetime formatting
 # -----------------------------------------------------------------------------
 def _node_discussion_debug(event, **fields):
-    """Small stdout logger for node-discussion delivery/pending diagnostics."""
+    """Small stdout logger for node-discussion delivery/pending diagnostics.
+
+    Enable on VPS with:
+        export NODA_NODE_DISCUSSION_DEBUG=1
+    """
     try:
+        enabled = str(os.environ.get('NODA_NODE_DISCUSSION_DEBUG') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+        try:
+            enabled = enabled or bool(app.config.get('NODA_NODE_DISCUSSION_DEBUG'))
+        except Exception:
+            pass
+        if not enabled:
+            return
+
         safe = []
         for key, value in fields.items():
             key_s = str(key)
@@ -2977,8 +3661,11 @@ def _node_discussion_debug(event, **fields):
                     value = str(value)
             safe.append(f"{key_s}={value}")
         print('[node-discussion-debug] ' + str(event) + (' | ' + ' | '.join(safe) if safe else ''), flush=True)
-    except Exception:
-        pass
+    except Exception as e:
+        try:
+            print('[node-discussion-debug] logger_failed:', e, flush=True)
+        except Exception:
+            pass
 
 
 def _node_discussion_response_timezone_name():
@@ -3691,7 +4378,7 @@ def api_post_node_discussion_message_by_node_id(node_id):
             'results': [],
         }), 400
 
-    thread_ref = data.get('thread_ref') or _raw_node_public_url(_current_public_base_url(), node_id)
+    thread_ref = _node_discussion_thread_ref(node_id, data.get('thread_ref'))
     message_type = 'image' if image not in (None, '') or image_url not in (None, '') else 'text'
     # Important: Android/iOS chat clients already handle node discussion replies
     # as ordinary chat messages with thread_type='node_discussion'. Do not send
@@ -3740,8 +4427,6 @@ def api_post_node_discussion_message_by_node_id(node_id):
         target_type = target.get('target_type')
         target_id = target.get('target_id')
         item_payload = dict(payload)
-        item_payload['target_type'] = target_type
-        item_payload['target_id'] = target_id
 
         if target_type == 'group':
             item_payload['group_id'] = target_id
@@ -5053,10 +5738,10 @@ def get_config(uid):
                                 'method': a.method,
                                 'postExecuteMethod': a.post_execute_method,
                                 # NodaScript texts (plain JSON-escaped strings)
-                                **({"methodText": a.method_text} if (a.method or '') == 'NodaScript' else {}),
-                                **({"postExecuteMethodText": a.post_execute_text} if (a.post_execute_method or '') == 'NodaScript' else {}),
-                                **({"httpFunctionName": a.http_function_name} if (a.method or '') == 'HTTP Request' else {}),
-                                **({"postHttpFunctionName": a.post_http_function_name} if (a.post_execute_method or '') == 'HTTP Request' else {}),
+                                **({"methodText": a.method_text} if _is_script_text_method(a.method) else {}),
+                                **({"postExecuteMethodText": a.post_execute_text} if _is_script_text_method(a.post_execute_method) else {}),
+                                **({"httpFunctionName": a.http_function_name} if _is_http_request_method(a.method) else {}),
+                                **({"postHttpFunctionName": a.post_http_function_name} if _is_http_request_method(a.post_execute_method) else {}),
                             }
                             for a in e.actions
                         ]
@@ -5105,10 +5790,10 @@ def get_config(uid):
                         'method': a.method,
                         'postExecuteMethod': a.post_execute_method,
                         # NodaScript texts (plain JSON-escaped strings)
-                        **({"methodText": a.method_text} if (a.method or '') == 'NodaScript' else {}),
-                        **({"postExecuteMethodText": a.post_execute_text} if (a.post_execute_method or '') == 'NodaScript' else {}),
-                        **({"httpFunctionName": a.http_function_name} if (a.method or '') == 'HTTP Request' else {}),
-                        **({"postHttpFunctionName": a.post_http_function_name} if (a.post_execute_method or '') == 'HTTP Request' else {}),
+                        **({"methodText": a.method_text} if _is_script_text_method(a.method) else {}),
+                        **({"postExecuteMethodText": a.post_execute_text} if _is_script_text_method(a.post_execute_method) else {}),
+                        **({"httpFunctionName": a.http_function_name} if _is_http_request_method(a.method) else {}),
+                        **({"postHttpFunctionName": a.post_http_function_name} if _is_http_request_method(a.post_execute_method) else {}),
                     }
                     for a in e.actions
                 ]
@@ -5193,6 +5878,15 @@ def add_config_event(config_uid):
     
     if existing_event:
         return jsonify({"status": "error", "message": "Event already exists"})
+
+    try:
+        _normalize_event_action_python_scripts_for_save(
+            actions,
+            filename_prefix=f"config_{config.id}_{event_name or 'event'}"
+        )
+    except Exception as exc:
+        app.logger.exception("PythonScript S3 autosave failed")
+        return jsonify({"status": "error", "message": f"PythonScript S3 autosave failed: {exc}"})
     
    
     new_event = ConfigEvent(
@@ -5212,10 +5906,10 @@ def add_config_event(config_uid):
             source=action_data.get('source', 'internal'),
             server=action_data.get('server', ''),
             post_execute_method=action_data.get('postExecuteMethod', ''),
-            method_text=(action_data.get('methodText', '') or '') if (action_data.get('method', '') or '') == 'NodaScript' else '',
-            post_execute_text=(action_data.get('postExecuteMethodText', '') or '') if (action_data.get('postExecuteMethod', '') or '') == 'NodaScript' else '',
-            http_function_name=(action_data.get('httpFunctionName', '') or '') if (action_data.get('method', '') or '') == 'HTTP Request' else '',
-            post_http_function_name=(action_data.get('postHttpFunctionName', '') or '') if (action_data.get('postExecuteMethod', '') or '') == 'HTTP Request' else '',
+            method_text=(_action_python_text_value(action_data, post=False) or '') if _is_script_text_method(action_data.get('method', '')) else '',
+            post_execute_text=(_action_python_text_value(action_data, post=True) or '') if _is_script_text_method(action_data.get('postExecuteMethod', '')) else '',
+            http_function_name=(action_data.get('httpFunctionName', '') or '') if _is_http_request_method(action_data.get('method', '')) else '',
+            post_http_function_name=(action_data.get('postHttpFunctionName', '') or '') if _is_http_request_method(action_data.get('postExecuteMethod', '')) else '',
             order=action_data.get('order', 0)
         )
         db.session.add(action)
@@ -6045,6 +6739,17 @@ def edit_config_event(config_uid):
     
     if not event:
         return jsonify({"status": "error", "message": "Event not found"})
+
+    _carry_existing_event_python_script_refs(actions, getattr(event, "actions", None))
+
+    try:
+        _normalize_event_action_python_scripts_for_save(
+            actions,
+            filename_prefix=f"config_{config.id}_{event_name or 'event'}"
+        )
+    except Exception as exc:
+        app.logger.exception("PythonScript S3 autosave failed")
+        return jsonify({"status": "error", "message": f"PythonScript S3 autosave failed: {exc}"})
     
     
     event.event = event_name
@@ -6062,10 +6767,10 @@ def edit_config_event(config_uid):
             source=action_data.get('source', 'internal'),
             server=action_data.get('server', ''),
             post_execute_method=action_data.get('postExecuteMethod', ''),
-            method_text=(action_data.get('methodText', '') or '') if (action_data.get('method', '') or '') == 'NodaScript' else '',
-            post_execute_text=(action_data.get('postExecuteMethodText', '') or '') if (action_data.get('postExecuteMethod', '') or '') == 'NodaScript' else '',
-            http_function_name=(action_data.get('httpFunctionName', '') or '') if (action_data.get('method', '') or '') == 'HTTP Request' else '',
-            post_http_function_name=(action_data.get('postHttpFunctionName', '') or '') if (action_data.get('postExecuteMethod', '') or '') == 'HTTP Request' else '',
+            method_text=(_action_python_text_value(action_data, post=False) or '') if _is_script_text_method(action_data.get('method', '')) else '',
+            post_execute_text=(_action_python_text_value(action_data, post=True) or '') if _is_script_text_method(action_data.get('postExecuteMethod', '')) else '',
+            http_function_name=(action_data.get('httpFunctionName', '') or '') if _is_http_request_method(action_data.get('method', '')) else '',
+            post_http_function_name=(action_data.get('postHttpFunctionName', '') or '') if _is_http_request_method(action_data.get('postExecuteMethod', '')) else '',
             order=action_data.get('order', 0)
         )
         db.session.add(action)
@@ -6607,7 +7312,7 @@ def add_event(class_id):
     
     for a in actions:
         mname = a.get('method','').strip()
-        if mname and mname not in ('NodaScript', 'HTTP Request'):
+        if mname and mname not in ('NodaScript', 'PythonScript', 'HTTP Request'):
             m = db.session.execute(
                 select(ClassMethod).where(ClassMethod.name == mname, ClassMethod.class_id == class_id)
             ).scalar_one_or_none()
@@ -6626,6 +7331,16 @@ def add_event(class_id):
         flash(_('Event with this event+listener already exists'), 'error')
         return redirect(url_for('edit_class', class_id=class_id, _anchor='events'))
 
+    try:
+        _normalize_event_action_python_scripts_for_save(
+            actions,
+            filename_prefix=f"class_{class_id}_{event_name or 'event'}"
+        )
+    except Exception as exc:
+        app.logger.exception("PythonScript S3 autosave failed")
+        flash(f"PythonScript S3 autosave failed: {exc}", 'error')
+        return redirect(url_for('edit_class', class_id=class_id, _anchor='events'))
+
     ce = ClassEvent(event=event_name, listener=listener, class_id=class_id)
     db.session.add(ce)
     db.session.flush()  
@@ -6639,10 +7354,10 @@ def add_event(class_id):
             server = a.get('server','') or '',
             method = a.get('method','') or '',
             post_execute_method = a.get('postExecuteMethod','') or '',
-            method_text = (a.get('methodText','') or '') if (a.get('method','') or '') == 'NodaScript' else '',
-            post_execute_text = (a.get('postExecuteMethodText','') or '') if (a.get('postExecuteMethod','') or '') == 'NodaScript' else '',
-            http_function_name = (a.get('httpFunctionName','') or '') if (a.get('method','') or '') == 'HTTP Request' else '',
-            post_http_function_name = (a.get('postHttpFunctionName','') or '') if (a.get('postExecuteMethod','') or '') == 'HTTP Request' else '',
+            method_text = (_action_python_text_value(a, post=False) or '') if _is_script_text_method(a.get('method','')) else '',
+            post_execute_text = (_action_python_text_value(a, post=True) or '') if _is_script_text_method(a.get('postExecuteMethod','')) else '',
+            http_function_name = (a.get('httpFunctionName','') or '') if _is_http_request_method(a.get('method','')) else '',
+            post_http_function_name = (a.get('postHttpFunctionName','') or '') if _is_http_request_method(a.get('postExecuteMethod','')) else '',
             order = order,
             event_id = ce.id
         )
@@ -6691,7 +7406,7 @@ def edit_event(class_id):
     
     for a in actions:
         mname = a.get('method','').strip()
-        if mname and mname not in ('NodaScript', 'HTTP Request'):
+        if mname and mname not in ('NodaScript', 'PythonScript', 'HTTP Request'):
             m = db.session.execute(
                 select(ClassMethod).where(ClassMethod.name == mname, ClassMethod.class_id == class_id)
             ).first()
@@ -6700,6 +7415,18 @@ def edit_event(class_id):
                 return redirect(url_for('edit_class', class_id=class_id, _anchor='events'))
 
     
+    _carry_existing_event_python_script_refs(actions, getattr(target, "actions", None))
+
+    try:
+        _normalize_event_action_python_scripts_for_save(
+            actions,
+            filename_prefix=f"class_{class_id}_{new_event or 'event'}"
+        )
+    except Exception as exc:
+        app.logger.exception("PythonScript S3 autosave failed")
+        flash(f"PythonScript S3 autosave failed: {exc}", 'error')
+        return redirect(url_for('edit_class', class_id=class_id, _anchor='events'))
+
     target.event = new_event
     target.listener = new_listener
 
@@ -6717,10 +7444,10 @@ def edit_event(class_id):
             server = a.get('server','') or '',
             method = a.get('method','') or '',
             post_execute_method = a.get('postExecuteMethod','') or '',
-            method_text = (a.get('methodText','') or '') if (a.get('method','') or '') == 'NodaScript' else '',
-            post_execute_text = (a.get('postExecuteMethodText','') or '') if (a.get('postExecuteMethod','') or '') == 'NodaScript' else '',
-            http_function_name = (a.get('httpFunctionName','') or '') if (a.get('method','') or '') == 'HTTP Request' else '',
-            post_http_function_name = (a.get('postHttpFunctionName','') or '') if (a.get('postExecuteMethod','') or '') == 'HTTP Request' else '',
+            method_text = (_action_python_text_value(a, post=False) or '') if _is_script_text_method(a.get('method','')) else '',
+            post_execute_text = (_action_python_text_value(a, post=True) or '') if _is_script_text_method(a.get('postExecuteMethod','')) else '',
+            http_function_name = (a.get('httpFunctionName','') or '') if _is_http_request_method(a.get('method','')) else '',
+            post_http_function_name = (a.get('postHttpFunctionName','') or '') if _is_http_request_method(a.get('postExecuteMethod','')) else '',
             order = order,
             event_id = target.id
         )
@@ -6924,6 +7651,10 @@ def _build_runtime_parsed_config(config: Configuration) -> dict:
                         "server": getattr(a, "server", None),
                         "method": getattr(a, "method", ""),
                         "postExecuteMethod": getattr(a, "post_execute_method", "") or getattr(a, "postExecuteMethod", ""),
+                        "methodText": getattr(a, "method_text", "") or getattr(a, "methodText", ""),
+                        "postExecuteMethodText": getattr(a, "post_execute_text", "") or getattr(a, "postExecuteMethodText", ""),
+                        "httpFunctionName": getattr(a, "http_function_name", "") or getattr(a, "httpFunctionName", ""),
+                        "postHttpFunctionName": getattr(a, "post_http_function_name", "") or getattr(a, "postHttpFunctionName", ""),
                     })
                 events.append({
                     "event": getattr(e, "event", ""),
@@ -9031,6 +9762,18 @@ def send_message_to_user_global(user_key, title, body, payload=None, sender_user
     except Exception as e:
         print('Node discussion history hook failed:', e)
 
+    try:
+        _maybe_trigger_node_discussion_input_from_payload(
+            target_type='user',
+            target_id=user_key,
+            title=title,
+            body=body,
+            payload=normalized_payload,
+            sender_user=sender_user,
+        )
+    except Exception as e:
+        print('Node discussion input hook failed:', e)
+
     _upsert_outgoing_message_log(
         client_message_id=client_message_id,
         target_type='user',
@@ -9287,6 +10030,18 @@ def send_message_to_group_global(group_id, title, body, payload=None, sender_use
     except Exception as e:
         print('Node discussion history hook failed:', e)
 
+    try:
+        _maybe_trigger_node_discussion_input_from_payload(
+            target_type='group',
+            target_id=group.group_id,
+            title=title,
+            body=body,
+            payload=normalized_payload,
+            sender_user=sender_user,
+        )
+    except Exception as e:
+        print('Node discussion input hook failed:', e)
+
     _upsert_outgoing_message_log(
         client_message_id=client_message_id,
         target_type='group',
@@ -9324,6 +10079,287 @@ def send_message_to_group_global(group_id, title, body, payload=None, sender_use
     if isinstance(result, dict):
         result.setdefault('client_message_id', client_message_id)
     return result
+
+
+
+# ------------------------------------------------------------------
+# Bridge functions for PythonScript handlers (called from nodes.py).
+# sender_user is intentionally fixed to "server" for these helpers.
+# ------------------------------------------------------------------
+SCRIPT_HANDLER_SENDER = "server"
+
+
+def _noda_target_is_group(target: str) -> bool:
+    return str(target or '').strip().startswith('group:')
+
+
+def _noda_target_group_id(target: str) -> str:
+    value = str(target or '').strip()
+    return value[len('group:'):].strip() if value.startswith('group:') else value
+
+
+def _noda_userfile_url(config_uid: str, filename: str) -> str:
+    config_uid = str(config_uid or '').strip()
+    filename = secure_filename(str(filename or '').strip())
+    if not (config_uid and filename):
+        return ''
+    base = _current_public_base_url() or _public_api_base_url()
+    if not base:
+        return ''
+    return f"{base}/api/userfiles/{config_uid}/raw/{filename}"
+
+
+def _noda_prepare_image_payload(text: str, filename: str, *, config_uid: str = '') -> dict:
+    text = str(text or '')
+    filename = str(filename or '').strip()
+    payload = {
+        'type': 'image',
+        'text': text,
+        'message': text,
+        'body': text,
+        'filename': filename,
+        'sender_user': SCRIPT_HANDLER_SENDER,
+    }
+    if not filename:
+        return payload
+
+    parsed = urlparse(filename)
+    if parsed.scheme in ('http', 'https'):
+        payload['image_url'] = filename
+        return payload
+
+    # If the handler passes only a filename saved in UserFiles/<config_uid>,
+    # expose it through the existing raw userfiles route.  Keep the filename in
+    # `image` for older clients that display local names.
+    payload['image'] = os.path.basename(filename)
+    candidate_url = _noda_userfile_url(config_uid, os.path.basename(filename))
+    if candidate_url:
+        payload['image_url'] = candidate_url
+    return payload
+
+
+def _noda_send_text_message(target: str, text: str) -> dict:
+    target = str(target or '').strip()
+    text = str(text or '')
+    if not target:
+        return {'ok': False, 'error': 'target is required'}
+    payload = {
+        'type': 'text',
+        'text': text,
+        'message': text,
+        'body': text,
+        'sender_user': SCRIPT_HANDLER_SENDER,
+    }
+    title = SCRIPT_HANDLER_SENDER
+    if _noda_target_is_group(target):
+        return send_message_to_group_global(_noda_target_group_id(target), title, text or 'New message', payload, sender_user=SCRIPT_HANDLER_SENDER)
+    return send_message_to_user_global(target, title, text or 'New message', payload, sender_user=SCRIPT_HANDLER_SENDER)
+
+
+def _noda_send_image_message(target: str, text: str, filename: str, *, config_uid: str = '') -> dict:
+    target = str(target or '').strip()
+    if not target:
+        return {'ok': False, 'error': 'target is required'}
+    payload = _noda_prepare_image_payload(text, filename, config_uid=config_uid)
+    title = SCRIPT_HANDLER_SENDER
+    body = str(text or '') or os.path.basename(str(filename or '').strip()) or 'Image'
+    if _noda_target_is_group(target):
+        return send_message_to_group_global(_noda_target_group_id(target), title, body, payload, sender_user=SCRIPT_HANDLER_SENDER)
+    return send_message_to_user_global(target, title, body, payload, sender_user=SCRIPT_HANDLER_SENDER)
+
+
+def _noda_add_node_id_candidate(candidates, value):
+    """Append possible discussion node ids without losing raw-node identity.
+
+    node-discussion history is keyed by the raw-node id from thread_ref, e.g.
+    <config_uid>$<class_name>$<internal_id>.  Do not collapse that to only
+    <internal_id>, otherwise replies cannot find history/targets.
+    """
+    raw = str(value or '').strip()
+    if not raw:
+        return
+
+    # A URL like https://host/api/raw-node/<raw_id> is the strongest identity.
+    url_id = ''
+    try:
+        url_id = _raw_node_id_from_download_url(raw)
+    except Exception:
+        url_id = ''
+    for item in (url_id, raw):
+        item = str(item or '').strip()
+        if item and item not in candidates:
+            candidates.append(item)
+
+    # Keep full composite ids first, but still add the internal id as a fallback
+    # for older local discussions keyed only by internal node id.
+    try:
+        internal_id = _nodes_mod.extract_internal_id(raw)
+    except Exception:
+        internal_id = ''
+    if internal_id and internal_id not in candidates:
+        candidates.append(internal_id)
+
+
+def _noda_node_id_candidates_from_ref(node_or_id) -> list[str]:
+    candidates = []
+
+    def add_from_mapping(mapping):
+        if not isinstance(mapping, dict):
+            return
+        # URLs first: they point to the raw-node row used by Android thread_ref.
+        for key in ('thread_ref', 'download_url', 'raw_node_url', 'node_url', '_download_url'):
+            _noda_add_node_id_candidate(candidates, mapping.get(key))
+        for key in ('_id', 'node_id', 'node_uid', 'raw_node_id'):
+            _noda_add_node_id_candidate(candidates, mapping.get(key))
+        data = mapping.get('_data') if isinstance(mapping.get('_data'), dict) else {}
+        for key in ('_id', 'node_id', 'node_uid', 'raw_node_id'):
+            _noda_add_node_id_candidate(candidates, data.get(key))
+
+    if isinstance(node_or_id, dict):
+        add_from_mapping(node_or_id)
+    else:
+        # RemoteJsonNode has _download_url.  Prefer it over _id because _id may
+        # later be normalized by generic helpers.
+        for attr in ('_download_url', 'download_url', 'raw_node_url', 'node_url', 'thread_ref'):
+            _noda_add_node_id_candidate(candidates, getattr(node_or_id, attr, None))
+        for attr in ('_id', 'node_id', 'node_uid', 'raw_node_id'):
+            _noda_add_node_id_candidate(candidates, getattr(node_or_id, attr, None))
+        try:
+            add_from_mapping(getattr(node_or_id, '_raw', None))
+        except Exception:
+            pass
+        try:
+            add_from_mapping(getattr(node_or_id, '_data', None))
+        except Exception:
+            pass
+        if isinstance(node_or_id, str):
+            _noda_add_node_id_candidate(candidates, node_or_id)
+
+    return candidates
+
+
+def _noda_node_id_from_ref(node_or_id) -> str:
+    candidates = _noda_node_id_candidates_from_ref(node_or_id)
+    return candidates[0] if candidates else ''
+
+
+def _noda_send_node_discussion_message(node_or_id, text: str, *, filename: str = '', config_uid: str = '') -> dict:
+    node_id_candidates = _noda_node_id_candidates_from_ref(node_or_id)
+    node_id = node_id_candidates[0] if node_id_candidates else ''
+    text = str(text or '')
+    filename = str(filename or '').strip()
+    if not node_id:
+        _node_discussion_debug('script_send.no_node_id', ref_type=type(node_or_id).__name__, ref=str(node_or_id)[:300])
+        return {'ok': False, 'error': 'node_id is required', 'node_id_candidates': node_id_candidates}
+    if not text and not filename:
+        return {'ok': False, 'error': 'text_or_image_required', 'node_id': node_id, 'node_id_candidates': node_id_candidates}
+
+    _node_discussion_debug('script_send.start', node_id=node_id, candidates=node_id_candidates, has_text=bool(text), filename=filename)
+
+    targets = []
+    target_probe = []
+    for candidate in node_id_candidates:
+        found = _find_node_discussion_targets(candidate, sender_user=SCRIPT_HANDLER_SENDER)
+        source = 'history'
+        if not found:
+            found = _find_node_discussion_targets_from_raw_node(candidate, sender_user=SCRIPT_HANDLER_SENDER)
+            source = 'raw_node'
+        target_probe.append({'node_id': candidate, 'source': source, 'count': len(found or [])})
+        if found:
+            node_id = candidate
+            targets = found
+            break
+
+    _node_discussion_debug('script_send.targets', selected_node_id=node_id, targets=targets, probe=target_probe)
+
+    if not targets:
+        return {
+            'ok': False,
+            'error': 'node_discussion_target_required',
+            'node_id': node_id,
+            'node_id_candidates': node_id_candidates,
+            'target_probe': target_probe,
+            'results': [],
+        }
+
+    thread_ref = _node_discussion_thread_ref(node_id)
+    message_type = 'image' if filename else 'text'
+    if filename:
+        payload = _noda_prepare_image_payload(text, filename, config_uid=config_uid)
+        payload['type'] = message_type
+    else:
+        payload = {'type': message_type, 'text': text}
+
+    payload.update({
+        'thread_type': 'node_discussion',
+        'thread_ref': thread_ref,
+        'node_id': node_id,
+        'node_uid': node_id,
+        'sender_user': SCRIPT_HANDLER_SENDER,
+        'sender_display_name': SCRIPT_HANDLER_SENDER,
+    })
+    # Keep FCM data close to the mobile client contract for node discussions.
+    # Notification body is still passed as the FCM notification body below;
+    # duplicated data fields can make Android route the message as a generic DM.
+    payload.pop('message', None)
+    payload.pop('body', None)
+
+    title = SCRIPT_HANDLER_SENDER
+    body = text or os.path.basename(filename) or 'New message'
+    results = []
+    accepted_count = 0
+    delivery_ok_count = 0
+
+    for target in targets:
+        target_type = target.get('target_type')
+        target_id = target.get('target_id')
+        item_payload = dict(payload)
+        if target_type == 'group':
+            item_payload['group_id'] = target_id
+            result = send_message_to_group_global(target_id, title, body, item_payload, sender_user=SCRIPT_HANDLER_SENDER)
+        elif target_type == 'user':
+            item_payload['user_key'] = target_id
+            result = send_message_to_user_global(target_id, title, body, item_payload, sender_user=SCRIPT_HANDLER_SENDER)
+        else:
+            result = {'ok': False, 'error': 'unsupported_target_type'}
+
+        client_message_id = result.get('client_message_id') if isinstance(result, dict) else None
+        history_msg = None
+        if client_message_id:
+            try:
+                history_msg = NodeDiscussionMessage.query.filter_by(client_message_id=client_message_id).first()
+            except Exception:
+                history_msg = None
+        if history_msg:
+            accepted_count += 1
+        if bool((result or {}).get('ok')):
+            delivery_ok_count += 1
+        results.append({
+            'target_type': target_type,
+            'target_id': target_id,
+            'client_message_id': client_message_id,
+            'ok': bool(history_msg),
+            'delivery_ok': bool((result or {}).get('ok')),
+            'history_saved': bool(history_msg),
+            'result': result,
+        })
+
+    return {
+        'ok': accepted_count > 0,
+        'node_id': node_id,
+        'thread_ref': thread_ref,
+        'accepted_count': accepted_count,
+        'delivery_ok_count': delivery_ok_count,
+        'results': results,
+    }
+
+
+def _noda_send_text_to_node_discussion(node_or_id, text: str) -> dict:
+    return _noda_send_node_discussion_message(node_or_id, text)
+
+
+def _noda_send_image_to_node_discussion(node_or_id, text: str, filename: str, *, config_uid: str = '') -> dict:
+    return _noda_send_node_discussion_message(node_or_id, text, filename=filename, config_uid=config_uid)
 
 def _group_history_before_dt(before):
     before_value = str(before or '').strip()
@@ -9474,7 +10510,8 @@ def _sanitize_fcm_data_payload(data_payload):
 
     if skipped:
         try:
-            print('[node-discussion-debug] fcm.send.sanitized_payload | skipped_keys=' + json.dumps(skipped, ensure_ascii=False), flush=True)
+            #print('[node-discussion-debug] fcm.send.sanitized_payload | skipped_keys=' + json.dumps(skipped, ensure_ascii=False), flush=True)
+            pass
         except Exception:
             pass
     return sanitized
@@ -9755,6 +10792,9 @@ def push_room_message(room_uid):
 @api_auth_required
 def push_user_message(user_key):
     data = request.get_json(silent=True) or {}
+    if user_key == "_server":
+        return handle_server_user_message(data)
+
     if not isinstance(data, dict):
         data = {}
 
@@ -10044,6 +11084,915 @@ def web_push_user_message(user_key):
             result.setdefault('sender_display_name', sender_display_name)
     return jsonify({'ok': bool(result.get('ok')), 'user_key': user_key, 'result': result}), (200 if result.get('ok') else 400)
 
+
+
+# ------------------------------------------------------------------
+# Server-side node input events for chat/data messages.
+#
+# This block preserves the existing message routes and only adds the
+# server-event interception path:
+#   - /api/user/_server/messages  -> onInputServer / onDataMessage
+#   - node_discussion messages    -> onInputServer / onDiscussionMessage
+# It supports both local config nodes and JSON nodes/classes by download_url.
+# ------------------------------------------------------------------
+SERVER_INPUT_EVENT = "onInputServer"
+SERVER_INPUT_LISTENER = "onDataMessage"
+DISCUSSION_INPUT_EVENT = "onInputServer"
+DISCUSSION_INPUT_LISTENER = "onDiscussionMessage"
+
+
+def normalize_server_message(raw_data):
+    """Accept both direct node input and push envelope formats."""
+    raw_data = raw_data if isinstance(raw_data, dict) else {}
+    inner = raw_data.get("data") if isinstance(raw_data.get("data"), dict) else None
+
+    if inner and (
+        "node_id" in inner
+        or "download_url" in inner
+        or str(inner.get("type") or "").strip().lower() in {"node_input", "node-input", "nodeinput"}
+    ):
+        msg = dict(inner)
+        msg["_envelope"] = {
+            "title": raw_data.get("title"),
+            "body": raw_data.get("body"),
+            "sender_user": raw_data.get("sender_user"),
+            "sender_display_name": raw_data.get("sender_display_name"),
+            "_client_message_id": raw_data.get("_client_message_id"),
+        }
+        for key in ("sender_user", "sender_display_name", "_client_message_id"):
+            if msg.get(key) in (None, "") and raw_data.get(key) not in (None, ""):
+                msg[key] = raw_data.get(key)
+        return msg
+
+    return dict(raw_data)
+
+
+def _server_message_type_is_node_input(value):
+    return str(value or "").strip().lower() in {"node_input", "node-input", "nodeinput"}
+
+
+def handle_server_user_message(data):
+    """Handle POST /api/user/_server/messages without forwarding to a user/device."""
+    msg = normalize_server_message(data)
+
+    if not _server_message_type_is_node_input(msg.get("type")):
+        return jsonify({
+            "status": False,
+            "ok": False,
+            "error": "Unsupported server message type",
+            "type": msg.get("type"),
+        }), 400
+
+    node_id = str(msg.get("node_id") or msg.get("node_uid") or msg.get("_id") or "").strip()
+    if not node_id:
+        return jsonify({
+            "status": False,
+            "ok": False,
+            "error": "node_id is required",
+        }), 400
+    msg.setdefault("node_id", node_id)
+
+    try:
+        ctx = resolve_server_node_context(msg)
+        if not ctx:
+            return jsonify({
+                "status": False,
+                "ok": False,
+                "error": "Node not found",
+                "node_id": node_id,
+                "download_url": msg.get("download_url"),
+            }), 404
+
+        result = execute_server_node_event(
+            ctx=ctx,
+            event_name=SERVER_INPUT_EVENT,
+            listener=SERVER_INPUT_LISTENER,
+            message_data=msg,
+        )
+
+        return jsonify({
+            "status": True,
+            "ok": True,
+            "handled": True,
+            "node_id": node_id,
+            "mode": ctx.get("mode"),
+            "class_name": ctx.get("class_name"),
+            "config_uid": ctx.get("config_uid"),
+            "result": result,
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            "status": False,
+            "ok": False,
+            "error": str(e),
+            "error_type": e.__class__.__name__,
+        }), 500
+
+
+def parse_node_ref(node_id):
+    """Parse id like <config_uid>$<class_name>$<internal_id>."""
+    node_id = str(node_id or "").strip()
+    parts = node_id.split("$")
+
+    if len(parts) >= 2:
+        config_uid = parts[0].strip()
+        class_name = parts[1].strip()
+        candidates = [node_id]
+        if len(parts) >= 3:
+            candidates.append("$".join(parts[2:]))
+        candidates.append(f"{config_uid}${class_name}")
+
+        seen = set()
+        candidates = [x for x in candidates if x and not (x in seen or seen.add(x))]
+        return config_uid, class_name, candidates
+
+    return None, None, [node_id]
+
+
+def resolve_server_node_context(message_data):
+    node_id = str(message_data.get("node_id") or message_data.get("node_uid") or message_data.get("_id") or "").strip()
+    download_url = str(message_data.get("download_url") or message_data.get("raw_node_url") or message_data.get("thread_ref") or "").strip()
+
+    config_uid, class_name, node_id_candidates = parse_node_ref(node_id)
+
+    # 1) Try local server configuration storage first.
+    if config_uid and class_name:
+        try:
+            ctx = resolve_config_node_context(
+                config_uid=config_uid,
+                class_name=class_name,
+                node_id_candidates=node_id_candidates,
+            )
+            if ctx:
+                return ctx
+        except Exception:
+            # Do not block download_url mode because config lookup failed.
+            pass
+
+    # 2) If not found locally, try raw/download JSON.
+    if download_url:
+        return resolve_download_url_node_context(
+            node_id=node_id,
+            fallback_class_name=class_name,
+            download_url=download_url,
+        )
+
+    return None
+
+
+def resolve_config_node_context(config_uid, class_name, node_id_candidates):
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == str(config_uid))
+    ).scalar_one_or_none()
+    if not config:
+        return None
+
+    class_obj = db.session.execute(
+        select(ConfigClass).where(ConfigClass.config_id == config.id, ConfigClass.name == str(class_name))
+    ).scalar_one_or_none()
+    if not class_obj:
+        return None
+
+    ctx_tokens = None
+    try:
+        try:
+            runtime_parsed = _build_runtime_parsed_config(config)
+            ctx_tokens = _nodes_mod.set_runtime_context(str(config_uid), runtime_parsed)
+        except Exception:
+            ctx_tokens = None
+
+        isolated_globals = _load_server_handlers_ns(config_uid, config) or {}
+        node_class = isolated_globals.get(class_name)
+        if not node_class:
+            return None
+
+        node = None
+        for candidate in node_id_candidates or []:
+            if not candidate:
+                continue
+            try:
+                node = node_class.get(candidate, config_uid)
+            except Exception:
+                node = None
+            if node is not None:
+                break
+
+        if node is None:
+            return None
+
+        # The execution function owns resetting this context.
+        tokens_for_exec = ctx_tokens
+        ctx_tokens = None
+        return {
+            "mode": "config",
+            "config": config,
+            "config_uid": str(config_uid),
+            "class_name": str(class_name),
+            "class_obj": class_obj,
+            "node": node,
+            "node_id": getattr(node, "_id", None),
+            "_runtime_context_tokens": tokens_for_exec,
+        }
+    finally:
+        if ctx_tokens is not None:
+            try:
+                _nodes_mod.reset_runtime_context(ctx_tokens)
+            except Exception:
+                pass
+
+
+def _load_raw_node_payload_for_event(node_id=None, download_url=""):
+    # Prefer direct local DB access for /api/raw-node/<id> URLs.
+    for candidate in (download_url, node_id):
+        try:
+            payload, handled = _raw_node_payload_from_local_db(candidate)
+            if handled:
+                return payload, True
+        except Exception:
+            pass
+
+    # Fallback: direct RawNode lookup by node_id.
+    try:
+        raw_id = _raw_node_id_from_download_url(download_url) or str(node_id or "").strip()
+        if raw_id:
+            obj = db.session.execute(select(RawNode).where(RawNode.node_id == raw_id)).scalar_one_or_none()
+            if obj is not None:
+                return (obj.payload_json or {}), True
+    except Exception:
+        pass
+
+    return None, False
+
+
+def _extract_class_json_from_node_json(node_json):
+    node_json = node_json if isinstance(node_json, dict) else {}
+    raw_class = node_json.get("_class") or node_json.get("class") or node_json.get("class_json")
+    if isinstance(raw_class, dict):
+        return raw_class
+    for key in ("class_json", "_class_json", "schema", "node_class"):
+        value = node_json.get(key)
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def _extract_class_name_from_class_json(raw_class, fallback_class_name="", node_json=None):
+    if isinstance(raw_class, dict):
+        for key in ("name", "code", "class_name", "_name"):
+            value = str(raw_class.get(key) or "").strip()
+            if value:
+                return value
+    elif isinstance(raw_class, str):
+        value = raw_class.strip()
+        if value:
+            try:
+                return value.split("$")[-2] if value.count("$") >= 2 else value.split("$")[-1]
+            except Exception:
+                return value
+
+    node_json = node_json if isinstance(node_json, dict) else {}
+    for key in ("class_name", "_class_name"):
+        value = str(node_json.get(key) or "").strip()
+        if value:
+            return value
+    return str(fallback_class_name or "").strip()
+
+
+class RemoteJsonNode:
+    """Small NodeEx-like wrapper for JSON nodes loaded by download_url."""
+
+    def __init__(self, node_id, node_json, download_url="", raw_node_obj=None):
+        self._raw = node_json if isinstance(node_json, dict) else {}
+        self._id = str(node_id or self._raw.get("_id") or self._raw.get("node_id") or self._raw.get("node_uid") or "").strip()
+        self._download_url = str(download_url or "").strip()
+        self._raw_node_obj = raw_node_obj
+        self._config_uid, self._schema_class_name, _internal_id = parse_node_ref(self._id)
+        self._data = self._normalize_data()
+
+    def _normalize_data(self):
+        data = self._raw.get("_data")
+        if not isinstance(data, dict):
+            data = {k: v for k, v in self._raw.items() if k not in {"_data"}}
+        data = dict(data or {})
+        data.setdefault("_id", self._id)
+        class_info = self._raw.get("_class") or self._raw.get("class")
+        if isinstance(class_info, dict):
+            data.setdefault("_class", class_info.get("name") or self._raw.get("class_name") or "")
+        elif isinstance(class_info, str):
+            data.setdefault("_class", class_info)
+        return data
+
+    def get_data(self):
+        return self._data
+
+    def update_data(self, data_dict):
+        if isinstance(data_dict, dict):
+            for k, v in data_dict.items():
+                if k not in {"_id", "_class"}:
+                    self._data[k] = v
+            self._save()
+
+    def set_data(self, key, value):
+        if key not in {"_id", "_class"}:
+            self._data[key] = value
+            self._save()
+
+    def _save(self):
+        self._raw["_data"] = self._data
+        if self._raw_node_obj is not None:
+            try:
+                self._raw_node_obj.payload_json = self._raw
+                self._raw_node_obj.updated_at = datetime.now(timezone.utc)
+                db.session.add(self._raw_node_obj)
+                db.session.commit()
+                try:
+                    _runtime_cache_invalidate(self._download_url)
+                except Exception:
+                    pass
+            except Exception:
+                db.session.rollback()
+                raise
+        return True
+
+    def to_dict(self):
+        return {
+            "_id": self._id,
+            "_class": self._data.get("_class"),
+            "_data": self._data,
+            "_download_url": self._download_url,
+        }
+
+
+def resolve_download_url_node_context(node_id, fallback_class_name, download_url):
+    raw_node_obj = None
+    node_json, loaded_local = _load_raw_node_payload_for_event(node_id=node_id, download_url=download_url)
+    loaded_from = "local_raw_node" if loaded_local and node_json is not None else "http"
+
+    if node_json is None:
+        if _raw_node_id_from_download_url(download_url):
+            raise RuntimeError(f"RawNode not found locally for {download_url}")
+        node_json = _noda_download_json_cached(download_url)
+
+    if not isinstance(node_json, dict):
+        raise RuntimeError("download_url returned non-object JSON")
+
+    try:
+        raw_id = _raw_node_id_from_download_url(download_url) or str(node_id or "").strip()
+        if raw_id:
+            raw_node_obj = db.session.execute(select(RawNode).where(RawNode.node_id == raw_id)).scalar_one_or_none()
+    except Exception:
+        raw_node_obj = None
+
+    class_json = _extract_class_json_from_node_json(node_json)
+    class_name = _extract_class_name_from_class_json(
+        node_json.get("_class") or node_json.get("class"),
+        fallback_class_name=fallback_class_name,
+        node_json=node_json,
+    )
+
+    node = RemoteJsonNode(
+        node_id=node_id or node_json.get("_id") or node_json.get("node_id") or node_json.get("node_uid"),
+        node_json=node_json,
+        download_url=download_url,
+        raw_node_obj=raw_node_obj,
+    )
+    if class_name:
+        node._schema_class_name = class_name
+
+    return {
+        "mode": "download_url",
+        "config": None,
+        "config_uid": getattr(node, "_config_uid", None),
+        "class_name": class_name,
+        "class_json": class_json,
+        "node": node,
+        "node_id": getattr(node, "_id", None),
+        "download_url": download_url,
+        "loaded_from": loaded_from,
+    }
+
+
+def execute_server_node_event(ctx, event_name, listener, message_data):
+    message_data = message_data if isinstance(message_data, dict) else {}
+    semantic_payload = _extract_server_message_payload(message_data)
+    input_data = {
+        "event": event_name,
+        "listener": listener,
+        "message": message_data,
+        "payload": semantic_payload,
+        "sender_user": message_data.get("sender_user"),
+        "sender_display_name": message_data.get("sender_display_name"),
+        "node_id": message_data.get("node_id") or message_data.get("node_uid") or message_data.get("_id"),
+        "download_url": message_data.get("download_url") or message_data.get("raw_node_url") or message_data.get("thread_ref"),
+    }
+
+    node = ctx.get("node") if isinstance(ctx, dict) else None
+    if node is not None and listener == SERVER_INPUT_LISTENER:
+        _update_node_data_message_payload(node, semantic_payload)
+    elif node is not None and listener == DISCUSSION_INPUT_LISTENER:
+        text = message_data.get("text")
+        if text in (None, ""):
+            text = _discussion_text(
+                title=message_data.get("title") or "",
+                body=message_data.get("body") or "",
+                payload=semantic_payload if isinstance(semantic_payload, dict) else {},
+            )
+        image_url = message_data.get("image_url")
+        if image_url in (None, "") and isinstance(semantic_payload, dict):
+            image_url = semantic_payload.get("image_url") or semantic_payload.get("image") or ""
+        _update_node_message_fields(
+            node,
+            text=text or "",
+            image_url=image_url or "",
+            sender_user=message_data.get("sender_user") or "",
+            sender_display_name=message_data.get("sender_display_name") or "",
+        )
+
+    tokens = ctx.get("_runtime_context_tokens")
+    try:
+        if ctx.get("mode") == "config":
+            return execute_config_node_event(ctx, event_name, listener, input_data)
+
+        if ctx.get("mode") == "download_url":
+            return execute_download_url_node_event(ctx, event_name, listener, input_data)
+
+        raise RuntimeError(f"Unsupported node context mode: {ctx.get('mode')}")
+    finally:
+        if tokens is not None:
+            try:
+                _nodes_mod.reset_runtime_context(tokens)
+            except Exception:
+                pass
+
+
+def execute_config_node_event(ctx, event_name, listener, input_data):
+    class_obj = ctx["class_obj"]
+    node = ctx["node"]
+
+    event_obj = db.session.execute(
+        select(ClassEvent).where(
+            ClassEvent.class_id == class_obj.id,
+            ClassEvent.event == event_name,
+            ClassEvent.listener == listener,
+        )
+    ).scalar_one_or_none()
+
+    if not event_obj:
+        return {"event_found": False, "event": event_name, "listener": listener, "actions": []}
+
+    actions = sorted(list(event_obj.actions), key=lambda a: (getattr(a, "order", 0) or 0, getattr(a, "id", 0) or 0))
+    results = []
+    for action in actions:
+        results.append(execute_config_event_action(node, action, input_data))
+
+    return {"event_found": True, "event": event_name, "listener": listener, "actions": results}
+
+
+def execute_config_event_action(node, action, input_data):
+    method_name = (getattr(action, "method", "") or "").strip()
+    post_method_name = (getattr(action, "post_execute_method", "") or getattr(action, "postExecuteMethod", "") or "").strip()
+
+    result = {
+        "action": getattr(action, "action", "run"),
+        "source": getattr(action, "source", "internal"),
+        "method": method_name,
+        "postExecuteMethod": post_method_name,
+        "status": True,
+        "data": None,
+        "postExecuteData": None,
+    }
+
+    if method_name:
+        result["data"] = execute_config_method(node, action, method_name, input_data, post=False)
+
+    if post_method_name:
+        post_input = {"input": input_data, "result": result["data"]}
+        result["postExecuteData"] = execute_config_method(node, action, post_method_name, post_input, post=True)
+
+    return result
+
+
+def execute_config_method(node, action, method_name, input_data, post=False):
+    if method_name == "PythonScript":
+        if post:
+            script = getattr(action, "post_execute_text", "") or getattr(action, "postExecuteMethodText", "") or ""
+        else:
+            script = getattr(action, "method_text", "") or getattr(action, "methodText", "") or ""
+        if not str(script or "").strip():
+            raise RuntimeError("PythonScript action has no methodText")
+        return run_inline_python_script(script, node, input_data)
+
+    if not hasattr(node, method_name):
+        raise RuntimeError(f"Method {method_name} not found in node class {node.__class__.__name__}")
+
+    out = getattr(node, method_name)(input_data)
+    if isinstance(out, tuple) and len(out) == 2:
+        success, data = out
+        return {"status": bool(success), "data": data}
+    return out
+
+
+def _event_matches(event_obj, event_name, listener):
+    if not isinstance(event_obj, dict):
+        return False
+    return event_obj.get("event") == event_name and (event_obj.get("listener") or "") == listener
+
+
+def execute_download_url_node_event(ctx, event_name, listener, input_data):
+    class_json = ctx.get("class_json") or {}
+    node = ctx["node"]
+    events = class_json.get("events") or class_json.get("Events") or []
+
+    event_obj = None
+    for ev in events:
+        if _event_matches(ev, event_name, listener):
+            event_obj = ev
+            break
+
+    if not event_obj:
+        return {"event_found": False, "event": event_name, "listener": listener, "actions": []}
+
+    actions = event_obj.get("actions") or event_obj.get("Actions") or []
+    results = []
+    for action in actions:
+        if isinstance(action, dict):
+            results.append(execute_download_url_event_action(node, class_json, action, input_data))
+
+    return {"event_found": True, "event": event_name, "listener": listener, "actions": results}
+
+
+def execute_download_url_event_action(node, class_json, action, input_data):
+    method_name = (action.get("method") or "").strip()
+    post_method_name = (action.get("postExecuteMethod") or action.get("post_execute_method") or "").strip()
+
+    result = {
+        "action": action.get("action", "run"),
+        "source": action.get("source", "internal"),
+        "method": method_name,
+        "postExecuteMethod": post_method_name,
+        "status": True,
+        "data": None,
+        "postExecuteData": None,
+    }
+
+    if method_name:
+        result["data"] = execute_download_url_method(
+            node=node,
+            class_json=class_json,
+            method_name=method_name,
+            action=action,
+            input_data=input_data,
+            script_text_keys=("methodText", "method_text", "code", "source"),
+        )
+
+    if post_method_name:
+        post_input = {"input": input_data, "result": result["data"]}
+        result["postExecuteData"] = execute_download_url_method(
+            node=node,
+            class_json=class_json,
+            method_name=post_method_name,
+            action=action,
+            input_data=post_input,
+            script_text_keys=("postExecuteMethodText", "post_execute_text", "postExecuteText", "post_code"),
+        )
+
+    return result
+
+
+def execute_download_url_method(node, class_json, method_name, action, input_data, script_text_keys=("methodText", "method_text", "code", "source")):
+    if method_name == "PythonScript":
+        script = ""
+        for key in script_text_keys:
+            value = action.get(key)
+            if isinstance(value, str) and value.strip():
+                script = value
+                break
+        if not script.strip():
+            raise RuntimeError("PythonScript action has no methodText/method_text/code/source")
+        return run_inline_python_script(script, node, input_data)
+
+    method_json = find_method_json(class_json, method_name)
+    if method_json:
+        engine = (method_json.get("engine") or "").lower()
+        code = method_json.get("code") or method_json.get("source") or method_json.get("methodText") or ""
+        if engine in {"python", "pythonscript", "server_python", "python_script"} or (isinstance(code, str) and code.strip()):
+            return run_inline_python_script(code, node, input_data)
+
+    if hasattr(node, method_name):
+        return getattr(node, method_name)(input_data)
+
+    raise RuntimeError(f"Method {method_name} not found in remote class JSON")
+
+
+def find_method_json(class_json, method_name):
+    for m in (class_json.get("methods") or class_json.get("Methods") or []):
+        if not isinstance(m, dict):
+            continue
+        if m.get("name") == method_name or m.get("code") == method_name:
+            return m
+    return None
+
+
+def _looks_like_http_url_text(value):
+    value = (value or "").strip()
+    if not value or "\n" in value or "\r" in value:
+        return False
+    try:
+        parsed = urlparse(value)
+        return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    except Exception:
+        return False
+
+
+def _resolve_inline_python_script_text(script):
+    script = "" if script is None else str(script).strip()
+    if not script:
+        return script
+    return _noda_load_python_script_code(script)
+
+
+def _node_event_config_uid(node):
+    try:
+        return str(getattr(node, "_config_uid", "") or "").strip()
+    except Exception:
+        return ""
+
+
+def run_inline_python_script(script, node, input_data):
+    """
+    Supports either inline Python code or an URL/S3 ref to a .py file.
+    The script may set result, or define run(node, input_data) / main(node, input_data).
+    """
+    script = _resolve_inline_python_script_text(script)
+    if not isinstance(script, str) or not script.strip():
+        raise RuntimeError("Empty PythonScript")
+
+    node_cfg_uid = _node_event_config_uid(node)
+    ns = {
+        "__builtins__": __builtins__,
+        "json": json,
+        "datetime": datetime,
+        "timezone": timezone,
+        "requests": requests,
+        "Node": getattr(_nodes_mod, "Node", None),
+        "nodes": _nodes_mod,
+        "node": node,
+        "self": node,
+        "_data": getattr(node, "_data", {}),
+        "input_data": input_data,
+        "payload": input_data.get("payload") or {},
+        "message": input_data.get("message") or {},
+        "result": None,
+        "sendTextMessage": _noda_send_text_message,
+        "sendImageMessage": lambda target, text, filename: _noda_send_image_message(target, text, filename, config_uid=node_cfg_uid),
+        "sendTextToNodeDiscussion": _noda_send_text_to_node_discussion,
+        "sendImageToNodeDiscussion": lambda node_arg, text, filename: _noda_send_image_to_node_discussion(
+            node_arg, text, filename, config_uid=_node_event_config_uid(node_arg) or node_cfg_uid
+        ),
+    }
+
+    exec(script, ns, ns)
+
+    if callable(ns.get("run")):
+        out = ns["run"](node, input_data)
+    elif callable(ns.get("main")):
+        out = ns["main"](node, input_data)
+    else:
+        out = ns.get("result")
+
+    if isinstance(out, tuple) and len(out) == 2:
+        success, data = out
+        return {"status": bool(success), "data": data}
+
+    return out
+
+
+def _payload_is_node_discussion(payload):
+    if not isinstance(payload, dict):
+        return False
+    return (
+        str(payload.get("thread_type") or "").strip() == "node_discussion"
+        or str(payload.get("type") or "").strip() == "node_discussion_message"
+    )
+
+
+def _fallback_extract_node_discussion_node_id(payload):
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("node_id", "node_uid", "raw_node_id", "_id"):
+        value = str(payload.get(key) or "").strip()
+        if value:
+            return value
+    thread_ref = str(payload.get("thread_ref") or "").strip()
+    if "/api/raw-node/" in thread_ref:
+        return _raw_node_id_from_download_url(thread_ref)
+    return ""
+
+
+def _get_discussion_node_id(payload):
+    try:
+        value = _extract_node_discussion_node_id(payload)
+        if value:
+            return str(value).strip()
+    except Exception:
+        pass
+    return _fallback_extract_node_discussion_node_id(payload)
+
+
+def _discussion_download_url(payload):
+    if not isinstance(payload, dict):
+        return ""
+    value = str(payload.get("download_url") or payload.get("raw_node_url") or "").strip()
+    if value:
+        return value
+    thread_ref = str(payload.get("thread_ref") or "").strip()
+    if thread_ref.startswith("http://") or thread_ref.startswith("https://") or "/api/raw-node/" in thread_ref:
+        return thread_ref
+    return ""
+
+
+def _discussion_text(title='', body='', payload=None):
+    payload = payload if isinstance(payload, dict) else {}
+    value = payload.get("text")
+    if value in (None, ""):
+        value = payload.get("message")
+    if value in (None, ""):
+        value = payload.get("body")
+    if value in (None, ""):
+        value = body
+    if value in (None, ""):
+        value = title
+    return value or ""
+
+
+def _message_payload_json(value):
+    """Return the incoming message payload in a JSON-friendly form."""
+    if value is None:
+        return {}
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except Exception:
+            return value
+    try:
+        # Incoming Flask JSON is already serializable, but keep this safe for
+        # PythonScript/internal callers that pass datetime or other objects.
+        json.dumps(value, ensure_ascii=False)
+        return value
+    except Exception:
+        try:
+            return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+        except Exception:
+            return str(value)
+
+
+def _extract_server_message_payload(message_data):
+    """Extract the semantic payload for onDataMessage/onDiscussionMessage."""
+    message_data = message_data if isinstance(message_data, dict) else {}
+    if "payload" in message_data:
+        return _message_payload_json(message_data.get("payload"))
+
+    data = message_data.get("data")
+    if isinstance(data, dict) and "payload" in data:
+        return _message_payload_json(data.get("payload"))
+    if data is not None:
+        return _message_payload_json(data)
+
+    return {}
+
+
+def _save_node_runtime_fields(node, fields: dict) -> None:
+    """Write transient message fields into node._data and persist them."""
+    if node is None or not isinstance(fields, dict) or not fields:
+        return
+    try:
+        data = getattr(node, "_data", None)
+        if not isinstance(data, dict):
+            get_data = getattr(node, "get_data", None)
+            data = get_data() if callable(get_data) else None
+        if not isinstance(data, dict):
+            return
+
+        for key, value in fields.items():
+            data[key] = value
+
+        try:
+            setattr(node, "_data", data)
+        except Exception:
+            pass
+
+        save = getattr(node, "_save", None)
+        if callable(save):
+            save()
+            return
+
+        update_data = getattr(node, "update_data", None)
+        if callable(update_data):
+            update_data(fields)
+    except Exception as e:
+        print("Node runtime message field update failed:", e, flush=True)
+
+
+def _update_node_message_fields(node, text='', image_url='', sender_user='', sender_display_name=''):
+    fields = {
+        # Contract expected by onDiscussionMessage handlers.
+        "_message_text": text or "",
+        "_message_image_url": image_url or "",
+        "_message_sender_user": sender_user or "",
+        "_message_sender_user_display_name": sender_display_name or "",
+
+        # Backward-compatible aliases from the previous implementation.
+        "_last_input_text": text or "",
+        "_last_input_image_url": image_url or "",
+        "_last_input_sender_user": sender_user or "",
+        "_last_input_sender_display_name": sender_display_name or "",
+    }
+    _save_node_runtime_fields(node, fields)
+
+
+def _update_node_data_message_payload(node, payload=None):
+    _save_node_runtime_fields(node, {"_message_payload": _message_payload_json(payload)})
+
+
+def handle_server_discussion_message(*, target_type, target_id, title='', body='', payload=None, sender_user=None):
+    payload = payload if isinstance(payload, dict) else {}
+    if not _payload_is_node_discussion(payload):
+        return None
+
+    resolved_sender_user = _get_sender_user(sender_user or payload.get("sender_user"))
+    # Messages produced by PythonScript helpers must not recursively invoke the same handler.
+    if str(resolved_sender_user or "").strip().lower() == SCRIPT_HANDLER_SENDER.lower():
+        return None
+
+    node_id = _get_discussion_node_id(payload)
+    if not node_id:
+        return None
+
+    download_url = _discussion_download_url(payload)
+    text = _discussion_text(title=title, body=body, payload=payload)
+    image_url = payload.get("image_url") or payload.get("image") or ""
+    sender_display_name = payload.get("sender_display_name") or _get_sender_display_name(resolved_sender_user)
+
+    msg = {
+        "type": "node_input",
+        "node_id": node_id,
+        "node_uid": payload.get("node_uid") or node_id,
+        "download_url": download_url,
+        "raw_node_url": payload.get("raw_node_url"),
+        "payload": payload,
+        "message": payload,
+        "text": text,
+        "image": payload.get("image"),
+        "image_url": payload.get("image_url"),
+        "target_type": target_type,
+        "target_id": target_id,
+        "sender_user": resolved_sender_user,
+        "sender_display_name": sender_display_name,
+        "_client_message_id": payload.get("_client_message_id") or payload.get("client_message_id"),
+    }
+
+    ctx = resolve_server_node_context(msg)
+    if not ctx:
+        return None
+
+    node = ctx.get("node")
+    if node is not None:
+        _update_node_message_fields(
+            node,
+            text=text,
+            image_url=image_url,
+            sender_user=resolved_sender_user,
+            sender_display_name=sender_display_name,
+        )
+
+    return execute_server_node_event(
+        ctx=ctx,
+        event_name=DISCUSSION_INPUT_EVENT,
+        listener=DISCUSSION_INPUT_LISTENER,
+        message_data=msg,
+    )
+
+
+def _maybe_trigger_node_discussion_input_from_payload(*, target_type, target_id, title='', body='', payload=None, sender_user=None):
+    try:
+        if not _payload_is_node_discussion(payload):
+            return None
+        return handle_server_discussion_message(
+            target_type=target_type,
+            target_id=target_id,
+            title=title,
+            body=body,
+            payload=payload,
+            sender_user=sender_user,
+        )
+    except Exception as e:
+        print('Node discussion input hook failed:', e)
+        return None
 
 @app.route('/webapi/messages/device/<device_uid>', methods=['POST'])
 @login_required
@@ -10736,10 +12685,10 @@ def export_config(uid):
                                 'server': a.server,
                                 'method': a.method,
                                 'postExecuteMethod': a.post_execute_method,
-                                **({"methodText": a.method_text} if (a.method or '') == 'NodaScript' else {}),
-                                **({"postExecuteMethodText": a.post_execute_text} if (a.post_execute_method or '') == 'NodaScript' else {}),
-                                **({"httpFunctionName": a.http_function_name} if (a.method or '') == 'HTTP Request' else {}),
-                                **({"postHttpFunctionName": a.post_http_function_name} if (a.post_execute_method or '') == 'HTTP Request' else {}),
+                                **({"methodText": a.method_text} if _is_script_text_method(a.method) else {}),
+                                **({"postExecuteMethodText": a.post_execute_text} if _is_script_text_method(a.post_execute_method) else {}),
+                                **({"httpFunctionName": a.http_function_name} if _is_http_request_method(a.method) else {}),
+                                **({"postHttpFunctionName": a.post_http_function_name} if _is_http_request_method(a.post_execute_method) else {}),
                             }
                             for a in e.actions
                         ]
@@ -10787,8 +12736,8 @@ def export_config(uid):
                         'server': a.server,
                         'method': a.method,
                         'postExecuteMethod': a.post_execute_method,
-                        **({'httpFunctionName': a.http_function_name} if (a.method or '') == 'HTTP Request' else {}),
-                        **({'postHttpFunctionName': a.post_http_function_name} if (a.post_execute_method or '') == 'HTTP Request' else {})
+                        **({'httpFunctionName': a.http_function_name} if _is_http_request_method(a.method) else {}),
+                        **({'postHttpFunctionName': a.post_http_function_name} if _is_http_request_method(a.post_execute_method) else {})
                     }
                     for a in e.actions
                 ]
@@ -11178,8 +13127,8 @@ def import_config_new():
                         server=action_data.get('server', ''),
                         method=action_data.get('method', ''),
                         post_execute_method=action_data.get('postExecuteMethod', ''),
-                        method_text=(action_data.get('methodText', '') or '') if (action_data.get('method', '') or '') == 'NodaScript' else '',
-                        post_execute_text=(action_data.get('postExecuteMethodText', '') or '') if (action_data.get('postExecuteMethod', '') or '') == 'NodaScript' else '',
+                        method_text=(_action_python_text_value(action_data, post=False) or '') if _is_script_text_method(action_data.get('method', '')) else '',
+                        post_execute_text=(_action_python_text_value(action_data, post=True) or '') if _is_script_text_method(action_data.get('postExecuteMethod', '')) else '',
                         order=action_data.get('order', 0),
                         event_id=new_event.id
                     )
