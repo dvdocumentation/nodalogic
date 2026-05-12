@@ -12,7 +12,7 @@
     "version": "00.00.01",
     "NodaLogicFormat": "1.1",
     "NodaLogicType": "ANDROID_SERVER",
-    "last_modified": "2026-04-23T12:55:36.487984+03:00",
+    "last_modified": "2026-05-12T07:35:46.859131+03:00",
     "provider": "Dmitry Vorontsov",
     "CommonLayouts": [],
     "classes": [
@@ -183,6 +183,62 @@
                             "methodText": "_data.remove(\"started\");\n_data.remove(\"done\");\n_data.remove(\"decline\");\nSave();\nRefreshTab();"
                         }
                     ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "onDataMessage",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "payload = _data._message_payload;\nmessage(payload.action)"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "onDiscussionMessage",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "message(_data._message_text)"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInputServer",
+                    "listener": "onDataMessage",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "PythonScript",
+                            "postExecuteMethod": "",
+                            "methodText": "https://s3.ru1.storage.beget.cloud/bf871c2d93ee-s3noda/uploads/8a310439eddd4251b196f59926bc324e.py"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInputServer",
+                    "listener": "onDiscussionMessage",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "PythonScript",
+                            "postExecuteMethod": "",
+                            "methodText": "https://s3.ru1.storage.beget.cloud/bf871c2d93ee-s3noda/uploads/python_scripts/1/fcfcad69165341aca75a38a0a2d36b63_MyTaskSample_method.py"
+                        }
+                    ]
                 }
             ]
         },
@@ -196,7 +252,7 @@
             "cover_image": "[[{\"type\":\"Text\",\"value\":\"Примеры вызова функций из кода\",\"bold\":\"true\"}],\r\n[\"sendTextMessage, sendImageMessage и др.\"]\r\n]",
             "display_image_web": "",
             "display_image_table": "",
-            "init_screen_layout": "[\r\n[{\"type\":\"Input\",\"caption\":\"Recipient\",\"id\":\"to\",\"value\":\"@to\"}],\r\n[{\"type\":\"NodeInput\",\"dataset\":\"Client\",\"value\":\"@node\", \"id\":\"node\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_deploy\",\"caption\":\"deploy (py)\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_send\",\"caption\":\"send(py)\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_send_text\",\"caption\":\"sendTextMessage (PY)\"},{\"type\":\"Button\",\"id\":\"btn_send_text_discussion\",\"caption\":\"_messageTextDiscussion (PY)\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_send_text_ns\",\"caption\":\"sendTextMessage (NS)\"}]\r\n]",
+            "init_screen_layout": "[\r\n[{\"type\":\"Input\",\"caption\":\"Recipient\",\"id\":\"to\",\"value\":\"@to\"}],\r\n[{\"type\":\"NodeInput\",\"dataset\":\"Client\",\"value\":\"@node\", \"id\":\"node\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_deploy\",\"caption\":\"deploy (py)\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_send\",\"caption\":\"send(py)\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_send_text\",\"caption\":\"sendTextMessage (PY)\"},{\"type\":\"Button\",\"id\":\"btn_send_text_discussion\",\"caption\":\"_messageTextDiscussion (PY)\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_send_text_ns\",\"caption\":\"sendTextMessage (NS)\"}],\r\n[{\"type\":\"NodeInput\",\"dataset\":\"_raw\",\"value\":\"@my_node\",\"id\":\"my_node\",\"caption\":\"Полученный узел\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_send_data_to_node\",\"caption\":\"sendDataToNode(NS)\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_send_data_to_configuration\",\"caption\":\"sendDataToConfiguration(NS)\"}],\r\n[{\"type\":\"Button\",\"id\":\"btn_send_data_to_node_server\",\"caption\":\"sendDataToNode(_server)(NS)\"}]\r\n]",
             "init_screen_layout_web": "",
             "plug_in": "",
             "plug_in_web": "",
@@ -235,8 +291,64 @@
                     ]
                 },
                 {
-                    "event": "onInput",
+                    "event": "onAcceptServer",
                     "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "PythonScript",
+                            "postExecuteMethod": "",
+                            "methodText": "https://s3.ru1.storage.beget.cloud/bf871c2d93ee-s3noda/uploads/774d7a11540443868e44a3aa8ddde02d.py"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "btn_send_data_to_node",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "payload= {\"action\":\"я нажал кнопку\"};\nsendDataToNode(_data.to,_data.my_node,payload)"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "btn_send_data_to_configuration",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "payload={\"action\":\"to_configuration\"};\nsendDataToConfiguration(_data.to,\"06e92481-127e-47cf-919b-9992e2456899\",payload)"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "btn_send_data_to_node_server",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "payload= {\"action\":\"я нажал кнопку\"};\nsendDataToNode(\"_server\",_data.my_node,payload)"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "btn_send_text",
                     "actions": [
                         {
                             "action": "run",
@@ -282,5 +394,19 @@
     ],
     "servers": [],
     "rooms": [],
-    "CommonEvents": []
+    "CommonEvents": [
+        {
+            "event": "onDataMessage",
+            "listener": "",
+            "actions": [
+                {
+                    "action": "run",
+                    "source": "internal",
+                    "server": "",
+                    "method": "NodaScript",
+                    "postExecuteMethod": ""
+                }
+            ]
+        }
+    ]
 }
