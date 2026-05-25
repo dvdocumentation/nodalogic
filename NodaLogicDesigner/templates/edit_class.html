@@ -1529,7 +1529,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <button type="button" class="btn btn-outline-primary save-python-btn" data-kind="method">Save to S3</button>
               </div>
               <code-input class="python-code-editor" data-python-kind="method" language="python">${action.method === 'PythonScript' ? '' : ''}</code-input>
-              
+              <div class="form-text">В JSON сохраняется только ссылка в methodText. При выборе PythonScript код автоматически загружается по ссылке; Save to S3 создает новый файл и удаляет старый.</div>
             </div>
           </div>
           <div class="col-12">

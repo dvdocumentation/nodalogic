@@ -35,11 +35,8 @@
               </div>
               <div class="text-muted small mb-2">{{ contract.name }}</div>
               <div class="small mb-1"><strong>{{ _('Download URL') }}:</strong> <code class="text-break">{{ url_for('contract_download', contract_uid=contract.uid, _external=True) }}</code></div>
-             
-              <div class="small mb-2">
-  <strong>{{ _('Push URL') }}:</strong>
-  <code class="text-break">{{ url_for('contract_push', contract_uid=contract.uid, _external=True) }}</code>
-</div>
+              <div class="small mb-1"><strong>{{ _('ACK URL') }}:</strong> <code class="text-break">{{ url_for('contract_ack', contract_uid=contract.uid, _external=True) }}</code></div>
+              <div class="small mb-2"><strong>{{ _('Add URL') }}:</strong> <code class="text-break">{{ url_for('contract_add_info', contract_uid=contract.uid, _external=True) }}</code></div>
 
               <div class="row row-cols-1 row-cols-md-2 g-2 small text-muted">
                 <div class="col"><strong>{{ _('Configuration UID') }}:</strong> {{ contract.source_config_uid or '—' }}</div>
