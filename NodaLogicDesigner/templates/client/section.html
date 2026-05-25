@@ -17,8 +17,8 @@
         {% set active = (s.code == section_code) %}
         <a class="list-group-item list-group-item-action {% if active %}active{% endif %}"
            href="{{ url_for('client.section_view', section_code=scode) }}">
-          <div class="fw-semibold">{{ s.name }}</div>
-          {% if s.code %}<div class="small opacity-75">{{ s.code }}</div>{% endif %}
+          <div class="fw-semibold">{% if s.code == '__received_nodes__' %}{{ _('Received Nodes') }}{% else %}{{ s.name }}{% endif %}</div>
+          {% if s.code and s.code != '__received_nodes__' %}<div class="small opacity-75">{{ s.code }}</div>{% endif %}
         </a>
       {% endfor %}
     </div>
@@ -445,12 +445,37 @@ function nodeFormUrl(repo_id, class_name, node_id) {
   return `${clientBase}node/${encodeURIComponent(uid)}/${encodeURIComponent(class_name)}/${encodeURIComponent(node_id)}`;
 }
 
+function rawNodeFormUrl(raw_node_id) {
+  return `${clientBase}raw-node/${encodeURIComponent(raw_node_id)}`;
+}
+
+function itemKey(it) {
+  if (it && it.is_raw_node) return `raw:${it.raw_node_id || it.id || ''}`;
+  return `${it.repo_id}:${it.class}:${it.id}`;
+}
+
+function itemIsDeletable(it) {
+  return !!(it && !it.is_custom_process && !it.is_raw_node);
+}
+
+function itemFormUrl(it) {
+  if (it && it.is_raw_node) return rawNodeFormUrl(it.raw_node_id || it.id || '');
+  return nodeFormUrl(it.repo_id, it.class, it.id);
+}
+
 function _winSafe(s){
   return String(s ?? "").replaceAll(/[^a-zA-Z0-9_]/g, "_").slice(0, 80);
 }
 function nodeWinName(repo_id, class_name, node_id){
   const uid = repoIdToUid.get(Number(repo_id)) || String(repo_id);
   return "nf_" + _winSafe(uid) + "__" + _winSafe(class_name) + "__" + _winSafe(node_id);
+}
+function rawNodeWinName(raw_node_id){
+  return "rnf__" + _winSafe(raw_node_id);
+}
+function itemWinName(it){
+  if (it && it.is_raw_node) return rawNodeWinName(it.raw_node_id || it.id || '');
+  return nodeWinName(it.repo_id, it.class, it.id);
 }
 function openNodeForm(repo_id, class_name, node_id){
   const url = nodeFormUrl(repo_id, class_name, node_id);
@@ -459,6 +484,18 @@ function openNodeForm(repo_id, class_name, node_id){
 
   const w = window.open(url, name);
   if (w) { try { w.focus(); } catch(_){} }
+  return false;
+}
+function openRawNodeForm(raw_node_id){
+  const url = rawNodeFormUrl(raw_node_id);
+  const name = rawNodeWinName(raw_node_id);
+  const w = window.open(url, name);
+  if (w) { try { w.focus(); } catch(_){} }
+  return false;
+}
+function openItemForm(it){
+  if (it && it.is_raw_node) return openRawNodeForm(it.raw_node_id || it.id || '');
+  if (it) return openNodeForm(it.repo_id, it.class, it.id);
   return false;
 }
 
@@ -571,7 +608,7 @@ function nlResolveCoverTemplateString(s, data){
     }
   }
   if (s.includes('@')) {
-    return s.replaceAll(/@([A-Za-z0-9_\.]+)/g, (_, key) => {
+    return s.replace(/@([^\s@{}\[\](),;:<>"'/]+)/g, (_, key) => {
       const v = nlCoverGetByPath(data || {}, key);
       return (v == null) ? '' : String(v);
     });
@@ -690,16 +727,14 @@ async function doDelete(repo_id, class_name, node_id) {
 }
 
 async function doBulkDelete() {
-  const itemByKey = new Map((lastItems||[]).map(it => [`${it.repo_id}:${it.class}:${it.id}`, it]));
-  const arr = Array.from(selected.values()).map(k => k.split(":"))
-  .filter(([repo_id, cls, id]) => {
-    const it = itemByKey.get(`${repo_id}:${cls}:${id}`);
-    
-    return it && !it.is_custom_process;
-  });
+  const itemByKey = new Map((lastItems||[]).map(it => [itemKey(it), it]));
+  const arr = Array.from(selected.values())
+    .map(k => itemByKey.get(k))
+    .filter(it => itemIsDeletable(it))
+    .map(it => [String(it.repo_id), String(it.class), String(it.id)]);
 
 if (!arr.length) {
-  alert("No deletable items selected (custom_process cannot be deleted).");
+  alert("No deletable items selected.");
   return;
 }
 
@@ -776,11 +811,11 @@ function render(items, meta) {
 
   function updateBulkBar(currentItems){
   let deletable = 0;
-  const itemByKey = new Map((currentItems||[]).map(it => [`${it.repo_id}:${it.class}:${it.id}`, it]));
+  const itemByKey = new Map((currentItems||[]).map(it => [itemKey(it), it]));
   selected.forEach(k => {
     const it = itemByKey.get(k);
     if (!it) return;
-    const canDel = !!it && !it.is_custom_process; 
+    const canDel = itemIsDeletable(it); 
     if (canDel) deletable += 1;
   });
 
@@ -906,7 +941,7 @@ function render(items, meta) {
 
   function setSelectionForCurrentItems(flag){
     (items || []).forEach(it => {
-      const key = `${it.repo_id}:${it.class}:${it.id}`;
+      const key = itemKey(it);
       if (flag) selected.add(key); else selected.delete(key);
     });
     applySelectionToDom();
@@ -989,7 +1024,7 @@ if (bulkBtn) bulkBtn.onclick = async () => {
 
     const tbody = document.getElementById("tbody");
     tbody.innerHTML = items.map(it => {
-      const key = `${it.repo_id}:${it.class}:${it.id}`;
+      const key = itemKey(it);
       const checked = selected.has(key) ? "checked" : "";
       const cols = headers.map(h => escapeHtml((it.table_values && it.table_values[h]) ? String(it.table_values[h]) : ""));
 
@@ -1001,7 +1036,7 @@ if (bulkBtn) bulkBtn.onclick = async () => {
           <td><input class="chkRow" type="checkbox" data-key="${escapeHtml(key)}" ${checked}></td>
           <td>${escapeHtml(it.repo || "")}</td>
           <td>${escapeHtml(it.class || "")}</td>
-          <td><a href="${escapeHtml(nodeFormUrl(it.repo_id, it.class, it.id))}" target="${escapeHtml(nodeWinName(it.repo_id, it.class, it.id))}">${escapeHtml(it.id || "")} rel="noopener"</a></td>
+          <td><a href="${escapeHtml(itemFormUrl(it))}" target="${escapeHtml(itemWinName(it))}" rel="noopener">${escapeHtml(it.id || "")}</a></td>
           ${cols.map(c => `<td>${c}</td>`).join("")}
         </tr>
       `;
@@ -1037,7 +1072,7 @@ if (bulkBtn) bulkBtn.onclick = async () => {
     grid.innerHTML = items.map(it => {
       const extra = it.is_custom_process ? "border border-3 border-dark" : "";
       const cover = (it.display_image_html || "").trim();
-      const key = `${it.repo_id}:${it.class}:${it.id}`;
+      const key = itemKey(it);
       const checked = selected.has(key) ? "checked" : "";
       const bg = getBg(it);
       const cardStyle = bg ? ` style="background:${escapeHtml(bg)}"` : "";
@@ -1059,8 +1094,8 @@ if (bulkBtn) bulkBtn.onclick = async () => {
         return `
           <div class="col-md-6 col-xl-4">
             <div class="card h-100 overflow-hidden ${extra} node-card"${cardStyle}
-                 data-url="${escapeHtml(nodeFormUrl(it.repo_id, it.class, it.id))}"
-                 data-repo="${it.repo_id}" data-class="${escapeHtml(it.class)}" data-node="${escapeHtml(it.id)}">
+                 data-url="${escapeHtml(itemFormUrl(it))}" data-win="${escapeHtml(itemWinName(it))}"
+                 data-repo="${it.repo_id}" data-class="${escapeHtml(it.class)}" data-node="${escapeHtml(it.id)}" data-raw-node="${escapeHtml(it.raw_node_id || '')}">
               <div class="card-body p-2">
                 ${top}
                 <div class="nodalayout-cover">${cover}</div>
@@ -1074,12 +1109,12 @@ if (bulkBtn) bulkBtn.onclick = async () => {
       return `
         <div class="col-md-6 col-xl-4">
           <div class="card h-100 ${extra} node-card"${cardStyle}
-               data-url="${escapeHtml(nodeFormUrl(it.repo_id, it.class, it.id))}"
-               data-repo="${it.repo_id}" data-class="${escapeHtml(it.class)}" data-node="${escapeHtml(it.id)}">
+               data-url="${escapeHtml(itemFormUrl(it))}" data-win="${escapeHtml(itemWinName(it))}"
+               data-repo="${it.repo_id}" data-class="${escapeHtml(it.class)}" data-node="${escapeHtml(it.id)}" data-raw-node="${escapeHtml(it.raw_node_id || '')}">
             <div class="card-body">
               ${top}
               <div class="fw-semibold mb-2">
-                <a href="${escapeHtml(nodeFormUrl(it.repo_id, it.class, it.id))}" target="${escapeHtml(nodeWinName(it.repo_id, it.class, it.id))}">${escapeHtml(it.id || "")} rel="noopener"</a>
+                <a href="${escapeHtml(itemFormUrl(it))}" target="${escapeHtml(itemWinName(it))}" rel="noopener">${escapeHtml(it.id || "")}</a>
               </div>
               ${previewData(it.data || {})}
               
@@ -1141,7 +1176,7 @@ async function loadSection() {
 document.getElementById("btnRefresh").addEventListener("click", loadSection);
 
 document.getElementById("btnSaveSoloSel").addEventListener("click", () => {
-  const itemByKey = new Map((lastItems||[]).map(it => [`${it.repo_id}:${it.class}:${it.id}`, it]));
+  const itemByKey = new Map((lastItems||[]).map(it => [itemKey(it), it]));
   const keys = Array.from(selected.values());
   if (!keys.length) {
     alert("No items selected");
@@ -1226,11 +1261,11 @@ function wireCardClicks() {
     card.addEventListener("click", (e) => {
       if (e.target.closest("button") || e.target.closest("a") || e.target.closest("input")) return;
       const url = card.dataset.url;
-      const repo_id = Number(card.dataset.repo);
-const class_name = card.dataset.class;
-const node_id = card.dataset.node;
-      //if (url) window.open(url, "_blank");
-      if (repo_id && class_name && node_id) openNodeForm(repo_id, class_name, node_id);
+      const winName = card.dataset.win || "_blank";
+      if (url) {
+        const w = window.open(url, winName);
+        if (w) { try { w.focus(); } catch(_){} }
+      }
     });
   });
 }

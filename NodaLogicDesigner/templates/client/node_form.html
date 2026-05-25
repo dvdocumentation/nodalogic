@@ -20,6 +20,52 @@
     background-color:#f4f4f4 !important;
   }
 
+  .nl-chat-messages{
+    min-height:320px;
+    max-height:58vh;
+    overflow-y:auto;
+  }
+  .nl-chat-message{
+    border:1px solid rgba(0,0,0,.125);
+    border-radius:.5rem;
+    padding:.5rem .65rem;
+    margin-bottom:.5rem;
+    background:#fff;
+  }
+  .nl-chat-message.mine{
+    margin-left:2rem;
+    background:#f8f9fa;
+  }
+  .nl-chat-message-meta{
+    display:flex;
+    gap:.5rem;
+    flex-wrap:wrap;
+    align-items:center;
+    margin-bottom:.25rem;
+  }
+  .nl-chat-message-text{
+    white-space:pre-wrap;
+    word-break:break-word;
+  }
+  .nl-chat-image{
+    display:block;
+    max-height:360px;
+    object-fit:contain;
+    background:#f8f9fa;
+  }
+  .nl-chat-attachment-row{
+    display:flex;
+    gap:.5rem;
+    align-items:center;
+    flex-wrap:wrap;
+  }
+  .nl-chat-attachment-name{
+    max-width:340px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+
 
 
 </style>
@@ -50,64 +96,90 @@
   #}
   <div id="nodeFormPane" class="flex-grow-1" style="min-width:0;">
 
-    {# --- PlugIn tabs (FileGallery / MediaGallery) --- #}
+    {# --- Top tabs: node form + discussion + optional galleries --- #}
     {% set ns = namespace(has_files=false, has_media=false) %}
     {% for p in (ui_plugins or []) %}
       {% if p and p.type == 'FileGallery' %}{% set ns.has_files = true %}{% endif %}
       {% if p and p.type == 'MediaGallery' %}{% set ns.has_media = true %}{% endif %}
     {% endfor %}
 
-    {% if (ns.has_files or ns.has_media) and layout_html %}
-      <ul class="nav nav-tabs mb-2" id="nlTopTabs" role="tablist">
-        <li class="nav-item" role="presentation">
-          <button class="nav-link active" id="tab-form" data-bs-toggle="tab" data-bs-target="#pane-form" type="button" role="tab">Form</button>
-        </li>
-        {% if ns.has_files %}
-        <li class="nav-item" role="presentation">
-          <button class="nav-link" id="tab-files" data-bs-toggle="tab" data-bs-target="#pane-files" type="button" role="tab">Files</button>
-        </li>
-        {% endif %}
-        {% if ns.has_media %}
-        <li class="nav-item" role="presentation">
-          <button class="nav-link" id="tab-media" data-bs-toggle="tab" data-bs-target="#pane-media" type="button" role="tab">Media</button>
-        </li>
-        {% endif %}
-      </ul>
+    <ul class="nav nav-tabs mb-2" id="nlTopTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="tab-form" data-bs-toggle="tab" data-bs-target="#pane-form" type="button" role="tab">{{ _('Form') }}</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-chat" data-bs-toggle="tab" data-bs-target="#pane-chat" type="button" role="tab">{{ _('Chat') }}</button>
+      </li>
+      {% if ns.has_files %}
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-files" data-bs-toggle="tab" data-bs-target="#pane-files" type="button" role="tab">{{ _('Files') }}</button>
+      </li>
+      {% endif %}
+      {% if ns.has_media %}
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-media" data-bs-toggle="tab" data-bs-target="#pane-media" type="button" role="tab">{{ _('Media') }}</button>
+      </li>
+      {% endif %}
+    </ul>
 
-      <div class="tab-content">
-        <div class="tab-pane fade show active" id="pane-form" role="tabpanel">
+    <div class="tab-content">
+      <div class="tab-pane fade show active" id="pane-form" role="tabpanel">
+        {% if layout_html %}
+          <!-- onShowWeb / onShow layout -->
           <div id="webRoot">{{ layout_html | safe }}</div>
-        </div>
-        {% if ns.has_files %}
-        <div class="tab-pane fade" id="pane-files" role="tabpanel">
-          <div id="nlFileGalleryHost"></div>
-        </div>
-        {% endif %}
-        {% if ns.has_media %}
-        <div class="tab-pane fade" id="pane-media" role="tabpanel">
-          <div id="nlMediaGalleryHost"></div>
-        </div>
+        {% else %}
+          <!-- raw _data editor (fallback / when no layout) -->
+          <div class="mb-2 text-muted small">_data (JSON)</div>
+          <textarea id="dataJson" class="form-control font-monospace" rows="20">{{ data_json | e }}</textarea>
+          <div class="text-muted small mt-2">
+            {% if not use_standard_commands %}
+              {{ _('There are no standard commands for this class, only JSON editing is available.') }}
+            {% else %}
+              {{ _('If the form is not specified, you can edit the JSON directly.') }}
+            {% endif %}
+          </div>
         {% endif %}
       </div>
-    {% else %}
 
-    {% if layout_html %}
-  <!-- onShowWeb / onShow layout -->
-  <div id="webRoot">{{ layout_html | safe }}</div>
-{% else %}
-  <!-- raw _data editor (fallback / when no layout) -->
-  <div class="mb-2 text-muted small">_data (JSON)</div>
-  <textarea id="dataJson" class="form-control font-monospace" rows="20">{{ data_json | e }}</textarea>
-  <div class="text-muted small mt-2">
-    {% if not use_standard_commands %}
-      There are no standard commands for this class, only JSON editing is available.
-    {% else %}
-      If the form is not specified, you can edit the JSON directly.
-    {% endif %}
-  </div>
-{% endif %}
+      <div class="tab-pane fade" id="pane-chat" role="tabpanel">
+        <div class="card nl-chat-panel">
+          <div class="card-header d-flex justify-content-between align-items-center gap-2 py-2">
+            <div class="fw-semibold">{{ _('Node Chat') }}</div>
+            <div class="d-flex align-items-center gap-2">
+              <span id="nlChatStatus" class="text-muted small"></span>
+              <button id="nlChatRefresh" class="btn btn-sm btn-outline-secondary" type="button">{{ _('Refresh') }}</button>
+            </div>
+          </div>
+          <div id="nlChatMessages" class="card-body nl-chat-messages">
+            <div class="text-muted small">{{ _('No messages loaded yet.') }}</div>
+          </div>
+          <div class="card-footer">
+            <div class="input-group">
+              <textarea id="nlChatText" class="form-control" rows="2" placeholder="{{ _('Write a message...') }}"></textarea>
+              <button id="nlChatSend" class="btn btn-primary" type="button">{{ _('Send') }}</button>
+            </div>
+            <div class="nl-chat-attachment-row mt-2">
+              <input id="nlChatImageFile" class="form-control form-control-sm" type="file" accept="image/*" style="max-width:360px;">
+              <span id="nlChatImageName" class="nl-chat-attachment-name text-muted small"></span>
+              <button id="nlChatImageClear" class="btn btn-sm btn-outline-secondary" type="button" style="display:none;">{{ _('Remove image') }}</button>
+            </div>
+            <div class="form-text">{{ _('Attach an image or write text. Ctrl+Enter sends.') }}</div>
+            <div id="nlChatError" class="text-danger small mt-2" style="display:none;"></div>
+          </div>
+        </div>
+      </div>
 
-    {% endif %}
+      {% if ns.has_files %}
+      <div class="tab-pane fade" id="pane-files" role="tabpanel">
+        <div id="nlFileGalleryHost"></div>
+      </div>
+      {% endif %}
+      {% if ns.has_media %}
+      <div class="tab-pane fade" id="pane-media" role="tabpanel">
+        <div id="nlMediaGalleryHost"></div>
+      </div>
+      {% endif %}
+    </div>
 
   </div>
 
@@ -153,15 +225,20 @@ window.initVirtualTables = window.initVirtualTables || function(){};
 const REPO_ID = {{ repo_id|tojson }};
 const CLASS_NAME = {{ class_name|tojson }};
 const NODE_ID = {{ node_id|tojson }};
+const DISCUSSION_NODE_ID = {{ (discussion_node_id or node_id)|tojson }};
+const IS_RAW_NODE = {{ (is_raw_node or false)|tojson }};
+const CHAT_CURRENT_USER = {{ (current_user.email or '')|tojson }};
 const CLASS_OBJ = {{ (class_obj or {})|tojson }};
 const API_EVENT_WEB = {{ api_event_web|tojson }};
 const API_SAVE = {{ api_save_url|tojson }};
+const API_DISCUSSION_MESSAGES = `/client/api/node-discussion/by-node/${encodeURIComponent(DISCUSSION_NODE_ID)}/messages`;
 
 // Scanner WS context (used by base.html)
 window.NL = window.NL || {};
 window.NL.repo_id = {{ repo_id|tojson }};
 window.NL.class_name = {{ class_name|tojson }};
 window.NL.node_id = {{ node_id|tojson }};
+window.NL.discussion_node_id = DISCUSSION_NODE_ID;
 window.NL.api_node_event_web = API_EVENT_WEB;
 
 // initial BarcodeScanner listeners from PlugIn()
@@ -191,8 +268,374 @@ const API_NODALAYOUT_RENDER = "/client/api/nodalayout/render";
 const API_USERFILES_LIST   = `/client/api/userfiles/${REPO_ID}/list`;
 const API_USERFILES_UPLOAD = `/client/api/userfiles/${REPO_ID}/upload`;
 const API_USERFILES_DELETE = `/client/api/userfiles/${REPO_ID}/delete`;
+function isExternalHttpUrl(value){
+  return /^https?:\/\//i.test(String(value || '').trim());
+}
+function s3CachedImageUrl(url){
+  const raw = String(url || '').trim();
+  return raw ? `/client/api/s3/cached-image?url=${encodeURIComponent(raw)}` : '';
+}
 function userfilesRawUrl(filename){
-  return `/client/api/userfiles/${REPO_ID}/raw/${encodeURIComponent(filename)}`;
+  const raw = String(filename || '').trim();
+  if (isExternalHttpUrl(raw)) return raw;
+  return `/client/api/userfiles/${REPO_ID}/raw/${encodeURIComponent(raw)}`;
+}
+function userfilesImageUrl(filename){
+  const raw = String(filename || '').trim();
+  if (isExternalHttpUrl(raw)) return s3CachedImageUrl(raw);
+  return userfilesRawUrl(raw);
+}
+function shouldUploadUserfilesToS3(){
+  return !!(_data && (_data._upload_s3 === true || _data._upload_s3 === 1 || String(_data._upload_s3 || '').toLowerCase() === 'true' || String(_data._upload_s3 || '').toLowerCase() === 'yes' || String(_data._upload_s3 || '').toLowerCase() === 'on'));
+}
+
+// ---------------- Node discussion chat ----------------
+const nlChatState = {
+  messages: new Map(),
+  loaded: false,
+  loading: false,
+  ws: null,
+  reconnectTimer: null,
+  renderTimer: null
+};
+
+function nlChatSetStatus(text){
+  const el = document.getElementById('nlChatStatus');
+  if (el) el.textContent = text || '';
+}
+
+function nlChatSetError(text){
+  const el = document.getElementById('nlChatError');
+  if (!el) return;
+  if (!text) {
+    el.textContent = '';
+    el.style.display = 'none';
+    return;
+  }
+  el.textContent = text;
+  el.style.display = '';
+}
+
+function nlChatMessageKey(msg){
+  msg = msg || {};
+  return String(
+    msg.client_message_id ||
+    msg._client_message_id ||
+    msg.id ||
+    [msg.created_at || '', msg.sender_user || '', msg.sender_display_name || '', msg.text || msg.body || '', nlChatImageValue(msg)].join('|')
+  );
+}
+
+function nlChatMessageTime(msg){
+  msg = msg || {};
+  return String(msg.created_at || msg.created_at_utc || msg.accepted_at || '');
+}
+
+function nlChatMessageText(msg){
+  msg = msg || {};
+  const data = (msg.data && typeof msg.data === 'object') ? msg.data : {};
+  const value = msg.text || msg.message || msg.body || data.text || data.message || data.body || '';
+  return String(value || '');
+}
+
+function nlChatSenderName(msg){
+  msg = msg || {};
+  return String(msg.sender_display_name || msg.sender_user || '');
+}
+
+function nlChatImageValue(msg){
+  msg = msg || {};
+  const data = (msg.data && typeof msg.data === 'object') ? msg.data : {};
+  return String(msg.image_url || data.image_url || msg.image || data.image || '');
+}
+
+function nlChatCachedImageSrc(value){
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^(data:|blob:)/i.test(raw)) return raw;
+  if (/^https?:\/\//i.test(raw)) {
+    return '/client/api/s3/cached-image?url=' + encodeURIComponent(raw);
+  }
+  // Legacy messages may contain plain base64 image data in `image`.
+  if (/^[A-Za-z0-9+/=\s]+$/.test(raw) && raw.length > 128) {
+    return 'data:image/jpeg;base64,' + raw.replace(/\s+/g, '');
+  }
+  return raw;
+}
+
+function nlChatIsMine(msg){
+  const sender = String((msg && msg.sender_user) || '').toLowerCase();
+  const me = String(CHAT_CURRENT_USER || '').toLowerCase();
+  return !!(sender && me && sender === me);
+}
+
+function nlChatNormalizeList(payload){
+  if (Array.isArray(payload)) return payload;
+  if (payload && Array.isArray(payload.messages)) return payload.messages;
+  if (payload && payload.message && typeof payload.message === 'object') return [payload.message];
+  return [];
+}
+
+function nlChatShouldRender(msg){
+  msg = msg || {};
+  const data = (msg.data && typeof msg.data === 'object') ? msg.data : {};
+  const msgType = String(msg.type || data.type || '').trim();
+  if (msgType === 'node_content_updated') return false;
+  const body = String(msg.body || data.body || '').trim();
+  if (body === 'Node content updated') return false;
+  const text = nlChatMessageText(msg).trim();
+  if (text === 'Node content updated') return false;
+  return true;
+}
+
+function nlChatSortMessages(items){
+  return items.sort(function(a, b){
+    const ta = Date.parse(nlChatMessageTime(a)) || 0;
+    const tb = Date.parse(nlChatMessageTime(b)) || 0;
+    if (ta !== tb) return ta - tb;
+    const ia = Number((a && a.id) || 0);
+    const ib = Number((b && b.id) || 0);
+    return ia - ib;
+  });
+}
+
+function nlChatMergeMessages(messages, renderNow){
+  let changed = false;
+  (messages || []).forEach(function(msg){
+    if (!msg || typeof msg !== 'object') return;
+    const key = nlChatMessageKey(msg);
+    if (!key) return;
+    const prev = nlChatState.messages.get(key);
+    const next = Object.assign({}, prev || {}, msg);
+    nlChatState.messages.set(key, next);
+    changed = true;
+  });
+  if (changed && renderNow !== false) nlChatRenderSoon();
+}
+
+function nlChatRenderSoon(){
+  if (nlChatState.renderTimer) clearTimeout(nlChatState.renderTimer);
+  nlChatState.renderTimer = setTimeout(nlChatRender, 20);
+}
+
+function nlChatRender(){
+  const host = document.getElementById('nlChatMessages');
+  if (!host) return;
+  const items = nlChatSortMessages(Array.from(nlChatState.messages.values()).filter(nlChatShouldRender));
+  if (!items.length) {
+    host.innerHTML = `<div class="text-muted small">${escapeHtml(nlChatState.loaded ? 'No messages yet.' : 'No messages loaded yet.')}</div>`;
+    return;
+  }
+  host.innerHTML = items.map(function(msg){
+    const mine = nlChatIsMine(msg);
+    const sender = nlChatSenderName(msg) || (mine ? 'Me' : 'Unknown');
+    const time = nlChatMessageTime(msg);
+    const text = nlChatMessageText(msg);
+    const status = String(msg.delivery_status || msg.status || '');
+    const img = nlChatImageValue(msg);
+    const imgSrc = nlChatCachedImageSrc(img);
+    const imageHtml = imgSrc ? `<div class="mt-2"><img src="${escapeHtml(imgSrc)}" class="img-fluid rounded border nl-chat-image" alt="attachment" loading="lazy"></div>` : '';
+    return `
+      <div class="nl-chat-message ${mine ? 'mine' : ''}">
+        <div class="nl-chat-message-meta small text-muted">
+          <span class="fw-semibold">${escapeHtml(sender)}</span>
+          ${time ? `<span>${escapeHtml(time)}</span>` : ''}
+          ${status ? `<span>${escapeHtml(status)}</span>` : ''}
+        </div>
+        <div class="nl-chat-message-text">${escapeHtml(text)}</div>
+        ${imageHtml}
+      </div>`;
+  }).join('');
+  host.scrollTop = host.scrollHeight;
+}
+
+async function nlChatLoad(){
+  if (nlChatState.loading) return;
+  nlChatState.loading = true;
+  nlChatSetStatus('Loading...');
+  nlChatSetError('');
+  try {
+    const r = await fetch(API_DISCUSSION_MESSAGES, {method:'GET', credentials:'same-origin'});
+    const j = await r.json();
+    if (!r.ok || (j && j.ok === false)) throw new Error((j && (j.error || j.details)) || 'Failed to load messages');
+    nlChatState.loaded = true;
+    nlChatMergeMessages(nlChatNormalizeList(j), true);
+    nlChatSetStatus('');
+    nlChatRender();
+  } catch(e) {
+    nlChatSetStatus('Error');
+    nlChatSetError(e && e.message ? e.message : String(e));
+  } finally {
+    nlChatState.loading = false;
+  }
+}
+
+async function nlChatReadJsonResponse(resp){
+  const text = await resp.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : {}; }
+  catch(e) {
+    const shortText = (text || '').replace(/\s+/g, ' ').slice(0, 240);
+    throw new Error(`Server returned non-JSON (${resp.status}). ${shortText}`);
+  }
+  return data;
+}
+
+async function nlChatUploadImage(file){
+  if (!file) return '';
+  const metaResp = await fetch('/api/s3/upload-url', {
+    method:'POST',
+    credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      filename: file.name || 'chat-image.jpg',
+      content_type: file.type || 'application/octet-stream'
+    })
+  });
+  const meta = await nlChatReadJsonResponse(metaResp);
+  if (!metaResp.ok || !meta.upload_url || !meta.file_url) {
+    throw new Error((meta && (meta.details || meta.error)) || 'Image upload URL failed');
+  }
+
+  const putHeaders = Object.assign({}, meta.headers || {});
+  if (!putHeaders['Content-Type']) putHeaders['Content-Type'] = file.type || 'application/octet-stream';
+
+  const putResp = await fetch(meta.upload_url, {
+    method: meta.method || 'PUT',
+    headers: putHeaders,
+    body: file
+  });
+  if (!putResp.ok) throw new Error('Image upload failed: ' + putResp.status);
+  return meta.file_url;
+}
+
+function nlChatUpdateImageLabel(){
+  const fileInput = document.getElementById('nlChatImageFile');
+  const nameEl = document.getElementById('nlChatImageName');
+  const clearBtn = document.getElementById('nlChatImageClear');
+  const file = fileInput && fileInput.files && fileInput.files.length ? fileInput.files[0] : null;
+  if (nameEl) nameEl.textContent = file ? (file.name || 'Selected image') : '';
+  if (clearBtn) clearBtn.style.display = file ? '' : 'none';
+}
+
+async function nlChatSend(){
+  const input = document.getElementById('nlChatText');
+  const fileInput = document.getElementById('nlChatImageFile');
+  const btn = document.getElementById('nlChatSend');
+  if (!input) return;
+  const text = String(input.value || '').trim();
+  const file = fileInput && fileInput.files && fileInput.files.length ? fileInput.files[0] : null;
+  if (!text && !file) return;
+  if (file && !String(file.type || '').toLowerCase().startsWith('image/')) {
+    nlChatSetError('Only image files can be attached.');
+    return;
+  }
+  nlChatSetError('');
+  if (btn) btn.disabled = true;
+  if (fileInput) fileInput.disabled = true;
+  try {
+    let imageUrl = '';
+    if (file) {
+      nlChatSetStatus('Uploading image...');
+      imageUrl = await nlChatUploadImage(file);
+    }
+    nlChatSetStatus('Sending...');
+    const payload = {text: text};
+    if (imageUrl) payload.image_url = imageUrl;
+    const r = await fetch(API_DISCUSSION_MESSAGES, {
+      method:'POST',
+      credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const j = await r.json();
+    if (!r.ok || (j && j.ok === false)) throw new Error((j && (j.details || j.error)) || 'Failed to send message');
+    input.value = '';
+    if (fileInput) fileInput.value = '';
+    nlChatUpdateImageLabel();
+    nlChatMergeMessages(nlChatNormalizeList(j), true);
+    await nlChatLoad();
+  } catch(e) {
+    nlChatSetError(e && e.message ? e.message : String(e));
+  } finally {
+    nlChatSetStatus('');
+    if (btn) btn.disabled = false;
+    if (fileInput) fileInput.disabled = false;
+    try { input.focus(); } catch(_) {}
+  }
+}
+
+function nlChatWsUrl(){
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return proto + '//' + window.location.host + '/ws?channel=discussion&node_id=' + encodeURIComponent(DISCUSSION_NODE_ID);
+}
+
+function nlChatConnectWs(){
+  if (!('WebSocket' in window)) return;
+  if (nlChatState.ws && (nlChatState.ws.readyState === WebSocket.OPEN || nlChatState.ws.readyState === WebSocket.CONNECTING)) return;
+  try {
+    const ws = new WebSocket(nlChatWsUrl());
+    nlChatState.ws = ws;
+    ws.onopen = function(){
+      nlChatSetStatus('Live');
+      try { ws.send(JSON.stringify({type:'subscribe', node_id: DISCUSSION_NODE_ID})); } catch(_) {}
+    };
+    ws.onmessage = function(ev){
+      let data = null;
+      try { data = JSON.parse(ev.data); } catch(_) { data = null; }
+      if (!data || typeof data !== 'object') return;
+      if (data.type === 'node_discussion.message' && String(data.node_id || '') === String(DISCUSSION_NODE_ID)) {
+        nlChatMergeMessages(nlChatNormalizeList(data), true);
+      }
+      if (data.type === 'node_discussion.changed' && String(data.node_id || '') === String(DISCUSSION_NODE_ID)) {
+        nlChatLoad();
+      }
+    };
+    ws.onerror = function(){
+      nlChatSetStatus('Offline');
+    };
+    ws.onclose = function(){
+      nlChatState.ws = null;
+      nlChatSetStatus('Offline');
+      if (nlChatState.reconnectTimer) clearTimeout(nlChatState.reconnectTimer);
+      nlChatState.reconnectTimer = setTimeout(nlChatConnectWs, 4000);
+    };
+  } catch(_) {
+    nlChatSetStatus('Offline');
+  }
+}
+
+function nlInitChat(){
+  const refresh = document.getElementById('nlChatRefresh');
+  const send = document.getElementById('nlChatSend');
+  const input = document.getElementById('nlChatText');
+  const fileInput = document.getElementById('nlChatImageFile');
+  const clearImage = document.getElementById('nlChatImageClear');
+  const tab = document.getElementById('tab-chat');
+  if (refresh) refresh.addEventListener('click', nlChatLoad);
+  if (send) send.addEventListener('click', nlChatSend);
+  if (input) {
+    input.addEventListener('keydown', function(ev){
+      if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+        ev.preventDefault();
+        nlChatSend();
+      }
+    });
+  }
+  if (fileInput) fileInput.addEventListener('change', nlChatUpdateImageLabel);
+  if (clearImage) {
+    clearImage.addEventListener('click', function(){
+      if (fileInput) fileInput.value = '';
+      nlChatUpdateImageLabel();
+    });
+  }
+  if (tab) {
+    tab.addEventListener('shown.bs.tab', function(){
+      nlChatLoad();
+      nlChatConnectWs();
+    });
+  }
+  nlChatConnectWs();
 }
 
 function _winSafe(s){
@@ -422,7 +865,7 @@ function nlResolveTemplateString(tpl){
 
   // @var or text with @var inside
   if (s.includes('@')) {
-    return s.replaceAll(/@([A-Za-z0-9_\.]+)/g, (_, key) => {
+    return s.replace(/@([^\s@{}\[\](),;:<>"'/]+)/g, (_, key) => {
       const v = nlGetByPath(_data, key);
       return (v == null) ? "" : String(v);
     });
@@ -901,6 +1344,8 @@ async function fireOnInputWeb(payload){
         repo_id: REPO_ID,
         class_name: CLASS_NAME,
         node_id: NODE_ID,
+        is_raw_node: IS_RAW_NODE,
+        raw_node_id: IS_RAW_NODE ? DISCUSSION_NODE_ID : "",
         event: "onInputWeb",
         payload: payload
       })
@@ -1081,6 +1526,8 @@ async function fireOnClickWeb(payload, target_class = "", target_node = "") {
 
   const reqBody = {
     repo_id: REPO_ID,
+    is_raw_node: IS_RAW_NODE,
+    raw_node_id: IS_RAW_NODE ? DISCUSSION_NODE_ID : "",
 
     // current opened form
     class_name: CLASS_NAME,
@@ -1428,10 +1875,11 @@ async function apiUserfilesList(){
 async function apiUserfilesUpload(file){
   const fd = new FormData();
   fd.append("file", file);
+  if (shouldUploadUserfilesToS3()) fd.append("upload_s3", "1");
   const r = await fetch(API_USERFILES_UPLOAD, { method: "POST", body: fd, credentials: "same-origin" });
   const j = await r.json();
   if (!j || !j.ok) throw new Error((j && j.error) || "upload failed");
-  return String(j.filename || "");
+  return String(j.filename || j.url || "");
 }
 
 async function apiUserfilesDelete(filename){
@@ -1471,7 +1919,7 @@ function renderFileGallery(hostId, galleryId){
   const list = getGalleryList(galleryId);
   host.innerHTML = `
     <div class="d-flex align-items-center justify-content-between mb-2">
-      <div class="fw-semibold">${escapeHtml(galleryId)}</div>
+      <div class="fw-semibold">${escapeHtml(galleryId)} ${shouldUploadUserfilesToS3() ? `<span class="badge bg-secondary ms-1">S3</span>` : ``}</div>
       <div class="d-flex gap-2">
         <input type="file" class="form-control form-control-sm" id="${escapeHtml(hostId)}_inp" style="max-width:260px" />
         <button class="btn btn-sm btn-outline-primary" type="button" id="${escapeHtml(hostId)}_add">Add</button>
@@ -1532,7 +1980,7 @@ function renderMediaGallery(hostId, galleryId){
 
   host.innerHTML = `
     <div class="d-flex align-items-center justify-content-between mb-2">
-      <div class="fw-semibold">${escapeHtml(galleryId)}</div>
+      <div class="fw-semibold">${escapeHtml(galleryId)} ${shouldUploadUserfilesToS3() ? `<span class="badge bg-secondary ms-1">S3</span>` : ``}</div>
       <div class="d-flex gap-2">
         <input type="file" accept="image/*" class="form-control form-control-sm" id="${escapeHtml(hostId)}_inp" style="max-width:260px" />
         <button class="btn btn-sm btn-outline-primary" type="button" id="${escapeHtml(hostId)}_add">Add</button>
@@ -1562,7 +2010,7 @@ function renderMediaGallery(hostId, galleryId){
   function setSelected(fn){
     _data[`${galleryId}_selected`] = fn || "";
     caption.textContent = fn || "";
-    preview.src = fn ? userfilesRawUrl(fn) : "";
+    preview.src = fn ? userfilesImageUrl(fn) : "";
     btnDel.disabled = !fn;
     // highlight
     thumbs.querySelectorAll('[data-fn]').forEach(el => {
@@ -1574,7 +2022,7 @@ function renderMediaGallery(hostId, galleryId){
 
   const thumbItem = (fn) => `
     <div class="mb-1" style="cursor:pointer" data-fn="${escapeHtml(fn)}">
-      <img src="${userfilesRawUrl(fn)}" style="width:100%; height:90px; object-fit:cover; border-radius:6px" />
+      <img src="${userfilesImageUrl(fn)}" style="width:100%; height:90px; object-fit:cover; border-radius:6px" loading="lazy" />
       <div class="small text-truncate">${escapeHtml(fn)}</div>
     </div>`;
   thumbs.innerHTML = list.map(thumbItem).join("");
@@ -1633,6 +2081,8 @@ function initGalleries(){
 }
 
 initGalleries();
+
+nlInitChat();
 
 /* --- Save/Delete (standard commands) --- */
 function getDataFromTextarea(){
