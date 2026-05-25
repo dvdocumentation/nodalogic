@@ -6,11 +6,12 @@ import mimetypes
 import os
 import re
 from html import escape
+from urllib.parse import quote
 from typing import Any, Callable, Dict, List, Optional, Union
 
 Layout = Union[str, List[List[Dict[str, Any]]]]
 
-_VAR_RE = re.compile(r"@([A-Za-z0-9_]+)")
+_VAR_RE = re.compile(r"@([\w.]+)", re.UNICODE)
 _HEX_COLOR_RE = re.compile(r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$")
 
 
@@ -98,6 +99,39 @@ def _get_children_from_data(data: Dict[str, Any]) -> List[Dict[str, str]]:
     return result
 
 
+
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on", "y", "да")
+    return bool(value)
+
+
+def _element_s3_enabled(el: Dict[str, Any], node_data: Dict[str, Any]) -> bool:
+    """Element option `s3` enables disk-backed proxy/cache for public S3 URLs."""
+    raw = el.get("s3", el.get("S3", False))
+    if isinstance(raw, str) and raw.strip().startswith("@"):  # allow s3:"@flag"
+        raw = node_data.get(raw.strip()[1:], False)
+    return _truthy(raw)
+
+
+def _s3_cached_picture_src(src: str) -> str:
+    raw = str(src or "").strip()
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return "/client/api/s3/cached-image?url=" + quote(raw, safe="")
+    return raw
+
+
+def _picture_src_for_element(el: Dict[str, Any], raw: str, node_data: Dict[str, Any], assets_base_dir: Optional[str]) -> str:
+    src = _picture_src(raw, assets_base_dir)
+    if src and _element_s3_enabled(el, node_data):
+        return _s3_cached_picture_src(src)
+    return src
 
 def _resolve_link_value(raw_val: Any, node_data: Dict[str, Any]) -> str:
     """Resolve element value or @var into a raw UID/reference string."""
@@ -595,7 +629,7 @@ def render_nodalayout_html(
         if t == "Picture":
             raw_tpl = el.get("value")
             raw = _resolve_vars(str(raw_tpl or ""), node_data)
-            src = _picture_src(raw, assets_base_dir)
+            src = _picture_src_for_element(el, raw, node_data, assets_base_dir)
             alt = escape(str(el.get("caption") or ""))
             cover = bool(el.get("cover"))
             fit_mode = "cover" if cover else "contain"
@@ -616,7 +650,12 @@ def render_nodalayout_html(
             tpl = _tpl_attr("src", raw_tpl)
 
             if src:
-                return f'<img class="nl-picture"{style_attr}{tpl} src="{escape(src)}" alt="{alt}"/>'
+                return (
+                    f'<span class="nl-picture-wrap" style="position:relative;display:inline-block">'
+                    f'<span class="spinner-border spinner-border-sm text-secondary" role="status" style="position:absolute;left:50%;top:50%;z-index:1"></span>'
+                    f'<img class="nl-picture"{style_attr}{tpl} src="{escape(src)}" alt="{alt}" loading="lazy" onload="this.previousElementSibling.style.display=\'none\'" onerror="this.previousElementSibling.style.display=\'none\'"/>'
+                    f'</span>'
+                )
             return f'<div class="nl-picture nl-empty"{style_attr}{tpl}></div>'
 
         if t == "ImageSlider":
@@ -682,7 +721,7 @@ def render_nodalayout_html(
             img_style = f' style="display:block;width:100%;height:100%;object-fit:{fit_mode}"' if constrained or cover else ""
 
             for i, f in enumerate(files):
-                src = _picture_src(_resolve_vars(str(f or ""), node_data), assets_base_dir)
+                src = _picture_src_for_element(el, _resolve_vars(str(f or ""), node_data), node_data, assets_base_dir)
                 if not src:
                     continue
                 is_active = (len(slides) == 0)
@@ -721,6 +760,56 @@ def render_nodalayout_html(
                 f'</button>'
                 f'</div>'
             )
+
+        if t == "PictureGallery":
+            raw_val = el.get("value")
+            files_any: Any = raw_val
+            if isinstance(raw_val, str):
+                s = raw_val.strip()
+                if s.startswith("@"):  # @var
+                    files_any = node_data.get(s[1:])
+                elif s.startswith("["):
+                    try:
+                        files_any = json.loads(s)
+                    except Exception:
+                        files_any = []
+
+            files: List[str] = []
+            if isinstance(files_any, list):
+                files = [str(x) for x in files_any if x not in (None, "")]
+            elif isinstance(files_any, str) and files_any.strip():
+                files = [files_any.strip()]
+
+            cols = int(el.get("columns") or el.get("cols") or 3)
+            cols = max(1, min(cols, 12))
+            gap = int(el.get("gap") or 8)
+            cover = bool(el.get("cover", True))
+            fit_mode = "cover" if cover else "contain"
+            gallery_css = [
+                "display:grid",
+                f"grid-template-columns:repeat({cols},minmax(0,1fr))",
+                f"gap:{gap}px",
+                "min-width:0",
+            ]
+            style_attr = _style_attr(el, extra_css=gallery_css)
+            img_h = el.get("itemHeight") or el.get("item_height") or 140
+
+            items: List[str] = []
+            for f in files:
+                src = _picture_src_for_element(el, _resolve_vars(str(f or ""), node_data), node_data, assets_base_dir)
+                if not src:
+                    continue
+                items.append(
+                    f'<a class="nl-picturegallery-item" href="{escape(src)}" target="_blank" '
+                    f'style="display:block;position:relative;overflow:hidden;border-radius:6px;min-width:0">'
+                    f'<span class="spinner-border spinner-border-sm text-secondary" role="status" style="position:absolute;left:50%;top:50%;z-index:1"></span>'
+                    f'<img src="{escape(src)}" loading="lazy" onload="this.previousElementSibling.style.display=\'none\'" onerror="this.previousElementSibling.style.display=\'none\'" '
+                    f'style="display:block;width:100%;height:{int(img_h)}px;object-fit:{fit_mode}" alt=""/>'
+                    f'</a>'
+                )
+            if not items:
+                return f'<div class="nl-picturegallery nl-empty"{style_attr}></div>'
+            return f'<div class="nl-picturegallery"{style_attr}>' + "".join(items) + '</div>'
 
                 # NodeInput (readonly input + pick button, value is "Class$Id")
         if t == "NodeInput":

@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import requests
-from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for, after_this_request, send_from_directory
+from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for, after_this_request, send_from_directory, Response
 from markupsafe import escape
 from flask_login import current_user, login_required
 
@@ -21,7 +21,8 @@ from . import models
 import nodes as _nodes_mod
 import hashlib
 import inspect
-from sqlalchemy import select
+import mimetypes
+from sqlalchemy import select, or_, and_, func
 
 import __main__ as main
 
@@ -36,9 +37,889 @@ client_bp = Blueprint(
 APP_TITLE = "NodaLogic Client"
 DEFAULT_LIMIT_PER_CLASS = 50
 AUTO_REFRESH_SECONDS = 10
+RAW_NODES_SECTION_CODE = "__received_nodes__"
+RAW_NODES_SECTION_NAME = "Received Nodes"
+
+# Small per-request-ish memoization. These helpers are called many times while
+# rendering Received Nodes; without memoization they repeatedly query device/ack
+# tables and can burn CPU on large servers. Values are safe to reuse only for
+# the current Flask request/user, so the cache key includes the current user id.
+_CURRENT_USER_KEYS_CACHE: Dict[Any, List[str]] = {}
+_CURRENT_USER_GROUP_IDS_CACHE: Dict[Tuple[Any, Tuple[str, ...]], set] = {}
 
 
-_CLASS_VIEW_RE = re.compile(r"\{([A-Za-z0-9_]+)\}")
+def _guess_image_mimetype_from_url(value: str) -> str:
+    parsed_path = ""
+    try:
+        parsed_path = urlparse(str(value or "")).path or ""
+    except Exception:
+        parsed_path = str(value or "")
+    mimetype, _ = mimetypes.guess_type(parsed_path)
+    if mimetype and str(mimetype).startswith("image/"):
+        return mimetype
+    return "image/jpeg"
+
+
+def _is_cacheable_chat_image_url(value: str) -> bool:
+    raw = str(value or "").strip()
+    if not raw:
+        return False
+    parsed = urlparse(raw)
+    if parsed.scheme not in ("http", "https"):
+        return False
+    s3_key_from_public_url = getattr(main, "_s3_key_from_public_url", None)
+    try:
+        if callable(s3_key_from_public_url) and s3_key_from_public_url(raw):
+            return True
+    except Exception:
+        pass
+    # Keep this permissive enough for older/mobile messages that already stored
+    # a public image_url outside the configured S3 endpoint, while still only
+    # proxying explicit web URLs.
+    return True
+
+def _received_nodes_section() -> Dict[str, str]:
+    return {"code": RAW_NODES_SECTION_CODE, "name": RAW_NODES_SECTION_NAME}
+
+
+def _with_received_nodes_section(sections: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    out = [_received_nodes_section()]
+    for item in (sections or []):
+        if (item.get("code") or "") != RAW_NODES_SECTION_CODE:
+            out.append(item)
+    return out
+
+
+def _default_section_code(sections: List[Dict[str, str]]) -> str:
+    """Return the first regular section; keep Received Nodes pinned but not default."""
+    for item in (sections or []):
+        code = item.get("code") or ""
+        if code != RAW_NODES_SECTION_CODE:
+            return code
+    return (sections[0].get("code") if sections else "") or ""
+
+
+def _server_model(name: str):
+    return getattr(main, name, None)
+
+
+def _extract_raw_node_class_name(value) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("full_name", "code", "uid", "id", "name", "class_name", "_name"):
+            item = value.get(key)
+            if isinstance(item, str) and item.strip():
+                return item.strip()
+    return str(value or "").strip()
+
+
+def _raw_node_payload(obj) -> Dict[str, Any]:
+    payload = getattr(obj, "payload_json", None)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _extract_raw_node_class_json(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Return embedded class JSON from a raw-node payload, if present.
+
+    Android/server raw-node messages can carry either:
+      * _class: "ClassName"              -> class is resolved from a client repo/config
+      * _class: { ... full class json ... } -> class travels with the raw-node
+
+    The web client must not render raw-nodes as plain _data only; layouts and
+    events must see the real class JSON, exactly like PythonScript event flow
+    does in app.py.
+    """
+    payload = payload if isinstance(payload, dict) else {}
+
+    # Prefer the server-side helper when it exists, so web-client and runtime
+    # event dispatch keep the same accepted aliases (_class/class/class_json...).
+    helper = getattr(main, "_extract_class_json_from_node_json", None)
+    if callable(helper):
+        try:
+            obj = helper(payload)
+            if isinstance(obj, dict) and obj:
+                return obj
+        except Exception:
+            pass
+
+    for key in ("_class", "class", "class_json", "_class_json", "schema", "node_class"):
+        value = payload.get(key)
+        if isinstance(value, dict) and value:
+            return value
+    return {}
+
+
+def _raw_node_data_from_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize node data without losing top-level raw-node metadata.
+
+    The form still edits/renders _data, but class/layout/event resolution uses
+    the full payload. If an older/raw sender did not wrap fields in _data, use
+    the payload fields except structural wrappers.
+    """
+    payload = payload if isinstance(payload, dict) else {}
+    data = payload.get("_data")
+    if isinstance(data, dict):
+        return dict(data or {})
+
+    skip = {
+        "_data", "data", "payload",
+        "_class", "class", "class_json", "_class_json", "schema", "node_class",
+        "_download_url", "download_url", "raw_node_url", "node_url", "thread_ref",
+    }
+    return {k: v for k, v in payload.items() if k not in skip}
+
+
+def _raw_node_download_url(raw_node_id: str) -> str:
+    raw_node_id = str(raw_node_id or "").strip()
+    explicit = ""
+    try:
+        explicit = str(request.url_root.rstrip("/")) + f"/api/raw-node/{raw_node_id}"
+    except Exception:
+        explicit = f"/api/raw-node/{raw_node_id}"
+    return explicit
+
+
+def _raw_node_download_ref(payload: Dict[str, Any], raw_node_id: str) -> str:
+    payload = payload if isinstance(payload, dict) else {}
+    for key in ("_download_url", "download_url", "raw_node_url", "node_url", "thread_ref"):
+        value = str(payload.get(key) or "").strip()
+        if value:
+            return value
+    return _raw_node_download_url(raw_node_id)
+
+
+def _class_name_from_embedded_class(raw_class: Dict[str, Any], fallback: str = "", payload: Optional[Dict[str, Any]] = None) -> str:
+    helper = getattr(main, "_extract_class_name_from_class_json", None)
+    if callable(helper):
+        try:
+            value = helper(raw_class, fallback_class_name=fallback, node_json=payload or {})
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        except Exception:
+            pass
+    value = _extract_raw_node_class_name(raw_class)
+    return value or str(fallback or "").strip()
+
+
+def _raw_node_identity(payload: Dict[str, Any], fallback_node_id: str = "") -> Tuple[str, str, Dict[str, Any]]:
+    data = _raw_node_data_from_payload(payload)
+    embedded_class = _extract_raw_node_class_json(payload)
+    class_name = _class_name_from_embedded_class(
+        embedded_class,
+        fallback=_extract_raw_node_class_name(payload.get("_class") or payload.get("class_name") or data.get("_class")),
+        payload=payload,
+    )
+    node_id = str(payload.get("_id") or payload.get("node_id") or payload.get("node_uid") or data.get("_id") or fallback_node_id or "").strip()
+    return class_name, node_id, dict(data or {})
+
+
+def _merge_raw_class_into_parsed(base_parsed: Optional[Dict[str, Any]], class_name: str, class_obj: Dict[str, Any], payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Build a parsed-config-like object where embedded raw class wins.
+
+    render_nodalayout_html helpers expect the same parsed structure used by
+    normal /section and /node pages. This lets raw-node classes reuse
+    CommonLayouts/NodeInput rendering where possible.
+    """
+    parsed = dict(base_parsed or {})
+    cfg = dict((parsed.get("cfg") or {}) if isinstance(parsed.get("cfg"), dict) else {})
+    payload = payload if isinstance(payload, dict) else {}
+
+    for key in ("config", "_config", "configuration", "cfg"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            # Embedded config may contain CommonLayouts or other class-level
+            # references; prefer it only for keys that are absent in the repo cfg.
+            for k, v in value.items():
+                cfg.setdefault(k, v)
+
+    if isinstance(class_obj, dict):
+        for key in ("CommonLayouts", "common_layouts"):
+            value = class_obj.get(key)
+            if isinstance(value, list) and value and "CommonLayouts" not in cfg:
+                cfg["CommonLayouts"] = value
+
+    classes = dict((parsed.get("classes") or {}) if isinstance(parsed.get("classes"), dict) else {})
+    if class_name and isinstance(class_obj, dict) and class_obj:
+        classes[class_name] = class_obj
+
+    parsed["cfg"] = cfg
+    parsed["classes"] = classes
+    parsed.setdefault("sections", [])
+    parsed.setdefault("classes_by_section", {})
+    parsed.setdefault("rooms", {})
+    return parsed
+
+
+def _resolve_raw_node_class(payload: Dict[str, Any], class_name: str, preferred_repo=None):
+    """Resolve class for a raw-node.
+
+    Returns (repo, parsed, class_obj). If payload carries embedded class JSON,
+    that JSON takes precedence; otherwise class_name is resolved from the
+    user's configured repositories.
+    """
+    embedded_class = _extract_raw_node_class_json(payload)
+    embedded_name = _class_name_from_embedded_class(embedded_class, fallback=class_name, payload=payload) if embedded_class else ""
+    effective_name = embedded_name or str(class_name or "").strip()
+
+    repo = None
+    parsed = None
+
+    if embedded_class:
+        repo, parsed, _repo_cls = _find_repo_for_raw_node(effective_name, payload)
+        if repo is None and preferred_repo is not None:
+            repo = preferred_repo
+            parsed = get_parsed_config(repo, models.db) or {}
+        if repo is None:
+            repos = models.Repo.query.filter_by(user_id=current_user.id).order_by(models.Repo.id.asc()).all()
+            repo = repos[0] if repos else None
+            parsed = get_parsed_config(repo, models.db) if repo else {}
+        parsed = _merge_raw_class_into_parsed(parsed or {}, effective_name, embedded_class, payload=payload)
+        return repo, parsed, embedded_class
+
+    repo, parsed, cls = _find_repo_for_raw_node(effective_name, payload)
+    if repo is None and preferred_repo is not None:
+        repo = preferred_repo
+        parsed = get_parsed_config(repo, models.db) or {}
+        cls = ((parsed or {}).get("classes") or {}).get(effective_name) or cls
+    return repo, parsed, cls or {}
+
+
+def _raw_node_search_text(obj, payload: Dict[str, Any], class_name: str, node_id: str, data: Dict[str, Any]) -> str:
+    parts = [
+        str(getattr(obj, "node_id", "") or ""),
+        str(node_id or ""),
+        str(class_name or ""),
+        str(getattr(obj, "content_type", "") or ""),
+    ]
+    try:
+        parts.append(json.dumps(data, ensure_ascii=False, default=str))
+    except Exception:
+        parts.append(str(data))
+    try:
+        parts.append(json.dumps(payload, ensure_ascii=False, default=str))
+    except Exception:
+        parts.append(str(payload))
+    return "\n".join(parts).lower()
+
+
+_RAW_NODE_URL_RE = re.compile(r"(?:^|[\s\"'(<])(?:https?://[^\s\"'<>]+)?/(?:api/)?raw-node/([^\s\"'<>?#]+)", re.UNICODE)
+
+
+def _extract_raw_node_id_from_url(value: str) -> str:
+    """Extract the DB RawNode.node_id from absolute/relative raw-node links."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    for marker in ("/api/raw-node/", "api/raw-node/", "/raw-node/", "raw-node/"):
+        if marker in raw:
+            tail = raw.rsplit(marker, 1)[-1]
+            return tail.split("?", 1)[0].split("#", 1)[0].strip().strip('"\'<>')
+    return ""
+
+
+def _extract_raw_node_ids_from_message_payload(value, *, deep: bool = False, _depth: int = 0) -> set:
+    """Extract raw-node ids from known node-message shapes.
+
+    Keep the default path intentionally shallow. The previous recursive scanner
+    walked arbitrary JSON blobs for every request; on production message tables
+    that can pin a CPU core. Received Nodes only needs the fields that the
+    server/mobile clients actually use: type=node + node_id/node_uid and the
+    raw-node URL fields.
+    """
+    ids = set()
+
+    def add(item):
+        item = str(item or "").strip()
+        if item:
+            ids.add(item)
+
+    if value is None:
+        return ids
+
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return ids
+        add(_extract_raw_node_id_from_url(raw))
+        for match in _RAW_NODE_URL_RE.finditer(" " + raw):
+            add(match.group(1))
+        if deep and _depth < 2 and raw[:1] in ("{", "["):
+            try:
+                ids.update(_extract_raw_node_ids_from_message_payload(json.loads(raw), deep=False, _depth=_depth + 1))
+            except Exception:
+                pass
+        return {x for x in ids if x}
+
+    if isinstance(value, (list, tuple)):
+        for item in list(value)[:50]:
+            ids.update(_extract_raw_node_ids_from_message_payload(item, deep=False, _depth=_depth + 1))
+        return {x for x in ids if x}
+
+    if not isinstance(value, dict):
+        return ids
+
+    obj = value
+    for key in ("download_url", "_download_url", "raw_node_url", "node_url", "thread_ref"):
+        add(_extract_raw_node_id_from_url(obj.get(key)))
+
+    ptype = str(obj.get("type") or obj.get("message_type") or "").strip().lower()
+    has_raw_url = any(_extract_raw_node_id_from_url(obj.get(k)) for k in ("download_url", "_download_url", "raw_node_url", "node_url", "thread_ref"))
+    if ptype in {"node", "node_download", "raw_node", "raw-node", "node_message"} or has_raw_url:
+        for key in ("node_id", "node_uid", "raw_node_id", "_id"):
+            add(obj.get(key))
+
+    # Common one-level wrappers only. Do not recurse over every payload value.
+    for key in ("data", "payload", "node"):
+        nested = obj.get(key)
+        if isinstance(nested, dict):
+            ids.update(_extract_raw_node_ids_from_message_payload(nested, deep=False, _depth=_depth + 1))
+
+    # Batch payloads are explicit and bounded.
+    for key in ("items", "nodes"):
+        nested = obj.get(key)
+        if isinstance(nested, list):
+            for item in nested[:50]:
+                ids.update(_extract_raw_node_ids_from_message_payload(item, deep=False, _depth=_depth + 1))
+
+    for key in ("items_json", "nodes_json", "payload_json", "data_json"):
+        raw = obj.get(key)
+        if isinstance(raw, str) and raw.strip()[:1] in ("{", "["):
+            try:
+                ids.update(_extract_raw_node_ids_from_message_payload(json.loads(raw), deep=False, _depth=_depth + 1))
+            except Exception:
+                pass
+
+    return {x for x in ids if x}
+
+
+def _dt_sort_value(value) -> float:
+    if value is None:
+        return 0.0
+    try:
+        if getattr(value, "tzinfo", None) is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return float(value.timestamp())
+    except Exception:
+        try:
+            return float(datetime.fromisoformat(str(value)).timestamp())
+        except Exception:
+            return 0.0
+
+
+def _current_user_cache_key():
+    try:
+        return getattr(current_user, "id", None) or getattr(current_user, "email", None) or id(current_user)
+    except Exception:
+        return None
+
+
+def _current_user_keys() -> List[str]:
+    """Return message aliases known for the logged-in web/API user.
+
+    This is intentionally cached for the duration of rendering because Received
+    Nodes calls it from several helpers. It also includes device_uid values so
+    direct device-targeted Android deliveries can be matched by indexed
+    outgoing_message_log.target_id instead of scanning JSON payloads globally.
+    """
+    cache_key = _current_user_cache_key()
+    if cache_key in _CURRENT_USER_KEYS_CACHE:
+        return list(_CURRENT_USER_KEYS_CACHE.get(cache_key) or [])
+
+    keys = []
+
+    def add(value):
+        value = str(value or "").strip()
+        if value:
+            keys.append(value)
+
+    try:
+        add(getattr(current_user, "email", ""))
+    except Exception:
+        pass
+    try:
+        add(getattr(current_user, "id", ""))
+    except Exception:
+        pass
+    try:
+        add(getattr(current_user, "config_display_name", ""))
+    except Exception:
+        pass
+
+    user_id = None
+    try:
+        user_id = getattr(current_user, "id", None)
+    except Exception:
+        user_id = None
+
+    RoomDevice = _server_model("RoomDevice")
+    UserDevice = _server_model("UserDevice")
+    OutgoingMessageDeviceAck = _server_model("OutgoingMessageDeviceAck")
+    device_uids = set()
+
+    if user_id is not None:
+        try:
+            if RoomDevice is not None:
+                for rd in RoomDevice.query.filter_by(user_id=user_id).all():
+                    add(getattr(rd, "user_key", ""))
+                    du = str(getattr(rd, "device_uid", "") or "").strip()
+                    if du:
+                        device_uids.add(du)
+                        add(du)
+                    extra = getattr(rd, "extra_json", None)
+                    if isinstance(extra, dict):
+                        for k in ("user_key", "target_user", "recipient", "to_user"):
+                            add(extra.get(k))
+        except Exception:
+            pass
+        try:
+            if UserDevice is not None:
+                for ud in UserDevice.query.filter_by(user_id=user_id).all():
+                    du = str(getattr(ud, "device_uid", "") or "").strip()
+                    if du:
+                        device_uids.add(du)
+                        add(du)
+                    add(getattr(ud, "android_id", ""))
+                    extra = getattr(ud, "extra_json", None)
+                    if isinstance(extra, dict):
+                        for k in ("user_key", "target_user", "recipient", "to_user"):
+                            add(extra.get(k))
+        except Exception:
+            pass
+
+    # Keep this bounded and only once per request/user. It is a compatibility
+    # fallback for old Android rows, not the primary lookup path.
+    if device_uids and OutgoingMessageDeviceAck is not None:
+        try:
+            for ack in OutgoingMessageDeviceAck.query.filter(OutgoingMessageDeviceAck.device_uid.in_(list(device_uids))).order_by(OutgoingMessageDeviceAck.id.desc()).limit(200).all():
+                add(getattr(ack, "user_key", ""))
+                add(getattr(ack, "ack_by", ""))
+                ack_payload = getattr(ack, "ack_payload", None)
+                if isinstance(ack_payload, dict):
+                    for k in ("user_key", "ack_user", "target_user", "recipient", "to_user"):
+                        add(ack_payload.get(k))
+        except Exception:
+            pass
+
+    seen = set()
+    out = []
+    for key in keys:
+        low = str(key or "").strip().lower()
+        if not low or low in seen:
+            continue
+        seen.add(low)
+        out.append(str(key).strip())
+
+    _CURRENT_USER_KEYS_CACHE[cache_key] = list(out)
+    return out
+
+
+def _current_user_group_ids(user_keys: Optional[List[str]] = None) -> set:
+    MessageGroupMember = _server_model("MessageGroupMember")
+    keys = user_keys if user_keys is not None else _current_user_keys()
+    lows_tuple = tuple(sorted({str(k or "").strip().lower() for k in keys if str(k or "").strip()}))
+    cache_key = (_current_user_cache_key(), lows_tuple)
+    if cache_key in _CURRENT_USER_GROUP_IDS_CACHE:
+        return set(_CURRENT_USER_GROUP_IDS_CACHE.get(cache_key) or set())
+    if MessageGroupMember is None or not lows_tuple:
+        return set()
+    try:
+        rows = MessageGroupMember.query.filter(func.lower(MessageGroupMember.user_key).in_(list(lows_tuple))).all()
+        group_ids = {str(r.group_id or "").strip() for r in rows if str(r.group_id or "").strip()}
+    except Exception:
+        try:
+            rows = MessageGroupMember.query.all()
+            lows = set(lows_tuple)
+            group_ids = {
+                str(r.group_id or "").strip()
+                for r in rows
+                if str(getattr(r, "user_key", "") or "").strip().lower() in lows and str(r.group_id or "").strip()
+            }
+        except Exception:
+            group_ids = set()
+    _CURRENT_USER_GROUP_IDS_CACHE[cache_key] = set(group_ids)
+    return group_ids
+
+
+def _raw_node_payload_has_current_user_hint(payload: Dict[str, Any], include_sender: bool = True, *, user_keys: Optional[List[str]] = None, group_ids: Optional[set] = None) -> bool:
+    payload = payload if isinstance(payload, dict) else {}
+    keys = user_keys if user_keys is not None else _current_user_keys()
+    lows = {k.lower() for k in keys}
+    groups = group_ids if group_ids is not None else _current_user_group_ids(keys)
+    if not lows:
+        return False
+
+    hints = payload.get("_node_message_targets")
+    if isinstance(hints, list):
+        for hint in hints:
+            if not isinstance(hint, dict):
+                continue
+            target_type = str(hint.get("target_type") or "").strip().lower()
+            target_id = str(hint.get("target_id") or hint.get("user_key") or hint.get("group_id") or "").strip()
+            if target_type == "user" and target_id.lower() in lows:
+                return True
+            if target_type == "group" and target_id in groups:
+                return True
+            if include_sender and str(hint.get("sender_user") or "").strip().lower() in lows:
+                return True
+
+    if include_sender and str(payload.get("sender_user") or "").strip().lower() in lows:
+        return True
+
+    for key in ("target_user", "user_key", "target_key", "target_id", "recipient", "recipient_user", "to", "to_user", "peer", "peer_user", "receiver"):
+        value = str(payload.get(key) or "").strip()
+        if value and value.lower() in lows:
+            return True
+
+    group_id = str(payload.get("group_id") or payload.get("discussion_group_id") or "").strip()
+    if group_id and group_id in groups:
+        return True
+
+    # Only known wrappers, not arbitrary recursion.
+    for key in ("data", "_data", "payload", "node"):
+        nested = payload.get(key)
+        if isinstance(nested, dict) and _raw_node_payload_has_current_user_hint(nested, include_sender=include_sender, user_keys=keys, group_ids=groups):
+            return True
+
+    return False
+
+
+def _message_row_visible_to_current_user(row, *, user_keys: Optional[List[str]] = None, group_ids: Optional[set] = None) -> bool:
+    keys = user_keys if user_keys is not None else _current_user_keys()
+    lows = {k.lower() for k in keys}
+    if not lows:
+        return False
+    groups = group_ids if group_ids is not None else _current_user_group_ids(keys)
+    payload = getattr(row, "payload_json", None)
+    payload = payload if isinstance(payload, dict) else {}
+
+    sender = str(getattr(row, "sender_user", "") or payload.get("sender_user") or "").strip().lower()
+    if sender and sender in lows:
+        return True
+
+    target_type = str(getattr(row, "target_type", "") or "").strip().lower()
+    target_id = str(getattr(row, "target_id", "") or "").strip()
+    if target_type in {"user", "device"} and target_id.lower() in lows:
+        return True
+    if target_type == "group" and target_id in groups:
+        return True
+
+    for key in ("user_key", "target_key", "target_user", "target_id", "recipient", "recipient_user", "to", "to_user", "peer", "peer_user", "receiver"):
+        value = str(payload.get(key) or "").strip().lower()
+        if value and value in lows:
+            return True
+    group_id = str(payload.get("group_id") or payload.get("discussion_group_id") or "").strip()
+    if group_id and group_id in groups:
+        return True
+    return False
+
+
+def _query_current_user_message_rows(limit: int = 1000):
+    """Return only rows that are plausibly related to current user, using DB indexes.
+
+    No network calls and no full-table JSON scan. A small recent fallback catches
+    older direct-device payloads where only payload.user_key carries the user.
+    """
+    OutgoingMessageLog = _server_model("OutgoingMessageLog")
+    if OutgoingMessageLog is None:
+        return []
+
+    keys = _current_user_keys()
+    groups = _current_user_group_ids(keys)
+    clauses = []
+    if keys:
+        clauses.append(OutgoingMessageLog.sender_user.in_(keys))
+        clauses.append(and_(OutgoingMessageLog.target_type.in_(("user", "device")), OutgoingMessageLog.target_id.in_(keys)))
+    if groups:
+        clauses.append(and_(OutgoingMessageLog.target_type == "group", OutgoingMessageLog.target_id.in_(list(groups))))
+
+    rows_by_id = {}
+    try:
+        if clauses:
+            rows = OutgoingMessageLog.query.filter(or_(*clauses)).order_by(
+                OutgoingMessageLog.id.desc(),
+            ).limit(limit).all()
+            for row in rows:
+                rows_by_id[getattr(row, "id", id(row))] = row
+    except Exception:
+        pass
+
+    # Bounded compatibility fallback: catches Android rows whose route target
+    # is not one of the web user's aliases but payload.user_key/peer_user is.
+    # Order by primary key only; created_at is not guaranteed to be indexed.
+    try:
+        fallback_limit = min(1000, max(100, int(limit)))
+        rows = OutgoingMessageLog.query.order_by(
+            OutgoingMessageLog.id.desc(),
+        ).limit(fallback_limit).all()
+        for row in rows:
+            if _message_row_visible_to_current_user(row, user_keys=keys, group_ids=groups):
+                rows_by_id[getattr(row, "id", id(row))] = row
+    except Exception:
+        pass
+
+    out = list(rows_by_id.values())
+    out.sort(key=lambda r: (_dt_sort_value(getattr(r, "created_at", None)), getattr(r, "id", 0) or 0), reverse=True)
+    return out[:limit]
+
+
+def _raw_node_ids_from_message_history() -> set:
+    """Raw node ids delivered to/currently sent by the current user.
+
+    This is based on indexed OutgoingMessageLog columns plus a tiny recent
+    fallback. It never downloads /api/raw-node URLs and never loops over RawNode.
+    """
+    ids = []
+    seen = set()
+    for row in _query_current_user_message_rows(limit=1000):
+        payload = getattr(row, "payload_json", None)
+        for raw_id in _extract_raw_node_ids_from_message_payload(payload):
+            if raw_id and raw_id not in seen:
+                seen.add(raw_id)
+                ids.append(raw_id)
+    return set(ids)
+
+
+def _current_user_can_access_raw_node(raw_node_id: str, obj=None, include_sender: bool = True) -> bool:
+    raw_node_id = str(raw_node_id or "").strip()
+    if not raw_node_id or not getattr(current_user, "is_authenticated", False):
+        return False
+
+    RawNode = _server_model("RawNode")
+    if obj is None and RawNode is not None:
+        try:
+            obj = RawNode.query.filter_by(node_id=raw_node_id).first()
+        except Exception:
+            obj = None
+
+    try:
+        if obj is not None and getattr(obj, "owner_user_id", None) == getattr(current_user, "id", None):
+            return True
+    except Exception:
+        pass
+
+    keys = _current_user_keys()
+    groups = _current_user_group_ids(keys)
+    payload = _raw_node_payload(obj) if obj is not None else {}
+    if _raw_node_payload_has_current_user_hint(payload, include_sender=include_sender, user_keys=keys, group_ids=groups):
+        return True
+
+    return raw_node_id in _raw_node_ids_from_message_history()
+
+
+def _message_dict_visible_to_current_user(msg: Dict[str, Any]) -> bool:
+    msg = msg if isinstance(msg, dict) else {}
+    keys = _current_user_keys()
+    lows = {k.lower() for k in keys}
+    if not lows:
+        return False
+    group_ids = _current_user_group_ids(keys)
+
+    data = msg.get("data") if isinstance(msg.get("data"), dict) else {}
+    sender = str(msg.get("sender_user") or data.get("sender_user") or "").strip().lower()
+    if sender and sender in lows:
+        return True
+    target_type = str(msg.get("target_type") or data.get("target_type") or "").strip().lower()
+    target_id = str(msg.get("target_id") or data.get("target_id") or "").strip()
+    if target_type in {"user", "device"} and target_id.lower() in lows:
+        return True
+    if target_type == "group" and target_id in group_ids:
+        return True
+    group_id = str(msg.get("group_id") or data.get("group_id") or "").strip()
+    if group_id and group_id in group_ids:
+        return True
+    user_key = str(msg.get("user_key") or data.get("user_key") or "").strip().lower()
+    if user_key and user_key in lows:
+        return True
+    return False
+
+
+def _current_user_can_access_node_discussion(node_id: str) -> bool:
+    node_id = str(node_id or "").strip()
+    if not node_id:
+        return False
+    if _current_user_can_access_raw_node(node_id):
+        return True
+    NodeDiscussionMessage = _server_model("NodeDiscussionMessage")
+    if NodeDiscussionMessage is not None:
+        try:
+            keys = _current_user_keys()
+            groups = _current_user_group_ids(keys)
+            rows = NodeDiscussionMessage.query.filter_by(node_id=node_id).order_by(NodeDiscussionMessage.id.desc()).limit(200).all()
+            if any(_message_row_visible_to_current_user(r, user_keys=keys, group_ids=groups) for r in rows):
+                return True
+        except Exception:
+            pass
+    return False
+
+def _find_repo_for_raw_node(class_name: str, payload: Optional[Dict[str, Any]] = None):
+    repos = models.Repo.query.filter_by(user_id=current_user.id).all()
+    if not repos:
+        return None, None, None
+
+    payload = payload if isinstance(payload, dict) else {}
+    class_obj = payload.get("_class")
+    possible_cfg_uids = []
+    if isinstance(class_obj, dict):
+        for key in ("config_uid", "configuration_uid", "config", "repo_uid"):
+            val = str(class_obj.get(key) or "").strip()
+            if val:
+                possible_cfg_uids.append(val)
+
+    def repo_score(repo):
+        score = 0
+        if possible_cfg_uids and str(repo.config_uid or "") in possible_cfg_uids:
+            score += 10
+        return score
+
+    candidates = sorted(repos, key=repo_score, reverse=True)
+    first_parsed = None
+    first_repo = candidates[0] if candidates else None
+    for repo in candidates:
+        parsed = get_parsed_config(repo, models.db)
+        if first_parsed is None:
+            first_parsed = parsed
+        cls = ((parsed or {}).get("classes") or {}).get(class_name) if class_name else None
+        if cls:
+            return repo, parsed, cls
+    return first_repo, first_parsed, None
+
+
+def _build_raw_node_items(q: str = "") -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Build Received Nodes directly from local DB rows.
+
+    Important: do not call /api/raw-node URLs from the web server. Those links
+    are hosted by this same Flask app, and the source of truth is RawNode. The
+    list is scoped by OutgoingMessageLog/RawNode metadata, then RawNode rows are
+    fetched by node_id with indexed queries.
+    """
+    RawNode = _server_model("RawNode")
+    if RawNode is None:
+        return [], {"classes_ui": [], "table_headers": ["Created", "Updated"], "filter_indexes": []}
+
+    delivered_ids = _raw_node_ids_from_message_history()
+    user_id = getattr(current_user, "id", None)
+    rows_by_id = {}
+
+    # Nodes received/sent through messages: fetch by indexed RawNode.node_id.
+    if delivered_ids:
+        try:
+            for obj in RawNode.query.filter(RawNode.node_id.in_(list(delivered_ids))).all():
+                raw_id = str(getattr(obj, "node_id", "") or "").strip()
+                if raw_id:
+                    rows_by_id[raw_id] = obj
+        except Exception:
+            pass
+
+    # Nodes uploaded by this web/API user: indexed owner_user_id.
+    if user_id is not None:
+        try:
+            q_owner = RawNode.query.filter_by(owner_user_id=user_id)
+            try:
+                owner_rows = q_owner.order_by(RawNode.updated_at.desc(), RawNode.created_at.desc(), RawNode.id.desc()).limit(500).all()
+            except Exception:
+                owner_rows = q_owner.order_by(RawNode.id.desc()).limit(500).all()
+            for obj in owner_rows:
+                raw_id = str(getattr(obj, "node_id", "") or "").strip()
+                if raw_id:
+                    rows_by_id[raw_id] = obj
+        except Exception:
+            pass
+
+    rows = list(rows_by_id.values())
+    rows.sort(
+        key=lambda obj: (
+            _dt_sort_value(getattr(obj, "updated_at", None) or getattr(obj, "created_at", None)),
+            getattr(obj, "id", 0) or 0,
+        ),
+        reverse=True,
+    )
+    rows = rows[:500]
+
+    # Resolve repositories/classes once as much as possible.
+    items = []
+    q_low = str(q or "").strip().lower()
+    repo_cache: Dict[str, Tuple[Any, Any, Any]] = {}
+
+    for obj in rows:
+        raw_id = str(getattr(obj, "node_id", "") or "").strip()
+        if not raw_id:
+            continue
+
+        payload = _raw_node_payload(obj)
+        class_name, payload_node_id, data = _raw_node_identity(payload, raw_id)
+        node_id = payload_node_id or raw_id
+        data.setdefault("_id", node_id)
+        if class_name:
+            data.setdefault("_class", class_name)
+        data.setdefault("_raw_node_id", raw_id)
+        data.setdefault("_download_url", _raw_node_download_ref(payload, raw_id))
+
+        if q_low and q_low not in _raw_node_search_text(obj, payload, class_name, node_id, data):
+            continue
+
+        embedded_key = "embedded:" + str(id(payload.get("_class"))) if isinstance(payload.get("_class"), dict) else ""
+        cache_key = embedded_key or class_name or "raw-node"
+        if cache_key in repo_cache:
+            repo, parsed, cls = repo_cache[cache_key]
+        else:
+            repo, parsed, cls = _resolve_raw_node_class(payload, class_name)
+            repo_cache[cache_key] = (repo, parsed, cls)
+
+        if isinstance(cls, dict):
+            resolved_name = _class_name_from_embedded_class(cls, fallback=class_name, payload=payload)
+            if resolved_name:
+                class_name = resolved_name
+                data.setdefault("_class", class_name)
+        repo_id = getattr(repo, "id", 0) or 0
+        repo_name = getattr(repo, "display_name", "") or getattr(repo, "name", "") or RAW_NODES_SECTION_NAME
+        display_image_html = ""
+        tv = {
+            "Created": getattr(obj, "created_at", None).isoformat() if getattr(obj, "created_at", None) else "",
+            "Updated": getattr(obj, "updated_at", None).isoformat() if getattr(obj, "updated_at", None) else "",
+        }
+        try:
+            if repo and parsed and cls:
+                cover_layout = cls.get("cover_image")
+                cover_web_layout = cls.get("display_image_web") or ""
+                layout_to_use = cover_web_layout if str(cover_web_layout or "").strip() else cover_layout
+                if layout_to_use is not None:
+                    layout_to_use = resolve_common_layout(parsed, layout_to_use)
+                    _fill_nodeinput_views(repo, parsed, layout_to_use, data)
+                    display_image_html = _wrap_client_tpl_html(str(render_nodalayout_html(
+                        layout_to_use,
+                        data,
+                        assets_base_dir=_userfiles_dir_for_repo(repo),
+                        context=_nl_context(repo, class_name=class_name, node_id=node_id),
+                    ) or ""), data)
+        except Exception:
+            display_image_html = ""
+
+        items.append({
+            "repo": repo_name,
+            "repo_id": repo_id,
+            "class": class_name or "raw-node",
+            "id": node_id,
+            "raw_node_id": raw_id,
+            "data": data,
+            "class_obj": cls or {},
+            "is_raw_node": True,
+            "is_custom_process": True,
+            "display_image_html": display_image_html,
+            "table_values": tv,
+            "use_standard_commands": False,
+            "repo_uid": getattr(repo, "config_uid", "") or "",
+        })
+
+    return items, {
+        "classes_ui": [],
+        "table_headers": ["Created", "Updated"],
+        "start_menu_cmds_ui": [],
+        "filter_indexes": [],
+    }
+
+
+_CLASS_VIEW_RE = re.compile(r"\{([\w.]+)\}", re.UNICODE)
 
 def _render_class_record_view(parsed: Optional[Dict[str, Any]], class_name: str, node_id: str, data: Optional[Dict[str, Any]]) -> str:
     """Render class-level record view template using node data."""
@@ -107,7 +988,7 @@ def _get_dataset_item_direct(config_uid: str, ds_name: str, item_id: str) -> Opt
         tpl = (ds.view_template or "").strip()
         if tpl:
             import re
-            pattern = r'{([A-Za-z0-9_]+)}'
+            pattern = r'{([\w.]+)}'
             
             def repl(match):
                 field_name = match.group(1)
@@ -889,7 +1770,7 @@ def _load_server_node_class(config_uid: str, class_name: str):
 
     # 2) FALLBACK TO DB ONLY IF FILE MISSING
     if code is None:
-        from sqlalchemy import select
+        from sqlalchemy import select, or_, and_, func
         import __main__ as main
         Configuration = main.Configuration
 
@@ -1190,10 +2071,10 @@ def _inject_globals():
 @login_required
 def home():
     repos = models.Repo.query.filter_by(user_id=current_user.id).all()
-    sections = build_global_sections(repos, models.db)
+    sections = _with_received_nodes_section(build_global_sections(repos, models.db))
     section_code = request.args.get("section", None)
     if section_code is None:
-        section_code = sections[0]["code"] if sections else ""
+        section_code = _default_section_code(sections)
     scode_url = section_code if section_code != "" else "__empty__"
     return redirect(url_for("client.section_view", section_code=scode_url))
 
@@ -1202,7 +2083,7 @@ def home():
 @login_required
 def sections_home():
     repos = models.Repo.query.filter_by(user_id=current_user.id).all()
-    sections = build_global_sections(repos, models.db) if repos else []
+    sections = _with_received_nodes_section(build_global_sections(repos, models.db)) if repos else []
     if not sections:
         return render_template(
             "client/section.html",
@@ -1214,7 +2095,7 @@ def sections_home():
             auto_refresh=AUTO_REFRESH_SECONDS,
             no_repos=(len(repos) == 0),
         )
-    first = sections[0]["code"]
+    first = _default_section_code(sections)
     scode_url = first if first != "" else "__empty__"
     return redirect(url_for("client.section_view", section_code=scode_url))
 
@@ -1678,7 +2559,7 @@ def section_view(section_code: str):
         return redirect(url_for("client.sections_home"))
 
     code = "" if section_code == "__empty__" else section_code
-    sections = build_global_sections(repos, models.db)
+    sections = _with_received_nodes_section(build_global_sections(repos, models.db))
     sec_name = "<...>" if code == "" else next((s["name"] for s in sections if s["code"] == code), code)
 
     return render_template(
@@ -2016,6 +2897,16 @@ def api_section_data():
     q = (request.args.get("q") or "").strip().lower()
     index_name = (request.args.get("index_name") or "").strip()
     index_value = request.args.get("index_value")
+
+    if section_code == RAW_NODES_SECTION_CODE:
+        items, meta = _build_raw_node_items(q=q)
+        return jsonify({
+            "ok": True,
+            "items": items,
+            "count": len(items),
+            "nl_css": DEFAULT_NL_CSS,
+            "meta": meta,
+        })
 
     repos = models.Repo.query.filter_by(user_id=current_user.id).all()
     merged: List[Dict[str, Any]] = []
@@ -2729,7 +3620,371 @@ def node_form(config_uid: str, class_name: str, node_id: str):
         initial_message=ui_message,
         ui_plugins=ui_plugins,
         class_obj=cls,
+        is_raw_node=False,
     )
+
+
+def _parse_plugins_json(s: str):
+    s = (s or "").strip()
+    if not s:
+        return []
+    try:
+        obj = json.loads(s)
+        if isinstance(obj, list):
+            return obj
+        if isinstance(obj, dict):
+            return [obj]
+    except Exception:
+        return []
+    return []
+
+
+@client_bp.route("/raw-node/<path:raw_node_id>")
+@login_required
+def raw_node_form(raw_node_id: str):
+    RawNode = _server_model("RawNode")
+    if RawNode is None:
+        abort(404)
+
+    obj = RawNode.query.filter_by(node_id=str(raw_node_id or "").strip()).first()
+    if not obj:
+        abort(404)
+    if not _current_user_can_access_raw_node(raw_node_id, obj=obj):
+        abort(403)
+
+    payload = _raw_node_payload(obj)
+    class_name, payload_node_id, node_data = _raw_node_identity(payload, raw_node_id)
+    node_id = payload_node_id or str(raw_node_id or "").strip()
+    node_data = dict(node_data or {})
+    node_data.setdefault("_id", node_id)
+    if class_name:
+        node_data.setdefault("_class", class_name)
+    node_data.setdefault("_raw_node_id", str(raw_node_id or ""))
+    download_url = _raw_node_download_ref(payload, raw_node_id)
+    event_download_url = _raw_node_download_url(raw_node_id)
+    node_data.setdefault("_download_url", download_url)
+
+    repo, parsed, cls = _resolve_raw_node_class(payload, class_name)
+    if repo is None:
+        repos = models.Repo.query.filter_by(user_id=current_user.id).all()
+        repo = repos[0] if repos else None
+    if repo is None:
+        abort(404)
+
+    cls = cls or {}
+    parsed = parsed or get_parsed_config(repo, models.db) or {}
+    if isinstance(cls, dict):
+        resolved_name = _class_name_from_embedded_class(cls, fallback=class_name, payload=payload)
+        if resolved_name:
+            class_name = resolved_name
+            node_data.setdefault("_class", class_name)
+    ui_plugins = _parse_plugins_json(cls.get("plug_in_web") or "") if isinstance(cls, dict) else []
+    ui_message = None
+    use_std = bool(cls.get("use_standard_commands")) if isinstance(cls, dict) else False
+    is_custom_process = (cls.get("class_type") or "data_node") == "custom_process" if isinstance(cls, dict) else False
+    has_onshowweb = any((ev.get("event") or "") == "onShowWeb" for ev in (cls.get("events") or [])) if isinstance(cls, dict) else False
+    layout = None
+
+    # Embedded raw-node classes may contain handlers. Execute onShowWeb through
+    # the same download_url/raw-node path used by server-side PythonScript
+    # handling, so a raw document behaves like a normal node form instead of a
+    # plain JSON viewer.
+    if has_onshowweb and _extract_raw_node_class_json(payload):
+        try:
+            ctx_builder = getattr(main, "resolve_download_url_node_context", None)
+            event_runner = getattr(main, "execute_download_url_node_event", None)
+            if callable(ctx_builder) and callable(event_runner):
+                ctx = ctx_builder(node_id=node_id, fallback_class_name=class_name, download_url=event_download_url)
+                event_runner(ctx, "onShowWeb", "", {})
+                raw_event_node = ctx.get("node") if isinstance(ctx, dict) else None
+                if raw_event_node is not None:
+                    try:
+                        event_data = raw_event_node.get_data() or {}
+                        if isinstance(event_data, dict):
+                            node_data = event_data.copy()
+                            node_data.setdefault("_id", node_id)
+                            node_data.setdefault("_raw_node_id", str(raw_node_id or ""))
+                            node_data.setdefault("_download_url", download_url)
+                            if class_name:
+                                node_data.setdefault("_class", class_name)
+                    except Exception:
+                        pass
+                    if getattr(raw_event_node, "_ui_layout", None) is not None:
+                        layout = getattr(raw_event_node, "_ui_layout", None)
+                    if getattr(raw_event_node, "_ui_message", None) is not None:
+                        ui_message = getattr(raw_event_node, "_ui_message", None)
+                    if getattr(raw_event_node, "_ui_plugins", None) is not None:
+                        ui_plugins = getattr(raw_event_node, "_ui_plugins", None)
+        except Exception as e:
+            ui_message = str(e)
+
+    if isinstance(node_data, dict) and "_layout" in node_data:
+        layout = layout if layout is not None else node_data.get("_layout")
+    elif isinstance(cls, dict):
+        layout = layout if layout is not None else ((cls.get("init_screen_layout") or "").strip() or None)
+
+    layout = resolve_common_layout(parsed, layout)
+    if layout is not None and isinstance(node_data, dict):
+        try:
+            _fill_nodeinput_views(repo, parsed, layout, node_data)
+        except Exception:
+            pass
+
+    layout_html = ""
+    if layout is not None:
+        try:
+            layout_html = render_nodalayout_html(
+                layout,
+                node_data if isinstance(node_data, dict) else {},
+                assets_base_dir=_userfiles_dir_for_repo(repo),
+                context=_nl_context(repo, class_name=class_name, node_id=node_id),
+            ) or ""
+        except Exception:
+            layout_html = ""
+
+    try:
+        data_json = json.dumps(node_data if isinstance(node_data, dict) else {}, ensure_ascii=False, indent=2)
+    except Exception:
+        data_json = "{}"
+
+    return render_template(
+        "client/node_form.html",
+        title=f"{RAW_NODES_SECTION_NAME} — {class_name or 'raw-node'}/{node_id}",
+        node_id=node_id,
+        class_name=class_name or "raw-node",
+        repo=repo,
+        repo_id=repo.id,
+        error="",
+        layout_html=layout_html,
+        node_data=node_data,
+        data_json=data_json,
+        use_standard_commands=use_std,
+        has_onshowweb=has_onshowweb,
+        api_event_web=url_for("client.api_node_event_web"),
+        api_save_url=url_for("client.api_node_save"),
+        api_delete_url=url_for("client.api_node_delete"),
+        api_register_url=url_for("client.api_node_register"),
+        is_custom_process=is_custom_process,
+        show_register_command=False,
+        default_room_uid="",
+        initial_message=ui_message,
+        ui_plugins=ui_plugins,
+        class_obj=cls,
+        is_raw_node=True,
+        discussion_node_id=str(raw_node_id or ""),
+    )
+
+
+@client_bp.route("/api/s3/cached-image", methods=["GET"])
+@login_required
+def api_client_cached_s3_image():
+    image_url = str(request.args.get("url") or "").strip()
+    if not image_url:
+        return jsonify({"ok": False, "error": "image_url_required"}), 400
+    if not _is_cacheable_chat_image_url(image_url):
+        return jsonify({"ok": False, "error": "unsupported_image_url"}), 400
+
+    downloader = getattr(main, "_runtime_download_bytes_cached", None)
+    if not callable(downloader):
+        return jsonify({"ok": False, "error": "runtime_cache_unavailable"}), 500
+
+    try:
+        data = downloader(image_url, timeout=20)
+    except Exception as e:
+        return jsonify({"ok": False, "error": "image_cache_failed", "details": str(e)}), 502
+
+    mimetype = _guess_image_mimetype_from_url(image_url)
+    resp = Response(data, mimetype=mimetype)
+    resp.headers["Cache-Control"] = "private, max-age=86400"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
+
+
+@client_bp.route("/api/node-discussion/by-node/<path:node_id>/messages", methods=["GET"])
+@login_required
+def api_client_node_discussion_messages(node_id: str):
+    try:
+        getter = getattr(main, "_get_node_discussion_messages_by_node_id", None)
+        localize = getattr(main, "_localize_node_discussion_message_times", None)
+        tz_name_fn = getattr(main, "_node_discussion_response_timezone_name", None)
+        if callable(getter):
+            try:
+                messages = getter(node_id, viewer_user=current_user)
+            except TypeError:
+                messages = getter(node_id)
+                messages = [m for m in messages if _message_dict_visible_to_current_user(m)]
+        else:
+            messages = []
+        if callable(localize):
+            tz_name = tz_name_fn() if callable(tz_name_fn) else None
+            messages = [localize(m, tz_name=tz_name) for m in messages]
+        return jsonify({"ok": True, "messages": messages, "count": len(messages)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "messages": []}), 500
+
+
+@client_bp.route("/api/node-discussion/by-node/<path:node_id>/messages", methods=["POST"])
+@login_required
+def api_client_post_node_discussion_message(node_id: str):
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        data = {}
+
+    text = data.get("text")
+    if text is None:
+        text = data.get("message")
+    if text is None:
+        text = data.get("body")
+    image = data.get("image")
+    image_url = data.get("image_url")
+
+    if text in (None, "") and image in (None, "") and image_url in (None, ""):
+        return jsonify({"ok": False, "error": "text_or_image_required", "node_id": node_id}), 400
+
+    try:
+        # The browser is authenticated with Flask-Login; sender_user from JSON
+        # is intentionally ignored to prevent spoofing another user.
+        sender_user = str(getattr(current_user, "email", "") or "").strip()
+        sender_display_name = str(getattr(current_user, "config_display_name", "") or sender_user).strip()
+
+        if not _current_user_can_access_node_discussion(node_id):
+            # Allow the first web message only when the raw node itself belongs
+            # to/is visible for this user. Existing ordinary-node discussions
+            # are allowed by visible history above.
+            if not _current_user_can_access_raw_node(node_id):
+                return jsonify({"ok": False, "error": "forbidden", "messages": []}), 403
+
+        targets = []
+        if hasattr(main, "_find_node_discussion_targets"):
+            targets = main._find_node_discussion_targets(node_id, sender_user=sender_user) or []
+        if not targets and hasattr(main, "_create_node_discussion_targets_from_request"):
+            targets = main._create_node_discussion_targets_from_request(data, node_id, sender_user) or []
+        if not targets and hasattr(main, "_find_node_discussion_targets_from_raw_node"):
+            targets = main._find_node_discussion_targets_from_raw_node(node_id, sender_user=sender_user) or []
+
+        if not targets:
+            return jsonify({
+                "ok": False,
+                "error": "node_discussion_target_required",
+                "details": "No existing discussion target was found. For the first by-node message provide target_user/user_key/target_key/recipient/to/peer, or members/group_id.",
+                "node_id": str(node_id or "").strip(),
+                "results": [],
+                "messages": [],
+            }), 400
+
+        if hasattr(main, "_node_discussion_thread_ref"):
+            thread_ref = main._node_discussion_thread_ref(node_id, data.get("thread_ref"))
+        else:
+            thread_ref = str(data.get("thread_ref") or "")
+
+        message_type = "image" if image not in (None, "") or image_url not in (None, "") else "text"
+        payload = {
+            "type": message_type,
+            "thread_type": "node_discussion",
+            "thread_ref": thread_ref,
+            "node_id": str(node_id or "").strip(),
+            "node_uid": str(node_id or "").strip(),
+            "text": text or "",
+        }
+        if image is not None:
+            payload["image"] = image
+        if image_url is not None:
+            payload["image_url"] = image_url
+        if sender_user:
+            payload["sender_user"] = sender_user
+        if sender_display_name:
+            payload["sender_display_name"] = sender_display_name
+
+        extra = data.get("data")
+        if isinstance(extra, dict):
+            payload.update(extra)
+            payload["type"] = message_type
+            payload.pop("message_type", None)
+            payload["thread_type"] = "node_discussion"
+            payload["thread_ref"] = thread_ref
+            payload["node_id"] = str(node_id or "").strip()
+            payload["node_uid"] = str(node_id or "").strip()
+        if sender_user:
+            payload["sender_user"] = sender_user
+        if sender_display_name:
+            payload["sender_display_name"] = sender_display_name
+
+        title = data.get("title") or sender_display_name or "Node discussion"
+        body = text or data.get("body") or data.get("message") or "New message"
+
+        results = []
+        delivery_ok_count = 0
+        accepted_count = 0
+        saved_messages = []
+
+        for target in targets:
+            target_type = target.get("target_type")
+            target_id = target.get("target_id")
+            item_payload = dict(payload)
+
+            if target_type == "group":
+                item_payload["group_id"] = target_id
+                result = main.send_message_to_group_global(target_id, title, body, item_payload, sender_user=sender_user)
+            elif target_type == "user":
+                item_payload["user_key"] = target_id
+                result = main.send_message_to_user_global(target_id, title, body, item_payload, sender_user=sender_user)
+            else:
+                result = {"ok": False, "error": "unsupported_target_type"}
+
+            client_message_id = result.get("client_message_id") if isinstance(result, dict) else None
+            history_msg = None
+            if client_message_id and hasattr(main, "NodeDiscussionMessage"):
+                try:
+                    history_msg = main.NodeDiscussionMessage.query.filter_by(client_message_id=client_message_id).first()
+                except Exception:
+                    history_msg = None
+
+            if not history_msg and client_message_id and hasattr(main, "_save_node_discussion_history_message"):
+                try:
+                    history_msg = main._save_node_discussion_history_message(
+                        node_id=node_id,
+                        client_message_id=client_message_id,
+                        sender_user=sender_user,
+                        sender_display_name=sender_display_name,
+                        target_type=target_type,
+                        target_id=target_id,
+                        text=text or "",
+                        image=image,
+                        image_url=image_url,
+                        payload=item_payload,
+                        delivery_status="accepted" if bool((result or {}).get("ok")) else "queued",
+                    )
+                except Exception:
+                    history_msg = None
+
+            if history_msg and hasattr(main, "_serialize_node_discussion_history_message"):
+                accepted_count += 1
+                saved_messages.append(main._serialize_node_discussion_history_message(history_msg))
+
+            if bool((result or {}).get("ok")):
+                delivery_ok_count += 1
+
+            results.append({
+                "target_type": target_type,
+                "target_id": target_id,
+                "client_message_id": client_message_id,
+                "ok": bool(history_msg),
+                "delivery_ok": bool((result or {}).get("ok")),
+                "history_saved": bool(history_msg),
+                "result": result,
+            })
+
+        return jsonify({
+            "ok": accepted_count > 0,
+            "node_id": str(node_id or "").strip(),
+            "count": len(saved_messages),
+            "accepted_count": accepted_count,
+            "delivery_ok_count": delivery_ok_count,
+            "messages": saved_messages,
+            "results": results,
+        }), (200 if accepted_count > 0 else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "messages": []}), 500
 
 
 def _userfiles_root() -> str:
@@ -2756,6 +4011,44 @@ def _safe_filename(name: str) -> str:
     name = name.split("/")[-1]
     name = re.sub(r"[^A-Za-z0-9._\- ]+", "_", name)
     return name.strip()[:180]
+
+
+def _truthy_form_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on", "y", "да")
+    return bool(value)
+
+
+def _public_s3_url_for_key(object_key: str) -> str:
+    endpoint = str(getattr(main, "S3_ENDPOINT", "") or "").rstrip("/")
+    bucket = str(getattr(main, "S3_BUCKET", "") or "").strip("/")
+    if not endpoint or not bucket:
+        raise RuntimeError("S3 settings are not configured")
+    return f"{endpoint}/{bucket}/{str(object_key).lstrip('/')}"
+
+
+def _upload_userfile_to_s3(file_storage, *, owner_id: str, filename: str, content_type: str) -> str:
+    s3_client = getattr(main, "s3", None)
+    bucket = getattr(main, "S3_BUCKET", None)
+    if s3_client is None or not bucket:
+        raise RuntimeError("S3 client is not configured")
+    base_name = _safe_filename(filename) or "file.bin"
+    _, ext = os.path.splitext(base_name)
+    object_key = f"uploads/client_userfiles/{owner_id or 'user'}/{uuid.uuid4().hex}{ext.lower()}"
+    extra = {"ContentType": content_type or "application/octet-stream"}
+    file_storage.stream.seek(0)
+    s3_client.upload_fileobj(file_storage.stream, bucket, object_key, ExtraArgs=extra)
+    try:
+        invalidate = getattr(main, "_runtime_cache_invalidate", None)
+        if callable(invalidate):
+            invalidate(_public_s3_url_for_key(object_key))
+    except Exception:
+        pass
+    return _public_s3_url_for_key(object_key)
 
 
 @client_bp.route("/api/userfiles/<int:repo_id>/list")
@@ -2792,11 +4085,25 @@ def api_userfiles_upload(repo_id: int):
         out_name = f"{base}_{n}{ext}"
         n += 1
 
+    upload_s3 = _truthy_form_value(request.form.get("upload_s3"))
+    if upload_s3:
+        try:
+            owner_id = str(getattr(current_user, "id", "") or "user").strip() or "user"
+            public_url = _upload_userfile_to_s3(
+                f,
+                owner_id=owner_id,
+                filename=name,
+                content_type=getattr(f, "mimetype", None) or "application/octet-stream",
+            )
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": True, "filename": public_url, "url": public_url, "s3": True})
+
     try:
         f.save(os.path.join(d, out_name))
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
-    return jsonify({"ok": True, "filename": out_name})
+    return jsonify({"ok": True, "filename": out_name, "s3": False})
 
 
 @client_bp.route("/api/userfiles/<int:repo_id>/delete", methods=["POST"])
@@ -2805,7 +4112,29 @@ def api_userfiles_delete(repo_id: int):
     repo = _get_repo_or_404(repo_id)
     d = _userfiles_dir_for_repo(repo)
     payload = request.get_json(silent=True) or {}
-    name = _safe_filename(payload.get("filename") or "")
+    raw_filename = str(payload.get("filename") or "").strip()
+    s3_key_from_public_url = getattr(main, "_s3_key_from_public_url", None)
+    s3_key = ""
+    try:
+        if callable(s3_key_from_public_url):
+            s3_key = s3_key_from_public_url(raw_filename)
+    except Exception:
+        s3_key = ""
+    if s3_key and raw_filename.startswith(("http://", "https://")):
+        try:
+            s3_client = getattr(main, "s3", None)
+            bucket = getattr(main, "S3_BUCKET", None)
+            if s3_client is None or not bucket:
+                raise RuntimeError("S3 client is not configured")
+            s3_client.delete_object(Bucket=bucket, Key=s3_key)
+            invalidate = getattr(main, "_runtime_cache_invalidate", None)
+            if callable(invalidate):
+                invalidate(raw_filename)
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": True, "s3": True})
+
+    name = _safe_filename(raw_filename)
     if not name:
         return jsonify({"ok": False, "error": "no filename"}), 400
     p = os.path.join(d, name)
@@ -2814,7 +4143,7 @@ def api_userfiles_delete(repo_id: int):
             os.remove(p)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "s3": False})
 
 
 @client_bp.route("/api/userfiles/<int:repo_id>/raw/<path:filename>")
@@ -3010,11 +4339,228 @@ def _apply_web_payload_to_node_data(node, payload: dict):
         pass
 
 
+def _raw_node_listener_from_payload(payload: Dict[str, Any]) -> str:
+    try:
+        if isinstance(payload, dict):
+            return str(payload.get("listener") or payload.get("id") or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _raw_node_has_event_action(class_obj: Dict[str, Any], event_name: str, listener: str = "") -> bool:
+    if not isinstance(class_obj, dict):
+        return False
+    for ev in (class_obj.get("events") or class_obj.get("Events") or []):
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("event") != event_name:
+            continue
+        ev_listener = str(ev.get("listener") or "").strip()
+        if listener:
+            if ev_listener and ev_listener != listener:
+                continue
+        else:
+            if ev_listener:
+                continue
+        actions = ev.get("actions") or ev.get("Actions") or []
+        return bool(actions)
+    return False
+
+
+def _raw_node_runner_listener(class_obj: Dict[str, Any], event_name: str, listener: str = "") -> str:
+    """Match normal web-event listener semantics for app.py's stricter runner."""
+    listener = str(listener or "").strip()
+    if not isinstance(class_obj, dict):
+        return listener
+    if listener:
+        for ev in (class_obj.get("events") or class_obj.get("Events") or []):
+            if not isinstance(ev, dict) or ev.get("event") != event_name:
+                continue
+            if str(ev.get("listener") or "").strip() == listener and (ev.get("actions") or ev.get("Actions") or []):
+                return listener
+        for ev in (class_obj.get("events") or class_obj.get("Events") or []):
+            if not isinstance(ev, dict) or ev.get("event") != event_name:
+                continue
+            if not str(ev.get("listener") or "").strip() and (ev.get("actions") or ev.get("Actions") or []):
+                return ""
+    return listener
+
+
+def _render_raw_node_layout_response(repo, parsed: Dict[str, Any], class_name: str, node_id: str, layout: Any, node_data: Dict[str, Any]) -> str:
+    layout = resolve_common_layout(parsed, layout)
+    if layout is None:
+        return ""
+    try:
+        if isinstance(node_data, dict):
+            _fill_nodeinput_views(repo, parsed, layout, node_data)
+    except Exception:
+        pass
+    try:
+        return render_nodalayout_html(
+            layout,
+            node_data if isinstance(node_data, dict) else {},
+            assets_base_dir=_userfiles_dir_for_repo(repo),
+            context=_nl_context(repo, class_name=class_name, node_id=node_id),
+        ) or ""
+    except Exception:
+        return ""
+
+
+def _api_raw_node_event_web(j: Dict[str, Any]):
+    """Handle UI events for raw-nodes that carry embedded _class JSON.
+
+    Returns None when the raw-node only references a normal server class by
+    string; in that case the existing normal-node event path remains the best
+    match.
+    """
+    raw_node_id = str(j.get("raw_node_id") or j.get("raw_id") or "").strip()
+    if not raw_node_id:
+        return None
+
+    RawNode = _server_model("RawNode")
+    if RawNode is None:
+        return jsonify({"ok": False, "error": "raw_node_model_unavailable"}), 404
+
+    obj = RawNode.query.filter_by(node_id=raw_node_id).first()
+    if not obj:
+        return jsonify({"ok": False, "error": "raw_node_not_found"}), 404
+    if not _current_user_can_access_raw_node(raw_node_id, obj=obj):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+
+    payload_json = _raw_node_payload(obj)
+    embedded_class = _extract_raw_node_class_json(payload_json)
+    if not embedded_class:
+        return None
+
+    event = str(j.get("event") or "").strip()
+    payload = j.get("payload") or {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    class_name, payload_node_id, node_data = _raw_node_identity(payload_json, raw_node_id)
+    class_name = _class_name_from_embedded_class(embedded_class, fallback=class_name, payload=payload_json)
+    node_id = payload_node_id or str(j.get("node_id") or raw_node_id).strip()
+    download_url = _raw_node_download_ref(payload_json, raw_node_id)
+    event_download_url = _raw_node_download_url(raw_node_id)
+
+    repo, parsed, cls = _resolve_raw_node_class(payload_json, class_name)
+    if repo is None:
+        repos = models.Repo.query.filter_by(user_id=current_user.id).order_by(models.Repo.id.asc()).all()
+        repo = repos[0] if repos else None
+    if repo is None:
+        return jsonify({"ok": False, "error": "repo_not_found"}), 404
+    parsed = parsed or get_parsed_config(repo, models.db) or {}
+    cls = cls or embedded_class
+
+    listener = _raw_node_listener_from_payload(payload)
+    if not _raw_node_has_event_action(cls, event, listener):
+        return jsonify({
+            "ok": True,
+            "noop": True,
+            "handled": {"class_name": class_name, "node_id": node_id},
+            "node_data": {},
+            "patches": [],
+        })
+
+    node_data = dict(node_data or {})
+    node_data.setdefault("_id", node_id)
+    node_data.setdefault("_class", class_name)
+    node_data.setdefault("_raw_node_id", raw_node_id)
+    node_data.setdefault("_download_url", download_url)
+
+    try:
+        ctx_builder = getattr(main, "resolve_download_url_node_context", None)
+        event_runner = getattr(main, "execute_download_url_node_event", None)
+        if not callable(ctx_builder) or not callable(event_runner):
+            return jsonify({"ok": False, "error": "raw_node_event_runtime_unavailable"}), 500
+
+        ctx = ctx_builder(node_id=node_id, fallback_class_name=class_name, download_url=event_download_url)
+        raw_event_node = ctx.get("node") if isinstance(ctx, dict) else None
+        if raw_event_node is not None:
+            try:
+                if getattr(raw_event_node, "_data", None) is None or not isinstance(raw_event_node._data, dict):
+                    raw_event_node._data = {}
+                raw_event_node._data.update(node_data)
+            except Exception:
+                pass
+            _apply_web_payload_to_node_data(raw_event_node, payload)
+
+        event_runner(ctx, event, _raw_node_runner_listener(cls, event, listener), payload)
+
+        if raw_event_node is not None:
+            try:
+                updated = raw_event_node.get_data() or {}
+                if isinstance(updated, dict):
+                    node_data = updated.copy()
+            except Exception:
+                pass
+
+        node_data.setdefault("_id", node_id)
+        node_data.setdefault("_class", class_name)
+        node_data.setdefault("_raw_node_id", raw_node_id)
+        node_data.setdefault("_download_url", download_url)
+
+        new_layout = getattr(raw_event_node, "_ui_layout", None) if raw_event_node is not None else None
+        ui_message = getattr(raw_event_node, "_ui_message", None) if raw_event_node is not None else None
+        ui_dialog = getattr(raw_event_node, "_ui_dialog", None) if raw_event_node is not None else None
+        ui_open = getattr(raw_event_node, "_ui_open", None) if raw_event_node is not None else None
+        ui_close = getattr(raw_event_node, "_ui_close", None) if raw_event_node is not None else None
+        ui_plugins = getattr(raw_event_node, "_ui_plugins", None) if raw_event_node is not None else None
+
+        if new_layout is not None:
+            resp: Dict[str, Any] = {
+                "ok": True,
+                "layout_html": _render_raw_node_layout_response(repo, parsed, class_name, node_id, new_layout, node_data),
+                "node_data": node_data,
+            }
+        else:
+            resp = {"ok": True, "node_data": node_data}
+
+        resp["handled"] = {"class_name": class_name, "node_id": node_id}
+        resp["patches"] = []
+
+        if ui_plugins is not None:
+            resp["plugins"] = ui_plugins
+        if ui_message is not None:
+            resp["message"] = ui_message
+        if ui_open is not None:
+            resp["open"] = ui_open
+        if ui_close:
+            resp["close"] = True
+
+        if isinstance(ui_dialog, dict):
+            layout_html = ""
+            if ui_dialog.get("layout") is not None:
+                layout_html = _render_raw_node_layout_response(repo, parsed, class_name, node_id, ui_dialog.get("layout"), node_data)
+            resp["dialog"] = {
+                "id": ui_dialog.get("id") or "dialog",
+                "title": ui_dialog.get("title") or "",
+                "positive": ui_dialog.get("positive") or "OK",
+                "negative": ui_dialog.get("negative") or "Cancel",
+                "layout_html": layout_html,
+                "html": ui_dialog.get("html") or "",
+            }
+
+        return jsonify(resp)
+    except Exception as e:
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+            "message": {"text": f"Raw-node handler error: {e}", "level": "error"},
+        }), 200
+
+
 
 @client_bp.route("/api/node/event_web", methods=["POST"])
 @login_required
 def api_node_event_web():
     j = request.get_json(force=True) or {}
+
+    if j.get("is_raw_node") or j.get("raw_node_id"):
+        raw_resp = _api_raw_node_event_web(j)
+        if raw_resp is not None:
+            return raw_resp
 
     repo_id = int(j.get("repo_id") or 0)
 
@@ -3742,7 +5288,7 @@ def api_dataset_items():
         return jsonify({"ok": False, "error": "dataset not found"}), 404
 
     # helper: render view_template like "Item: @name (@code)"
-    tmpl_re = re.compile(r"\{([A-Za-z0-9_]+)\}")
+    tmpl_re = re.compile(r"\{([\w.]+)\}", re.UNICODE)
     def render_view(data: dict) -> str:
         if isinstance(data, dict):
             v = data.get("_view")
