@@ -35,12 +35,19 @@
               </div>
               <div class="text-muted small mb-2">{{ contract.name }}</div>
               <div class="small mb-1"><strong>{{ _('Download URL') }}:</strong> <code class="text-break">{{ url_for('contract_download', contract_uid=contract.uid, _external=True) }}</code></div>
-              <div class="small mb-1"><strong>{{ _('ACK URL') }}:</strong> <code class="text-break">{{ url_for('contract_ack', contract_uid=contract.uid, _external=True) }}</code></div>
-              <div class="small mb-2"><strong>{{ _('Add URL') }}:</strong> <code class="text-break">{{ url_for('contract_add_info', contract_uid=contract.uid, _external=True) }}</code></div>
+             
+              <div class="small mb-2">
+  <strong>{{ _('Push URL') }}:</strong>
+  <code class="text-break">{{ url_for('contract_push', contract_uid=contract.uid, _external=True) }}</code>
+</div>
 
               <div class="row row-cols-1 row-cols-md-2 g-2 small text-muted">
-                <div class="col"><strong>{{ _('Configuration UID') }}:</strong> {{ contract.source_config_uid or '—' }}</div>
-                <div class="col"><strong>{{ _('Class name') }}:</strong> {{ contract.class_name or '—' }}</div>
+                <div class="col-12"><strong>{{ _('Source classes') }}:</strong>
+                  {% set refs = contract.source_classes_json or ([{'config_uid': contract.source_config_uid, 'class_name': contract.class_name}] if contract.source_config_uid and contract.class_name else []) %}
+                  {% if refs %}
+                    {% for ref in refs %}<code>{{ ref.config_uid }}${{ ref.class_name }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+                  {% else %}—{% endif %}
+                </div>
                 <div class="col"><strong>{{ _('Global index name') }}:</strong> {{ contract.global_index_name or '—' }}</div>
                 <div class="col"><strong>{{ _('Global index value') }}:</strong> {{ contract.global_index_value or '—' }}</div>
               </div>
@@ -59,6 +66,7 @@
                   "source_type": contract.source_type or "class",
                   "source_config_uid": contract.source_config_uid or "",
                   "class_name": contract.class_name or "",
+                  "source_classes": contract.source_classes_json or ([{"config_uid": contract.source_config_uid, "class_name": contract.class_name}] if contract.source_config_uid and contract.class_name else []),
                   "global_index_name": contract.global_index_name or "",
                   "global_index_value": contract.global_index_value or "",
                   "download_url": url_for("contract_download", contract_uid=contract.uid, _external=True),
@@ -135,20 +143,27 @@
                 <option value="external_only" {% if source_type == 'external_only' %}selected{% endif %}>external_only</option>
               </select>
             </div>
-            <div class="col-md-8 js-contract-config-wrap">
-              <label class="form-label">{{ _('Configuration') }}</label>
-              <select class="form-select js-contract-config" name="source_config_uid">
-                <option value="">{{ _('Select configuration') }}</option>
-                {% for cfg in configs %}
-                <option value="{{ cfg.uid }}" {% if contract and contract.source_config_uid == cfg.uid %}selected{% endif %}>{{ cfg.name }} ({{ cfg.uid }})</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-md-6 js-contract-class-wrap">
-              <label class="form-label">{{ _('Class name') }}</label>
-              <select class="form-select js-contract-class" name="class_name" data-current="{{ contract.class_name if contract else '' }}">
-                <option value="">{{ _('Select class') }}</option>
-              </select>
+            <div class="col-12 js-contract-class-table-wrap">
+              <label class="form-label">{{ _('Source classes') }}</label>
+              <textarea class="d-none js-contract-source-classes-text" name="source_classes_text">{% if contract %}{% set refs = contract.source_classes_json or ([{'config_uid': contract.source_config_uid, 'class_name': contract.class_name}] if contract.source_config_uid and contract.class_name else []) %}{% for ref in refs %}{{ ref.config_uid }}${{ ref.class_name }}{% if not loop.last %}&#10;{% endif %}{% endfor %}{% endif %}</textarea>
+              <div class="table-responsive border rounded">
+                <table class="table table-sm align-middle mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th style="width: 48%;">{{ _('Configuration') }}</th>
+                      <th style="width: 42%;">{{ _('Class') }}</th>
+                      <th class="text-end" style="width: 10%;">{{ _('Actions') }}</th>
+                    </tr>
+                  </thead>
+                  <tbody class="js-contract-class-rows"></tbody>
+                </table>
+              </div>
+              <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+                <button type="button" class="btn btn-sm btn-outline-primary js-contract-add-class-row">
+                  <i class="bi bi-plus-circle"></i> {{ _('Add class') }}
+                </button>
+                <div class="form-text mb-0">{{ _('For source_type=class, push expands each incoming object to every selected class. For global_index, the first row is used.') }}</div>
+              </div>
             </div>
             <div class="col-md-3 js-contract-index-wrap">
               <label class="form-label">{{ _('Global index name') }}</label>
@@ -224,10 +239,36 @@
 {{ super() }}
 <script>
 const contractClassMap = {{ config_classes | tojson }};
+const contractConfigs = {{ configs | map(attribute='uid') | list | tojson }};
+const contractConfigOptions = [
+  {% for cfg in configs %}
+  {uid: {{ cfg.uid | tojson }}, label: {{ (cfg.name ~ ' (' ~ cfg.uid ~ ')') | tojson }}}{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
 
-function setContractClasses(formEl, configUid, currentValue) {
-  const select = formEl.querySelector('.js-contract-class');
-  if (!select) return;
+function buildConfigSelect(select, currentValue) {
+  select.innerHTML = '';
+  const emptyOpt = document.createElement('option');
+  emptyOpt.value = '';
+  emptyOpt.textContent = {{ _('Select configuration') | tojson }};
+  select.appendChild(emptyOpt);
+  contractConfigOptions.forEach((cfg) => {
+    const opt = document.createElement('option');
+    opt.value = cfg.uid || '';
+    opt.textContent = cfg.label || cfg.uid || '';
+    if ((currentValue || '') === opt.value) opt.selected = true;
+    select.appendChild(opt);
+  });
+  if (currentValue && !contractConfigOptions.some((cfg) => cfg.uid === currentValue)) {
+    const opt = document.createElement('option');
+    opt.value = currentValue;
+    opt.textContent = currentValue;
+    opt.selected = true;
+    select.appendChild(opt);
+  }
+}
+
+function buildClassSelect(select, configUid, currentValue) {
   const classes = Array.isArray(contractClassMap[configUid]) ? contractClassMap[configUid] : [];
   select.innerHTML = '';
   const emptyOpt = document.createElement('option');
@@ -250,44 +291,122 @@ function setContractClasses(formEl, configUid, currentValue) {
   }
 }
 
+function readRefsFromText(text) {
+  return (text || '')
+    .split(/[\r\n,;]+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const sep = line.includes('$') ? '$' : (line.includes(':') ? ':' : null);
+      if (!sep) return null;
+      const parts = line.split(sep);
+      return {config_uid: (parts[0] || '').trim(), class_name: (parts.slice(1).join(sep) || '').trim()};
+    })
+    .filter((ref) => ref && ref.config_uid && ref.class_name);
+}
+
+function addContractClassRow(formEl, ref = {}) {
+  const tbody = formEl.querySelector('.js-contract-class-rows');
+  if (!tbody) return null;
+  const tr = document.createElement('tr');
+  tr.className = 'js-contract-class-row';
+  tr.innerHTML = `
+    <td><select class="form-select form-select-sm js-contract-row-config"></select></td>
+    <td><select class="form-select form-select-sm js-contract-row-class"></select></td>
+    <td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger js-contract-remove-class-row" title="{{ _('Remove') }}"><i class="bi bi-x-lg"></i></button></td>
+  `;
+  const cfgSelect = tr.querySelector('.js-contract-row-config');
+  const classSelect = tr.querySelector('.js-contract-row-class');
+  buildConfigSelect(cfgSelect, ref.config_uid || ref.source_config_uid || '');
+  buildClassSelect(classSelect, cfgSelect.value || '', ref.class_name || ref.name || '');
+  cfgSelect.addEventListener('change', () => {
+    buildClassSelect(classSelect, cfgSelect.value || '', '');
+    syncContractClassRows(formEl);
+  });
+  classSelect.addEventListener('change', () => syncContractClassRows(formEl));
+  tr.querySelector('.js-contract-remove-class-row')?.addEventListener('click', () => {
+    tr.remove();
+    ensureContractClassRow(formEl);
+    syncContractClassRows(formEl);
+  });
+  tbody.appendChild(tr);
+  syncContractClassRows(formEl);
+  return tr;
+}
+
+function getContractClassRefs(formEl) {
+  const refs = [];
+  formEl.querySelectorAll('.js-contract-class-row').forEach((row) => {
+    const config_uid = (row.querySelector('.js-contract-row-config')?.value || '').trim();
+    const class_name = (row.querySelector('.js-contract-row-class')?.value || '').trim();
+    if (config_uid && class_name) refs.push({config_uid, class_name});
+  });
+  return refs;
+}
+
+function syncContractClassRows(formEl) {
+  const hidden = formEl.querySelector('textarea[name="source_classes_text"]');
+  if (!hidden) return;
+  const seen = new Set();
+  const lines = [];
+  getContractClassRefs(formEl).forEach((ref) => {
+    const key = `${ref.config_uid}$${ref.class_name}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    lines.push(key);
+  });
+  hidden.value = lines.join('\n');
+}
+
+function ensureContractClassRow(formEl) {
+  const tbody = formEl.querySelector('.js-contract-class-rows');
+  if (tbody && tbody.children.length === 0) addContractClassRow(formEl, {});
+}
+
+function setContractClassRows(formEl, refs) {
+  const tbody = formEl.querySelector('.js-contract-class-rows');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  const cleanRefs = Array.isArray(refs) ? refs.filter((ref) => (ref.config_uid || ref.source_config_uid) && (ref.class_name || ref.name)) : [];
+  if (cleanRefs.length) {
+    cleanRefs.forEach((ref) => addContractClassRow(formEl, ref));
+  } else {
+    const hidden = formEl.querySelector('textarea[name="source_classes_text"]');
+    readRefsFromText(hidden ? hidden.value : '').forEach((ref) => addContractClassRow(formEl, ref));
+    ensureContractClassRow(formEl);
+  }
+  syncContractClassRows(formEl);
+}
+
 function syncContractFormVisibility(formEl) {
   const sourceType = (formEl.querySelector('.js-contract-source-type') || {}).value || 'class';
-  const configWrap = formEl.querySelector('.js-contract-config-wrap');
-  const classWrap = formEl.querySelector('.js-contract-class-wrap');
+  const classTableWrap = formEl.querySelector('.js-contract-class-table-wrap');
   const indexWraps = formEl.querySelectorAll('.js-contract-index-wrap');
-  const cfgSelect = formEl.querySelector('.js-contract-config');
-  const classSelect = formEl.querySelector('.js-contract-class');
-
-  const useConfig = sourceType === 'class' || sourceType === 'global_index';
+  const useClassRefs = sourceType === 'class' || sourceType === 'global_index';
   const useIndex = sourceType === 'global_index';
 
-  if (configWrap) configWrap.style.display = useConfig ? '' : 'none';
-  if (classWrap) classWrap.style.display = useConfig ? '' : 'none';
+  if (classTableWrap) classTableWrap.style.display = useClassRefs ? '' : 'none';
   indexWraps.forEach((el) => { el.style.display = useIndex ? '' : 'none'; });
-
-  if (cfgSelect) cfgSelect.disabled = !useConfig;
-  if (classSelect) classSelect.disabled = !useConfig;
+  formEl.querySelectorAll('.js-contract-row-config, .js-contract-row-class, .js-contract-add-class-row, .js-contract-remove-class-row').forEach((el) => {
+    el.disabled = !useClassRefs;
+  });
   formEl.querySelectorAll('input[name="global_index_name"], input[name="global_index_value"]').forEach((el) => {
     el.disabled = !useIndex;
   });
+  if (useClassRefs) ensureContractClassRow(formEl);
+  syncContractClassRows(formEl);
 }
 
 function initContractForm(formEl) {
   if (!formEl) return;
-  const cfgSelect = formEl.querySelector('.js-contract-config');
-  const classSelect = formEl.querySelector('.js-contract-class');
-  const sourceType = formEl.querySelector('.js-contract-source-type');
-  const currentClass = classSelect ? (classSelect.dataset.current || classSelect.value || '') : '';
-  setContractClasses(formEl, cfgSelect ? cfgSelect.value : '', currentClass);
+  setContractClassRows(formEl, []);
   syncContractFormVisibility(formEl);
-  if (cfgSelect) {
-    cfgSelect.addEventListener('change', () => {
-      setContractClasses(formEl, cfgSelect.value || '', '');
-    });
-  }
+  formEl.querySelector('.js-contract-add-class-row')?.addEventListener('click', () => addContractClassRow(formEl, {}));
+  const sourceType = formEl.querySelector('.js-contract-source-type');
   if (sourceType) {
     sourceType.addEventListener('change', () => syncContractFormVisibility(formEl));
   }
+  formEl.addEventListener('submit', () => syncContractClassRows(formEl));
 }
 
 document.querySelectorAll('#contractCreateModalForm, #contractEditModalForm').forEach(initContractForm);
@@ -303,12 +422,12 @@ document.getElementById('contractEditModal')?.addEventListener('show.bs.modal', 
   form.querySelector('input[name="name"]').value = data.name || '';
   form.querySelector('input[name="display_name"]').value = data.display_name || '';
   form.querySelector('select[name="source_type"]').value = data.source_type || 'class';
-  form.querySelector('select[name="source_config_uid"]').value = data.source_config_uid || '';
+  const refs = Array.isArray(data.source_classes) && data.source_classes.length
+    ? data.source_classes
+    : ((data.source_config_uid && data.class_name) ? [{config_uid: data.source_config_uid, class_name: data.class_name}] : []);
+  setContractClassRows(form, refs);
   form.querySelector('input[name="global_index_name"]').value = data.global_index_name || '';
   form.querySelector('input[name="global_index_value"]').value = data.global_index_value || '';
-  const classSelect = form.querySelector('select[name="class_name"]');
-  classSelect.dataset.current = data.class_name || '';
-  setContractClasses(form, data.source_config_uid || '', data.class_name || '');
   syncContractFormVisibility(form);
 });
 

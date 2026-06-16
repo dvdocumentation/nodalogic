@@ -66,6 +66,10 @@
                 id="v-pills-common-events-tab" data-bs-toggle="pill" data-bs-target="#v-pills-common-events" type="button" role="tab">
             {{ _('Common events') }}
         </button>
+            <button class="nav-link {% if active_tab == 'timers' %}active{% endif %}" 
+                id="v-pills-timers-tab" data-bs-toggle="pill" data-bs-target="#v-pills-timers" type="button" role="tab">
+            {{ _('Timers') }}
+        </button>
 
         <button class="nav-link {% if active_tab == 'common_layouts' %}active{% endif %}"
         id="v-pills-common-layouts-tab"
@@ -210,14 +214,14 @@
                             <div class="row">
                                 <div class="col-md-6">
                                     <h6>{{ _('Configuration download') }}</h6>
-                                    <p>{{ _('Download the full configuration in JSON format') }}</p>
+                                    <p>{{ _('Download the full configuration in NOD format') }}</p>
                                     <a href="{{ url_for('export_config', uid=config.uid) }}" class="btn btn-primary">
                                         <i class="bi bi-download"></i> {{ _('Download configuration') }}
                                     </a>
                                 </div>
                                 <div class="col-md-6">
                                     <h6>{{ _('Configuration uploading') }}</h6>
-                                    <p>{{ _('Load configuration from JSON file (existing data will be overwritten)') }}</p>
+                                    <p>{{ _('Load configuration from NOD file (existing data will be overwritten)') }}</p>
                                     <form method="POST" action="{{ url_for('import_config', uid=config.uid) }}" enctype="multipart/form-data">
                                         <input type="hidden" name="active_tab" id="activeTabImport">
                                         <div class="mb-3">
@@ -294,7 +298,21 @@
                                                 <small class="text-muted">{{ _('Used to create a class in Python') }}</small>
                                             </div>
                                         </div>
-                                        <div class="col-md-6">
+                                        <div class="col-md-3">
+                                            <div class="mb-3">
+                                                <label for="newClassType" class="form-label">{{ _('Class type') }}</label>
+                                                <select class="form-select" id="newClassType" name="class_type">
+                                                    <option value="custom_process">{{ _('Custom process') }}</option>
+                                                    <option value="projection">{{ _('Projection') }}</option>
+                                                    <option value="print_form">{{ _('PrintForm') }}</option>
+                                                    <option value="data_node">{{ _('Data node') }}</option>
+                                                    <option value="custom_task">{{ _('User task') }}</option>
+                                                    <option value="background_task">{{ _('Background task') }}</option>
+                                                    <option value="solo_object">{{ _('Solo Object') }}</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
                                             <div class="mb-3">
                                                 <label class="form-label">&nbsp;</label>
                                                 <button type="submit" class="btn btn-primary w-100">
@@ -311,6 +329,7 @@
                                 <thead>
                                     <tr>
                                         <th>{{ _('Name') }}</th>
+                                        <th>{{ _('Type') }}</th>
                                         <th>{{ _('Methods count') }}</th>
                                         <th>{{ _('Actions') }}</th>
                                     </tr>
@@ -319,6 +338,7 @@
                                     {% for class_obj in config.classes %}
                                     <tr>
                                         <td>{{ class_obj.name }}</td>
+                                        <td>{{ _(class_obj.class_type or 'custom_process') }}</td>
                                         <td>{{ class_obj.methods|length }}</td>
                                         <td>
                                             <a href="{{ url_for('edit_class', class_id=class_obj.id) }}" class="btn btn-sm btn-outline-primary me-2">
@@ -817,6 +837,92 @@
     </div>
 </div>
 
+<!-- Tab "Timers" -->
+<div class="tab-pane fade {% if active_tab == 'timers' %}show active{% endif %}" id="v-pills-timers" role="tabpanel">
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">{{ _('Timers') }}</h5>
+            <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#timerModal">
+                {{ _('Add timer') }}
+            </button>
+        </div>
+        <div class="card-body">
+            {% if config.config_timers %}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>{{ _('ID') }}</th>
+                        <th>{{ _('Period seconds') }}</th>
+                        <th>{{ _('Runtime') }}</th>
+                        <th>{{ _('Active') }}</th>
+                        <th>{{ _('Worker') }}</th>
+                        <th>{{ _('Actions') }}</th>
+                        <th class="text-end">{{ _('Actions') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for timer in config.config_timers %}
+                    <tr>
+                        <td><code>{{ timer.timer_id }}</code></td>
+                        <td>{{ timer.period_seconds }}</td>
+                        <td>
+                            {% if (timer.runtime or 'server') == 'client' %}
+                                <span class="badge bg-secondary">{{ _('Client') }}</span>
+                            {% else %}
+                                <span class="badge bg-primary">{{ _('Server') }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if timer.active %}
+                                <span class="badge bg-success">{{ _('Active') }}</span>
+                            {% else %}
+                                <span class="badge bg-secondary">{{ _('Inactive') }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if timer.worker %}
+                                <span class="badge bg-info text-dark">{{ _('Worker') }}</span>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% for action in timer.actions %}
+                                <div>
+                                    <strong>{{ action.method }}</strong>
+                                    <small class="text-muted"> ({{ action.action }}{% if action.post_execute_method %} → post: {{ action.post_execute_method }}{% endif %})</small>
+                                </div>
+                            {% endfor %}
+                        </td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-outline-primary me-2 edit-timer-btn"
+                                    data-bs-toggle="modal" data-bs-target="#timerModal"
+                                    data-timer-id="{{ timer.timer_id }}"
+                                    data-period-seconds="{{ timer.period_seconds }}"
+                                    data-active="{{ 1 if timer.active else 0 }}"
+                                    data-worker="{{ 1 if timer.worker else 0 }}"
+                                    data-runtime="{{ timer.runtime or 'server' }}"
+                                    data-actions='{{ timer.actions_as_dicts() | tojson | safe }}'>
+                                <i class="bi bi-pencil"></i> {{ _('Edit') }}
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-danger delete-timer-btn"
+                                    data-timer-id="{{ timer.timer_id }}">
+                                <i class="bi bi-trash"></i> {{ _('Delete') }}
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> {{ _('No timers added') }}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
 
             </div>
         </div>
@@ -851,6 +957,7 @@
               <option value="onClassCommand">onClassCommand</option>
               <option value="onDataMessage">onDataMessage</option>
               <option value="onIncomingNodes">onIncomingNodes</option>
+              <option value="onContractReceived">onContractReceived</option>
               
 
             </select>
@@ -873,6 +980,68 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
           <button type="submit" class="btn btn-primary" id="saveCommonEventBtn">{{ _('Save') }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Timers Modal -->
+<div class="modal fade" id="timerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="timerModalTitle">{{ _('Add timer') }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="POST" id="timerForm">
+        <input type="hidden" name="old_timer_id" id="oldTimerId">
+        <input type="hidden" name="actions_json" id="timerActionsJson">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label">{{ _('ID') }}</label>
+              <input type="text" class="form-control" name="timer_id" id="timerIdInput" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">{{ _('Period seconds') }}</label>
+              <input type="number" class="form-control" name="period_seconds" id="timerPeriodInput" min="1" step="1" value="900" required>
+              <div class="form-text" id="timerPeriodHelp">{{ _('Server and Worker timers under 900 seconds are saved as 900 seconds. Client non-worker timers may use shorter periods.') }}</div>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">{{ _('Runtime') }}</label>
+              <select class="form-select" name="runtime" id="timerRuntimeInput">
+                <option value="server">{{ _('Server') }}</option>
+                <option value="client">{{ _('Client') }}</option>
+              </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" name="active" id="timerActiveInput" checked>
+                <label class="form-check-label" for="timerActiveInput">{{ _('Active') }}</label>
+              </div>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" name="worker" id="timerWorkerInput">
+                <label class="form-check-label" for="timerWorkerInput">{{ _('Worker') }}</label>
+              </div>
+            </div>
+          </div>
+
+          <hr>
+          <h6>{{ _('Actions') }}</h6>
+          <div id="timerActionsContainer"></div>
+          <div class="mt-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="addTimerActionBtn">
+              <i class="bi bi-plus-circle"></i> {{ _('Add action') }}
+            </button>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+          <button type="submit" class="btn btn-primary" id="saveTimerBtn">{{ _('Save') }}</button>
         </div>
       </form>
     </div>
@@ -1639,7 +1808,50 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-  const COMMON_EVENT_TYPES = ['onLaunch', 'onBarcode', 'onStartMenuCommand', 'onTimer', 'onDialogResult','onJSONFile','onTextFile','onClassCommand','onStartMenuCommandWeb','onDataMessage','onIncomingNodes'];
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('.delete-timer-btn')) {
+            const btn = e.target.closest('.delete-timer-btn');
+            const timerId = btn.getAttribute('data-timer-id');
+            if (confirm('Delete this timer?')) {
+                deleteTimer(timerId);
+            }
+        }
+    });
+
+    function deleteTimer(timerId) {
+        const configUid = document.querySelector('[data-config-uid]').dataset.configUid;
+        const activeTab = new URLSearchParams(window.location.search).get('tab') || 'timers';
+        const formData = new FormData();
+        formData.append('timer_id', timerId);
+        formData.append('active_tab', activeTab);
+
+        fetch(`/config/${configUid}/delete-timer`, {
+            method: 'POST',
+            body: formData,
+            headers: { 'Accept': 'application/json' }
+        })
+        .then(async response => {
+            if (response.status === 401) {
+                window.location.href = "{{ url_for('index') }}";
+                return;
+            }
+            const data = await response.json();
+            if (data.status === "success") {
+                if (data.redirect_url) window.location.href = data.redirect_url;
+                else window.location.reload();
+            } else {
+                alert('Error: ' + (data.message || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Request failed: ' + error.message);
+        });
+    }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+  const COMMON_EVENT_TYPES = ['onLaunch', 'onBarcode', 'onStartMenuCommand', 'onTimer', 'onDialogResult','onJSONFile','onTextFile','onClassCommand','onStartMenuCommandWeb','onDataMessage','onIncomingNodes','onContractReceived'];
   const ACTION_TYPES = ['run','runprogress','runasync'];
 
  
@@ -1680,7 +1892,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <option value="">-- {{ _('none') }} --</option>
             ${methods.map(m => `<option value="${m}" ${m===action.method?'selected':''}>${m}</option>`).join('')}
             <option value="NodaScript" ${action.method==='NodaScript'?'selected':''}>NodaScript</option>
-            <option value="HTTP Request" ${action.method==='HTTP Request'?'selected':''}>HTTP Request</option>
+            <option value="HTTPRequest" ${(action.method==='HTTPRequest'||action.method==='HTTP Request')?'selected':''}>HTTPRequest</option>
           </select>
         </div>
         <div style="width:160px">
@@ -1689,7 +1901,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <option value="">({{ _('none') }})</option>
             ${methods.map(m => `<option value="${m}" ${m===action.postExecuteMethod?'selected':''}>${m}</option>`).join('')}
             <option value="NodaScript" ${action.postExecuteMethod==='NodaScript'?'selected':''}>NodaScript</option>
-            <option value="HTTP Request" ${action.postExecuteMethod==='HTTP Request'?'selected':''}>HTTP Request</option>
+            <option value="HTTPRequest" ${(action.postExecuteMethod==='HTTPRequest'||action.postExecuteMethod==='HTTP Request')?'selected':''}>HTTPRequest</option>
           </select>
         </div>
         <div style="width:130px">
@@ -1719,7 +1931,7 @@ document.addEventListener('DOMContentLoaded', function() {
           </div>
           <div class="col-12">
             <div class="method-http" style="display:none;">
-              <label class="form-label small">HTTP Request function name (method)</label>
+              <label class="form-label small">HTTPRequest function name (method)</label>
               <input class="form-control common-action-field" data-field="httpFunctionName" value="${action.httpFunctionName || ""}" placeholder="sendInvoice">
             </div>
           </div>
@@ -1731,7 +1943,7 @@ document.addEventListener('DOMContentLoaded', function() {
           </div>
           <div class="col-12">
             <div class="post-http" style="display:none;">
-              <label class="form-label small">HTTP Request function name (postExecuteMethod)</label>
+              <label class="form-label small">HTTPRequest function name (postExecuteMethod)</label>
               <input class="form-control common-action-field" data-field="postHttpFunctionName" value="${action.postHttpFunctionName || ""}" placeholder="afterSend">
             </div>
           </div>
@@ -1782,8 +1994,8 @@ document.addEventListener('DOMContentLoaded', function() {
     function toggleNoda() {
       const isMethodScript = methodSelect.value === 'NodaScript';
       const isPostScript = postSelect.value === 'NodaScript';
-      const isMethodHttp = methodSelect.value === 'HTTP Request';
-      const isPostHttp = postSelect.value === 'HTTP Request';
+      const isMethodHttp = methodSelect.value === 'HTTPRequest';
+      const isPostHttp = postSelect.value === 'HTTPRequest';
 
       if (!isMethodScript) methodTa.value = '';
       if (!isPostScript) postTa.value = '';
@@ -1865,7 +2077,7 @@ document.getElementById('commonEventForm').addEventListener('submit', (e) => {
     e.preventDefault();
     
     const actions = [];
-    document.querySelectorAll('.common-action-row').forEach(row => {
+    commonActionsContainer.querySelectorAll('.common-action-row').forEach(row => {
         const action = {};
         row.querySelectorAll('.common-action-field').forEach(field => {
             const key = field.getAttribute('data-field');
@@ -1915,6 +2127,145 @@ document.getElementById('commonEventForm').addEventListener('submit', (e) => {
         alert('Request failed: ' + error.message);
     });
 });
+
+  // Timers use the same action rows/function list as CommonEvents.
+  const timerActionsContainer = document.getElementById('timerActionsContainer');
+  const timerForm = document.getElementById('timerForm');
+  const addTimerActionBtn = document.getElementById('addTimerActionBtn');
+
+  function updateTimerPeriodLimit() {
+    const timerPeriodInput = document.getElementById('timerPeriodInput');
+    const timerRuntimeInput = document.getElementById('timerRuntimeInput');
+    const timerWorkerInput = document.getElementById('timerWorkerInput');
+    const timerPeriodHelp = document.getElementById('timerPeriodHelp');
+    if (!timerPeriodInput) return;
+    const runtime = timerRuntimeInput ? timerRuntimeInput.value : 'server';
+    const worker = timerWorkerInput ? timerWorkerInput.checked : false;
+    const minPeriod = (runtime === 'server' || worker) ? 900 : 1;
+    timerPeriodInput.min = String(minPeriod);
+    if (timerPeriodHelp) {
+      timerPeriodHelp.textContent = (minPeriod === 900)
+        ? "{{ _('Server and Worker timers under 900 seconds are saved as 900 seconds.') }}"
+        : "{{ _('Client non-worker timers may use periods under 900 seconds.') }}";
+    }
+  }
+
+  if (timerActionsContainer && timerForm && addTimerActionBtn) {
+    addTimerActionBtn.addEventListener('click', () => {
+      loadConfigMethods().then(methods => {
+        timerActionsContainer.appendChild(createCommonActionRow({}, methods));
+      });
+    });
+
+    const addTimerBtn = document.querySelector('[data-bs-target="#timerModal"][data-bs-toggle="modal"]');
+    if (addTimerBtn) {
+      addTimerBtn.addEventListener('click', () => {
+        document.getElementById('timerModalTitle').textContent = "{{ _('Add timer') }}";
+        document.getElementById('oldTimerId').value = '';
+        document.getElementById('timerIdInput').value = '';
+        document.getElementById('timerPeriodInput').value = '900';
+        document.getElementById('timerActiveInput').checked = true;
+        document.getElementById('timerWorkerInput').checked = false;
+        document.getElementById('timerRuntimeInput').value = 'server';
+        updateTimerPeriodLimit();
+        timerActionsContainer.innerHTML = '';
+        loadConfigMethods().then(methods => {
+          timerActionsContainer.appendChild(createCommonActionRow({}, methods));
+        });
+        timerForm.action = "{{ url_for('add_config_timer', config_uid=config.uid) }}";
+      });
+    }
+
+    document.querySelectorAll('.edit-timer-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const timerId = btn.getAttribute('data-timer-id') || '';
+        const periodSeconds = btn.getAttribute('data-period-seconds') || '60';
+        const active = btn.getAttribute('data-active') === '1';
+        const worker = btn.getAttribute('data-worker') === '1';
+        const runtime = (btn.getAttribute('data-runtime') || 'server').toLowerCase() === 'client' ? 'client' : 'server';
+        let actions = [];
+        try { actions = JSON.parse(btn.getAttribute('data-actions') || '[]'); } catch(_) { actions = []; }
+
+        document.getElementById('timerModalTitle').textContent = "{{ _('Edit timer') }}";
+        document.getElementById('oldTimerId').value = timerId;
+        document.getElementById('timerIdInput').value = timerId;
+        document.getElementById('timerPeriodInput').value = periodSeconds;
+        document.getElementById('timerActiveInput').checked = active;
+        document.getElementById('timerWorkerInput').checked = worker;
+        document.getElementById('timerRuntimeInput').value = runtime;
+        updateTimerPeriodLimit();
+        timerActionsContainer.innerHTML = '';
+
+        loadConfigMethods().then(methods => {
+          if (actions && actions.length) actions.forEach(a => timerActionsContainer.appendChild(createCommonActionRow(a, methods)));
+          else timerActionsContainer.appendChild(createCommonActionRow({}, methods));
+        });
+        timerForm.action = "{{ url_for('edit_config_timer', config_uid=config.uid) }}";
+      });
+    });
+
+    const timerRuntimeInput = document.getElementById('timerRuntimeInput');
+    const timerWorkerInput = document.getElementById('timerWorkerInput');
+    if (timerRuntimeInput) timerRuntimeInput.addEventListener('change', updateTimerPeriodLimit);
+    if (timerWorkerInput) timerWorkerInput.addEventListener('change', updateTimerPeriodLimit);
+
+    timerForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const actions = [];
+      timerActionsContainer.querySelectorAll('.common-action-row').forEach(row => {
+        const action = {};
+        row.querySelectorAll('.common-action-field').forEach(field => {
+          const key = field.getAttribute('data-field');
+          action[key] = field.value;
+          if (action[key] === '') delete action[key];
+        });
+        actions.push(action);
+      });
+      document.getElementById('timerActionsJson').value = JSON.stringify(actions);
+
+      const timerPeriodInput = document.getElementById('timerPeriodInput');
+      const timerRuntimeInput = document.getElementById('timerRuntimeInput');
+      const timerWorkerInput = document.getElementById('timerWorkerInput');
+      if (timerPeriodInput) {
+        const periodSeconds = parseInt(timerPeriodInput.value || '0', 10);
+        const runtime = timerRuntimeInput ? timerRuntimeInput.value : 'server';
+        const worker = timerWorkerInput ? timerWorkerInput.checked : false;
+        const minPeriod = (runtime === 'server' || worker) ? 900 : 1;
+        if (!Number.isFinite(periodSeconds) || periodSeconds < minPeriod) {
+          timerPeriodInput.value = String(minPeriod);
+        }
+      }
+
+      const activeTabInput = document.createElement('input');
+      activeTabInput.type = 'hidden';
+      activeTabInput.name = 'active_tab';
+      activeTabInput.value = new URLSearchParams(window.location.search).get('tab') || 'timers';
+      e.target.appendChild(activeTabInput);
+
+      fetch(e.target.action, {
+        method: 'POST',
+        body: new FormData(e.target),
+        headers: { 'Accept': 'application/json' }
+      })
+      .then(async response => {
+        if (response.status === 401) {
+          window.location.href = "{{ url_for('index') }}";
+          return;
+        }
+        const data = await response.json();
+        if (data.status === "success") {
+          if (data.redirect_url) window.location.href = data.redirect_url;
+          else window.location.reload();
+        } else {
+          alert('Error: ' + (data.message || 'Unknown error'));
+        }
+      })
+      .catch(error => {
+        console.error('Error:', error);
+        alert('Request failed: ' + error.message);
+      });
+    });
+  }
 });
 
 
@@ -2338,6 +2689,11 @@ fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
 
 .event-onincomingnodes {
     background-color: #f1239b;
+    color: white;
+}
+
+.event-oncontractreceived {
+    background-color: #2d0647;
     color: white;
 }
 

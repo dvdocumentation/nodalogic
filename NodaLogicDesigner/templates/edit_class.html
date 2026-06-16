@@ -107,11 +107,139 @@
             <select class="form-select" id="classType" name="class_type">
               <option value="">{{ _('-- Not specified --') }}</option>
               <option value="custom_process" {% if class_obj.class_type == 'custom_process' %}selected{% endif %}>{{ _('Custom process') }}</option>
+              <option value="projection" {% if class_obj.class_type == 'projection' %}selected{% endif %}>{{ _('Projection') }}</option>
+              <option value="print_form" {% if class_obj.class_type == 'print_form' %}selected{% endif %}>{{ _('PrintForm') }}</option>
               <option value="data_node" {% if class_obj.class_type == 'data_node' %}selected{% endif %}>{{ _('Data node') }}</option>
               <option value="custom_task" {% if class_obj.class_type == 'custom_task' %}selected{% endif %}>{{ _('User task') }}</option>
               <option value="background_task" {% if class_obj.class_type == 'background_task' %}selected{% endif %}>{{ _('Background task') }}</option>
             <option value="solo_object" {% if class_obj.class_type == 'solo_object' %}selected{% endif %}>{{ _('Solo Object') }}</option>
             </select>
+          </div>
+
+
+          <div class="mb-3" id="dataNodeStructureFields" style="display:none;">
+            <label for="dataStructure" class="form-label">{{ _('Data structure') }}</label>
+            <div class="mb-2 d-flex flex-wrap gap-1">
+              <button type="button" class="btn btn-sm btn-purple text-white" onclick="openMarkupWizard('dataStructure', 'structure')">{{ _('Wizard') }}</button>
+            </div>
+            <textarea class="form-control font-monospace" id="dataStructure" name="data_structure" rows="6">{{ class_obj.data_structure or '' }}</textarea>
+          </div>
+
+
+
+          <div id="projectionFields" class="border rounded p-3 mb-3 bg-light" style="display:none;">
+            <div class="mb-3">
+              <label for="projectionType" class="form-label">{{ _('Projection type') }}</label>
+              <select class="form-select" id="projectionType" name="projection_type">
+                <option value="kanban_projection" {% if class_obj.projection_type == 'kanban_projection' %}selected{% endif %}>{{ _('Kanban projection') }}</option>
+                <option value="schedule_projection" {% if class_obj.projection_type == 'schedule_projection' %}selected{% endif %}>{{ _('Schedule projection') }}</option>
+                <option value="diagram_projection" {% if class_obj.projection_type == 'diagram_projection' %}selected{% endif %}>{{ _('Diagram projection') }}</option>
+                <option value="gantt_projection" {% if class_obj.projection_type == 'gantt_projection' %}selected{% endif %}>{{ _('Gantt projection') }}</option>
+              </select>
+            </div>
+            <div id="kanbanProjectionFields" class="mb-0">
+              <label for="projectionKanbanColumns" class="form-label">{{ _('Kanban columns') }}</label>
+              <textarea class="form-control font-monospace" id="projectionKanbanColumns" name="projection_kanban_columns" rows="5"
+                        placeholder='[{"id":"income","caption":"Incoming"},{"id":"develop","caption":"Development"}]'>{{ class_obj.projection_kanban_columns or '' }}</textarea>
+              <small class="text-muted d-block mt-1">{{ _('JSON array stored in the configuration and exposed to the web client as _kanban_columns.') }}</small>
+            </div>
+          </div>
+
+          <div id="printFormFields" class="border rounded p-3 mb-3 bg-light" style="display:none;">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+              <div>
+                <div class="fw-semibold">{{ _('PrintForm settings') }}</div>
+                <small class="text-muted">{{ _('The form does not store persistent data. The web client injects _basement_data and runs onInputWeb with listener onStartForm before rendering.') }}</small>
+              </div>
+            </div>
+
+            <ul class="nav nav-tabs" id="printFormTabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="print-template-tab" data-bs-toggle="tab" data-bs-target="#print-template-pane" type="button" role="tab" aria-controls="print-template-pane" aria-selected="true">
+                  <i class="bi bi-filetype-html"></i> {{ _('Template') }}
+                </button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="print-menu-tab" data-bs-toggle="tab" data-bs-target="#print-menu-pane" type="button" role="tab" aria-controls="print-menu-pane" aria-selected="false">
+                  <i class="bi bi-printer"></i> {{ _('Print menu') }}
+                </button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="print-layout-tab" data-bs-toggle="tab" data-bs-target="#print-layout-pane" type="button" role="tab" aria-controls="print-layout-pane" aria-selected="false">
+                  <i class="bi bi-code-slash"></i> {{ _('HTML layout') }}
+                </button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="print-preview-tab" data-bs-toggle="tab" data-bs-target="#print-preview-pane" type="button" role="tab" aria-controls="print-preview-pane" aria-selected="false">
+                  <i class="bi bi-eye"></i> {{ _('Preview') }}
+                </button>
+              </li>
+            </ul>
+
+            <div class="tab-content border border-top-0 bg-white rounded-bottom p-3">
+              <div class="tab-pane fade show active" id="print-template-pane" role="tabpanel" aria-labelledby="print-template-tab">
+                <div class="mb-3">
+                  <label for="printTemplateType" class="form-label">{{ _('Template type') }}</label>
+                  <select class="form-select" id="printTemplateType" name="print_template_type">
+                    <option value="html_jinja" {% if (class_obj.print_template_type or 'html_jinja') == 'html_jinja' %}selected{% endif %}>{{ _('HTML + Jinja') }}</option>
+                  </select>
+                  <small class="text-muted">{{ _('More template engines can be added later without changing the PrintForm class type.') }}</small>
+                </div>
+                <div class="alert alert-info mb-0 small">
+                  {{ _('Use onInputWeb/onInput with listener onStartForm to prepare _data before this template is rendered.') }}
+                </div>
+              </div>
+
+              <div class="tab-pane fade" id="print-menu-pane" role="tabpanel" aria-labelledby="print-menu-tab">
+                <label class="form-label">{{ _('Show in Print menu for classes') }}</label>
+                <div class="border rounded bg-light p-2" style="max-height:280px; overflow:auto;">
+                  {% set selected_print_targets = class_obj.print_target_classes or [] %}
+                  {% for target_class in (available_print_target_classes or []) %}
+                    <div class="form-check">
+                      <input class="form-check-input" type="checkbox"
+                             id="printTarget_{{ target_class.id }}"
+                             name="print_target_classes"
+                             value="{{ target_class.name }}"
+                             {% if target_class.name in selected_print_targets %}checked{% endif %}>
+                      <label class="form-check-label" for="printTarget_{{ target_class.id }}">
+                        {{ target_class.display_name or target_class.name }}
+                        <span class="text-muted small">({{ target_class.name }})</span>
+                      </label>
+                    </div>
+                  {% else %}
+                    <div class="text-muted small">{{ _('No target classes yet.') }}</div>
+                  {% endfor %}
+                </div>
+                <small class="text-muted d-block mt-2">
+                  {{ _('Selected classes will show this PrintForm in the Print dropdown.') }}
+                </small>
+              </div>
+
+              <div class="tab-pane fade" id="print-layout-pane" role="tabpanel" aria-labelledby="print-layout-tab">
+                <label for="printHtmlTemplate" class="form-label">{{ _('HTML layout') }}</label>
+                <textarea class="form-control font-monospace"
+                          id="printHtmlTemplate"
+                          name="print_html_template"
+                          rows="20"
+                          placeholder="{{ _('HTML + Jinja template') }}">{{ print_html_template_text or '' }}</textarea>
+                <small class="text-muted d-block mt-1">
+                  {{ _('Jinja context contains _data, every data field both as field and _field, plus qr(value), image_src(value), and table_rows(value). Nested dictionaries support dot access, for example customer._id.') }}
+                </small>
+              </div>
+
+              <div class="tab-pane fade" id="print-preview-pane" role="tabpanel" aria-labelledby="print-preview-tab">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                  <label class="form-label mb-0">{{ _('Preview') }}</label>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="printTemplatePreviewBtn">
+                    <i class="bi bi-arrow-clockwise"></i> {{ _('Refresh preview') }}
+                  </button>
+                </div>
+                <iframe id="printTemplatePreview" class="border rounded bg-white w-100" style="min-height:420px;"></iframe>
+                <small class="text-muted d-block mt-2">
+                  {{ _('Preview uses sample data. Runtime rendering uses _data prepared by onStartForm.') }}
+                </small>
+              </div>
+            </div>
           </div>
 
           <div class="mb-3">
@@ -143,6 +271,20 @@
                   value="{{ class_obj.record_view or '' }}"
                   placeholder="№{number} от {date}">
             <small class="text-muted">{{ _('Record display template: use {field}. If the template fails, _view will be used, then id.') }}</small>
+          </div>
+
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="showTagCloud" name="show_tag_cloud"
+                   {% if class_obj.show_tag_cloud %}checked{% endif %}>
+            <label class="form-check-label" for="showTagCloud">{{ _('Show tag cloud') }}</label>
+            <small class="text-muted d-block">{{ _('When enabled, the web client shows tag badges on covers and a tag filter for this class.') }}</small>
+          </div>
+
+          <div class="mb-3 form-check" id="mobilePrintEnabledGroup">
+            <input type="checkbox" class="form-check-input" id="mobilePrintEnabled" name="mobile_print_enabled"
+                   {% if class_obj.mobile_print_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="mobilePrintEnabled">{{ _('Show print on mobile device') }}</label>
+            <small class="text-muted d-block">{{ _('For normal classes this exposes the mobile print button. PrintForm classes do not use this flag.') }}</small>
           </div>
 
           <div class="mb-3 form-check">
@@ -202,20 +344,6 @@
                 <small class="text-muted">{{ _('JSON markup or generated markup from Wizard.') }}</small>
               </div>
 
-              <div class="mb-3">
-                <label for="displayImageTable" class="form-label">{{ _('Cover for table') }}</label>
-                <div class="mb-2 d-flex flex-wrap gap-1">
-                  <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('displayImageTable')">{{ _('Format') }}</button>
-                  <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('displayImageTable')">{{ _('Check') }}</button>
-                  <button type="button" class="btn btn-sm btn-purple text-white" onclick="openMarkupWizard('displayImageTable', 'cover')">{{ _('Wizard') }}</button>
-                  {% for t in (ui_tpl_buttons or []) %}
-                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('displayImageTable', '{{ t.key }}')">{{ t.label }}</button>
-                  {% endfor %}
-                </div>
-                <textarea class="form-control" id="displayImageTable" name="display_image_table"
-                          rows="4">{{ class_obj.display_image_table }}</textarea>
-                <small class="text-muted">{{ _('Stored in API as display_image_table') }}</small>
-              </div>
 
               <div class="mb-3">
                 <label for="initScreenLayout" class="form-label">{{ _('Init screen layout') }}</label>
@@ -232,6 +360,7 @@
                   <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('initScreenLayout')">{{ _('Format') }}</button>
                   <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('initScreenLayout')">{{ _('Check') }}</button>
                   <button type="button" class="btn btn-sm btn-purple text-white" onclick="openMarkupWizard('initScreenLayout', 'active')">{{ _('Wizard') }}</button>
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="generateInitLayoutFromStructure('initScreenLayout')">{{ _('Generate by data structure') }}</button>
                   {% for t in (ui_tpl_buttons or []) %}
                     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('initScreenLayout', '{{ t.key }}')">{{ t.label }}</button>
                   {% endfor %}
@@ -269,6 +398,13 @@
                 </div>
                 <textarea class="form-control" id="displayImageWeb" name="display_image_web" rows="4">{{ class_obj.display_image_web }}</textarea>
                 <small class="text-muted">{{ _('Stored in API as display_image_web') }}</small>
+              </div>
+
+              <div class="mb-3">
+                <label for="displayImageTable" class="form-label">{{ _('Cover for table') }}</label>
+                <textarea class="form-control" id="displayImageTable" name="display_image_table"
+                          rows="4">{{ class_obj.display_image_table }}</textarea>
+                <small class="text-muted">{{ _('Stored in API as display_image_table') }}</small>
               </div>
 
               <div class="mb-3">
@@ -430,6 +566,8 @@
           <label class="form-label" for="idxKind">{{ _('Kind') }}</label>
           <select class="form-select" id="idxKind">
             <option value="hash_index">hash_index</option>
+            <option value="text_index">text_index</option>
+            <option value="trigram_index">trigram_index</option>
           </select>
         </div>
         <div class="mb-3">
@@ -837,7 +975,7 @@ return True,{}
 
         <div class="alert alert-info mb-3">
           <div class="fw-semibold mb-1">{{ _('Example') }}</div>
-          <pre class="mb-0" id="markupWizardExample">{{ _('Date|date: date\nNumber|num: number\nPartner|partner: Node("Partner")\nClosed|closed: boolean\n[Product|product: DataSet("goods"), Quantity|qty: number]') }}</pre>
+          <pre class="mb-0" id="markupWizardExample">{{ _('Date|date: date\nNumber|num: number\nPartner|partner: Node("Partner")\nClosed|closed: boolean\n[Product|product: DataSet("goods"), Quantity|qty: number]\n_children: ChildNode("OrderPosition")|ChildNode("OrderPositionSpecial")\npositions:[ChildNode("OrderPosition")]\nlines:[Node("CommonLine")]') }}</pre>
         </div>
 
         <div class="mb-2 d-flex flex-wrap gap-1" id="wizardActiveHelpers">
@@ -1475,7 +1613,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <option value="">-- (no) --</option>
             ${METHODS.map(m => `<option value="${m}" ${m===action.method?'selected':''}>${m}</option>`).join('')}
             <option value="NodaScript" ${action.method==='NodaScript'?'selected':''}>NodaScript</option>
-            <option value="HTTP Request" ${action.method==='HTTP Request'?'selected':''}>HTTP Request</option>
+            <option value="HTTPRequest" ${(action.method==='HTTPRequest'||action.method==='HTTP Request')?'selected':''}>HTTPRequest</option>
             <option value="PythonScript" ${action.method==='PythonScript'?'selected':''}>PythonScript</option>
           </select>
         </div>
@@ -1485,7 +1623,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <option value="">(no)</option>
             ${METHODS.map(m => `<option value="${m}" ${m===action.postExecuteMethod?'selected':''}>${m}</option>`).join('')}
             <option value="NodaScript" ${action.postExecuteMethod==='NodaScript'?'selected':''}>NodaScript</option>
-            <option value="HTTP Request" ${action.postExecuteMethod==='HTTP Request'?'selected':''}>HTTP Request</option>
+            <option value="HTTPRequest" ${(action.postExecuteMethod==='HTTPRequest'||action.postExecuteMethod==='HTTP Request')?'selected':''}>HTTPRequest</option>
             <option value="PythonScript" ${action.postExecuteMethod==='PythonScript'?'selected':''}>PythonScript</option>
           </select>
         </div>
@@ -1516,7 +1654,7 @@ document.addEventListener('DOMContentLoaded', function() {
           </div>
           <div class="col-12">
             <div class="method-http" style="display:none;">
-              <label class="form-label small">HTTP Request function name (method)</label>
+              <label class="form-label small">HTTPRequest function name (method)</label>
               <input class="form-control action-field" data-field="httpFunctionName" value="${action.httpFunctionName || ""}" placeholder="sendInvoice">
             </div>
           </div>
@@ -1529,7 +1667,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <button type="button" class="btn btn-outline-primary save-python-btn" data-kind="method">Save to S3</button>
               </div>
               <code-input class="python-code-editor" data-python-kind="method" language="python">${action.method === 'PythonScript' ? '' : ''}</code-input>
-              <div class="form-text">В JSON сохраняется только ссылка в methodText. При выборе PythonScript код автоматически загружается по ссылке; Save to S3 создает новый файл и удаляет старый.</div>
+              
             </div>
           </div>
           <div class="col-12">
@@ -1540,7 +1678,7 @@ document.addEventListener('DOMContentLoaded', function() {
           </div>
           <div class="col-12">
             <div class="post-http" style="display:none;">
-              <label class="form-label small">HTTP Request function name (postExecuteMethod)</label>
+              <label class="form-label small">HTTPRequest function name (postExecuteMethod)</label>
               <input class="form-control action-field" data-field="postHttpFunctionName" value="${action.postHttpFunctionName || ""}" placeholder="afterSend">
             </div>
           </div>
@@ -1714,8 +1852,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
       const isMethodScript = methodSelect.value === 'NodaScript';
       const isPostScript = postSelect.value === 'NodaScript';
-      const isMethodHttp = methodSelect.value === 'HTTP Request';
-      const isPostHttp = postSelect.value === 'HTTP Request';
+      const isMethodHttp = methodSelect.value === 'HTTPRequest';
+      const isPostHttp = postSelect.value === 'HTTPRequest';
       const isMethodPython = methodSelect.value === 'PythonScript';
       const isPostPython = postSelect.value === 'PythonScript';
 
@@ -1909,6 +2047,106 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     }
   });
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  function updateProjectionFields(){
+    const classType = document.getElementById('classType');
+    const projectionFields = document.getElementById('projectionFields');
+    const printFormFields = document.getElementById('printFormFields');
+    const dataNodeStructureFields = document.getElementById('dataNodeStructureFields');
+    const projectionType = document.getElementById('projectionType');
+    const kanbanFields = document.getElementById('kanbanProjectionFields');
+    const mobilePrintGroup = document.getElementById('mobilePrintEnabledGroup');
+    const mobilePrintInput = document.getElementById('mobilePrintEnabled');
+    if (!classType) return;
+    const isProjection = (classType.value === 'projection');
+    const isPrintForm = (classType.value === 'print_form');
+    const isDataNode = (classType.value === 'data_node');
+    if (projectionFields) projectionFields.style.display = isProjection ? '' : 'none';
+    if (printFormFields) printFormFields.style.display = isPrintForm ? '' : 'none';
+    if (mobilePrintGroup) mobilePrintGroup.style.display = isPrintForm ? 'none' : '';
+    if (mobilePrintInput) mobilePrintInput.disabled = isPrintForm;
+    if (dataNodeStructureFields) dataNodeStructureFields.style.display = isDataNode ? '' : 'none';
+    if (kanbanFields && projectionType) {
+      kanbanFields.style.display = (isProjection && projectionType.value === 'kanban_projection') ? '' : 'none';
+    }
+  }
+
+  async function renderPrintTemplatePreview(){
+    const frame = document.getElementById('printTemplatePreview');
+    const ta = document.getElementById('printHtmlTemplate');
+    if (!frame || !ta) return;
+    const sample = {
+      _id: 'print-form-sample-id',
+      number: '0001',
+      date: '2026-05-25',
+      customer: {
+        _id: 'customer-001',
+        name: 'Sample customer',
+        email: 'customer@example.com'
+      },
+      items: [
+        { _id: 'line-1', name: 'Item A', qty: 2, price: 10 },
+        { _id: 'line-2', name: 'Item B', qty: 1, price: 25 }
+      ],
+      _basement_data: { _id: 'base-id', _class: 'BaseClass', _view: 'Base record' }
+    };
+
+    function writePreview(html){
+      const doc = frame.contentDocument || frame.contentWindow.document;
+      doc.open();
+      doc.write(html || '');
+      doc.close();
+    }
+
+    function fallbackRender(){
+      let html = ta.value || '';
+      html = html.replace(new RegExp('\{\{\s*qr\(([^)]*)\)\s*\}\}', 'g'), '');
+      html = html.replace(new RegExp('\{\{\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\}\}', 'g'), function(_, path){
+        const parts = path.split('.');
+        let cur = sample;
+        for (const part of parts) {
+          if (cur && Object.prototype.hasOwnProperty.call(cur, part)) cur = cur[part];
+          else return '';
+        }
+        return (cur === null || cur === undefined || typeof cur === 'object') ? '' : String(cur);
+      });
+      writePreview(html);
+    }
+
+    try {
+      const resp = await fetch('{{ url_for('print_form_template_preview', class_id=class_obj.id) }}', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({ template: ta.value || '', data: sample })
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const payload = await resp.json();
+      if (payload && payload.ok) writePreview(payload.html || '');
+      else writePreview('<div style="padding:12px;color:#842029;background:#f8d7da;border:1px solid #f5c2c7;border-radius:6px;">' + ((payload && payload.error) || 'Preview error') + '</div>');
+    } catch (err) {
+      fallbackRender();
+    }
+  }
+
+  const classType = document.getElementById('classType');
+  const projectionType = document.getElementById('projectionType');
+  const previewBtn = document.getElementById('printTemplatePreviewBtn');
+  const printTpl = document.getElementById('printHtmlTemplate');
+  const printPreviewTab = document.getElementById('print-preview-tab');
+  if (classType) classType.addEventListener('change', updateProjectionFields);
+  if (projectionType) projectionType.addEventListener('change', updateProjectionFields);
+  if (previewBtn) previewBtn.addEventListener('click', renderPrintTemplatePreview);
+  if (printPreviewTab) printPreviewTab.addEventListener('shown.bs.tab', renderPrintTemplatePreview);
+  if (printTpl) printTpl.addEventListener('input', function(){ window.clearTimeout(window.__printTplPreviewTimer); window.__printTplPreviewTimer = window.setTimeout(renderPrintTemplatePreview, 350); });
+  updateProjectionFields();
+  renderPrintTemplatePreview();
 });
 </script>
 
@@ -2236,17 +2474,20 @@ async function openMarkupWizard(textareaId, mode) {
   modeInput.value = mode || 'active';
   input.value = '';
 
-  document.getElementById('wizardActiveHelpers')?.classList.toggle('d-none', mode !== 'active');
-  document.getElementById('wizardCoverHelpers')?.classList.toggle('d-none', mode === 'active');
+  document.getElementById('wizardActiveHelpers')?.classList.toggle('d-none', !(mode === 'active' || mode === 'structure'));
+  document.getElementById('wizardCoverHelpers')?.classList.toggle('d-none', mode !== 'cover');
 
   if (example) {
-    if (mode === 'active') {
+    if (mode === 'structure' || mode === 'active') {
       example.textContent =
 `Date|date: date
 Number|num: number
 Partner|partner: Node("Partner")
 Closed|closed: boolean
-[Product|product: DataSet("goods"), Quantity|qty: number]`;
+[Product|product: DataSet("goods"), Quantity|qty: number]
+_children: ChildNode("OrderPosition")|ChildNode("OrderPositionSpecial")
+positions:[ChildNode("OrderPosition")]
+lines:[Node("CommonLine")]`;
     } else {
       example.textContent =
 `Date|@date
@@ -2259,6 +2500,9 @@ Partner|partner: Node("Partner")
   const raw = (source.value || '').trim();
 
   if (raw) {
+    if (mode === 'structure') {
+      input.value = raw;
+    } else {
     let asJson = null;
     try {
       asJson = JSON.parse(raw);
@@ -2287,6 +2531,7 @@ Partner|partner: Node("Partner")
     } else {
       input.value = raw;
     }
+    }
   }
 
   const modalEl = document.getElementById('markupWizardModal');
@@ -2303,6 +2548,13 @@ async function applyMarkupWizard() {
 
     if (!target) {
       throw new Error({{ _('Target textarea not found')|tojson }});
+    }
+
+    if (mode === 'structure') {
+      target.value = input;
+      bootstrap.Modal.getInstance(document.getElementById('markupWizardModal'))?.hide();
+      target.focus();
+      return;
     }
 
     const resp = await fetch('{{ url_for("layout_wizard") }}', {
@@ -2330,6 +2582,27 @@ async function applyMarkupWizard() {
   alert(String(e && e.message ? e.message : e));
 }
 }
+
+async function generateInitLayoutFromStructure(targetId) {
+  try {
+    const source = document.getElementById('dataStructure');
+    const target = document.getElementById(targetId || 'initScreenLayout');
+    if (!source || !target) throw new Error({{ _('Data structure or target textarea not found')|tojson }});
+    const text = source.value || '';
+    const resp = await fetch('{{ url_for("layout_wizard") }}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ direction: 'to_json', text: text, mode: 'active' })
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) throw new Error(data.error || {{ _('Wizard conversion error')|tojson }});
+    target.value = JSON.stringify(data.layout, null, 2);
+    target.focus();
+  } catch(e) {
+    alert(String(e && e.message ? e.message : e));
+  }
+}
+
 </script>
 
 </div>
