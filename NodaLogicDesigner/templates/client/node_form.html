@@ -67,6 +67,242 @@
   }
 
 
+  .nl-projection-shell{
+    min-height:70vh;
+  }
+  .nl-projection-shell .card-body{
+    overflow:hidden;
+  }
+  .nl-kanban-board{
+    display:flex;
+    gap:.75rem;
+    align-items:stretch;
+    overflow-x:auto;
+    min-height:65vh;
+    padding-bottom:.5rem;
+  }
+  .nl-kanban-column{
+    flex:0 0 310px;
+    display:flex;
+    flex-direction:column;
+    border:1px solid rgba(0,0,0,.125);
+    border-radius:.75rem;
+    background:#f8f9fa;
+  }
+  .nl-kanban-column.drag-over{
+    outline:2px dashed rgba(13,110,253,.65);
+    outline-offset:-6px;
+  }
+  .nl-kanban-column-head{
+    padding:.55rem .65rem;
+    border-bottom:1px solid rgba(0,0,0,.1);
+    display:flex;
+    justify-content:space-between;
+    gap:.5rem;
+    align-items:center;
+  }
+  .nl-kanban-column-body{
+    flex:1 1 auto;
+    min-height:58vh;
+    padding:.6rem;
+  }
+  .nl-kanban-card{
+    cursor:grab;
+    margin-bottom:.6rem;
+    background:#fff;
+  }
+  .nl-kanban-card.dragging{
+    opacity:.55;
+  }
+  .nl-kanban-empty-msg{
+    border:1px dashed rgba(0,0,0,.15);
+    border-radius:.5rem;
+    padding:.75rem;
+    text-align:center;
+  }
+  .nl-diagram-wrap{
+    min-height:65vh;
+    overflow:auto;
+    background:#fff;
+    border-radius:.5rem;
+    position:relative;
+  }
+  .nl-diagram-header{
+    padding:.5rem .75rem;
+    font-weight:600;
+    border-bottom:1px solid rgba(0,0,0,.1);
+    background:#fff;
+    position:sticky;
+    top:0;
+    z-index:3;
+  }
+  .nl-diagram-board{
+    position:relative;
+    min-width:100%;
+    min-height:65vh;
+    background-color:#fff;
+  }
+  .nl-diagram-board.editor{
+    background-image:linear-gradient(rgba(0,0,0,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,.04) 1px, transparent 1px);
+    background-size:24px 24px;
+  }
+  .nl-diagram-object{
+    position:absolute;
+    border:1px solid rgba(0,0,0,.25);
+    box-shadow:0 .15rem .4rem rgba(0,0,0,.08);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    user-select:none;
+    overflow:hidden;
+    padding:.25rem;
+    font-size:.9rem;
+    cursor:pointer;
+  }
+  .nl-diagram-object.editor{ cursor:move; }
+  .nl-diagram-object.circle{ border-radius:50%; }
+  .nl-diagram-object.svg{ border:0; box-shadow:none; background:transparent !important; overflow:visible; padding:0; display:block; }
+  .nl-diagram-svg-box{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
+  .nl-diagram-svg-box svg{ max-width:100%; max-height:100%; }
+  .nl-diagram-svg-label{ text-align:center; font-size:.85rem; margin-top:.2rem; white-space:nowrap; }
+
+  .nl-schedule-wrap,.nl-gantt-wrap{
+    min-height:65vh;
+    overflow:auto;
+    background:#fff;
+    border-radius:.5rem;
+    position:relative;
+  }
+  .nl-schedule-toolbar,.nl-gantt-toolbar{
+    display:flex;
+    align-items:center;
+    gap:.75rem;
+    padding:.5rem .75rem;
+    border-bottom:1px solid rgba(0,0,0,.1);
+    background:#fff;
+    position:sticky;
+    top:0;
+    z-index:5;
+  }
+  .nl-schedule-board,.nl-gantt-board{
+    position:relative;
+    min-height:65vh;
+    background:#fff;
+  }
+  .nl-schedule-time-cell,.nl-gantt-time-cell{
+    position:absolute;
+    top:0;
+    height:32px;
+    border-left:1px solid rgba(0,0,0,.09);
+    font-size:.78rem;
+    color:#6c757d;
+    padding-left:.25rem;
+    white-space:nowrap;
+  }
+  .nl-schedule-row-label,.nl-gantt-row-label{
+    position:absolute;
+    left:0;
+    border-right:1px solid rgba(0,0,0,.12);
+    border-bottom:1px solid rgba(0,0,0,.08);
+    background:#f8f9fa;
+    padding:.45rem .6rem;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    z-index:2;
+  }
+  .nl-schedule-lane,.nl-gantt-lane{
+    position:absolute;
+    border-bottom:1px solid rgba(0,0,0,.08);
+    background:#fff;
+  }
+  .nl-schedule-area{
+    position:absolute;
+    top:0;
+    bottom:0;
+    opacity:.22;
+    pointer-events:none;
+  }
+  .nl-schedule-column-label{
+    position:absolute;
+    top:0;
+    height:32px;
+    border-left:1px solid rgba(0,0,0,.09);
+    border-bottom:1px solid rgba(0,0,0,.08);
+    background:#f8f9fa;
+    font-size:.82rem;
+    font-weight:600;
+    padding:.45rem .55rem;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    z-index:2;
+  }
+  .nl-schedule-cell{
+    position:absolute;
+    z-index:1;
+    border-right:1px solid rgba(0,0,0,.045);
+    border-bottom:1px solid rgba(0,0,0,.045);
+    background:transparent;
+  }
+  .nl-schedule-cell.can-create{ cursor:pointer; }
+  .nl-schedule-cell.can-create:hover{
+    background:rgba(13,110,253,.08);
+    outline:1px dashed rgba(13,110,253,.45);
+    outline-offset:-2px;
+  }
+  .nl-schedule-event{
+    position:absolute;
+    z-index:3;
+    min-width:0;
+    min-height:0;
+    box-sizing:border-box;
+    border:1px solid rgba(13,110,253,.35);
+    border-radius:.55rem;
+    background:#fff;
+    box-shadow:0 .15rem .35rem rgba(0,0,0,.12);
+    overflow:hidden;
+    cursor:grab;
+  }
+  .nl-schedule-event.dragging,.nl-gantt-bar.dragging{ opacity:.78; cursor:grabbing; }
+  .nl-gantt-row-label.group{ font-weight:600; background:#f1f3f5; }
+  .nl-gantt-bar{
+    position:absolute;
+    z-index:3;
+    min-width:18px;
+    height:22px;
+    border-radius:.45rem;
+    border:1px solid rgba(0,0,0,.18);
+    background:#0d6efd;
+    color:#fff;
+    font-size:.78rem;
+    line-height:22px;
+    padding:0 .45rem;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    cursor:grab;
+    box-shadow:0 .12rem .25rem rgba(0,0,0,.12);
+  }
+
+  .nl-projection-settings #webRoot{
+    max-height:58vh;
+    overflow:auto;
+  }
+  .nl-printform-preview{
+    background:#fff;
+    border:1px solid #dee2e6;
+    border-radius:.5rem;
+    padding:1rem;
+    min-height:70vh;
+  }
+  @media print{
+    body *{ visibility:hidden; }
+    #printFormPreview, #printFormPreview *{ visibility:visible; }
+    #printFormPreview{ position:absolute; left:0; top:0; width:100%; border:0; padding:0; }
+  }
+
 
 </style>
 
@@ -95,6 +331,49 @@
     Setting min-width:0 allows the flex item to shrink to the available space.
   #}
   <div id="nodeFormPane" class="flex-grow-1" style="min-width:0;">
+
+    {% if is_print_form %}
+      <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center gap-2 py-2">
+          <div class="fw-semibold">{{ class_obj.display_name or class_obj.name or class_name }}</div>
+          <span class="text-muted small">{{ _('PrintForm') }}</span>
+        </div>
+        <div class="card-body">
+          {% if node_data is mapping and node_data.get('_print_error') %}
+            <div class="alert alert-warning">{{ node_data.get('_print_error') }}</div>
+          {% endif %}
+          <div id="printFormPreview" class="nl-printform-preview">{{ print_html | safe }}</div>
+        </div>
+      </div>
+    {% elif is_projection %}
+      <div class="card nl-projection-shell">
+        <div class="card-header d-flex justify-content-between align-items-center gap-2 py-2">
+          <div class="fw-semibold">{{ class_obj.display_name or class_obj.caption or class_obj.title or class_name }}</div>
+          <span id="projectionMainStatus" class="text-muted small"></span>
+        </div>
+        <div class="card-body p-2">
+          {% if projection_type == 'kanban_projection' %}
+            <div id="kanbanProjectionRoot" class="nl-kanban-board">
+              <div class="text-muted small p-3">{{ _('Projection is not generated yet.') }}</div>
+            </div>
+          {% elif projection_type == 'diagram_projection' %}
+            <div id="diagramProjectionRoot" class="nl-diagram-wrap">
+              <div class="text-muted small p-3">{{ _('Projection is not generated yet.') }}</div>
+            </div>
+          {% elif projection_type == 'schedule_projection' %}
+            <div id="scheduleProjectionRoot" class="nl-schedule-wrap">
+              <div class="text-muted small p-3">{{ _('Projection is not generated yet.') }}</div>
+            </div>
+          {% elif projection_type == 'gantt_projection' %}
+            <div id="ganttProjectionRoot" class="nl-gantt-wrap">
+              <div class="text-muted small p-3">{{ _('Projection is not generated yet.') }}</div>
+            </div>
+          {% else %}
+            <div class="alert alert-info mb-0">{{ _('This projection type is stored, but the web renderer is not implemented yet.') }}</div>
+          {% endif %}
+        </div>
+      </div>
+    {% else %}
 
     {# --- Top tabs: node form + discussion + optional galleries --- #}
     {% set ns = namespace(has_files=false, has_media=false) %}
@@ -180,24 +459,71 @@
       </div>
       {% endif %}
     </div>
+    {% endif %}
 
   </div>
 
-  {% if use_standard_commands %}
-  <div style="width:260px; flex:0 0 260px; flex-shrink:0; position:sticky; top:12px; align-self:flex-start;">
+  {% if use_standard_commands or is_projection or is_print_form or print_forms_for_class %}
+  {% set projection_timer = 0 %}
+  {% if node_data is mapping %}{% set projection_timer = (node_data.get('_projection_timer') or 0)|float %}{% endif %}
+  <div style="width:300px; flex:0 0 300px; flex-shrink:0; position:sticky; top:12px; align-self:flex-start;">
     <div>
-      <div class="d-grid gap-2">
-        <button id="btnSaveClose" class="btn btn-sm btn-save-close" type="button">{{_('Save and close')}}</button>
-        <button id="btnSave" class="btn btn-sm btn-outline-secondary" type="button">{{_('Save')}}</button>
+      {% if is_projection and layout_html %}
+        <div class="card mb-3 nl-projection-settings">
+          <div class="card-body p-2">
+            <div id="webRoot">{{ layout_html | safe }}</div>
+          </div>
+        </div>
+      {% endif %}
 
-        {% if show_register_command %}
-          <button id="btnRegister" class="btn btn-sm btn-outline-primary" type="button"
-                  {% if not default_room_uid %}disabled title="No Room specified"{% endif %}>
-            {{_('Register')}}
-          </button>
+      <div class="d-grid gap-2">
+        {% if is_print_form %}
+          <button id="btnPrintFormPrint" class="btn btn-sm btn-primary" type="button">{{ _('Print') }}</button>
+          {% if print_pdf_url %}
+            <a id="btnPrintFormPdf" class="btn btn-sm btn-outline-primary" href="{{ print_pdf_url }}" target="_blank" rel="noopener">{{ _('Export to PDF') }}</a>
+          {% endif %}
+        {% elif is_projection %}
+          <button id="btnProjectionRun" class="btn btn-sm btn-primary" type="button">{{_('Generate')}}</button>
+          {% if projection_timer > 0 %}
+          <label class="form-check small text-muted ms-1">
+            <input id="projectionAutoToggle" class="form-check-input" type="checkbox">
+            {{ _('auto refresh') }} {{ projection_timer|int if projection_timer == (projection_timer|int) else projection_timer }}s
+          </label>
+          {% endif %}
         {% endif %}
 
-        {% if not is_custom_process %}<button id="btnDelete" class="btn btn-danger btn-sm" type="button">{{_('Delete')}}</button>{% endif %}
+        {% if print_forms_for_class and not is_print_form %}
+          <div class="dropdown d-grid">
+            <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+              {{ _('Print') }}
+            </button>
+            <ul class="dropdown-menu w-100">
+              {% for pf in print_forms_for_class %}
+                <li>
+                  <a class="dropdown-item" target="_blank" rel="noopener"
+                     href="{{ url_for('client.print_form_open', repo_id=repo_id, print_class_name=pf.name, base_class=class_name, base_node_id=node_id) }}">
+                    {{ pf.display_name or pf.name }}
+                  </a>
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+
+        {% if (use_standard_commands or is_projection) and not is_print_form %}
+          <button id="btnSaveClose" class="btn btn-sm btn-save-close" type="button">{{_('Save and close')}}</button>
+          <button id="btnSave" class="btn btn-sm btn-outline-secondary" type="button">{{_('Save')}}</button>
+
+          {% if use_standard_commands and show_register_command %}
+            <button id="btnRegister" class="btn btn-sm btn-outline-primary" type="button"
+                    {% if not default_room_uid %}disabled title="No Room specified"{% endif %}>
+              {{_('Register')}}
+            </button>
+          {% endif %}
+
+
+          {% if use_standard_commands and not is_custom_process %}<button id="btnDelete" class="btn btn-danger btn-sm" type="button">{{_('Delete')}}</button>{% endif %}
+        {% endif %}
         <button id="btnClose" class="btn btn-sm btn-outline-secondary" type="button">{{_('Close')}}</button>
       </div>
       <div id="sideStatus" class="text-muted small mt-2"></div>
@@ -223,12 +549,25 @@ window.initDatasetTables = window.initDatasetTables || function(){};
 window.initVirtualTables = window.initVirtualTables || function(){};
 
 const REPO_ID = {{ repo_id|tojson }};
+const CONFIG_UID = {{ repo.config_uid|tojson }};
 const CLASS_NAME = {{ class_name|tojson }};
 const NODE_ID = {{ node_id|tojson }};
 const DISCUSSION_NODE_ID = {{ (discussion_node_id or node_id)|tojson }};
 const IS_RAW_NODE = {{ (is_raw_node or false)|tojson }};
 const CHAT_CURRENT_USER = {{ (current_user.email or '')|tojson }};
 const CLASS_OBJ = {{ (class_obj or {})|tojson }};
+const IS_PROJECTION = {{ (is_projection|default(false))|tojson }};
+const IS_PRINT_FORM = {{ (is_print_form|default(false))|tojson }};
+const PROJECTION_TYPE = {{ (projection_type|default(''))|tojson }};
+const API_PROJECTION_KANBAN_DATA = {{ (api_projection_kanban_data|default(''))|tojson }};
+const API_PROJECTION_KANBAN_MOVE = {{ (api_projection_kanban_move|default(''))|tojson }};
+const API_PROJECTION_DIAGRAM_DATA = {{ (api_projection_diagram_data|default(''))|tojson }};
+const API_PROJECTION_DIAGRAM_MOVE = {{ (api_projection_diagram_move|default(''))|tojson }};
+const API_PROJECTION_SCHEDULE_DATA = {{ (api_projection_schedule_data|default(''))|tojson }};
+const API_PROJECTION_SCHEDULE_MOVE = {{ (api_projection_schedule_move|default(''))|tojson }};
+const API_PROJECTION_GANTT_DATA = {{ (api_projection_gantt_data|default(''))|tojson }};
+const API_PROJECTION_GANTT_MOVE = {{ (api_projection_gantt_move|default(''))|tojson }};
+const API_NODE_CREATE = "/client/api/node/create";
 const API_EVENT_WEB = {{ api_event_web|tojson }};
 const API_SAVE = {{ api_save_url|tojson }};
 const API_DISCUSSION_MESSAGES = `/client/api/node-discussion/by-node/${encodeURIComponent(DISCUSSION_NODE_ID)}/messages`;
@@ -645,6 +984,96 @@ function nodeWinNameByParts(config_uid, class_name, node_id){
   return "nf_" + _winSafe(config_uid) + "__" + _winSafe(class_name) + "__" + _winSafe(node_id);
 }
 
+function nlNotifyParentNodeForm(action){
+  try {
+    if (window.parent && window.parent !== window) {
+      const type = action === "close" ? "nl_node_form_close" : "nodes_refresh";
+      window.parent.postMessage({
+        type,
+        source: "node_form",
+        action: action || "change",
+        config_uid: CONFIG_UID,
+        class_name: CLASS_NAME,
+        node_id: NODE_ID
+      }, window.location.origin);
+      return true;
+    }
+  } catch(_) {}
+  return false;
+}
+
+let __nlProjectionChildRefreshTimer = null;
+function scheduleProjectionRefreshFromChild(source){
+  if (!IS_PROJECTION) return;
+  window.clearTimeout(__nlProjectionChildRefreshTimer);
+  __nlProjectionChildRefreshTimer = window.setTimeout(() => {
+    try {
+      if (typeof loadProjection === "function") {
+        loadProjection({skipRun:false, forceReload:true, source:source || "child_node"});
+      }
+    } catch(_) {}
+  }, 250);
+}
+
+function ensureNodeFormModal(){
+  let el = document.getElementById("nlNodeFormModal");
+  if (el) return el;
+  document.body.insertAdjacentHTML("beforeend", `
+<div class="modal fade" id="nlNodeFormModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable" style="max-width:min(1180px, 96vw);">
+    <div class="modal-content" style="height:92vh;">
+      <div class="modal-header py-2">
+        <h5 class="modal-title" id="nlNodeFormModalTitle">Node</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-0" style="height:calc(92vh - 56px); overflow:hidden;">
+        <iframe id="nlNodeFormModalFrame" title="Node form" style="border:0; width:100%; height:100%; display:block;" loading="eager"></iframe>
+      </div>
+    </div>
+  </div>
+</div>`);
+  el = document.getElementById("nlNodeFormModal");
+  el.addEventListener("hidden.bs.modal", () => {
+    const frame = document.getElementById("nlNodeFormModalFrame");
+    if (frame) frame.src = "about:blank";
+    if (IS_PROJECTION) scheduleProjectionRefreshFromChild("node_form_modal_closed");
+    el.__nlNodeFormHadChange = false;
+  });
+  return el;
+}
+
+function openNodeFormInModal(url, title){
+  if (!window.bootstrap) return false;
+  const u = String(url || "").trim();
+  if (!u) return false;
+  const el = ensureNodeFormModal();
+  const frame = document.getElementById("nlNodeFormModalFrame");
+  const titleEl = document.getElementById("nlNodeFormModalTitle");
+  el.__nlNodeFormHadChange = false;
+  if (titleEl) titleEl.textContent = title || "Node";
+  if (frame) frame.src = u;
+  bootstrap.Modal.getOrCreateInstance(el).show();
+  return true;
+}
+
+window.addEventListener("message", function(event){
+  if (event.origin !== window.location.origin) return;
+  const data = event.data || {};
+  if (!data || typeof data !== "object") return;
+  if (data.type === "nodes_refresh") {
+    const el = document.getElementById("nlNodeFormModal");
+    if (el) el.__nlNodeFormHadChange = true;
+    scheduleProjectionRefreshFromChild("child_node_saved");
+  } else if (data.type === "nl_node_form_close") {
+    const el = document.getElementById("nlNodeFormModal");
+    if (el) {
+      el.__nlNodeFormHadChange = true;
+      try { bootstrap.Modal.getOrCreateInstance(el).hide(); } catch(_) {}
+    }
+    scheduleProjectionRefreshFromChild("child_node_closed");
+  }
+});
+
 
 function openUrlMaybeNodeForm(url){
   const u = String(url || "").trim();
@@ -658,7 +1087,7 @@ function openUrlMaybeNodeForm(url){
     const id  = decodeURIComponent(m[3]);
     const name = nodeWinNameByParts(cfg, cls, id);
 
-    
+    if (IS_PROJECTION && openNodeFormInModal(u, `${cls}/${id}`)) return true;
     const w = window.open(u, name);
     if (w) { try { w.focus(); } catch(_){} }
     return true;
@@ -766,6 +1195,23 @@ const __nlScript = {
     // save() / сохранить() -> existing form save button logic
     const saveFn = () => { try { if (typeof doSave === "function") return doSave(); } catch(_) {} return null; };
     eng.register("save", saveFn).register("Save", saveFn).register("Сохранить", saveFn).register("сохранить", saveFn);
+
+    // RunProjection() -> ask the client to refresh projection from a handler.
+    // If called while the current listener is onRunProjection, do not call that
+    // listener again; just reload projection data. The browser NodaScript engine
+    // passes runtime as the second argument to registered externals.
+    const runProjectionFn = (args, runtime) => {
+      try {
+        const payload = (runtime && runtime.ctx && runtime.ctx.payload) ? runtime.ctx.payload : {};
+        const listener = String((payload && (payload.listener || payload.id)) || "");
+        const skipRun = listener === "onRunProjection";
+        window.setTimeout(() => {
+          if (typeof loadProjection === "function") loadProjection({skipRun:skipRun, forceReload:true, source:"RunProjection"});
+        }, 0);
+      } catch(_) {}
+      return true;
+    };
+    eng.register("runprojection", runProjectionFn).register("RunProjection", runProjectionFn).register("СформироватьПроекцию", runProjectionFn);
 
     // http(method,url,body?,headers?,auth?)
     // auth can be: {type:"basic", user:"", pass:""} or {type:"bearer", token:""}
@@ -1354,6 +1800,8 @@ async function fireOnInputWeb(payload){
       const j = await r.json();
 
 
+      try { handleProjectionCommandResponse(j, payload || {}); } catch(_){}
+
       if (j && j.node_data && typeof j.node_data === "object") {
         
         let base;
@@ -1502,12 +1950,15 @@ function snapshotWebFormIntoData(){
 
 // NOTE: we keep the function name for backward compatibility inside this template,
 // but the backend event name must remain "onInputWeb" (as in config events).
-async function fireOnClickWeb(payload, target_class = "", target_node = "") {
+async function fireOnClickWeb(payload, target_class = "", target_node = "", options = {}) {
+  const forceRemote = !!(options && options.forceRemote) || !!(payload && payload.__force_remote);
+
   // 1) Local NodaScript actions first (per requirements)
   try {
     const info = await nlRunLocalNodaScriptFirst("onInputWeb", payload || {});
-    // If this listener has ONLY local NodaScript actions, we can skip the backend call.
-    if (info.ran && !info.hasRemote) {
+    // If this listener has ONLY local NodaScript actions, we can skip the backend call,
+    // except for projection generation where Generate must always reach the backend/raw-node handler.
+    if (info.ran && !info.hasRemote && !forceRemote) {
       try { await nlRunLocalPostNodaScript("onInputWeb", payload || {}); } catch(_){}
       try { nlRefreshUI(); } catch(_) {}
       return;
@@ -1520,6 +1971,9 @@ async function fireOnClickWeb(payload, target_class = "", target_node = "") {
       //if (l === "_save" || l === "btnSave" || l === "btnSaveClose") {
         snapshotWebFormIntoData();
         payload = payload || {};
+        if (payload.__force_remote) {
+          try { payload = Object.assign({}, payload); delete payload.__force_remote; } catch(_){}
+        }
         payload.full_data = JSON.parse(JSON.stringify(_data || {}));
      // }
     } catch(_){}
@@ -1567,6 +2021,8 @@ async function fireOnClickWeb(payload, target_class = "", target_node = "") {
 
     return;
   }
+
+  try { handleProjectionCommandResponse(j, payload || {}); } catch(_){}
 
   
   if (j && j.message) {
@@ -1686,6 +2142,954 @@ async function fireOnClickWeb(payload, target_class = "", target_node = "") {
 
   try { await nlRunLocalPostNodaScript("onInputWeb", payload || {}); } catch(_){}
   try { nlRefreshUI(); } catch(_) {}
+}
+
+const projectionState = { loading: false, timer: null, intervalMs: 0, projectionUid: "", editor: false };
+function projectionStatus(text){
+  const t = text || "";
+  const main = document.getElementById("projectionMainStatus");
+  if (main) main.textContent = t;
+  setSideStatus(t);
+}
+function showProjectionApiMessages(j){
+  try {
+    if (!window.message || !j) return;
+    const showOne = (m) => {
+      if (!m) return;
+      if (typeof m === "object") window.message(m.text || JSON.stringify(m), m.level || "info");
+      else window.message(String(m), "info");
+    };
+    if (Array.isArray(j.messages)) j.messages.forEach(showOne);
+    else if (j.message) showOne(j.message);
+  } catch(_) {}
+}
+function normalizeProjectionTimer(value){
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.max(1000, Math.floor(n * 1000));
+}
+async function saveProjectionDataQuiet(){
+  if (IS_RAW_NODE) return true;
+  try {
+    const r = await fetch(API_SAVE, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({repo_id: REPO_ID, class_name: CLASS_NAME, node_id: NODE_ID, data: _data || {}}),
+      credentials: "same-origin",
+    });
+    const j = await r.json();
+    return !!(j && j.ok);
+  } catch(_){
+    return false;
+  }
+}
+async function runProjectionHandler(){
+  projectionStatus("generating...");
+  try {
+    // onRunProjection is a report-generation event. It may return transient
+    // _projection_objects to this browser session, but it must not save the
+    // projection node automatically. Object state is saved only on the object
+    // being moved/edited via _projection_values[projection_uid].
+    await fireOnClickWeb({listener:"onRunProjection", projection_type:PROJECTION_TYPE, __force_remote:true}, "", "", {forceRemote:true});
+  } catch(e) {
+    if (window.message) window.message(String(e), "error");
+  }
+}
+async function generateProjectionFromButton(){
+  await runProjectionHandler();
+  return loadProjection({skipRun:true, forceReload:true, source:"button"});
+}
+function kanbanColumnCaption(col){
+  return escapeHtml(col && (col.caption || col.id) ? (col.caption || col.id) : "");
+}
+function kanbanObjectFallbackHtml(obj){
+  const view = obj && obj.view ? obj.view : {};
+  const title = view.title || obj.uid || "node";
+  const subtitle = view.subtitle || `${obj.class || ""}/${obj.id || ""}`;
+  return `
+    <div class="p-2">
+      <div class="fw-semibold">${escapeHtml(title)}</div>
+      <div class="text-muted small">${escapeHtml(subtitle)}</div>
+    </div>`;
+}
+function openProjectionObject(el){
+  if (!el) return;
+  const url = el.getAttribute("data-open-url") || "";
+  if (!url) return;
+  const cfg = el.getAttribute("data-repo-uid") || REPO_ID;
+  const cls = el.getAttribute("data-class") || "";
+  const id = el.getAttribute("data-id") || "";
+  const winName = nodeWinNameByParts(cfg, cls, id);
+  if (openNodeFormInModal(url, `${cls}/${id}`)) return;
+  const w = window.open(url, winName);
+  if (w) { try { w.focus(); } catch(_){} }
+}
+function bindKanbanProjection(root){
+  if (!root) return;
+  let dragged = null;
+  root.querySelectorAll(".nl-kanban-card").forEach(card => {
+    card.addEventListener("dragstart", (e) => {
+      dragged = card;
+      card.classList.add("dragging");
+      try { e.dataTransfer.setData("text/plain", card.getAttribute("data-object-uid") || ""); } catch(_){}
+    });
+    card.addEventListener("dragend", () => {
+      card.classList.remove("dragging");
+      dragged = null;
+      root.querySelectorAll(".nl-kanban-column").forEach(c => c.classList.remove("drag-over"));
+    });
+    card.addEventListener("click", () => openProjectionObject(card));
+  });
+  root.querySelectorAll(".nl-kanban-column").forEach(col => {
+    col.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      col.classList.add("drag-over");
+    });
+    col.addEventListener("dragleave", () => col.classList.remove("drag-over"));
+    col.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      col.classList.remove("drag-over");
+      const objectUid = (dragged && dragged.getAttribute("data-object-uid")) || (e.dataTransfer && e.dataTransfer.getData("text/plain")) || "";
+      const columnId = col.getAttribute("data-column-id") || "__empty__";
+      if (!objectUid) return;
+      await moveKanbanProjectionCard(objectUid, columnId);
+    });
+  });
+}
+function renderKanbanProjection(payload){
+  const root = document.getElementById("kanbanProjectionRoot");
+  if (!root) return;
+  const empty = payload.empty_column || {id:"__empty__", caption:"No column"};
+  const configuredColumns = Array.isArray(payload.columns) ? payload.columns : [];
+  const objects = Array.isArray(payload.objects) ? payload.objects : [];
+  const byColumn = {};
+  const knownColumns = {};
+  configuredColumns.forEach(c => {
+    const cid = String(c.id || "");
+    if (!cid) return;
+    knownColumns[cid] = true;
+    byColumn[cid] = [];
+  });
+  byColumn.__empty__ = [];
+  objects.forEach(obj => {
+    let cid = String(obj.column_id || "__empty__");
+    if (!knownColumns[cid]) cid = "__empty__";
+    byColumn[cid].push(obj);
+  });
+  const columns = (byColumn.__empty__ && byColumn.__empty__.length)
+    ? [empty].concat(configuredColumns)
+    : configuredColumns;
+  root.innerHTML = columns.map(col => {
+    const cid = String(col.id || "__empty__");
+    const list = byColumn[cid] || [];
+    const cards = list.length ? list.map(obj => {
+      const html = obj.cover_html || kanbanObjectFallbackHtml(obj);
+      return `<div class="card nl-kanban-card" draggable="true"
+                   data-object-uid="${escapeHtml(obj.uid || "")}"
+                   data-open-url="${escapeHtml(obj.open_url || "")}"
+                   data-repo-uid="${escapeHtml(obj.repo_uid || "")}"
+                   data-class="${escapeHtml(obj.class || "")}"
+                   data-id="${escapeHtml(obj.id || "")}">${html}</div>`;
+    }).join("") : `<div class="nl-kanban-empty-msg text-muted small">${escapeHtml("Empty")}</div>`;
+    return `<section class="nl-kanban-column" data-column-id="${escapeHtml(cid)}">
+      <div class="nl-kanban-column-head">
+        <span class="fw-semibold">${kanbanColumnCaption(col)}</span>
+        <span class="badge text-bg-light border">${list.length}</span>
+      </div>
+      <div class="nl-kanban-column-body">${cards}</div>
+    </section>`;
+  }).join("");
+  bindKanbanProjection(root);
+}
+async function loadKanbanProjection(options){
+  if (!IS_PROJECTION || PROJECTION_TYPE !== "kanban_projection") return;
+  const opts = options || {};
+  if (projectionState.loading && !opts.forceReload) return;
+  projectionState.loading = true;
+  try {
+    if (!opts.skipRun) await runProjectionHandler();
+    projectionStatus("loading...");
+    const r = await fetch(API_PROJECTION_KANBAN_DATA, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({repo_id:REPO_ID, class_name:CLASS_NAME, node_id:NODE_ID, is_raw_node:IS_RAW_NODE, raw_node_id: IS_RAW_NODE ? DISCUSSION_NODE_ID : "", node_data:_data || {}}),
+      credentials:"same-origin",
+    });
+    const j = await r.json();
+    if (!j || !j.ok) throw new Error((j && (j.error || (j.message && j.message.text))) || "kanban load failed");
+    projectionState.projectionUid = j.projection_uid || "";
+    if (j.timer !== undefined) projectionState.intervalMs = normalizeProjectionTimer(j.timer);
+    if (j.node_data && typeof j.node_data === "object") {
+      try { _data = JSON.parse(JSON.stringify(j.node_data)); } catch(_){ _data = j.node_data || {}; }
+    }
+    renderKanbanProjection(j);
+    projectionStatus("ready");
+  } catch(e) {
+    projectionStatus("");
+    if (window.message) window.message(String(e), "error");
+    else alert(String(e));
+  } finally {
+    projectionState.loading = false;
+  }
+}
+async function moveKanbanProjectionCard(objectUid, columnId){
+  if (!projectionState.projectionUid) return;
+  projectionStatus("saving position...");
+  try {
+    const r = await fetch(API_PROJECTION_KANBAN_MOVE, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({repo_id:REPO_ID, projection_uid:projectionState.projectionUid, object_uid:objectUid, column_id:columnId}),
+      credentials:"same-origin",
+    });
+    const j = await r.json();
+    if (!j || !j.ok) throw new Error((j && (j.error || (j.message && j.message.text))) || "move failed");
+    showProjectionApiMessages(j);
+    await loadKanbanProjection({skipRun:true});
+    try { if (window.opener && !window.opener.closed) window.opener.postMessage({type:"nodes_refresh"}, window.location.origin); } catch(_){}
+  } catch(e) {
+    projectionStatus("");
+    if (window.message) window.message(String(e), "error");
+    else alert(String(e));
+  }
+}
+function diagramNumber(v, fallback){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+function diagramShapeHtml(obj){
+  const d = obj.diagram || {};
+  const text = escapeHtml(d.text || (obj.view && obj.view.title) || obj.id || "");
+  if (String(d.figure || "rectangle") === "svg") {
+    return `<div class="nl-diagram-svg-box">${d.svg || ""}</div>${text ? `<div class="nl-diagram-svg-label">${text}</div>` : ""}`;
+  }
+  return `<span>${text}</span>`;
+}
+function renderDiagramProjection(payload){
+  const root = document.getElementById("diagramProjectionRoot");
+  if (!root) return;
+  const objects = Array.isArray(payload.objects) ? payload.objects : [];
+  projectionState.editor = !!payload.editor;
+  projectionState.diagramObjects = {};
+  const header = String(payload.header || "").trim();
+  let maxX = 900, maxY = 600;
+  const items = objects.map((obj, idx) => {
+    const d = obj.diagram || {};
+    const x1 = diagramNumber(d.x1, 24 + (idx % 10) * 110);
+    const y1 = diagramNumber(d.y1, 24 + Math.floor(idx / 10) * 74);
+    const x2 = diagramNumber(d.x2, x1 + 90);
+    const y2 = diagramNumber(d.y2, y1 + 52);
+    const w = Math.max(20, x2 - x1);
+    const h = Math.max(20, y2 - y1);
+    maxX = Math.max(maxX, x1 + w + 80);
+    maxY = Math.max(maxY, y1 + h + 80);
+    const figure = String(d.figure || "rectangle").toLowerCase();
+    const cls = figure === "circle" ? " circle" : (figure === "svg" ? " svg" : "");
+    const editorCls = payload.editor ? " editor" : "";
+    const bg = /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(String(d.background || "")) ? String(d.background) : "#ffffff";
+    const uid = String(obj.uid || "");
+    if (uid) projectionState.diagramObjects[uid] = obj;
+    return `<div class="nl-diagram-object${cls}${editorCls}"
+        style="left:${x1}px; top:${y1}px; width:${w}px; height:${h}px; background:${escapeHtml(bg)};"
+        data-x1="${x1}" data-y1="${y1}" data-x2="${x2}" data-y2="${y2}"
+        data-object-uid="${escapeHtml(uid)}"
+        data-open-url="${escapeHtml(obj.open_url || "")}"
+        data-repo-uid="${escapeHtml(obj.repo_uid || "")}"
+        data-class="${escapeHtml(obj.class || "")}"
+        data-id="${escapeHtml(obj.id || "")}">${diagramShapeHtml(obj)}</div>`;
+  }).join("");
+  const boardClass = payload.editor ? "nl-diagram-board editor" : "nl-diagram-board";
+  root.innerHTML = `${header ? `<div class="nl-diagram-header">${escapeHtml(header)}</div>` : ""}<div id="diagramProjectionBoard" class="${boardClass}" style="width:${maxX}px; height:${maxY}px;">${items || `<div class="text-muted small p-3">${escapeHtml("No projection objects")}</div>`}</div>`;
+  bindDiagramProjection(root, !!payload.editor);
+}
+function ensureDiagramProjectionModal(){
+  let el = document.getElementById("diagramProjectionEditModal");
+  if (el) return el;
+  document.body.insertAdjacentHTML("beforeend", `
+<div class="modal fade" id="diagramProjectionEditModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Diagram object</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-2">
+          <div class="col-md-3"><label class="form-label small">x1</label><input class="form-control form-control-sm" data-diagram-field="x1" type="number" step="1"></div>
+          <div class="col-md-3"><label class="form-label small">y1</label><input class="form-control form-control-sm" data-diagram-field="y1" type="number" step="1"></div>
+          <div class="col-md-3"><label class="form-label small">x2</label><input class="form-control form-control-sm" data-diagram-field="x2" type="number" step="1"></div>
+          <div class="col-md-3"><label class="form-label small">y2</label><input class="form-control form-control-sm" data-diagram-field="y2" type="number" step="1"></div>
+          <div class="col-md-4"><label class="form-label small">figure</label><select class="form-select form-select-sm" data-diagram-field="figure"><option value="rectangle">rectangle</option><option value="circle">circle</option><option value="svg">svg</option></select></div>
+          <div class="col-md-4"><label class="form-label small">background</label><input class="form-control form-control-sm" data-diagram-field="background" type="color"></div>
+          <div class="col-md-4"><label class="form-label small">text</label><input class="form-control form-control-sm" data-diagram-field="text" type="text"></div>
+          <div class="col-12"><label class="form-label small">svg</label><textarea class="form-control form-control-sm" data-diagram-field="svg" rows="6" placeholder="<svg ...></svg>"></textarea></div>
+        </div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button type="button" class="btn btn-outline-danger" data-diagram-action="unlink">Отвязать</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Закрыть</button>
+          <button type="button" class="btn btn-primary" data-diagram-action="save">Сохранить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>`);
+  el = document.getElementById("diagramProjectionEditModal");
+  el.querySelector('[data-diagram-action="save"]').addEventListener("click", async () => {
+    const uid = el.getAttribute("data-object-uid") || "";
+    const fields = {};
+    ["x1", "y1", "x2", "y2"].forEach(k => {
+      const n = Number(el.querySelector(`[data-diagram-field="${k}"]`).value);
+      if (Number.isFinite(n)) fields[k] = n;
+    });
+    fields.figure = el.querySelector('[data-diagram-field="figure"]').value || "rectangle";
+    fields.background = el.querySelector('[data-diagram-field="background"]').value || "#ffffff";
+    fields.text = el.querySelector('[data-diagram-field="text"]').value || "";
+    fields.svg = el.querySelector('[data-diagram-field="svg"]').value || "";
+    await updateDiagramProjectionObject(uid, fields, "update");
+    bootstrap.Modal.getOrCreateInstance(el).hide();
+    await loadDiagramProjection({skipRun:true});
+  });
+  el.querySelector('[data-diagram-action="unlink"]').addEventListener("click", async () => {
+    const uid = el.getAttribute("data-object-uid") || "";
+    if (!uid) return;
+    if (!window.confirm("Отвязать объект от этой проекции? Узел не будет удален.")) return;
+    await updateDiagramProjectionObject(uid, {}, "unlink");
+    bootstrap.Modal.getOrCreateInstance(el).hide();
+    await loadDiagramProjection({skipRun:true});
+  });
+  return el;
+}
+function openDiagramProjectionEditor(el){
+  const uid = el.getAttribute("data-object-uid") || "";
+  const obj = (projectionState.diagramObjects && projectionState.diagramObjects[uid]) || {};
+  const d = obj.diagram || {};
+  const modalEl = ensureDiagramProjectionModal();
+  modalEl.setAttribute("data-object-uid", uid);
+  const title = (obj.view && obj.view.title) || obj.id || "Diagram object";
+  modalEl.querySelector(".modal-title").textContent = title;
+  const x1 = diagramNumber(d.x1, parseFloat(el.getAttribute("data-x1") || "0"));
+  const y1 = diagramNumber(d.y1, parseFloat(el.getAttribute("data-y1") || "0"));
+  const x2 = diagramNumber(d.x2, parseFloat(el.getAttribute("data-x2") || String(x1 + 90)));
+  const y2 = diagramNumber(d.y2, parseFloat(el.getAttribute("data-y2") || String(y1 + 52)));
+  modalEl.querySelector('[data-diagram-field="x1"]').value = x1;
+  modalEl.querySelector('[data-diagram-field="y1"]').value = y1;
+  modalEl.querySelector('[data-diagram-field="x2"]').value = x2;
+  modalEl.querySelector('[data-diagram-field="y2"]').value = y2;
+  modalEl.querySelector('[data-diagram-field="figure"]').value = String(d.figure || "rectangle").toLowerCase();
+  modalEl.querySelector('[data-diagram-field="background"]').value = /^#[0-9a-fA-F]{6}$/.test(String(d.background || "")) ? String(d.background) : "#ffffff";
+  modalEl.querySelector('[data-diagram-field="text"]').value = d.text || "";
+  modalEl.querySelector('[data-diagram-field="svg"]').value = d.svg || "";
+  bootstrap.Modal.getOrCreateInstance(modalEl).show();
+}
+function bindDiagramProjection(root, editable){
+  if (!root) return;
+  let active = null;
+  root.querySelectorAll(".nl-diagram-object").forEach(el => {
+    el.addEventListener("pointerdown", (e) => {
+      if (!editable) return;
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      active = {el, pointerId:e.pointerId, startX:e.clientX, startY:e.clientY, left:parseFloat(el.style.left || "0"), top:parseFloat(el.style.top || "0"), width:rect.width, height:rect.height, moved:false};
+      try { el.setPointerCapture(e.pointerId); } catch(_){}
+    });
+    el.addEventListener("pointermove", (e) => {
+      if (!editable || !active || active.el !== el) return;
+      const dx = e.clientX - active.startX;
+      const dy = e.clientY - active.startY;
+      if (Math.abs(dx) + Math.abs(dy) > 3) active.moved = true;
+      el.style.left = `${Math.max(0, active.left + dx)}px`;
+      el.style.top = `${Math.max(0, active.top + dy)}px`;
+    });
+    const finish = async () => {
+      if (!active || active.el !== el) return;
+      const a = active;
+      active = null;
+      try { el.releasePointerCapture(a.pointerId); } catch(_){}
+      const nx = parseFloat(el.style.left || "0");
+      const ny = parseFloat(el.style.top || "0");
+      const w = Math.max(20, parseFloat(el.getAttribute("data-x2")) - parseFloat(el.getAttribute("data-x1")));
+      const h = Math.max(20, parseFloat(el.getAttribute("data-y2")) - parseFloat(el.getAttribute("data-y1")));
+      if (a.moved) {
+        const uid = el.getAttribute("data-object-uid") || "";
+        const coords = {x1:nx, y1:ny, x2:nx+w, y2:ny+h};
+        await moveDiagramProjectionObject(uid, coords);
+        el.setAttribute("data-x1", String(coords.x1));
+        el.setAttribute("data-y1", String(coords.y1));
+        el.setAttribute("data-x2", String(coords.x2));
+        el.setAttribute("data-y2", String(coords.y2));
+        if (projectionState.diagramObjects && projectionState.diagramObjects[uid]) {
+          projectionState.diagramObjects[uid].diagram = Object.assign({}, projectionState.diagramObjects[uid].diagram || {}, coords);
+        }
+      } else openDiagramProjectionEditor(el);
+    };
+    el.addEventListener("pointerup", finish);
+    el.addEventListener("pointercancel", () => { active = null; });
+    if (!editable) el.addEventListener("click", () => openProjectionObject(el));
+  });
+}
+async function loadDiagramProjection(options){
+  if (!IS_PROJECTION || PROJECTION_TYPE !== "diagram_projection") return;
+  const opts = options || {};
+  if (projectionState.loading && !opts.forceReload) return;
+  projectionState.loading = true;
+  try {
+    if (!opts.skipRun) await runProjectionHandler();
+    projectionStatus("loading...");
+    const r = await fetch(API_PROJECTION_DIAGRAM_DATA, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({repo_id:REPO_ID, class_name:CLASS_NAME, node_id:NODE_ID, is_raw_node:IS_RAW_NODE, raw_node_id: IS_RAW_NODE ? DISCUSSION_NODE_ID : "", node_data:_data || {}}),
+      credentials:"same-origin",
+    });
+    const j = await r.json();
+    if (!j || !j.ok) throw new Error((j && (j.error || (j.message && j.message.text))) || "diagram load failed");
+    projectionState.projectionUid = j.projection_uid || "";
+    if (j.timer !== undefined) projectionState.intervalMs = normalizeProjectionTimer(j.timer);
+    if (j.node_data && typeof j.node_data === "object") {
+      try { _data = JSON.parse(JSON.stringify(j.node_data)); } catch(_){ _data = j.node_data || {}; }
+    }
+    renderDiagramProjection(j);
+    projectionStatus("ready");
+  } catch(e) {
+    projectionStatus("");
+    if (window.message) window.message(String(e), "error");
+    else alert(String(e));
+  } finally {
+    projectionState.loading = false;
+  }
+}
+async function updateDiagramProjectionObject(objectUid, fields, action){
+  if (!projectionState.projectionUid || !objectUid) return;
+  projectionStatus(action === "unlink" ? "unlinking..." : "saving...");
+  try {
+    const r = await fetch(API_PROJECTION_DIAGRAM_MOVE, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({repo_id:REPO_ID, projection_uid:projectionState.projectionUid, object_uid:objectUid, fields:fields || {}, action:action || "update"}),
+      credentials:"same-origin",
+    });
+    const j = await r.json();
+    if (!j || !j.ok) throw new Error((j && (j.error || (j.message && j.message.text))) || "save failed");
+    showProjectionApiMessages(j);
+    projectionStatus("");
+    try { if (window.opener && !window.opener.closed) window.opener.postMessage({type:"nodes_refresh"}, window.location.origin); } catch(_){}
+  } catch(e) {
+    projectionStatus("");
+    if (window.message) window.message(String(e), "error");
+    else alert(String(e));
+    throw e;
+  }
+}
+async function moveDiagramProjectionObject(objectUid, coords){
+  if (!projectionState.projectionUid || !objectUid) return;
+  try {
+    await updateDiagramProjectionObject(objectUid, coords || {}, "move");
+  } catch(e) {
+    await loadDiagramProjection({skipRun:true});
+  }
+}
+
+function nlParseDateTime(value){
+  if (value instanceof Date) return new Date(value.getTime());
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  let m = raw.match(/^(\d{4})(\d{2})(\d{2})T?(\d{2})?(\d{2})?(\d{2})?/);
+  if (m) return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]), Number(m[4]||0), Number(m[5]||0), Number(m[6]||0));
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) return null;
+  return d;
+}
+function nlPad2(n){ return String(Math.floor(Math.abs(Number(n)||0))).padStart(2,"0"); }
+function nlIsoLocal(d){
+  if (!(d instanceof Date) || !Number.isFinite(d.getTime())) return "";
+  return `${d.getFullYear()}-${nlPad2(d.getMonth()+1)}-${nlPad2(d.getDate())}T${nlPad2(d.getHours())}:${nlPad2(d.getMinutes())}:${nlPad2(d.getSeconds())}`;
+}
+function nlDateKey(d){ return d ? `${d.getFullYear()}-${nlPad2(d.getMonth()+1)}-${nlPad2(d.getDate())}` : ""; }
+function nlAddDays(d, days){ const x = new Date(d.getTime()); x.setDate(x.getDate()+Number(days||0)); return x; }
+function nlAddMinutes(d, mins){ const x = new Date(d.getTime()); x.setMinutes(x.getMinutes()+Number(mins||0)); return x; }
+function nlClamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+function nlSafeColor(c, fallback){
+  const s = String(c || "").trim();
+  return /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(s) ? s : (fallback || "#0d6efd");
+}
+function nlMinutesBetween(a,b){ return (b.getTime()-a.getTime())/60000; }
+function nlDaysBetween(a,b){ return (b.getTime()-a.getTime())/86400000; }
+function scheduleOrientation(payload){
+  const raw = String((payload && payload.projection_orientation) || "vertical").toLowerCase();
+  return raw === "horizontal" ? "horizontal" : "vertical";
+}
+function scheduleSlotMinutes(payload){
+  const bySlot = Number(payload && payload.slot_minutes);
+  const byHours = Number(payload && payload.projection_default_interval_hours) * 60;
+  const n = Number.isFinite(bySlot) && bySlot > 0 ? bySlot : (Number.isFinite(byHours) && byHours > 0 ? byHours : 15);
+  return Math.max(1, Math.min(24 * 60, Math.round(n)));
+}
+function scheduleCellHtml(rowId, start, end, style, createClass){
+  const can = createClass ? " can-create" : "";
+  return `<div class="nl-schedule-cell${can}" data-schedule-cell="1" data-row-id="${escapeHtml(rowId || "")}" data-start="${escapeHtml(nlIsoLocal(start))}" data-end="${escapeHtml(nlIsoLocal(end))}" style="${style}"></div>`;
+}
+function renderScheduleProjection(payload){
+  const root = document.getElementById("scheduleProjectionRoot");
+  if (!root) return;
+  const orientation = scheduleOrientation(payload || {});
+  if (orientation === "horizontal") return renderScheduleProjectionHorizontal(payload || {});
+  return renderScheduleProjectionVertical(payload || {});
+}
+function renderScheduleProjectionVertical(payload){
+  const root = document.getElementById("scheduleProjectionRoot");
+  if (!root) return;
+  const columns = Array.isArray(payload.columns) ? payload.columns : [];
+  const objects = Array.isArray(payload.objects) ? payload.objects : [];
+  const periodStart = nlParseDateTime(payload.period_start) || new Date();
+  const periodEnd = nlParseDateTime(payload.period_end) || nlAddMinutes(periodStart, 600);
+  const selected = payload.selected_date || nlDateKey(periodStart);
+  const header = String(payload.header || "").trim();
+  const createClass = String(payload.projection_create_class || "").trim();
+  const slotMin = scheduleSlotMinutes(payload);
+  const labelW = 92, timeH = 34, colW = 230;
+  const totalMin = Math.max(slotMin, nlMinutesBetween(periodStart, periodEnd));
+  const pxPerMin = Math.max(1.7, 38 / Math.max(1, slotMin));
+  const timelineH = Math.max(360, Math.ceil(totalMin * pxPerMin));
+  const boardW = labelW + Math.max(1, columns.length) * colW;
+  const boardH = timeH + timelineH;
+  const rowsById = {};
+  columns.forEach((c, i) => { rowsById[String(c.id || "")] = {row:c, index:i}; });
+  projectionState.schedule = {periodStart, periodEnd, labelW, timeH, colW, pxPerMin, timelineH, columns, rowsById, mode:payload.mode || "resources", orientation:"vertical", createClass, slotMin};
+
+  const colHeaders = columns.map((c, idx) => {
+    const left = labelW + idx * colW;
+    const cid = String(c.id || "");
+    return `<div class="nl-schedule-column-label" style="left:${left}px;width:${colW}px;">${escapeHtml(c.caption || cid)}</div>`;
+  }).join("");
+
+  const ticks = [];
+  const cells = [];
+  for (let offset = 0; offset < totalMin - .001; offset += slotMin) {
+    const st = nlAddMinutes(periodStart, offset);
+    const en = nlAddMinutes(periodStart, Math.min(totalMin, offset + slotMin));
+    const top = timeH + offset * pxPerMin;
+    const h = Math.max(18, (Math.min(totalMin, offset + slotMin) - offset) * pxPerMin);
+    ticks.push(`<div class="nl-schedule-time-cell" style="left:0;top:${top}px;width:${labelW}px;height:${h}px;border-top:0;border-left:0;border-right:1px solid rgba(0,0,0,.12);background:#f8f9fa;">${escapeHtml(nlPad2(st.getHours())+":"+nlPad2(st.getMinutes()))}</div>`);
+    columns.forEach((c, idx) => {
+      const left = labelW + idx * colW;
+      cells.push(scheduleCellHtml(String(c.id || ""), st, en, `left:${left}px;top:${top}px;width:${colW}px;height:${h}px;`, createClass));
+    });
+  }
+
+  const areaHtml = columns.map((c, idx) => {
+    const left = labelW + idx * colW;
+    return Array.isArray(c.areas) ? c.areas.map(a => {
+      const as = nlParseDateTime(a.start), ae = nlParseDateTime(a.end);
+      if (!as || !ae || ae <= periodStart || as >= periodEnd) return "";
+      const t = timeH + nlClamp(nlMinutesBetween(periodStart, as) * pxPerMin, 0, timelineH);
+      const b = timeH + nlClamp(nlMinutesBetween(periodStart, ae) * pxPerMin, 0, timelineH);
+      const color = nlSafeColor(a.color, a.available === false ? "#dee2e6" : "#d1e7dd");
+      const opacity = a.available === false ? .32 : .18;
+      return `<div class="nl-schedule-area" style="left:${left}px;top:${t}px;width:${colW}px;height:${Math.max(1,b-t)}px;background:${escapeHtml(color)};opacity:${opacity};"></div>`;
+    }).join("") : "";
+  }).join("");
+
+  const eventHtml = objects.map(obj => {
+    const e = obj.schedule || {};
+    const start = nlParseDateTime(e.start), end = nlParseDateTime(e.end);
+    const rowInfo = rowsById[String(e.id || "")];
+    if (!start || !end || !rowInfo || end <= periodStart || start >= periodEnd) return "";
+    const left = labelW + rowInfo.index * colW + 8;
+    const top = timeH + nlClamp(nlMinutesBetween(periodStart, start) * pxPerMin, 0, timelineH);
+    const bottom = timeH + nlClamp(nlMinutesBetween(periodStart, end) * pxPerMin, 0, timelineH);
+    const height = Math.max(1, bottom - top);
+    const color = nlSafeColor(e.color, "");
+    const colorStyle = color ? `border-color:${escapeHtml(color)};` : "";
+    const html = obj.cover_html || kanbanObjectFallbackHtml(obj);
+    return `<div class="nl-schedule-event vertical" style="left:${left}px;top:${top}px;width:${Math.max(80,colW-16)}px;height:${height}px;${colorStyle}"
+      data-object-uid="${escapeHtml(obj.uid || "")}" data-open-url="${escapeHtml(obj.open_url || "")}" data-repo-uid="${escapeHtml(obj.repo_uid || "")}" data-class="${escapeHtml(obj.class || "")}" data-id="${escapeHtml(obj.id || "")}" data-row-id="${escapeHtml(e.id || "")}" data-start="${escapeHtml(e.start || "")}" data-end="${escapeHtml(e.end || "")}">${html}</div>`;
+  }).join("");
+
+  root.innerHTML = `<div class="nl-schedule-toolbar">${header ? `<div class="fw-semibold me-auto">${escapeHtml(header)}</div>` : `<div class="fw-semibold me-auto">Schedule</div>`}<label class="small text-muted d-flex align-items-center gap-2 mb-0">Date <input id="scheduleProjectionDate" class="form-control form-control-sm" type="date" value="${escapeHtml(selected)}" style="width:145px;"></label></div><div class="nl-schedule-board" style="width:${boardW}px;height:${boardH}px;"><div style="position:absolute;left:0;top:0;width:${labelW}px;height:${timeH}px;background:#f8f9fa;border-right:1px solid rgba(0,0,0,.12);border-bottom:1px solid rgba(0,0,0,.08);z-index:2;"></div>${colHeaders}${ticks.join("")}${cells.join("")}${areaHtml}${eventHtml || (!createClass ? `<div class="text-muted small p-3" style="position:absolute;left:${labelW}px;top:${timeH}px;">${escapeHtml("No projection objects")}</div>` : "")}</div>`;
+  const dateInput = document.getElementById("scheduleProjectionDate");
+  if (dateInput) dateInput.addEventListener("change", () => { projectionState.scheduleDate = dateInput.value || ""; loadScheduleProjection({skipRun:true, forceReload:true}); });
+  bindScheduleProjection(root);
+}
+function renderScheduleProjectionHorizontal(payload){
+  const root = document.getElementById("scheduleProjectionRoot");
+  if (!root) return;
+  const columns = Array.isArray(payload.columns) ? payload.columns : [];
+  const objects = Array.isArray(payload.objects) ? payload.objects : [];
+  const periodStart = nlParseDateTime(payload.period_start) || new Date();
+  const periodEnd = nlParseDateTime(payload.period_end) || nlAddMinutes(periodStart, 600);
+  const selected = payload.selected_date || nlDateKey(periodStart);
+  const header = String(payload.header || "").trim();
+  const createClass = String(payload.projection_create_class || "").trim();
+  const slotMin = scheduleSlotMinutes(payload);
+  const labelW = 190, timeH = 32, rowH = 118;
+  const totalMin = Math.max(slotMin, nlMinutesBetween(periodStart, periodEnd));
+  const pxPerMin = payload.mode === "days" ? 2.1 : 2.3;
+  const timelineW = Math.max(760, Math.ceil(totalMin * pxPerMin));
+  const boardW = labelW + timelineW;
+  const boardH = timeH + Math.max(1, columns.length) * rowH;
+  const rowsById = {};
+  columns.forEach((c, i) => { rowsById[String(c.id || "")] = {row:c, index:i}; });
+  projectionState.schedule = {periodStart, periodEnd, labelW, timeH, rowH, pxPerMin, timelineW, columns, rowsById, mode:payload.mode || "resources", orientation:"horizontal", createClass, slotMin};
+
+  const ticks = [];
+  const tickStep = totalMin <= 12*60 ? 60 : 120;
+  const firstTick = new Date(periodStart.getTime());
+  firstTick.setMinutes(0,0,0);
+  if (firstTick < periodStart) firstTick.setHours(firstTick.getHours()+1);
+  for (let t = firstTick; t < periodEnd; t = nlAddMinutes(t, tickStep)) {
+    const left = labelW + nlMinutesBetween(periodStart, t) * pxPerMin;
+    ticks.push(`<div class="nl-schedule-time-cell" style="left:${left}px;width:${tickStep*pxPerMin}px;">${escapeHtml(nlPad2(t.getHours())+":"+nlPad2(t.getMinutes()))}</div>`);
+  }
+  const rowHtml = columns.map((c, idx) => {
+    const top = timeH + idx * rowH;
+    const cid = String(c.id || "");
+    const cells = [];
+    for (let offset = 0; offset < totalMin - .001; offset += slotMin) {
+      const st = nlAddMinutes(periodStart, offset);
+      const en = nlAddMinutes(periodStart, Math.min(totalMin, offset + slotMin));
+      const left = offset * pxPerMin;
+      const w = Math.max(8, (Math.min(totalMin, offset + slotMin) - offset) * pxPerMin);
+      cells.push(scheduleCellHtml(cid, st, en, `left:${left}px;top:0;width:${w}px;height:${rowH}px;`, createClass));
+    }
+    const areas = Array.isArray(c.areas) ? c.areas.map(a => {
+      const as = nlParseDateTime(a.start), ae = nlParseDateTime(a.end);
+      if (!as || !ae || ae <= periodStart || as >= periodEnd) return "";
+      const l = nlClamp(nlMinutesBetween(periodStart, as) * pxPerMin, 0, timelineW);
+      const r = nlClamp(nlMinutesBetween(periodStart, ae) * pxPerMin, 0, timelineW);
+      const color = nlSafeColor(a.color, a.available === false ? "#dee2e6" : "#d1e7dd");
+      const opacity = a.available === false ? .32 : .18;
+      return `<div class="nl-schedule-area" style="left:${l}px;width:${Math.max(1,r-l)}px;background:${escapeHtml(color)};opacity:${opacity};"></div>`;
+    }).join("") : "";
+    return `<div class="nl-schedule-row-label" style="top:${top}px;width:${labelW}px;height:${rowH}px;">${escapeHtml(c.caption || cid)}</div><div class="nl-schedule-lane" data-row-id="${escapeHtml(cid)}" style="left:${labelW}px;top:${top}px;width:${timelineW}px;height:${rowH}px;">${cells.join("")}${areas}</div>`;
+  }).join("");
+  const eventHtml = objects.map(obj => {
+    const e = obj.schedule || {};
+    const start = nlParseDateTime(e.start), end = nlParseDateTime(e.end);
+    const rowInfo = rowsById[String(e.id || "")];
+    if (!start || !end || !rowInfo || end <= periodStart || start >= periodEnd) return "";
+    const left = labelW + nlClamp(nlMinutesBetween(periodStart, start) * pxPerMin, 0, timelineW);
+    const right = labelW + nlClamp(nlMinutesBetween(periodStart, end) * pxPerMin, 0, timelineW);
+    const top = timeH + rowInfo.index * rowH + 8;
+    const width = Math.max(1, right-left);
+    const color = nlSafeColor(e.color, "");
+    const colorStyle = color ? `border-color:${escapeHtml(color)};` : "";
+    const html = obj.cover_html || kanbanObjectFallbackHtml(obj);
+    return `<div class="nl-schedule-event" style="left:${left}px;top:${top}px;width:${width}px;max-height:${rowH-16}px;${colorStyle}"
+      data-object-uid="${escapeHtml(obj.uid || "")}" data-open-url="${escapeHtml(obj.open_url || "")}" data-repo-uid="${escapeHtml(obj.repo_uid || "")}" data-class="${escapeHtml(obj.class || "")}" data-id="${escapeHtml(obj.id || "")}" data-row-id="${escapeHtml(e.id || "")}" data-start="${escapeHtml(e.start || "")}" data-end="${escapeHtml(e.end || "")}">${html}</div>`;
+  }).join("");
+  root.innerHTML = `<div class="nl-schedule-toolbar">${header ? `<div class="fw-semibold me-auto">${escapeHtml(header)}</div>` : `<div class="fw-semibold me-auto">Schedule</div>`}<label class="small text-muted d-flex align-items-center gap-2 mb-0">Date <input id="scheduleProjectionDate" class="form-control form-control-sm" type="date" value="${escapeHtml(selected)}" style="width:145px;"></label></div><div class="nl-schedule-board" style="width:${boardW}px;height:${boardH}px;"><div style="position:absolute;left:0;top:0;width:${labelW}px;height:${timeH}px;background:#f8f9fa;border-right:1px solid rgba(0,0,0,.12);border-bottom:1px solid rgba(0,0,0,.08);z-index:2;"></div>${ticks.join("")}${rowHtml}${eventHtml || (!createClass ? `<div class="text-muted small p-3" style="position:absolute;left:${labelW}px;top:${timeH}px;">${escapeHtml("No projection objects")}</div>` : "")}</div>`;
+  const dateInput = document.getElementById("scheduleProjectionDate");
+  if (dateInput) dateInput.addEventListener("change", () => { projectionState.scheduleDate = dateInput.value || ""; loadScheduleProjection({skipRun:true, forceReload:true}); });
+  bindScheduleProjection(root);
+}
+async function createScheduleProjectionObjectFromCell(cell){
+  if (!cell || !projectionState.schedule || !projectionState.projectionUid) return;
+  const st = projectionState.schedule;
+  const createClass = String(st.createClass || "").trim();
+  if (!createClass) return;
+  const rowId = cell.getAttribute("data-row-id") || "";
+  const start = nlParseDateTime(cell.getAttribute("data-start"));
+  const end = nlParseDateTime(cell.getAttribute("data-end"));
+  if (!start || !end) return;
+  const projectionValue = {id:rowId, row_id:rowId, start:nlIsoLocal(start), end:nlIsoLocal(end)};
+  const initialData = {
+    _projection_values: {[projectionState.projectionUid]: projectionValue},
+    _user_modification: {
+      source:"projection",
+      projection_type:"schedule_projection",
+      projection_uid:projectionState.projectionUid,
+      action:"create",
+      row_id:rowId,
+      start:nlIsoLocal(start),
+      end:nlIsoLocal(end)
+    }
+  };
+  projectionStatus("creating...");
+  try {
+    const r = await fetch(API_NODE_CREATE, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      credentials:"same-origin",
+      body:JSON.stringify({repo_id:REPO_ID, class_name:createClass, data:initialData})
+    });
+    const j = await r.json();
+    if (!j || !j.ok) throw new Error((j && (j.error || (j.message && j.message.text))) || "create failed");
+    const nid = j.node_id || "";
+    const cfg = j.config_uid || CONFIG_UID;
+    const url = `/client/node/${encodeURIComponent(cfg)}/${encodeURIComponent(createClass)}/${encodeURIComponent(nid)}`;
+    if (!openNodeFormInModal(url, `${createClass}/${nid}`)) {
+      const w = window.open(url, nodeWinNameByParts(cfg, createClass, nid));
+      if (w) { try { w.focus(); } catch(_){} }
+    }
+    projectionStatus("");
+    try { await loadScheduleProjection({skipRun:true, forceReload:true}); } catch(_){ }
+  } catch(e) {
+    projectionStatus("");
+    if (window.message) window.message(String(e), "error"); else alert(String(e));
+  }
+}
+function bindScheduleProjection(root){
+  if (!root || !projectionState.schedule) return;
+  root.querySelectorAll(".nl-schedule-cell.can-create").forEach(cell => {
+    cell.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      createScheduleProjectionObjectFromCell(cell);
+    });
+  });
+  let active = null;
+  root.querySelectorAll(".nl-schedule-event").forEach(el => {
+    el.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      const start = nlParseDateTime(el.getAttribute("data-start"));
+      const end = nlParseDateTime(el.getAttribute("data-end"));
+      if (!start || !end) return;
+      active = {el, pointerId:e.pointerId, startX:e.clientX, startY:e.clientY, left:parseFloat(el.style.left||"0"), top:parseFloat(el.style.top||"0"), start, end, moved:false};
+      el.classList.add("dragging");
+      try { el.setPointerCapture(e.pointerId); } catch(_){}
+    });
+    el.addEventListener("pointermove", (e) => {
+      if (!active || active.el !== el) return;
+      const st = projectionState.schedule;
+      const dx = e.clientX - active.startX, dy = e.clientY - active.startY;
+      if (Math.abs(dx)+Math.abs(dy) > 3) active.moved = true;
+      if (st.orientation === "vertical") {
+        el.style.left = `${nlClamp(active.left + dx, st.labelW + 4, st.labelW + st.colW * st.columns.length - 24)}px`;
+        el.style.top = `${nlClamp(active.top + dy, st.timeH + 2, st.timeH + st.timelineH - 22)}px`;
+      } else {
+        el.style.left = `${nlClamp(active.left + dx, st.labelW, st.labelW + st.timelineW - 20)}px`;
+        el.style.top = `${nlClamp(active.top + dy, st.timeH + 4, st.timeH + st.rowH * st.columns.length - 26)}px`;
+      }
+    });
+    const finish = async () => {
+      if (!active || active.el !== el) return;
+      const a = active;
+      active = null;
+      el.classList.remove("dragging");
+      try { el.releasePointerCapture(a.pointerId); } catch(_){}
+      if (!a.moved) { openProjectionObject(el); return; }
+      const st = projectionState.schedule;
+      let row = {};
+      let start = a.start;
+      const duration = Math.max(5, nlMinutesBetween(a.start, a.end));
+      if (st.orientation === "vertical") {
+        const left = parseFloat(el.style.left || "0") - st.labelW;
+        const top = parseFloat(el.style.top || "0") - st.timeH;
+        const colIndex = nlClamp(Math.floor((left + st.colW/2) / st.colW), 0, st.columns.length - 1);
+        row = st.columns[colIndex] || {};
+        const mins = Math.round((top / st.pxPerMin) / 5) * 5;
+        start = nlAddMinutes(st.periodStart, mins);
+      } else {
+        const left = parseFloat(el.style.left || "0") - st.labelW;
+        const top = parseFloat(el.style.top || "0") - st.timeH;
+        const rowIndex = nlClamp(Math.floor((top + st.rowH/2) / st.rowH), 0, st.columns.length - 1);
+        row = st.columns[rowIndex] || {};
+        const mins = Math.round((left / st.pxPerMin) / 5) * 5;
+        start = nlAddMinutes(st.periodStart, mins);
+      }
+      let end = nlAddMinutes(start, duration);
+      if (st.mode === "days" && row.date) {
+        const d = nlParseDateTime(row.date) || start;
+        start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), start.getHours(), start.getMinutes(), start.getSeconds());
+        end = nlAddMinutes(start, duration);
+      }
+      await updateScheduleProjectionObject(el.getAttribute("data-object-uid") || "", {id:String(row.id || ""), start:nlIsoLocal(start), end:nlIsoLocal(end)});
+      await loadScheduleProjection({skipRun:true});
+    };
+    el.addEventListener("pointerup", finish);
+    el.addEventListener("pointercancel", () => { if (active && active.el === el) el.classList.remove("dragging"); active = null; });
+  });
+}
+async function loadScheduleProjection(options){
+  if (!IS_PROJECTION || PROJECTION_TYPE !== "schedule_projection") return;
+  const opts = options || {};
+  if (projectionState.loading && !opts.forceReload) return;
+  projectionState.loading = true;
+  try {
+    if (!opts.skipRun) await runProjectionHandler();
+    projectionStatus("loading...");
+    const r = await fetch(API_PROJECTION_SCHEDULE_DATA, {
+      method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin",
+      body: JSON.stringify({repo_id:REPO_ID, class_name:CLASS_NAME, node_id:NODE_ID, is_raw_node:IS_RAW_NODE, raw_node_id: IS_RAW_NODE ? DISCUSSION_NODE_ID : "", node_data:_data || {}, selected_date:projectionState.scheduleDate || ""})
+    });
+    const j = await r.json();
+    if (!j || !j.ok) throw new Error((j && (j.error || (j.message && j.message.text))) || "schedule load failed");
+    projectionState.projectionUid = j.projection_uid || "";
+    if (j.timer !== undefined) projectionState.intervalMs = normalizeProjectionTimer(j.timer);
+    if (j.selected_date && !projectionState.scheduleDate) projectionState.scheduleDate = j.selected_date;
+    if (j.node_data && typeof j.node_data === "object") { try { _data = JSON.parse(JSON.stringify(j.node_data)); } catch(_){ _data = j.node_data || {}; } }
+    renderScheduleProjection(j);
+    projectionStatus("ready");
+  } catch(e) { projectionStatus(""); if (window.message) window.message(String(e), "error"); else alert(String(e)); }
+  finally { projectionState.loading = false; }
+}
+async function updateScheduleProjectionObject(objectUid, fields){
+  if (!projectionState.projectionUid || !objectUid) return;
+  projectionStatus("saving position...");
+  const r = await fetch(API_PROJECTION_SCHEDULE_MOVE, {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body:JSON.stringify({repo_id:REPO_ID, projection_uid:projectionState.projectionUid, object_uid:objectUid, fields:fields || {}})});
+  const j = await r.json();
+  if (!j || !j.ok) throw new Error((j && (j.error || (j.message && j.message.text))) || "move failed");
+  showProjectionApiMessages(j);
+  projectionStatus("");
+}
+function buildGanttRows(tasks){
+  const map = {}, children = {}, used = {};
+  (tasks || []).forEach(t => { const id=String(t.id||""); if (!id) return; map[id]=t; const p=String(t.parent||""); (children[p] = children[p] || []).push(id); });
+  const out = [];
+  function add(id, level){
+    if (!id || used[id]) return; used[id]=true;
+    const t = map[id] || {id:id, caption:id};
+    out.push(Object.assign({}, t, {level:level || 0, group:!!(children[id] && children[id].length)}));
+    (children[id] || []).forEach(ch => add(ch, (level || 0)+1));
+  }
+  (children[""] || []).forEach(id => add(id,0));
+  Object.keys(map).forEach(id => add(id,0));
+  return out;
+}
+function renderGanttProjection(payload){
+  const root = document.getElementById("ganttProjectionRoot");
+  if (!root) return;
+  const tasks = buildGanttRows(Array.isArray(payload.tasks) ? payload.tasks : []);
+  const objects = Array.isArray(payload.objects) ? payload.objects : [];
+  const periodStart = nlParseDateTime(payload.period_start) || new Date();
+  const periodEnd = nlParseDateTime(payload.period_end) || nlAddDays(periodStart, 30);
+  const header = String(payload.header || "").trim();
+  const labelW = 260, timeH = 36, rowH = 34;
+  const totalDays = Math.max(1, Math.ceil(nlDaysBetween(periodStart, periodEnd)));
+  const pxPerDay = String(payload.scale || "day").toLowerCase() === "week" ? 18 : 34;
+  const timelineW = Math.max(760, totalDays * pxPerDay);
+  const boardW = labelW + timelineW;
+  const boardH = timeH + Math.max(1,tasks.length) * rowH + 20;
+  const rowsById = {};
+  tasks.forEach((t,i)=>{ rowsById[String(t.id||"")] = {task:t,index:i}; });
+  projectionState.gantt = {periodStart, periodEnd, labelW, timeH, rowH, pxPerDay, timelineW, tasks, rowsById};
+  const ticks = [];
+  for (let i=0;i<=totalDays;i++) {
+    const d = nlAddDays(periodStart, i);
+    const left = labelW + i*pxPerDay;
+    const label = d.getDate() === 1 || i === 0 ? `${nlPad2(d.getDate())}.${nlPad2(d.getMonth()+1)}` : String(d.getDate());
+    ticks.push(`<div class="nl-gantt-time-cell" style="left:${left}px;width:${pxPerDay}px;">${escapeHtml(label)}</div>`);
+  }
+  const rows = tasks.map((t,idx)=>{
+    const top = timeH + idx*rowH;
+    const indent = Math.min(80, (Number(t.level)||0)*18);
+    return `<div class="nl-gantt-row-label${t.group ? " group" : ""}" style="top:${top}px;width:${labelW}px;height:${rowH}px;padding-left:${8+indent}px;">${escapeHtml(t.caption || t.title || t.id)}</div><div class="nl-gantt-lane" data-row-id="${escapeHtml(t.id||"")}" style="left:${labelW}px;top:${top}px;width:${timelineW}px;height:${rowH}px;"></div>`;
+  }).join("");
+  const bars = objects.map(obj => {
+    const g = obj.gantt || {};
+    const start = nlParseDateTime(g.start), end = nlParseDateTime(g.end);
+    const rowInfo = rowsById[String(g.id || "")];
+    if (!start || !end || !rowInfo || end <= periodStart || start >= periodEnd) return "";
+    const left = labelW + nlClamp(nlDaysBetween(periodStart, start) * pxPerDay, 0, timelineW);
+    const right = labelW + nlClamp(nlDaysBetween(periodStart, end) * pxPerDay, 0, timelineW);
+    const top = timeH + rowInfo.index*rowH + 6;
+    const color = nlSafeColor(g.color || rowInfo.task.color, "#0d6efd");
+    const title = g.title || (obj.view && obj.view.title) || obj.id || "";
+    return `<div class="nl-gantt-bar" style="left:${left}px;top:${top}px;width:${Math.max(18,right-left)}px;background:${escapeHtml(color)};" data-object-uid="${escapeHtml(obj.uid||"")}" data-open-url="${escapeHtml(obj.open_url||"")}" data-repo-uid="${escapeHtml(obj.repo_uid||"")}" data-class="${escapeHtml(obj.class||"")}" data-id="${escapeHtml(obj.id||"")}" data-task-id="${escapeHtml(g.id||"")}" data-start="${escapeHtml(g.start||"")}" data-end="${escapeHtml(g.end||"")}">${escapeHtml(title)}</div>`;
+  }).join("");
+  root.innerHTML = `<div class="nl-gantt-toolbar"><div class="fw-semibold">${escapeHtml(header || "Gantt")}</div><div class="text-muted small ms-auto">${escapeHtml(nlDateKey(periodStart))} — ${escapeHtml(nlDateKey(periodEnd))}</div></div><div class="nl-gantt-board" style="width:${boardW}px;height:${boardH}px;"><div style="position:absolute;left:0;top:0;width:${labelW}px;height:${timeH}px;background:#f8f9fa;border-right:1px solid rgba(0,0,0,.12);border-bottom:1px solid rgba(0,0,0,.08);z-index:2;"></div>${ticks.join("")}${rows}${bars || `<div class="text-muted small p-3" style="position:absolute;left:${labelW}px;top:${timeH}px;">${escapeHtml("No projection objects")}</div>`}</div>`;
+  bindGanttProjection(root);
+}
+function bindGanttProjection(root){
+  if (!root || !projectionState.gantt) return;
+  let active = null;
+  root.querySelectorAll(".nl-gantt-bar").forEach(el => {
+    el.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      const start = nlParseDateTime(el.getAttribute("data-start"));
+      const end = nlParseDateTime(el.getAttribute("data-end"));
+      if (!start || !end) return;
+      active = {el, pointerId:e.pointerId, startX:e.clientX, startY:e.clientY, left:parseFloat(el.style.left||"0"), top:parseFloat(el.style.top||"0"), start, end, moved:false};
+      el.classList.add("dragging");
+      try { el.setPointerCapture(e.pointerId); } catch(_){}
+    });
+    el.addEventListener("pointermove", (e) => {
+      if (!active || active.el !== el) return;
+      const st = projectionState.gantt;
+      const dx = e.clientX-active.startX, dy = e.clientY-active.startY;
+      if (Math.abs(dx)+Math.abs(dy) > 3) active.moved = true;
+      el.style.left = `${nlClamp(active.left + dx, st.labelW, st.labelW + st.timelineW - 18)}px`;
+      el.style.top = `${nlClamp(active.top + dy, st.timeH + 4, st.timeH + st.rowH * st.tasks.length - 24)}px`;
+    });
+    const finish = async () => {
+      if (!active || active.el !== el) return;
+      const a = active; active = null;
+      el.classList.remove("dragging");
+      try { el.releasePointerCapture(a.pointerId); } catch(_){}
+      if (!a.moved) { openProjectionObject(el); return; }
+      const st = projectionState.gantt;
+      const left = parseFloat(el.style.left || "0") - st.labelW;
+      const top = parseFloat(el.style.top || "0") - st.timeH;
+      const rowIndex = nlClamp(Math.floor((top + st.rowH/2) / st.rowH), 0, st.tasks.length - 1);
+      const task = st.tasks[rowIndex] || {};
+      const days = Math.round(left / st.pxPerDay);
+      const duration = Math.max(1, Math.round(nlDaysBetween(a.start, a.end)) || 1);
+      const start = nlAddDays(st.periodStart, days);
+      const end = nlAddDays(start, duration);
+      await updateGanttProjectionObject(el.getAttribute("data-object-uid") || "", {id:String(task.id || ""), parent:String(task.parent || ""), start:nlIsoLocal(start), end:nlIsoLocal(end)});
+      await loadGanttProjection({skipRun:true});
+    };
+    el.addEventListener("pointerup", finish);
+    el.addEventListener("pointercancel", () => { if (active && active.el === el) el.classList.remove("dragging"); active = null; });
+  });
+}
+async function loadGanttProjection(options){
+  if (!IS_PROJECTION || PROJECTION_TYPE !== "gantt_projection") return;
+  const opts = options || {};
+  if (projectionState.loading && !opts.forceReload) return;
+  projectionState.loading = true;
+  try {
+    if (!opts.skipRun) await runProjectionHandler();
+    projectionStatus("loading...");
+    const r = await fetch(API_PROJECTION_GANTT_DATA, {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body:JSON.stringify({repo_id:REPO_ID, class_name:CLASS_NAME, node_id:NODE_ID, is_raw_node:IS_RAW_NODE, raw_node_id: IS_RAW_NODE ? DISCUSSION_NODE_ID : "", node_data:_data || {}})});
+    const j = await r.json();
+    if (!j || !j.ok) throw new Error((j && (j.error || (j.message && j.message.text))) || "gantt load failed");
+    projectionState.projectionUid = j.projection_uid || "";
+    if (j.timer !== undefined) projectionState.intervalMs = normalizeProjectionTimer(j.timer);
+    if (j.node_data && typeof j.node_data === "object") { try { _data = JSON.parse(JSON.stringify(j.node_data)); } catch(_){ _data = j.node_data || {}; } }
+    renderGanttProjection(j);
+    projectionStatus("ready");
+  } catch(e) { projectionStatus(""); if (window.message) window.message(String(e), "error"); else alert(String(e)); }
+  finally { projectionState.loading = false; }
+}
+async function updateGanttProjectionObject(objectUid, fields){
+  if (!projectionState.projectionUid || !objectUid) return;
+  projectionStatus("saving position...");
+  const r = await fetch(API_PROJECTION_GANTT_MOVE, {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body:JSON.stringify({repo_id:REPO_ID, projection_uid:projectionState.projectionUid, object_uid:objectUid, fields:fields || {}})});
+  const j = await r.json();
+  if (!j || !j.ok) throw new Error((j && (j.error || (j.message && j.message.text))) || "move failed");
+  showProjectionApiMessages(j);
+  projectionStatus("");
+}
+function loadProjection(options){
+  if (PROJECTION_TYPE === "kanban_projection") return loadKanbanProjection(options || {});
+  if (PROJECTION_TYPE === "diagram_projection") return loadDiagramProjection(options || {});
+  if (PROJECTION_TYPE === "schedule_projection") return loadScheduleProjection(options || {});
+  if (PROJECTION_TYPE === "gantt_projection") return loadGanttProjection(options || {});
+  return Promise.resolve();
+}
+function handleProjectionCommandResponse(j, payload){
+  if (!j || !j.run_projection || !IS_PROJECTION) return;
+  const listener = String((payload && (payload.listener || payload.id)) || "");
+  if (listener === "onRunProjection") return;
+  window.setTimeout(() => loadProjection({skipRun:false, source:"response"}), 0);
+}
+function initProjection(){
+  if (!IS_PROJECTION) return;
+  projectionState.intervalMs = normalizeProjectionTimer((_data && _data._projection_timer) || 0);
+  const btn = document.getElementById("btnProjectionRun");
+  if (btn) btn.addEventListener("click", () => generateProjectionFromButton());
+  const toggle = document.getElementById("projectionAutoToggle");
+  const resetTimer = () => {
+    if (projectionState.timer) window.clearInterval(projectionState.timer);
+    projectionState.timer = null;
+    if (toggle && toggle.checked && projectionState.intervalMs > 0) projectionState.timer = window.setInterval(() => loadProjection({skipRun:false}), projectionState.intervalMs);
+  };
+  if (toggle) toggle.addEventListener("change", resetTimer);
+  loadProjection({skipRun:false});
+  resetTimer();
 }
 
 
@@ -2081,8 +3485,12 @@ function initGalleries(){
 }
 
 initGalleries();
+initProjection();
 
-nlInitChat();
+if (!IS_PRINT_FORM) nlInitChat();
+
+const printBtn = document.getElementById('btnPrintFormPrint');
+if (printBtn) printBtn.addEventListener('click', function(){ window.print(); });
 
 /* --- Save/Delete (standard commands) --- */
 function getDataFromTextarea(){
@@ -2134,6 +3542,7 @@ async function doSave(){
         window.opener.postMessage({type:"nodes_refresh"}, window.location.origin);
       }
     } catch(_) {}
+    nlNotifyParentNodeForm("save");
     return true;
   }catch(e){
     setSideStatus("");
@@ -2190,6 +3599,7 @@ async function doDelete(){
     const j = await r.json();
     if(!j.ok){ setSideStatus(""); alert(j.error || "delete failed"); return; }
     setSideStatus("deleted");
+    if (nlNotifyParentNodeForm("close")) return;
     window.close();
   }catch(e){
     setSideStatus("");
@@ -2211,7 +3621,10 @@ function doClose(){
     }
   } catch(_) {}
 
-  // 2) Otherwise navigate back to the previous page; add a hint to refresh.
+  // 2) If this form is inside a projection modal iframe, ask the parent to close the modal and refresh.
+  if (nlNotifyParentNodeForm("close")) return;
+
+  // 3) Otherwise navigate back to the previous page; add a hint to refresh.
   try {
     const ref = (document.referrer || "").trim();
     if (ref) {

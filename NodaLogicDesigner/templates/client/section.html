@@ -71,6 +71,7 @@
   .section-toolbar #q { min-width: 140px; flex: 1 1 180px; }
   .section-toolbar #status { min-width: 0; white-space: nowrap; }
   #filtersPanel .card-body { background: #fff; }
+  .tag-filter-btn.active { outline: 2px solid #212529; outline-offset: 1px; }
 </style>
 
 <script>
@@ -83,6 +84,7 @@ const apiDelete     = {{ url_for('client.api_node_delete')|tojson }};
 const apiBulkDelete = {{ url_for('client.api_node_bulk_delete')|tojson }};
 const apiEventWeb   = {{ url_for('client.api_node_event_web')|tojson }};
 const apiCommonEventWeb = {{ url_for('client.api_common_event_web')|tojson }};
+const apiTimerEventWeb  = {{ url_for('client.api_timer_event_web')|tojson }};
 const apiClassEventWeb  = {{ url_for('client.api_class_event_web')|tojson }};
 
 const clientBase = {{ url_for('client.home')|tojson }}; // обычно "/client/"
@@ -98,7 +100,11 @@ let stdMap = new Map();   // key `${repo_id}:${class}` -> true/false
 let repoIdToUid = new Map();
 let filterIndexes = [];
 let filterState = {};
+let tagFilterItems = [];
+let tagFilterState = '';
 let pickerRepoIds = [];
+let sectionTimerHandles = [];
+let sectionTimerSignature = '';
 
 function ensurePickerModal(){
   let el = document.getElementById("sectionNodePickModal");
@@ -330,13 +336,36 @@ async function openListFilterEditor(filterName, filterType, labelText){
 
 function renderFilters(meta){
   filterIndexes = (meta && Array.isArray(meta.filter_indexes)) ? meta.filter_indexes : [];
+  tagFilterItems = (meta && Array.isArray(meta.tag_filter)) ? meta.tag_filter : [];
+  tagFilterState = (meta && typeof meta.selected_tag === 'string') ? meta.selected_tag : tagFilterState;
   const nextState = {};
   const panel = document.getElementById('filtersPanel');
   const body = document.getElementById('filtersBody');
   if (!panel || !body) return;
-  if (!filterIndexes.length) { panel.style.display = 'none'; body.innerHTML = ''; return; }
+  if (!filterIndexes.length && !tagFilterItems.length) { panel.style.display = 'none'; body.innerHTML = ''; return; }
   panel.style.display = '';
   body.innerHTML = '';
+
+  if (tagFilterItems.length) {
+    const col = document.createElement('div');
+    col.className = 'col-12';
+    const buttons = tagFilterItems.map(t => {
+      const id = String(t.id || '');
+      const bg = String(t.color || '#e9ecef');
+      const fg = String(t.text_color || '#000000');
+      const active = tagFilterState === id ? ' active' : '';
+      return `<button type="button" class="btn btn-sm border tag-filter-btn${active}" data-tag-filter="${escapeHtml(id)}" style="background:${escapeHtml(bg)};color:${escapeHtml(fg)}">${escapeHtml(id)}</button>`;
+    }).join('');
+    col.innerHTML = `<div class="border rounded px-2 py-2 bg-white"><div class="d-flex gap-1 flex-wrap"><button type="button" class="btn btn-sm btn-outline-secondary" data-tag-filter="">{{ _('All') }}</button>${buttons}</div></div>`;
+    body.appendChild(col);
+    col.querySelectorAll('[data-tag-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        tagFilterState = btn.getAttribute('data-tag-filter') || '';
+        loadSection();
+      });
+    });
+  }
+
   filterIndexes.forEach((idx, pos) => {
     const name = String(idx.name || '');
     const label = String(idx.filter_label || idx.name || '');
@@ -502,6 +531,7 @@ function openItemForm(it){
 
 function buildFilterParams(){
   const out = {};
+  if (tagFilterState) out.tag = tagFilterState;
   for (const idx of (filterIndexes || [])) {
     const state = filterState[String(idx.name || '')] || {};
     if (!state.enabled) continue;
@@ -782,6 +812,7 @@ function render(items, meta) {
     if (c.repo_id && !pickerRepoIds.includes(Number(c.repo_id))) pickerRepoIds.push(Number(c.repo_id));
   });
   window.__firstRepoIdForPicker = pickerRepoIds.length ? pickerRepoIds[0] : 0;
+  setupSectionTimers((meta && meta.timers_ui) ? meta.timers_ui : []);
 
   // --- bulk bar (ВАЖНО: до любых вызовов updateBulkBar) ---
   //const bulkBar = document.getElementById("bulkBar");
@@ -833,7 +864,8 @@ function render(items, meta) {
   const newText = "{{ _('New') }}";
   const cc = document.getElementById("classCmds");
   cc.innerHTML = classes.map(c => {
-    const addBtn = c.use_standard_commands
+    const classType = String(c.class_type || 'data_node');
+    const addBtn = (c.use_standard_commands && classType === 'data_node')
       ? `<button class="btn btn-sm btn-success" data-act="add"
                  data-repo="${c.repo_id}" data-class="${escapeHtml(c.class)}">
            ${newText} ${escapeHtml(c.display_name || c.class)}
@@ -1142,6 +1174,71 @@ if (bulkBtn) bulkBtn.onclick = async () => {
   setStatus(`Shown: ${items.length}`);
 }
 
+async function fireTimerEvent(repo_id, timer_id){
+  const r = await fetch(apiTimerEventWeb, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      repo_id: repo_id,
+      timer_id: timer_id,
+      payload: { _timer_id: timer_id, section_code: sectionCode }
+    })
+  });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || "timer failed");
+  if (j.message && Array.isArray(j.message)) {
+    for (const m of j.message) {
+      if (window.showMessage) window.showMessage(m.text, m.level || "info");
+    }
+  }
+  if (j.dialog && window.Dialog) {
+    window.Dialog(j.dialog, async (dlgResult) => {
+      try {
+        const result = dlgResult?.positive ? "result_positive" : "result_negative";
+        const result_data = dlgResult?.dialog_values || {};
+        await fireCommonEvent(repo_id, "onDialogResult", {
+          listener: j.dialog.id,
+          result: result,
+          result_data: result_data,
+          _timer_id: timer_id
+        });
+      } catch(e) {
+        console.error(e);
+        if (window.showMessage) window.showMessage(String(e), "danger");
+      }
+    });
+  }
+  return j;
+}
+
+function setupSectionTimers(timers){
+  const normalized = (Array.isArray(timers) ? timers : [])
+    .map(t => ({
+      repo_id: Number(t.repo_id || 0),
+      timer_id: String(t.timer_id || t.id || ''),
+      period_seconds: Math.max(1, Number(t.period_seconds || 0)),
+      worker: Boolean(t.worker)
+    }))
+    .filter(t => t.repo_id && t.timer_id && t.period_seconds > 0);
+  const signature = JSON.stringify(normalized);
+  if (signature === sectionTimerSignature) return;
+  sectionTimerSignature = signature;
+  sectionTimerHandles.forEach(h => clearInterval(h));
+  sectionTimerHandles = [];
+  normalized.forEach(t => {
+    const handle = setInterval(async () => {
+      try {
+        await fireTimerEvent(t.repo_id, t.timer_id);
+        await loadSection();
+      } catch(e) {
+        console.error('Timer failed:', e);
+        if (window.showMessage) window.showMessage(String(e.message || e), 'warning');
+      }
+    }, t.period_seconds * 1000);
+    sectionTimerHandles.push(handle);
+  });
+}
+
 async function loadSection() {
   if (inFlight) return;
   inFlight = true;
@@ -1156,6 +1253,7 @@ async function loadSection() {
     const f = buildFilterParams();
     if (f.index_name) url.searchParams.set("index_name", f.index_name);
     if (f.index_value) url.searchParams.set("index_value", f.index_value);
+    if (f.tag) url.searchParams.set("tag", f.tag);
 
     window.__lastAppliedSearch = q;
     const r = await fetch(url.toString(), {method:"GET"});
