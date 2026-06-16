@@ -418,7 +418,12 @@ def current_handlers_dir() -> str:
 
 def current_config_uid_from_handlers() -> str:
     d = current_handlers_dir()
-    return os.path.basename(d) if d else ""
+    if d:
+        return os.path.basename(d)
+    try:
+        return (CURRENT_CONFIG_UID.get() or "").strip()
+    except Exception:
+        return ""
 
 class AcceptRejected(Exception):
     def __init__(self, payload=None):
@@ -879,7 +884,7 @@ def run_on_accept_server_once(node, saved_state: dict, input_data: dict | None =
         raise AcceptRejected(out)
 
 
-def run_on_after_accept_server_once(node, saved_state: dict) -> None:
+def run_on_after_accept_server_once(node, saved_state: dict, input_data: dict | None = None) -> None:
     """Run config ClassEvent 'onAfterAcceptServer' at most once per request per node.
 
     This hook runs AFTER the node state has been persisted.
@@ -896,7 +901,8 @@ def run_on_after_accept_server_once(node, saved_state: dict) -> None:
         return
     guard.add(key)
 
-    payload: dict = {"_saved_state": dict(saved_state or {})}
+    payload: dict = dict(input_data or {})
+    payload["_saved_state"] = dict(saved_state or {})
     try:
         dispatch_node_class_event(node, "onAfterAcceptServer", payload)
     except Exception:
@@ -1263,7 +1269,7 @@ class Node:
                     pass
 
                 # run post-save hook AFTER persisting (only once per request)
-                run_on_after_accept_server_once(self, saved_state)
+                run_on_after_accept_server_once(self, saved_state, {})
                 return True
             return False
         
@@ -1562,7 +1568,7 @@ class Node:
                     pass
 
                 # run post-save hook AFTER persisting (only once per request)
-                run_on_after_accept_server_once(self, saved_state)
+                run_on_after_accept_server_once(self, saved_state, {key: value})
 
     def update_data(self, data_dict):
         with self._lock:
@@ -1575,8 +1581,9 @@ class Node:
                 base_state = self._data_cache if isinstance(self._data_cache, dict) else saved_state
                 new_state = dict(base_state)
                 protected_keys = {'_id', '_class'}
+                transient_keys = {'_user_modification'}
                 for key, value in (data_dict or {}).items():
-                    if key not in protected_keys:
+                    if key not in protected_keys and key not in transient_keys:
                         new_state[key] = value
 
                 new_state['_class'] = self.__class__.__name__
@@ -1645,7 +1652,7 @@ class Node:
                     pass
 
                 # run post-save hook AFTER persisting (only once per request)
-                run_on_after_accept_server_once(self, saved_state)
+                run_on_after_accept_server_once(self, saved_state, dict(data_dict or {}))
 
     def delete(self):
         """Recursively delete a node and all its descendants"""
@@ -1755,6 +1762,11 @@ class Node:
     def get_all(cls, config_uid=None):
         if not config_uid:
             config_uid = current_config_uid_from_handlers()
+        if not config_uid:
+            try:
+                config_uid = CURRENT_CONFIG_UID.get()
+            except Exception:
+                config_uid = None
         storage_key = f"{cls.__name__}_{config_uid}" if config_uid else cls.__name__
         
         if storage_key not in cls._class_storages:
@@ -1961,11 +1973,33 @@ class Node:
                     pass
 
     @classmethod
+    def _defined_index_def(cls, index_name: str, config_uid=None):
+        name = str(index_name or "").strip()
+        if not name:
+            return None
+        for idx in cls._get_defined_indexes(config_uid):
+            if not isinstance(idx, dict):
+                continue
+            if str(idx.get("name") or "").strip() == name:
+                return idx
+        return None
+
+    @staticmethod
+    def _defined_index_kind(idx_def) -> str:
+        kind = ""
+        if isinstance(idx_def, dict):
+            kind = str(idx_def.get("kind") or "").strip().lower()
+        return kind or "hash_index"
+
+    @classmethod
     def find_ids_by_index(cls, index_name: str, value, config_uid=None) -> list[str]:
         cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
         name = str(index_name or "").strip()
         if not name:
             return []
+
+        idx_def = cls._defined_index_def(name, cfg_uid)
+        idx_kind = cls._defined_index_kind(idx_def)
         store = cls._defined_index_storage(name, cfg_uid)
 
         def _lookup_variants(one):
@@ -2021,7 +2055,14 @@ class Node:
                 except Exception:
                     values = raw
 
-        def _collect_many(seq):
+        def _append_bucket(out, seen, bucket):
+            for x in (bucket or []):
+                sx = str(x)
+                if sx not in seen:
+                    seen.add(sx)
+                    out.append(sx)
+
+        def _collect_hash_many(seq):
             out = []
             seen = set()
             wanted_refs = []
@@ -2033,11 +2074,7 @@ class Node:
                         res = store.get(str(variant), []) or []
                     except Exception:
                         res = []
-                    for x in res:
-                        sx = str(x)
-                        if sx not in seen:
-                            seen.add(sx)
-                            out.append(sx)
+                    _append_bucket(out, seen, res)
                 nref = _normalized_node_ref(one)
                 if nref and nref not in wanted_refs_seen:
                     wanted_refs_seen.add(nref)
@@ -2062,16 +2099,50 @@ class Node:
                     res = store.get(store_key, []) or []
                 except Exception:
                     res = []
-                for x in res:
-                    sx = str(x)
-                    if sx not in seen:
-                        seen.add(sx)
-                        out.append(sx)
+                _append_bucket(out, seen, res)
             return out
 
-        if isinstance(values, (list, tuple, set)):
-            return _collect_many(values)
-        return _collect_many([values])
+        def _collect_text_many(seq):
+            needles = []
+            seen_needles = set()
+            for one in seq:
+                s = "" if one is None else str(one).strip().lower()
+                if not s or s in seen_needles:
+                    continue
+                seen_needles.add(s)
+                needles.append(s)
+            if not needles:
+                return []
+
+            out = []
+            seen = set()
+            try:
+                store_keys = list(store.keys())
+            except Exception:
+                store_keys = []
+
+            # text_index and trigram_index both store the full extracted value as the
+            # index key. Runtime lookup is therefore SQL-LIKE semantics: value contains
+            # the search string (case-insensitive). trigram_index can later be replaced
+            # by a real trigram storage without changing the public API.
+            for store_key in store_keys:
+                skey = str(store_key or "").strip()
+                if not skey:
+                    continue
+                skey_l = skey.lower()
+                if not any(n in skey_l for n in needles):
+                    continue
+                try:
+                    res = store.get(store_key, []) or []
+                except Exception:
+                    res = []
+                _append_bucket(out, seen, res)
+            return out
+
+        seq = values if isinstance(values, (list, tuple, set)) else [values]
+        if idx_kind in ("text_index", "trigram_index"):
+            return _collect_text_many(seq)
+        return _collect_hash_many(seq)
 
     @classmethod
     def find_by_index(cls, index_name: str, value, config_uid=None):
@@ -2887,6 +2958,12 @@ class Node:
         }
 
 
+    def RunProjection(self):
+        """Ask the web client to run the current projection again."""
+        self._ui_run_projection = True
+        return True
+
+
 
 
 # --- Compatibility helpers (LLM.txt style) ---
@@ -2920,6 +2997,16 @@ def Dialog(dialog_id: str, title: str = "", positive: str = "OK", negative: str 
             return None
     return None
 
+
+def RunProjection():
+    n = globals().get("CURRENT_NODE")
+    if n is not None and hasattr(n, "RunProjection"):
+        try:
+            return n.RunProjection()
+        except Exception:
+            return None
+    return None
+
 def CloseNode():
     n = globals().get("CURRENT_NODE")
     if n is not None and hasattr(n, "CloseNode"):
@@ -2930,14 +3017,78 @@ def CloseNode():
     return None    
 
 def to_uid(nodes_list):
+    """Return normalized node UIDs for projection/contract lists.
+
+    Accepts:
+      - a list/tuple/set of Node objects;
+      - a dict returned by Node.get_all(): {node_id: Node(...)};
+      - a single Node object;
+      - strings with already prepared UIDs;
+      - dict records like {"_id": ..., "_class": ..., "_config_uid": ...}.
+
+    This helper is intentionally permissive because generated business handlers
+    often pass get_all() directly, and get_all() returns a mapping, not a list.
+    """
+    def _items(value):
+        if value is None:
+            return []
+        if isinstance(value, dict):
+            # A single serialized node dict has an id-like field. Otherwise it is
+            # most likely the {id: node} mapping returned by get_all().
+            if any(k in value for k in ("uid", "_uid", "_id", "id")):
+                return [value]
+            return list(value.values())
+        if isinstance(value, (list, tuple, set)):
+            return list(value)
+        return [value]
+
+    def _add(uid):
+        uid = str(uid or "").strip()
+        if uid and uid not in seen:
+            seen.add(uid)
+            out.append(uid)
+
     out = []
-    for n in (nodes_list or []):
-        if not hasattr(n, "_id"):
+    seen = set()
+    for n in _items(nodes_list):
+        if n is None:
             continue
-        
+
+        # Already normalized / plain uid strings.
+        if isinstance(n, str):
+            _add(n)
+            continue
+
+        # Serialized node-like dict.
+        if isinstance(n, dict):
+            raw_id = n.get("uid") or n.get("_uid") or n.get("_id") or n.get("id")
+            if not raw_id:
+                continue
+            try:
+                uid_cfg, uid_cls, uid_id = parse_uid_any(raw_id)
+            except Exception:
+                uid_cfg, uid_cls, uid_id = None, None, raw_id
+            cls = (
+                n.get("_schema_class_name")
+                or n.get("_class_name")
+                or n.get("_class")
+                or n.get("class")
+                or uid_cls
+            )
+            cfg = n.get("_config_uid") or n.get("config_uid") or uid_cfg or current_config_uid_from_handlers()
+            if cls:
+                _add(normalize_own_uid(cfg or "", cls, uid_id or raw_id))
+            else:
+                _add(raw_id)
+            continue
+
+        # Live Node instance or node-like object.
+        raw_id = getattr(n, "_id", None) or getattr(n, "id", None)
+        if not raw_id:
+            continue
         cls = getattr(n, "_schema_class_name", None) or getattr(n, "_class_name", None) or n.__class__.__name__
-        #out.append(f"{cls}${n._id}")
-        out.append(normalize_own_uid(n._config_uid, cls, n._id))
+        cfg = getattr(n, "_config_uid", None) or getattr(n, "config_uid", None) or current_config_uid_from_handlers()
+        _add(normalize_own_uid(cfg or "", cls, raw_id))
     return out
 
 def parse_uid(uid: str):
@@ -3163,7 +3314,10 @@ def current_config_uid_from_handlers() -> str:
                 return os.path.basename(os.path.dirname(fp))
     except Exception:
         pass
-    return ""
+    try:
+        return (CURRENT_CONFIG_UID.get() or "").strip()
+    except Exception:
+        return ""
 
 
 class DataSets:

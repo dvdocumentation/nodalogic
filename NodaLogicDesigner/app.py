@@ -33,6 +33,37 @@ from botocore.client import Config
 
 print("APP LOAD:", __name__, __file__, id(object()))
 
+
+def _is_probably_print_template_base64(value) -> bool:
+    s = str(value or '').strip()
+    if not s or len(s) % 4:
+        return False
+    try:
+        raw = base64.b64decode(s.encode('ascii'), validate=True)
+        text = raw.decode('utf-8')
+    except Exception:
+        return False
+    return '\x00' not in text
+
+
+def _decode_print_html_template(value) -> str:
+    s = str(value or '')
+    if _is_probably_print_template_base64(s):
+        try:
+            return base64.b64decode(s.strip().encode('ascii'), validate=True).decode('utf-8')
+        except Exception:
+            return s
+    return s
+
+
+def _encode_print_html_template(value) -> str:
+    s = str(value or '')
+    if not s:
+        return ''
+    if _is_probably_print_template_base64(s):
+        return s.strip()
+    return base64.b64encode(s.encode('utf-8')).decode('ascii')
+
 try:
     import firebase_admin
     from firebase_admin import credentials as firebase_credentials, messaging as firebase_messaging
@@ -131,6 +162,8 @@ from models import (
     UserDevice,
     ConfigEvent,
     ConfigEventAction,
+    ConfigTimer,
+    ConfigTimerAction,
     Configuration,
     ConfigSection,
     ConfigClass,
@@ -159,7 +192,7 @@ import inspect
 #CHANGE IT WITH YOUR VALUES
 DEEPSEEK_API_KEY = ''
 ADMIN_LOGIN = ''
-FLASK_SECRET= 'your_secret'
+FLASK_SECRET= ''
 
 S3_ENDPOINT = "https://s3.ru1.storage.beget.cloud"
 S3_BUCKET = "bf871c2d93ee-s3noda"
@@ -174,13 +207,18 @@ s3 = boto3.client(
 )
 
 SCRIPT_TEXT_METHODS = {"NodaScript", "PythonScript"}
-HTTP_REQUEST_METHOD = "HTTP Request"
+HTTP_REQUEST_METHOD = "HTTPRequest"
+HTTP_REQUEST_METHOD_ALIASES = {HTTP_REQUEST_METHOD, "HTTP Request"}
+
+def _normalize_special_method_name(value):
+    value = str(value or "").strip()
+    return HTTP_REQUEST_METHOD if value in HTTP_REQUEST_METHOD_ALIASES else value
 
 def _is_script_text_method(value):
-    return (value or "") in SCRIPT_TEXT_METHODS
+    return str(value or "").strip() in SCRIPT_TEXT_METHODS
 
 def _is_http_request_method(value):
-    return (value or "") == HTTP_REQUEST_METHOD
+    return str(value or "").strip() in HTTP_REQUEST_METHOD_ALIASES
 
 def _s3_key_from_public_url(file_url: str):
     file_url = (file_url or "").strip()
@@ -786,6 +824,25 @@ def _ensure_sqlite_schema():
             # indexes may already exist; keep silent-ish
             print(f"Could not create index ({label}):", e)
 
+    # ------------------------------------------------------------
+    # config_timer migrations
+    # ------------------------------------------------------------
+    try:
+        if not _table_exists("config_timer") or not _table_exists("config_timer_action"):
+            db.create_all()
+            print("Created config_timer/config_timer_action tables")
+        if _table_exists("config_timer"):
+            _add_col("config_timer", "worker BOOLEAN DEFAULT 0", "worker")
+            _add_col("config_timer", "runtime VARCHAR(20) DEFAULT 'server'", "runtime")
+            try:
+                with db.engine.begin() as conn:
+                    conn.execute(sa.text("UPDATE config_timer SET period_seconds = 900 WHERE period_seconds IS NULL OR (period_seconds < 900 AND (runtime IS NULL OR runtime = '' OR runtime = 'server' OR worker = 1))"))
+                    conn.execute(sa.text("UPDATE config_timer SET runtime = 'server' WHERE runtime IS NULL OR runtime = ''"))
+            except Exception as e:
+                print("Could not normalize config_timer rows:", e)
+    except Exception as e:
+        print("Could not ensure timer tables:", e)
+
 
     # ------------------------------------------------------------
     # node_discussion_message migrations
@@ -817,6 +874,14 @@ def _ensure_sqlite_schema():
                 conn.execute(text("CREATE INDEX IF NOT EXISTS ix_node_discussion_message_target ON node_discussion_message(target_type, target_id)"))
     except Exception as e:
         print("Could not ensure node_discussion_message table:", e)
+
+    # ------------------------------------------------------------
+    # contract migrations
+    # ------------------------------------------------------------
+    if _table_exists("contract"):
+        ccols = _get_cols("contract")
+        if "source_classes_json" not in ccols:
+            _add_col("contract", "source_classes_json JSON", "source_classes_json")
 
     # ------------------------------------------------------------
     # user table migrations
@@ -939,6 +1004,16 @@ def _ensure_sqlite_schema():
             _add_col("config_class", "has_storage BOOLEAN DEFAULT FALSE", "has_storage")
         if "class_type" not in cols:
             _add_col("config_class", "class_type VARCHAR(50)", "class_type")
+        if "projection_type" not in cols:
+            _add_col("config_class", 'projection_type VARCHAR(50) DEFAULT ""', "projection_type")
+        if "projection_kanban_columns" not in cols:
+            _add_col("config_class", 'projection_kanban_columns TEXT DEFAULT ""', "projection_kanban_columns")
+        if "print_template_type" not in cols:
+            _add_col("config_class", 'print_template_type VARCHAR(50) DEFAULT "html_jinja"', "print_template_type")
+        if "print_target_classes" not in cols:
+            _add_col("config_class", 'print_target_classes JSON', "print_target_classes")
+        if "print_html_template" not in cols:
+            _add_col("config_class", 'print_html_template TEXT DEFAULT ""', "print_html_template")
         if "hidden" not in cols:
             _add_col("config_class", "hidden BOOLEAN DEFAULT FALSE", "hidden")
 
@@ -967,6 +1042,12 @@ def _ensure_sqlite_schema():
             _add_col("config_class", 'init_screen_layout TEXT DEFAULT ""', "init_screen_layout")
         if "init_screen_layout_web" not in cols:
             _add_col("config_class", 'init_screen_layout_web TEXT DEFAULT ""', "init_screen_layout_web")
+        if "data_structure" not in cols:
+            _add_col("config_class", 'data_structure TEXT DEFAULT ""', "data_structure")
+        if "show_tag_cloud" not in cols:
+            _add_col("config_class", "show_tag_cloud BOOLEAN DEFAULT FALSE", "show_tag_cloud")
+        if "mobile_print_enabled" not in cols:
+            _add_col("config_class", "mobile_print_enabled BOOLEAN DEFAULT FALSE", "mobile_print_enabled")
         if "plug_in" not in cols:
             _add_col("config_class", 'plug_in TEXT DEFAULT ""', "plug_in")
         if "plug_in_web" not in cols:
@@ -1244,8 +1325,13 @@ except Exception as _e:
     print('SQLite schema ensure skipped:', _e)
 
 try:
-    from client_app.routes import client_bp
+    from client_app import routes as client_routes
+    client_bp = client_routes.client_bp
     app.register_blueprint(client_bp)
+    try:
+        client_routes.start_server_timer_scheduler(app)
+    except Exception as _timer_e:
+        print('Server timer scheduler not started:', _timer_e)
 except Exception as _e:
     print('Client blueprint not loaded:', _e)
 
@@ -1464,8 +1550,12 @@ def api_auth_required(f):
             if auth:
                 user = check_api_auth(auth.username, auth.password)
 
-            if not user:
-                return jsonify({"error": "Unauthorized"}), 401
+        # Web UI/session callers may already be authenticated with Flask-Login.
+        if not user and getattr(current_user, 'is_authenticated', False):
+            user = current_user
+
+        if not user:
+            return jsonify({"error": "Unauthorized"}), 401
 
 
         if not bool(getattr(user, "can_api", False)):
@@ -3627,6 +3717,7 @@ def get_config(uid):
         'url':base_url,
         "content_uid": config.content_uid,
         'nodes_handlers': config.nodes_handlers,
+        'nodes_server_handlers': config.nodes_server_handlers,
         'version': getattr(config, 'version', '00.00.01'),
         'last_modified': local_time.isoformat(),
         "NodaLogicFormat": NL_FORMAT,
@@ -3645,9 +3736,15 @@ def get_config(uid):
                 'display_image_table': getattr(c, 'display_image_table', '') or '',
                 'init_screen_layout': getattr(c, 'init_screen_layout', '') or '',
                 'init_screen_layout_web': getattr(c, 'init_screen_layout_web', '') or '',
+                'data_structure': getattr(c, 'data_structure', '') or '',
+                'show_tag_cloud': bool(getattr(c, 'show_tag_cloud', False)),
+                'mobile_print_enabled': bool(getattr(c, 'mobile_print_enabled', False)),
                 'plug_in': getattr(c, 'plug_in', '') or '',
                 'plug_in_web': getattr(c, 'plug_in_web', '') or '',
                 'init_screen_layout_web': getattr(c, 'init_screen_layout_web', '') or '',
+                'data_structure': getattr(c, 'data_structure', '') or '',
+                'show_tag_cloud': bool(getattr(c, 'show_tag_cloud', False)),
+                'mobile_print_enabled': bool(getattr(c, 'mobile_print_enabled', False)),
                 'plug_in': getattr(c, 'plug_in', '') or '',
                 'plug_in_web': getattr(c, 'plug_in_web', '') or '',
 
@@ -3662,6 +3759,11 @@ def get_config(uid):
                 'link_share_mode': getattr(c, 'link_share_mode', '') or '',
                 'indexes': getattr(c, 'indexes_json', None) or [],
                 'class_type': c.class_type,
+                'projection_type': getattr(c, 'projection_type', '') or '',
+                'projection_kanban_columns': getattr(c, 'projection_kanban_columns', '') or '',
+                'print_template_type': getattr(c, 'print_template_type', '') or 'html_jinja',
+                'print_target_classes': getattr(c, 'print_target_classes', None) or [],
+                'print_html_template': _encode_print_html_template(getattr(c, 'print_html_template', '') or ''),
                 'hidden': c.hidden,
                 'methods': [{
                     'name': m.name,
@@ -3678,8 +3780,8 @@ def get_config(uid):
                                 'action': a.action,
                                 'source': a.source,
                                 'server': a.server,
-                                'method': a.method,
-                                'postExecuteMethod': a.post_execute_method,
+                                'method': _normalize_special_method_name(a.method),
+                                'postExecuteMethod': _normalize_special_method_name(a.post_execute_method),
                                 # NodaScript texts (plain JSON-escaped strings)
                                 **({"methodText": a.method_text} if _is_script_text_method(a.method) else {}),
                                 **({"postExecuteMethodText": a.post_execute_text} if _is_script_text_method(a.post_execute_method) else {}),
@@ -3730,8 +3832,8 @@ def get_config(uid):
                         'action': a.action,
                         'source': a.source,
                         'server': a.server,
-                        'method': a.method,
-                        'postExecuteMethod': a.post_execute_method,
+                        'method': _normalize_special_method_name(a.method),
+                        'postExecuteMethod': _normalize_special_method_name(a.post_execute_method),
                         # NodaScript texts (plain JSON-escaped strings)
                         **({"methodText": a.method_text} if _is_script_text_method(a.method) else {}),
                         **({"postExecuteMethodText": a.post_execute_text} if _is_script_text_method(a.post_execute_method) else {}),
@@ -3742,6 +3844,18 @@ def get_config(uid):
                 ]
             }
             for e in config.config_events
+        ],
+        'Timers': [
+            t.to_dict() if hasattr(t, 'to_dict') else {
+                'id': getattr(t, 'timer_id', '') or '',
+                'timer_id': getattr(t, 'timer_id', '') or '',
+                'period_seconds': max(900 if ((getattr(t, 'runtime', '') or 'server') == 'server' or bool(getattr(t, 'worker', False))) else 1, getattr(t, 'period_seconds', 0) or 0),
+                'active': bool(getattr(t, 'active', False)),
+                'worker': bool(getattr(t, 'worker', False)),
+                'runtime': (getattr(t, 'runtime', '') or 'server'),
+                'actions': t.actions_as_dicts() if hasattr(t, 'actions_as_dicts') else [],
+            }
+            for t in (getattr(config, 'config_timers', None) or [])
         ]
     }, ensure_ascii=False, indent=4)
 
@@ -3763,8 +3877,8 @@ def _build_runtime_parsed_config(config: Configuration) -> dict:
                         "action": getattr(a, "action", ""),
                         "source": getattr(a, "source", ""),
                         "server": getattr(a, "server", None),
-                        "method": getattr(a, "method", ""),
-                        "postExecuteMethod": getattr(a, "post_execute_method", "") or getattr(a, "postExecuteMethod", ""),
+                        "method": _normalize_special_method_name(getattr(a, "method", "")),
+                        "postExecuteMethod": _normalize_special_method_name(getattr(a, "post_execute_method", "") or getattr(a, "postExecuteMethod", "")),
                         "methodText": getattr(a, "method_text", "") or getattr(a, "methodText", ""),
                         "postExecuteMethodText": getattr(a, "post_execute_text", "") or getattr(a, "postExecuteMethodText", ""),
                         "httpFunctionName": getattr(a, "http_function_name", "") or getattr(a, "httpFunctionName", ""),
@@ -3821,6 +3935,12 @@ def _export_class_json(class_obj: ConfigClass) -> dict:
         data['init_screen_layout'] = class_obj.init_screen_layout
     if (getattr(class_obj, 'init_screen_layout_web', '') or '').strip():
         data['init_screen_layout_web'] = class_obj.init_screen_layout_web
+    if (getattr(class_obj, 'data_structure', '') or '').strip():
+        data['data_structure'] = class_obj.data_structure
+    if bool(getattr(class_obj, 'show_tag_cloud', False)):
+        data['show_tag_cloud'] = True
+    if bool(getattr(class_obj, 'mobile_print_enabled', False)):
+        data['mobile_print_enabled'] = True
     if (getattr(class_obj, 'plug_in', '') or '').strip():
         data['plug_in'] = class_obj.plug_in
     if (getattr(class_obj, 'plug_in_web', '') or '').strip():
@@ -3845,6 +3965,16 @@ def _export_class_json(class_obj: ConfigClass) -> dict:
         data['indexes'] = class_obj.indexes_json
     if (getattr(class_obj, 'class_type', '') or '').strip():
         data['class_type'] = class_obj.class_type
+    if (getattr(class_obj, 'projection_type', '') or '').strip():
+        data['projection_type'] = class_obj.projection_type
+    if (getattr(class_obj, 'projection_kanban_columns', '') or '').strip():
+        data['projection_kanban_columns'] = class_obj.projection_kanban_columns
+    if (getattr(class_obj, 'print_template_type', '') or '').strip():
+        data['print_template_type'] = class_obj.print_template_type
+    if getattr(class_obj, 'print_target_classes', None):
+        data['print_target_classes'] = class_obj.print_target_classes or []
+    if (getattr(class_obj, 'print_html_template', '') or '').strip():
+        data['print_html_template'] = _encode_print_html_template(class_obj.print_html_template)
     if bool(getattr(class_obj, 'hidden', False)):
         data['hidden'] = True
 
@@ -3893,6 +4023,288 @@ def _export_class_json(class_obj: ConfigClass) -> dict:
     return _compact_clean(data)
 
 
+def _first_present(data: dict, *keys, default=None):
+    if not isinstance(data, dict):
+        return default
+    for key in keys:
+        if key in data:
+            return data.get(key)
+    return default
+
+
+def _json_bool(value, default=False) -> bool:
+    if value is None:
+        return bool(default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    value = str(value).strip().lower()
+    if value in {'1', 'true', 'yes', 'y', 'on', 'да'}:
+        return True
+    if value in {'0', 'false', 'no', 'n', 'off', 'нет'}:
+        return False
+    return bool(default)
+
+
+def _class_json_from_request(data):
+    """Accept either a raw class JSON or an envelope: {"class": {...}} / {"class_json": {...}}."""
+    if not isinstance(data, dict):
+        return None
+    for key in ('class', 'class_json', '_class', 'schema', 'node_class'):
+        value = data.get(key)
+        if isinstance(value, dict):
+            return value
+    return data
+
+
+def _upsert_config_class_from_json(config: Configuration, class_json: dict, *, path_class_name: str = ''):
+    if not isinstance(class_json, dict):
+        raise ValueError('JSON class object is required')
+
+    body_name = str(_first_present(class_json, 'name', 'class_name', 'code', 'uid', 'id', default='') or '').strip()
+    path_class_name = str(path_class_name or '').strip()
+
+    if path_class_name and body_name and body_name != path_class_name:
+        raise ValueError('class name in URL and JSON body are different')
+
+    class_name = path_class_name or body_name
+    if not class_name:
+        raise ValueError('class name is required')
+
+    cls = db.session.execute(
+        select(ConfigClass).where(ConfigClass.config_id == config.id, ConfigClass.name == class_name)
+    ).scalar_one_or_none()
+    created = cls is None
+
+    if cls is None:
+        cls = ConfigClass(config_id=config.id, name=class_name)
+        db.session.add(cls)
+        db.session.flush()
+
+    # Scalar fields. Missing fields are not cleared, so PATCH-like updates are safe.
+    scalar_fields = {
+        'section': ('section',),
+        'section_code': ('section_code', 'sectionCode'),
+        'display_name': ('display_name', 'displayName', 'title'),
+        'record_view': ('record_view', 'recordView'),
+        'cover_image': ('cover_image', 'coverImage'),
+        'display_image_web': ('display_image_web', 'displayImageWeb'),
+        'display_image_table': ('display_image_table', 'displayImageTable'),
+        'init_screen_layout': ('init_screen_layout', 'initScreenLayout'),
+        'init_screen_layout_web': ('init_screen_layout_web', 'initScreenLayoutWeb'),
+        'data_structure': ('data_structure', 'dataStructure'),
+        'plug_in': ('plug_in', 'plugIn'),
+        'plug_in_web': ('plug_in_web', 'plugInWeb'),
+        'commands': ('commands',),
+        'svg_commands': ('svg_commands', 'svgCommands'),
+        'migration_default_room_uid': ('migration_default_room_uid', 'migrationDefaultRoomUid'),
+        'migration_default_room_alias': ('migration_default_room_alias', 'migrationDefaultRoomAlias'),
+        'link_share_mode': ('link_share_mode', 'linkShareMode'),
+        'class_type': ('class_type', 'classType'),
+        'projection_type': ('projection_type', 'projectionType'),
+        'projection_kanban_columns': ('projection_kanban_columns', 'projectionKanbanColumns'),
+        'print_template_type': ('print_template_type', 'printTemplateType'),
+    }
+    for attr, keys in scalar_fields.items():
+        value = _first_present(class_json, *keys, default=None)
+        if value is not None and hasattr(cls, attr):
+            setattr(cls, attr, str(value) if value is not None else '')
+
+    html_template_value = _first_present(class_json, 'print_html_template', 'printHtmlTemplate', 'html_template', 'htmlTemplate', default=None)
+    if html_template_value is not None and hasattr(cls, 'print_html_template'):
+        cls.print_html_template = _encode_print_html_template(html_template_value)
+
+    bool_fields = {
+        'has_storage': ('has_storage', 'hasStorage'),
+        'hidden': ('hidden',),
+        'use_standard_commands': ('use_standard_commands', 'useStandardCommands'),
+        'migration_register_command': ('migration_register_command', 'migrationRegisterCommand'),
+        'migration_register_on_save': ('migration_register_on_save', 'migrationRegisterOnSave'),
+        'show_tag_cloud': ('show_tag_cloud', 'showTagCloud'),
+        'mobile_print_enabled': ('mobile_print_enabled', 'mobilePrintEnabled'),
+    }
+    for attr, keys in bool_fields.items():
+        value = _first_present(class_json, *keys, default=None)
+        if value is not None and hasattr(cls, attr):
+            setattr(cls, attr, _json_bool(value, getattr(cls, attr, False)))
+
+    indexes = _first_present(class_json, 'indexes', 'indexes_json', 'indexesJson', default=None)
+    if indexes is not None and hasattr(cls, 'indexes_json'):
+        cls.indexes_json = indexes if isinstance(indexes, list) else []
+
+    print_targets = _first_present(class_json, 'print_target_classes', 'printTargetClasses', 'target_classes', 'targetClasses', default=None)
+    if print_targets is not None and hasattr(cls, 'print_target_classes'):
+        if isinstance(print_targets, list):
+            cls.print_target_classes = [str(x).strip() for x in print_targets if str(x or '').strip()]
+        elif isinstance(print_targets, str):
+            try:
+                parsed_targets = json.loads(print_targets)
+                if isinstance(parsed_targets, list):
+                    cls.print_target_classes = [str(x).strip() for x in parsed_targets if str(x or '').strip()]
+                else:
+                    cls.print_target_classes = [x.strip() for x in print_targets.split(',') if x.strip()]
+            except Exception:
+                cls.print_target_classes = [x.strip() for x in print_targets.split(',') if x.strip()]
+        else:
+            cls.print_target_classes = []
+
+    # Replace methods only when methods are explicitly present in JSON.
+    if 'methods' in class_json or 'Methods' in class_json:
+        methods = class_json.get('methods') if 'methods' in class_json else class_json.get('Methods')
+        if methods is None:
+            methods = []
+        if not isinstance(methods, list):
+            raise ValueError('methods must be an array')
+
+        for old in list(getattr(cls, 'methods', []) or []):
+            db.session.delete(old)
+        db.session.flush()
+
+        for item in methods:
+            if not isinstance(item, dict):
+                continue
+            method_name = str(_first_present(item, 'name', 'method', 'method_name', default='') or '').strip()
+            if not method_name:
+                continue
+            db.session.add(ClassMethod(
+                class_id=cls.id,
+                name=method_name,
+                source=str(_first_present(item, 'source', default='internal') or 'internal'),
+                server=str(_first_present(item, 'server', default='internal') or 'internal'),
+                engine=str(_first_present(item, 'engine', default='') or ''),
+                code=str(_first_present(item, 'code', 'body', 'text', default='') or ''),
+            ))
+
+    # Replace events only when events are explicitly present in JSON.
+    if 'events' in class_json or 'Events' in class_json:
+        events = class_json.get('events') if 'events' in class_json else class_json.get('Events')
+        if events is None:
+            events = []
+        if not isinstance(events, list):
+            raise ValueError('events must be an array')
+
+        for old_event in list(getattr(cls, 'event_objs', []) or []):
+            for old_action in list(getattr(old_event, 'actions', []) or []):
+                db.session.delete(old_action)
+            db.session.delete(old_event)
+        db.session.flush()
+
+        if hasattr(cls, 'events'):
+            try:
+                cls.events = json.dumps(events, ensure_ascii=False)
+            except Exception:
+                cls.events = None
+
+        for event_item in events:
+            if isinstance(event_item, str):
+                event_item = {'event': event_item, 'actions': []}
+            if not isinstance(event_item, dict):
+                continue
+            event_name = str(_first_present(event_item, 'event', 'name', 'event_name', default='') or '').strip()
+            if not event_name:
+                continue
+            ce = ClassEvent(
+                class_id=cls.id,
+                event=event_name,
+                listener=str(_first_present(event_item, 'listener', 'listener_name', default='') or ''),
+            )
+            db.session.add(ce)
+            db.session.flush()
+
+            actions = event_item.get('actions') or []
+            if not isinstance(actions, list):
+                actions = []
+            for order, action_item in enumerate(actions, start=1):
+                if not isinstance(action_item, dict):
+                    continue
+                db.session.add(EventAction(
+                    event_id=ce.id,
+                    order=order,
+                    action=str(_first_present(action_item, 'action', default='run') or 'run'),
+                    source=str(_first_present(action_item, 'source', default='internal') or 'internal'),
+                    server=str(_first_present(action_item, 'server', default='') or ''),
+                    method=_normalize_special_method_name(_first_present(action_item, 'method', 'method_name', default='') or ''),
+                    post_execute_method=_normalize_special_method_name(_first_present(action_item, 'postExecuteMethod', 'post_execute_method', 'postExecute', default='') or ''),
+                    method_text=str(_first_present(action_item, 'methodText', 'method_text', default='') or ''),
+                    post_execute_text=str(_first_present(action_item, 'postExecuteMethodText', 'post_execute_text', default='') or ''),
+                    http_function_name=str(_first_present(action_item, 'httpFunctionName', 'http_function_name', default='') or ''),
+                    post_http_function_name=str(_first_present(action_item, 'postHttpFunctionName', 'post_http_function_name', default='') or ''),
+                ))
+
+    now = datetime.now(timezone.utc)
+    if hasattr(config, 'last_modified'):
+        config.last_modified = now
+    if hasattr(config, 'content_uid'):
+        config.content_uid = str(uuid.uuid4())
+
+    db.session.flush()
+    return cls, created
+
+
+@app.route('/api/config/<config_uid>/class', methods=['POST'])
+@app.route('/api/config/<config_uid>/class/<class_name>', methods=['POST', 'PUT', 'PATCH'])
+@api_auth_required
+def upsert_config_class_api(config_uid, class_name=None):
+    """Create or update a ConfigClass from JSON inside an existing Configuration."""
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == str(config_uid).strip())
+    ).scalar_one_or_none()
+    if not config:
+        return jsonify({'error': 'Configuration not found'}), 404
+
+    actor = getattr(g, 'api_user', None)
+    if not actor or not user_can_access_config(actor, str(config_uid)):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    data = request.get_json(silent=True)
+    if data is None:
+        return jsonify({'error': 'JSON body is required'}), 400
+
+    class_json = _class_json_from_request(data)
+    try:
+        cls, created = _upsert_config_class_from_json(config, class_json, path_class_name=class_name or '')
+        db.session.commit()
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        traceback.print_exc()
+        return jsonify({'error': 'Could not upsert class', 'details': str(e)}), 500
+
+    return jsonify({
+        'ok': True,
+        'created': bool(created),
+        'config_uid': config.uid,
+        'class': _export_class_json(cls),
+    }), (201 if created else 200)
+
+
+@app.route('/api/config/<config_uid>/class/<class_name>', methods=['GET'])
+@api_auth_required
+def get_config_class_api(config_uid, class_name):
+    """Return one class JSON from a Configuration."""
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == str(config_uid).strip())
+    ).scalar_one_or_none()
+    if not config:
+        return jsonify({'error': 'Configuration not found'}), 404
+
+    actor = getattr(g, 'api_user', None)
+    if not actor or not user_can_access_config(actor, str(config_uid)):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    cls = db.session.execute(
+        select(ConfigClass).where(ConfigClass.config_id == config.id, ConfigClass.name == str(class_name).strip())
+    ).scalar_one_or_none()
+    if not cls:
+        return jsonify({'error': 'Class not found'}), 404
+
+    return jsonify({'ok': True, 'config_uid': config.uid, 'class': _export_class_json(cls)})
+
+
+
 def _normalize_contract_source_type(raw_value: str) -> str:
     val = str(raw_value or '').strip().lower()
     if val in {'class', 'global_index', 'external_only'}:
@@ -3919,6 +4331,14 @@ def _object_id_from_payload(payload: dict) -> str:
 
 
 def _object_version_from_payload(payload: dict) -> str:
+    """Return an explicit external version if the payload contains one.
+
+    Important: this function intentionally does NOT generate a timestamp fallback.
+    Contract delivery uses object versions to decide what a device has already
+    received. A timestamp fallback would make unchanged objects look changed on
+    every request, and an unchanged external version would hide real content
+    edits. Use _contract_object_version() when a stable change token is needed.
+    """
     if not isinstance(payload, dict):
         return ''
     for key in ('_updated_at', '_version', 'updated_at', 'version'):
@@ -3931,7 +4351,37 @@ def _object_version_from_payload(payload: dict) -> str:
             v = data.get(key)
             if v:
                 return str(v).strip()
-    return datetime.now(timezone.utc).isoformat()
+    return ''
+
+
+def _contract_payload_hash(payload: dict) -> str:
+    """Stable hash of the object payload for change detection.
+
+    The hash is used as the contract object version, so a changed field such as
+    name/title is delivered again even when the external system does not send
+    _version or updated_at.
+    """
+    if not isinstance(payload, dict):
+        return ''
+    try:
+        text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    except Exception:
+        text = str(payload)
+    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+
+def _contract_object_version(payload: dict) -> str:
+    """Version token used by contract ack/delivery.
+
+    Combine an explicit external version with a content hash when present. This
+    keeps compatibility with systems that do send versions, while still catching
+    payload edits when that external version is stale or absent.
+    """
+    explicit = _object_version_from_payload(payload)
+    digest = _contract_payload_hash(payload)
+    if explicit and digest:
+        return f'{explicit}:{digest}'
+    return explicit or digest
 
 
 def _contract_public_url(contract: Contract) -> str:
@@ -3967,34 +4417,205 @@ def _contract_accessible_configs(user):
     return db.session.execute(stmt).scalars().all()
 
 
+
+def _parse_contract_class_refs_value(value):
+    """Normalize class refs from JSON/list/string/form values.
+
+    Accepted forms:
+    - [{'config_uid': 'cfg', 'class_name': 'Product'}]
+    - ['cfg$Product', 'cfg:Product']
+    - 'cfg$Product\notherCfg$OtherClass'
+    """
+    refs = []
+    if value is None:
+        return refs
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return refs
+        try:
+            decoded = json.loads(text)
+            if isinstance(decoded, (list, tuple)):
+                return _parse_contract_class_refs_value(decoded)
+            if isinstance(decoded, dict):
+                return _parse_contract_class_refs_value([decoded])
+        except Exception:
+            pass
+        items = re.split(r'[\r\n,;]+', text)
+        for item in items:
+            item = (item or '').strip()
+            if not item:
+                continue
+            if '$' in item:
+                cfg_uid, class_name = item.split('$', 1)
+            elif ':' in item:
+                cfg_uid, class_name = item.split(':', 1)
+            else:
+                continue
+            refs.append({'config_uid': str(cfg_uid or '').strip(), 'class_name': str(class_name or '').strip()})
+        return refs
+    if isinstance(value, dict):
+        value = [value]
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            if isinstance(item, str):
+                refs.extend(_parse_contract_class_refs_value(item))
+            elif isinstance(item, dict):
+                cfg_uid = str(item.get('config_uid') or item.get('source_config_uid') or item.get('uid') or '').strip()
+                class_name = str(item.get('class_name') or item.get('name') or '').strip()
+                refs.append({'config_uid': cfg_uid, 'class_name': class_name})
+    return refs
+
+
+def _contract_class_refs_from_data(data: dict, fallback_config_uid: str = '', fallback_class_name: str = ''):
+    data = data or {}
+    raw = None
+    for key in ('source_classes_json', 'source_classes', 'classes', 'class_refs'):
+        if key in data:
+            raw = data.get(key)
+            break
+    if raw is None and 'source_classes_text' in data:
+        raw = data.get('source_classes_text')
+    refs = _parse_contract_class_refs_value(raw)
+    if not refs and fallback_config_uid and fallback_class_name:
+        refs = [{'config_uid': fallback_config_uid, 'class_name': fallback_class_name}]
+    # de-duplicate while preserving order
+    seen = set()
+    out = []
+    for ref in refs:
+        cfg_uid = str((ref or {}).get('config_uid') or '').strip()
+        class_name = str((ref or {}).get('class_name') or '').strip()
+        if not cfg_uid or not class_name:
+            continue
+        key = (cfg_uid, class_name)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({'config_uid': cfg_uid, 'class_name': class_name})
+    return out
+
+
+def _contract_class_refs(contract: Contract):
+    refs = _parse_contract_class_refs_value(getattr(contract, 'source_classes_json', None))
+    if not refs:
+        cfg_uid = str(getattr(contract, 'source_config_uid', '') or '').strip()
+        class_name = str(getattr(contract, 'class_name', '') or '').strip()
+        refs = _contract_class_refs_from_data({}, cfg_uid, class_name)
+    return refs
+
+
+def _assert_contract_class_refs_accessible(refs, actor):
+    if not actor:
+        return
+    for ref in refs or []:
+        cfg_uid = str((ref or {}).get('config_uid') or '').strip()
+        if not cfg_uid:
+            continue
+        if user_can_access_config(actor, cfg_uid):
+            continue
+        own_cfg = db.session.execute(
+            select(Configuration).where(Configuration.uid == cfg_uid, Configuration.user_id == actor.id)
+        ).scalar_one_or_none()
+        if own_cfg is None:
+            raise PermissionError('Forbidden')
+
+
+def _contract_ref_prefix(ref: dict) -> str:
+    return f"{str((ref or {}).get('config_uid') or '').strip()}${str((ref or {}).get('class_name') or '').strip()}$"
+
+
+def _contract_class_ref_string(ref: dict) -> str:
+    """Normalized class reference used in contract payloads.
+
+    The device already knows the configuration/class definitions, so each
+    delivered object carries only a string reference: <config_uid>$<class_name>.
+    """
+    cfg_uid = str((ref or {}).get('config_uid') or '').strip()
+    class_name = str((ref or {}).get('class_name') or '').strip()
+    return f'{cfg_uid}${class_name}' if cfg_uid and class_name else ''
+
+
+def _contract_class_ref_json(ref: dict) -> str:
+    # Kept as a compatibility wrapper for older call sites. Despite the old
+    # function name, source_type=class now uses a plain string class reference,
+    # not an object and not an array.
+    return _contract_class_ref_string(ref)
+
+
+def _raw_id_part_for_contract(raw_id: str) -> str:
+    raw_id = str(raw_id or '').strip()
+    if raw_id.count('$') >= 2:
+        return raw_id.rsplit('$', 1)[-1]
+    return raw_id
+
+
+def _normalize_contract_object_for_class(raw: dict, ref: dict) -> dict:
+    payload = dict(raw or {})
+    cfg_uid = str((ref or {}).get('config_uid') or '').strip()
+    class_name = str((ref or {}).get('class_name') or '').strip()
+    raw_id = _object_id_from_payload(payload)
+    local_id = _raw_id_part_for_contract(raw_id)
+    object_id = f'{cfg_uid}${class_name}${local_id}' if local_id else ''
+    class_ref = _contract_class_ref_string(ref)
+    if object_id:
+        payload['_id'] = object_id
+    if class_ref:
+        payload['_class'] = class_ref
+    payload['_config_uid'] = cfg_uid
+    data = payload.get('_data')
+    if isinstance(data, dict):
+        data = dict(data)
+        if object_id:
+            data['_id'] = object_id
+        if class_ref:
+            data['_class'] = class_ref
+        data['_config_uid'] = cfg_uid
+        payload['_data'] = data
+    return payload
+
 def _contract_update_from_data(contract: Contract, data: dict, actor) -> Contract:
     name = str((data or {}).get('name') or '').strip()
     if not name:
         raise ValueError('Name is required')
 
     source_type = _normalize_contract_source_type((data or {}).get('source_type'))
-    source_config_uid = str((data or {}).get('source_config_uid') or (data or {}).get('config_uid') or '').strip()
-    if source_config_uid and actor and not user_can_access_config(actor, source_config_uid):
-        own_cfg = db.session.execute(
-            select(Configuration).where(Configuration.uid == source_config_uid, Configuration.user_id == actor.id)
-        ).scalar_one_or_none()
-        if own_cfg is None:
-            raise PermissionError('Forbidden')
+    # UI/API now treats class source settings as a list of config/class refs.
+    # Legacy source_config_uid/class_name are still accepted as input and are
+    # populated from the first ref for old integrations and global_index mode.
+    legacy_config_uid = str((data or {}).get('source_config_uid') or (data or {}).get('config_uid') or '').strip()
+    legacy_class_name = str((data or {}).get('class_name') or '').strip()
+    source_refs = _contract_class_refs_from_data(data or {}, legacy_config_uid, legacy_class_name) if source_type in {'class', 'global_index'} else []
+    first_ref = source_refs[0] if source_refs else {}
+    source_config_uid = legacy_config_uid or str((first_ref or {}).get('config_uid') or '').strip()
+    class_name = legacy_class_name or str((first_ref or {}).get('class_name') or '').strip()
+
+    if source_type in {'class', 'global_index'}:
+        _assert_contract_class_refs_accessible(source_refs, actor)
 
     contract.name = name
     contract.display_name = str((data or {}).get('display_name') or '').strip()
     contract.source_type = source_type
     contract.source_config_uid = source_config_uid
-    contract.class_name = str((data or {}).get('class_name') or '').strip()
+    contract.class_name = class_name
+    contract.source_classes_json = source_refs if source_type == 'class' else None
     contract.global_index_name = str((data or {}).get('global_index_name') or (data or {}).get('index_name') or '').strip()
     contract.global_index_value = str((data or {}).get('global_index_value') or (data or {}).get('index_value') or '').strip()
-    if 'external_class_json' in (data or {}):
+    # External class JSON belongs only to external/post-only contracts. Otherwise it can
+    # shadow live class definitions and produce the "foreign _class" bug.
+    if source_type != 'external_only':
+        contract.external_class_json = None
+    elif 'external_class_json' in (data or {}):
         contract.external_class_json = (data or {}).get('external_class_json') if isinstance((data or {}).get('external_class_json'), dict) else None
     contract.updated_at = datetime.now(timezone.utc)
     return contract
 
-
 def _request_actor_for_contract_write():
+    # Prefer the user resolved by @api_auth_required. This also supports
+    # Bearer tokens and X-API-Token, not only Basic auth.
+    user = getattr(g, 'api_user', None)
+    if user and bool(getattr(user, 'can_api', False)):
+        return user
+
     auth = request.authorization
     if auth:
         user = check_api_auth(auth.username, auth.password)
@@ -4020,83 +4641,93 @@ def _get_owned_contract_or_404(contract_uid: str, actor=None) -> Contract:
 
 
 def _load_live_contract_snapshot(contract: Contract):
-    class_json = None
+    class_jsons = []
     items = {}
 
-    cfg_uid = str(getattr(contract, 'source_config_uid', '') or '').strip()
-    class_name = str(getattr(contract, 'class_name', '') or '').strip()
     source_type = _normalize_contract_source_type(getattr(contract, 'source_type', 'class'))
-    if not cfg_uid or not class_name:
-        return class_json, items
+    refs = _contract_class_refs(contract) if source_type == 'class' else _contract_class_refs_from_data({}, str(getattr(contract, 'source_config_uid', '') or '').strip(), str(getattr(contract, 'class_name', '') or '').strip())
+    if not refs:
+        return class_jsons, items
 
-    config = db.session.execute(select(Configuration).where(Configuration.uid == cfg_uid)).scalar_one_or_none()
-    if not config:
-        return class_json, items
+    for ref in refs:
+        cfg_uid = str((ref or {}).get('config_uid') or '').strip()
+        class_name = str((ref or {}).get('class_name') or '').strip()
+        if not cfg_uid or not class_name:
+            continue
 
-    class_obj = next((c for c in (config.classes or []) if str(c.name or '') == class_name), None)
-    if class_obj is not None:
-        class_json = _export_class_json(class_obj)
+        config = db.session.execute(select(Configuration).where(Configuration.uid == cfg_uid)).scalar_one_or_none()
+        if not config:
+            continue
 
-    runtime_parsed = _build_runtime_parsed_config(config)
-    ctx_tokens = _nodes_mod.set_runtime_context(cfg_uid, runtime_parsed)
-    try:
-        isolated_globals = _load_server_handlers_ns(cfg_uid, config) or {}
-        node_class = isolated_globals.get(class_name)
-        if node_class is None:
-            return class_json, items
+        class_obj = next((c for c in (config.classes or []) if str(c.name or '') == class_name), None)
+        if class_obj is not None:
+            # In contract delivery for source_type=class we send only a reference
+            # to the class, not the whole exported class schema. The target
+            # configuration already contains the class definition.
+            class_jsons.append(_contract_class_ref_json(ref))
 
-        if source_type == 'global_index' and (str(getattr(contract, 'global_index_name', '') or '').strip()):
-            idx_name = str(contract.global_index_name or '').strip()
-            idx_value = str(contract.global_index_value or '').strip()
-            global_finder = getattr(_nodes_mod, 'findByGlobalIndex', None) or getattr(_nodes_mod, 'find_by_global_index', None)
-            global_getter = getattr(_nodes_mod, 'getByGlobalIndex', None) or getattr(_nodes_mod, 'get_by_global_index', None)
-            if callable(global_finder):
-                raw_nodes = global_finder(idx_name, idx_value)
-                if isinstance(raw_nodes, dict):
-                    iterable = list((raw_nodes or {}).values())
-                elif isinstance(raw_nodes, (list, tuple, set)):
-                    iterable = list(raw_nodes)
-                elif raw_nodes is None:
-                    iterable = []
+        runtime_parsed = _build_runtime_parsed_config(config)
+        ctx_tokens = _nodes_mod.set_runtime_context(cfg_uid, runtime_parsed)
+        try:
+            isolated_globals = _load_server_handlers_ns(cfg_uid, config) or {}
+            node_class = isolated_globals.get(class_name)
+            if node_class is None:
+                continue
+
+            if source_type == 'global_index' and (str(getattr(contract, 'global_index_name', '') or '').strip()):
+                idx_name = str(contract.global_index_name or '').strip()
+                idx_value = str(contract.global_index_value or '').strip()
+                global_finder = getattr(_nodes_mod, 'findByGlobalIndex', None) or getattr(_nodes_mod, 'find_by_global_index', None)
+                global_getter = getattr(_nodes_mod, 'getByGlobalIndex', None) or getattr(_nodes_mod, 'get_by_global_index', None)
+                if callable(global_finder):
+                    raw_nodes = global_finder(idx_name, idx_value)
+                    if isinstance(raw_nodes, dict):
+                        iterable = list((raw_nodes or {}).values())
+                    elif isinstance(raw_nodes, (list, tuple, set)):
+                        iterable = list(raw_nodes)
+                    elif raw_nodes is None:
+                        iterable = []
+                    else:
+                        iterable = [raw_nodes]
+                elif callable(global_getter):
+                    one_node = global_getter(idx_name, idx_value)
+                    iterable = [one_node] if one_node is not None else []
                 else:
-                    iterable = [raw_nodes]
-            elif callable(global_getter):
-                one_node = global_getter(idx_name, idx_value)
-                iterable = [one_node] if one_node is not None else []
+                    iterable = []
             else:
-                iterable = []
-        else:
-            raw_nodes = node_class.get_all(cfg_uid) or {}
-            iterable = list(raw_nodes.values())
+                raw_nodes = node_class.get_all(cfg_uid) or {}
+                iterable = list(raw_nodes.values())
 
-        for node in iterable:
-            try:
-                payload = node.to_dict()
-            except Exception:
-                continue
-            if not isinstance(payload, dict):
-                continue
+            for node in iterable:
+                try:
+                    payload = node.to_dict()
+                except Exception:
+                    continue
+                if not isinstance(payload, dict):
+                    continue
 
-            payload_cfg = str(payload.get('_config_uid') or getattr(node, '_config_uid', '') or '').strip()
-            payload_class = str(payload.get('_class') or payload.get('_data', {}).get('_class') or node.__class__.__name__ or '').strip()
-            if payload_cfg and payload_cfg != cfg_uid:
-                continue
-            if payload_class and payload_class != class_name:
-                continue
+                payload_cfg = str(payload.get('_config_uid') or getattr(node, '_config_uid', '') or '').strip()
+                payload_class = str(payload.get('_class') or payload.get('_data', {}).get('_class') or node.__class__.__name__ or '').strip()
+                expected_class_ref = _contract_class_ref_string(ref)
+                if payload_cfg and payload_cfg != cfg_uid:
+                    continue
+                if payload_class and payload_class not in {class_name, expected_class_ref}:
+                    continue
 
-            object_id = _object_id_from_payload(payload)
-            if not object_id:
-                continue
-            items[object_id] = {
-                'payload': payload,
-                'version': _object_version_from_payload(payload),
-                'source': 'live',
-            }
-    finally:
-        _nodes_mod.reset_runtime_context(ctx_tokens)
+                object_id = _object_id_from_payload(payload)
+                if not object_id:
+                    continue
+                normalized = _normalize_contract_object_for_class(payload, ref) if source_type == 'class' else payload
+                normalized_id = _object_id_from_payload(normalized) or object_id
+                items[normalized_id] = {
+                    'payload': normalized,
+                    'version': _contract_object_version(normalized),
+                    'source': 'live',
+                }
+        finally:
+            _nodes_mod.reset_runtime_context(ctx_tokens)
 
-    return class_json, items
-
+    return class_jsons, items
 
 def _load_pushed_contract_snapshot(contract: Contract):
     items = {}
@@ -4114,13 +4745,28 @@ def _load_pushed_contract_snapshot(contract: Contract):
 
 
 def _build_contract_delivery(contract: Contract, device_id: str = ''):
-    live_class_json, live_items = _load_live_contract_snapshot(contract)
+    live_class_jsons, live_items = _load_live_contract_snapshot(contract)
     pushed_items = _load_pushed_contract_snapshot(contract)
 
     items = dict(live_items or {})
     items.update(pushed_items or {})
 
-    class_json = contract.external_class_json or live_class_json
+    source_type = _normalize_contract_source_type(getattr(contract, 'source_type', 'class'))
+    if source_type == 'external_only':
+        class_json = contract.external_class_json or {}
+        class_jsons = [class_json] if class_json else []
+    elif source_type == 'class':
+        # For class contracts, class binding is per object: every object has
+        # _class='<config_uid>$<class_name>'. There is intentionally no top-level
+        # array of classes. If exactly one class is selected, keep top-level
+        # _class as the same string for old consumers; for multiple classes it is
+        # empty because the objects themselves carry the concrete class refs.
+        class_refs = [c for c in (live_class_jsons or []) if isinstance(c, str) and c]
+        class_jsons = []
+        class_json = class_refs[0] if len(class_refs) == 1 else ''
+    else:
+        class_jsons = [c for c in (live_class_jsons or []) if isinstance(c, (dict, str))]
+        class_json = class_jsons[0] if len(class_jsons) == 1 else {}
 
     ack_map = {}
     if device_id:
@@ -4138,10 +4784,13 @@ def _build_contract_delivery(contract: Contract, device_id: str = ''):
         if isinstance(payload, dict):
             out_objects.append(payload)
 
-    return {
+    result = {
         '_class': class_json or {},
         '_data_objects': out_objects,
     }
+    if source_type != 'class' and len(class_jsons) > 1:
+        result['_classes'] = class_jsons
+    return result
 
 
 def _upsert_contract_pushed_objects(contract: Contract, payload, external_class_json=None):
@@ -4155,19 +4804,34 @@ def _upsert_contract_pushed_objects(contract: Contract, payload, external_class_
     else:
         objects = []
 
-    if external_class_json is not None:
+    source_type = _normalize_contract_source_type(getattr(contract, 'source_type', 'class'))
+    if source_type == 'external_only' and external_class_json is not None:
         contract.external_class_json = external_class_json if isinstance(external_class_json, dict) else None
+
+    expanded_objects = []
+    if source_type == 'class':
+        refs = _contract_class_refs(contract)
+        for raw in (objects or []):
+            if not isinstance(raw, dict):
+                continue
+            raw_id = _object_id_from_payload(raw)
+            if not raw_id:
+                continue
+            for ref in refs:
+                normalized = _normalize_contract_object_for_class(raw, ref)
+                if _object_id_from_payload(normalized):
+                    expanded_objects.append(normalized)
+    else:
+        expanded_objects = [raw for raw in (objects or []) if isinstance(raw, dict)]
 
     upserted = []
     now_version = datetime.now(timezone.utc).isoformat()
 
-    for raw in (objects or []):
-        if not isinstance(raw, dict):
-            continue
+    for raw in expanded_objects:
         object_id = _object_id_from_payload(raw)
         if not object_id:
             continue
-        object_version = _object_version_from_payload(raw) or now_version
+        object_version = _contract_object_version(raw) or now_version
         row = db.session.execute(
             select(ContractObject).where(ContractObject.contract_id == contract.id, ContractObject.object_id == object_id)
         ).scalar_one_or_none()
@@ -4188,7 +4852,6 @@ def _upsert_contract_pushed_objects(contract: Contract, payload, external_class_
     contract.updated_at = datetime.now(timezone.utc)
     return upserted
 
-
 def _contract_to_dict(contract: Contract) -> dict:
     return {
         'uid': contract.uid,
@@ -4197,6 +4860,7 @@ def _contract_to_dict(contract: Contract) -> dict:
         'source_type': contract.source_type,
         'source_config_uid': contract.source_config_uid or '',
         'class_name': contract.class_name or '',
+        'source_classes': _contract_class_refs(contract),
         'global_index_name': contract.global_index_name or '',
         'global_index_value': contract.global_index_value or '',
         'download_url': _contract_public_url(contract),
@@ -4207,7 +4871,28 @@ def _contract_to_dict(contract: Contract) -> dict:
     }
 
 
+@app.route('/api/contracts', methods=['GET'])
+@api_auth_required
+def list_contracts_api():
+    actor = _request_actor_for_contract_write()
+    if actor is None:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    contracts = db.session.execute(
+        select(Contract)
+        .where(Contract.user_id == actor.id)
+        .order_by(Contract.updated_at.desc(), Contract.created_at.desc())
+    ).scalars().all()
+
+    return jsonify({
+        'ok': True,
+        'contracts': [_contract_to_dict(contract) for contract in contracts],
+        'count': len(contracts),
+    })
+
+
 @app.route('/api/contracts', methods=['POST'])
+@api_auth_required
 def create_contract_api():
     actor = _request_actor_for_contract_write()
     if actor is None:
@@ -4228,6 +4913,7 @@ def create_contract_api():
 
 
 @app.route('/api/contracts/<contract_uid>', methods=['DELETE'])
+@api_auth_required
 def delete_contract_api(contract_uid):
     contract = _get_owned_contract_or_404(contract_uid)
     db.session.delete(contract)
@@ -4236,6 +4922,7 @@ def delete_contract_api(contract_uid):
 
 
 @app.route('/api/contracts/<contract_uid>', methods=['PUT', 'PATCH'])
+@api_auth_required
 def update_contract_api(contract_uid):
     actor = _request_actor_for_contract_write()
     contract = _get_owned_contract_or_404(contract_uid, actor=actor)
@@ -4252,12 +4939,9 @@ def update_contract_api(contract_uid):
 
 
 @app.route('/api/contracts/<contract_uid>', methods=['GET'])
+@api_auth_required
 def contract_download(contract_uid):
-    contract = db.session.execute(
-        select(Contract).where(Contract.uid == str(contract_uid).strip())
-    ).scalar_one_or_none()
-    if not contract:
-        return jsonify({'error': 'Not found'}), 404
+    contract = _get_owned_contract_or_404(contract_uid)
 
     device_id = str(request.args.get('device_id') or '').strip()
     payload = _build_contract_delivery(contract, device_id=device_id)
@@ -4265,23 +4949,17 @@ def contract_download(contract_uid):
 
 
 @app.route('/api/contracts/<contract_uid>/add', methods=['GET'])
+@api_auth_required
 def contract_add_info(contract_uid):
-    contract = db.session.execute(
-        select(Contract).where(Contract.uid == str(contract_uid).strip())
-    ).scalar_one_or_none()
-    if not contract:
-        return jsonify({'error': 'Not found'}), 404
+    contract = _get_owned_contract_or_404(contract_uid)
 
     return jsonify(_contract_add_payload(contract))
 
 
 @app.route('/api/contracts/<contract_uid>/ack', methods=['POST'])
+@api_auth_required
 def contract_ack(contract_uid):
-    contract = db.session.execute(
-        select(Contract).where(Contract.uid == str(contract_uid).strip())
-    ).scalar_one_or_none()
-    if not contract:
-        return jsonify({'error': 'Not found'}), 404
+    contract = _get_owned_contract_or_404(contract_uid)
 
     data = request.get_json(silent=True) or {}
     device_id = str(data.get('device_id') or request.args.get('device_id') or '').strip()
@@ -4321,12 +4999,9 @@ def contract_ack(contract_uid):
 
 
 @app.route('/api/contracts/<contract_uid>/push', methods=['POST'])
+@api_auth_required
 def contract_push(contract_uid):
-    contract = db.session.execute(
-        select(Contract).where(Contract.uid == str(contract_uid).strip())
-    ).scalar_one_or_none()
-    if not contract:
-        return jsonify({'error': 'Not found'}), 404
+    contract = _get_owned_contract_or_404(contract_uid)
 
     payload = request.get_json(silent=True)
     if payload is None:
@@ -5283,6 +5958,72 @@ def nodes_api_page(config_uid, class_name):
         except Exception:
             return None
 
+    def fetch_items_by_ids(node_ids):
+        conn = sqlite3.connect(db_path)
+        try:
+            cur = conn.cursor()
+            items = []
+            for nid in (node_ids or [])[offset: offset + limit]:
+                try:
+                    cur.execute(f"SELECT value FROM {table} WHERE key = ?", (str(nid),))
+                    row = cur.fetchone()
+                    if not row:
+                        continue
+                    obj = unpack(row[0])
+                except Exception:
+                    obj = None
+                if obj is not None:
+                    items.append(obj)
+            return items
+        finally:
+            conn.close()
+
+    def find_text_like_index_ids():
+        if not q:
+            return None
+        try:
+            isolated_globals = _load_server_handlers_ns(config_uid, config)
+            node_class = isolated_globals.get(class_name)
+            if node_class is None:
+                return None
+            defs = node_class._get_defined_indexes(config_uid) if hasattr(node_class, "_get_defined_indexes") else []
+        except Exception:
+            return None
+
+        idx_names = []
+        for idx in defs or []:
+            if not isinstance(idx, dict):
+                continue
+            kind = str(idx.get("kind") or "hash_index").strip().lower()
+            if kind not in ("text_index", "trigram_index"):
+                continue
+            name = str(idx.get("name") or "").strip()
+            if name and name not in idx_names:
+                idx_names.append(name)
+        if not idx_names:
+            return None
+
+        out = []
+        seen = set()
+        has_index_rows = False
+        for name in idx_names:
+            try:
+                store = node_class._defined_index_storage(name, config_uid)
+                if list(store.keys()):
+                    has_index_rows = True
+            except Exception:
+                pass
+            try:
+                ids = node_class.find_ids_by_index(name, q, config_uid)
+            except Exception:
+                ids = []
+            for nid in ids or []:
+                sid = str(nid)
+                if sid not in seen:
+                    seen.add(sid)
+                    out.append(sid)
+        return out if has_index_rows else None
+
     if index_name and index_value not in (None, ""):
         try:
             isolated_globals = _load_server_handlers_ns(config_uid, config)
@@ -5290,23 +6031,15 @@ def nodes_api_page(config_uid, class_name):
             if node_class is None:
                 return jsonify({"total": 0, "offset": offset, "limit": limit, "items": []})
             node_ids = node_class.find_ids_by_index(index_name, index_value, config_uid)
-            conn = sqlite3.connect(db_path)
-            try:
-                cur = conn.cursor()
-                items = []
-                for nid in node_ids[offset: offset + limit]:
-                    cur.execute(f"SELECT value FROM {table} WHERE key = ?", (str(nid),))
-                    row = cur.fetchone()
-                    if not row:
-                        continue
-                    obj = unpack(row[0])
-                    if obj is not None:
-                        items.append(obj)
-                return jsonify({"total": len(node_ids), "offset": offset, "limit": limit, "items": items})
-            finally:
-                conn.close()
+            items = fetch_items_by_ids(node_ids)
+            return jsonify({"total": len(node_ids), "offset": offset, "limit": limit, "items": items})
         except Exception:
             pass
+
+    indexed_q_ids = find_text_like_index_ids()
+    if indexed_q_ids is not None:
+        items = fetch_items_by_ids(indexed_q_ids)
+        return jsonify({"total": len(indexed_q_ids), "offset": offset, "limit": limit, "items": items})
 
     # FAST PATH: no search -> return page ordered by key, without scanning whole DB
     # (Sorting by _sort_string would require unpickling everything anyway.)
@@ -10119,6 +10852,26 @@ if __name__ == '__main__':
             if 'init_screen_layout_web' not in columns:
                 with db.engine.begin() as conn:
                     conn.execute(text('ALTER TABLE config_class ADD COLUMN init_screen_layout_web TEXT DEFAULT ""'))
+
+            if 'data_structure' not in columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN data_structure TEXT DEFAULT ""'))
+
+            if 'show_tag_cloud' not in columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN show_tag_cloud BOOLEAN DEFAULT FALSE'))
+
+            if 'mobile_print_enabled' not in columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN mobile_print_enabled BOOLEAN DEFAULT FALSE'))
+
+            if 'projection_type' not in columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN projection_type VARCHAR(50) DEFAULT ""'))
+
+            if 'projection_kanban_columns' not in columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN projection_kanban_columns TEXT DEFAULT ""'))
 
             if 'plug_in' not in columns:
                 with db.engine.begin() as conn:

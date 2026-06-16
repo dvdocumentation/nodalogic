@@ -9,6 +9,10 @@ from sqlalchemy import text
 
 from extensions import db
 
+def _normalize_special_method_name_for_json(value):
+    value = str(value or "").strip()
+    return "HTTPRequest" if value == "HTTP Request" else value
+
 class RawNode(db.Model):
     __tablename__ = 'raw_node'
 
@@ -210,10 +214,10 @@ class ConfigEvent(db.Model):
         for action in self.actions:
             action_dict = {
                 "action": action.action,
-                "method": action.method,
+                "method": _normalize_special_method_name_for_json(action.method),
                 "source": action.source,
                 "server": action.server,
-                "postExecuteMethod": action.post_execute_method,
+                "postExecuteMethod": _normalize_special_method_name_for_json(action.post_execute_method),
                 "methodText": action.method_text,
                 "postExecuteMethodText": action.post_execute_text,
                 "httpFunctionName": action.http_function_name,
@@ -247,8 +251,100 @@ class ConfigEventAction(db.Model):
             "action": self.action,
             "source": self.source,
             "server": self.server,
-            "method": self.method,
-            "postExecuteMethod": self.post_execute_method,
+            "method": _normalize_special_method_name_for_json(self.method),
+            "postExecuteMethod": _normalize_special_method_name_for_json(self.post_execute_method),
+            "methodText": self.method_text,
+            "postExecuteMethodText": self.post_execute_text,
+            "httpFunctionName": self.http_function_name,
+            "postHttpFunctionName": self.post_http_function_name,
+            "order": self.order,
+        }
+
+
+class ConfigTimer(db.Model):
+    __tablename__ = 'config_timer'
+    id = db.Column(db.Integer, primary_key=True)
+    timer_id = db.Column(db.String(100), nullable=False)  # user-visible ID
+    period_seconds = db.Column(db.Integer, default=900, nullable=False)
+    active = db.Column(db.Boolean, default=True, nullable=False)
+    worker = db.Column(db.Boolean, default=False, nullable=False)
+    runtime = db.Column(db.String(20), default='server', nullable=False)  # server/client
+    config_id = db.Column(db.Integer, db.ForeignKey('configuration.id', ondelete='CASCADE'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
+
+    actions = db.relationship('ConfigTimerAction', backref='timer_obj', cascade='all, delete-orphan', order_by='ConfigTimerAction.id')
+
+    __table_args__ = (
+        db.UniqueConstraint('config_id', 'timer_id', name='uq_config_timer_config_id_timer_id'),
+        db.Index('idx_config_timer_config_active', 'config_id', 'active'),
+    )
+
+    def actions_as_dicts(self):
+        result = []
+        for action in self.actions:
+            action_dict = {
+                "action": action.action,
+                "method": _normalize_special_method_name_for_json(action.method),
+                "source": action.source,
+                "server": action.server,
+                "postExecuteMethod": _normalize_special_method_name_for_json(action.post_execute_method),
+                "methodText": action.method_text,
+                "postExecuteMethodText": action.post_execute_text,
+                "httpFunctionName": action.http_function_name,
+                "postHttpFunctionName": action.post_http_function_name,
+                "order": action.order,
+            }
+            action_dict = {k: v for k, v in action_dict.items() if v is not None and v != ""}
+            result.append(action_dict)
+        return result
+
+    def to_dict(self):
+        runtime = str(getattr(self, "runtime", "") or "server").strip().lower()
+        if runtime not in {"server", "client"}:
+            runtime = "server"
+        worker = bool(self.worker)
+        try:
+            period_seconds = int(getattr(self, "period_seconds", 0) or 0)
+        except Exception:
+            period_seconds = 0
+        min_period_seconds = 900 if runtime == "server" or worker else 1
+        period_seconds = max(min_period_seconds, period_seconds)
+        return {
+            "id": self.timer_id,
+            "timer_id": self.timer_id,
+            "period_seconds": period_seconds,
+            "active": bool(self.active),
+            "worker": worker,
+            "runtime": runtime,
+            "actions": self.actions_as_dicts(),
+        }
+
+class ConfigTimerAction(db.Model):
+    __tablename__ = 'config_timer_action'
+    id = db.Column(db.Integer, primary_key=True)
+    action = db.Column(db.String(50), default='run', nullable=False)   # run, runprogress, runasync
+    source = db.Column(db.String(50), default='internal', nullable=False)
+    server = db.Column(db.String(255), default="")
+    method = db.Column(db.String(200), default="")
+    post_execute_method = db.Column(db.String(200), default="")
+    # NodaScript stores script text here; PythonScript stores S3 URL here
+    method_text = db.Column(db.Text, default="")
+    post_execute_text = db.Column(db.Text, default="")
+    http_function_name = db.Column(db.String(255), default="")
+    post_http_function_name = db.Column(db.String(255), default="")
+    order = db.Column(db.Integer, default=0)
+
+    timer_id = db.Column(db.Integer, db.ForeignKey('config_timer.id', ondelete='CASCADE'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+
+    def to_dict(self):
+        return {
+            "action": self.action,
+            "source": self.source,
+            "server": self.server,
+            "method": _normalize_special_method_name_for_json(self.method),
+            "postExecuteMethod": _normalize_special_method_name_for_json(self.post_execute_method),
             "methodText": self.method_text,
             "postExecuteMethodText": self.post_execute_text,
             "httpFunctionName": self.http_function_name,
@@ -278,6 +374,7 @@ class Configuration(db.Model):
     servers = db.relationship('Server', backref='config', cascade='all, delete-orphan')
     room_aliases = db.relationship('RoomAlias', backref='config', cascade='all, delete-orphan')
     config_events = db.relationship('ConfigEvent', backref='config', cascade='all, delete-orphan')
+    config_timers = db.relationship('ConfigTimer', backref='config', cascade='all, delete-orphan', order_by='ConfigTimer.id')
     common_layouts = db.Column(db.JSON, default=list)
     
     def update_last_modified(self):
@@ -305,6 +402,16 @@ class ConfigClass(db.Model):
     config_id = db.Column(db.Integer, db.ForeignKey('configuration.id'))
     has_storage = db.Column(db.Boolean, default=False)  
     class_type = db.Column(db.String(50))  
+    # Projection settings. Projection classes are singleton UI processes in the web client.
+    projection_type = db.Column(db.String(50), default="")
+    projection_kanban_columns = db.Column(db.Text, default="")
+
+    # PrintForm settings. PrintForm classes do not store their own persistent data;
+    # web client creates an ephemeral runtime node, injects _basement_data,
+    # runs onInputWeb(listener=onStartForm), then renders this template.
+    print_template_type = db.Column(db.String(50), default="html_jinja")
+    print_target_classes = db.Column(db.JSON, default=list)
+    print_html_template = db.Column(db.Text, default="")
     display_name = db.Column(db.String(100))  
     record_view = db.Column(db.Text, default="")
     cover_image = db.Column(db.Text)  
@@ -319,6 +426,9 @@ class ConfigClass(db.Model):
     display_image_table = db.Column(db.Text, default="")
     init_screen_layout = db.Column(db.Text, default="")
     init_screen_layout_web = db.Column(db.Text, default="")
+    data_structure = db.Column(db.Text, default="")
+    show_tag_cloud = db.Column(db.Boolean, default=False)
+    mobile_print_enabled = db.Column(db.Boolean, default=False)
 
     # PlugIn UI (mobile/web)
     plug_in = db.Column(db.Text, default="")
@@ -368,10 +478,10 @@ class ClassEvent(db.Model):
         for action in self.actions:
             action_dict = {
                 "action": action.action,
-                "method": action.method,
+                "method": _normalize_special_method_name_for_json(action.method),
                 "source": action.source,
                 "server": action.server,
-                "postExecuteMethod": action.post_execute_method,
+                "postExecuteMethod": _normalize_special_method_name_for_json(action.post_execute_method),
                 "methodText": action.method_text,
                 "postExecuteMethodText": action.post_execute_text,
                 "httpFunctionName": action.http_function_name,
@@ -405,8 +515,8 @@ class EventAction(db.Model):
             "action": self.action,
             "source": self.source,
             "server": self.server,
-            "method": self.method,
-            "postExecuteMethod": self.post_execute_method,
+            "method": _normalize_special_method_name_for_json(self.method),
+            "postExecuteMethod": _normalize_special_method_name_for_json(self.post_execute_method),
             "methodText": self.method_text,
             "postExecuteMethodText": self.post_execute_text,
             "httpFunctionName": self.http_function_name,
@@ -428,6 +538,9 @@ class Contract(db.Model):
     source_type = db.Column(db.String(30), default='class', nullable=False)
     source_config_uid = db.Column(db.String(36), default="", index=True)
     class_name = db.Column(db.String(100), default="", index=True)
+    # Multi-class contract source. List of {config_uid, class_name}.
+    # source_config_uid/class_name are kept for backward compatibility and UI fallbacks.
+    source_classes_json = db.Column(db.JSON, nullable=True)
     global_index_name = db.Column(db.String(100), default="")
     global_index_value = db.Column(db.String(255), default="")
 
@@ -587,6 +700,8 @@ __all__ = [
     'UserDevice',
     'ConfigEvent',
     'ConfigEventAction',
+    'ConfigTimer',
+    'ConfigTimerAction',
     'Configuration',
     'ConfigSection',
     'ConfigClass',

@@ -49,6 +49,8 @@ from werkzeug.utils import secure_filename
 import pytz
 from flask_babel import Babel, _, format_datetime, format_date
 from sqlitedict import SqliteDict
+from jinja2.sandbox import SandboxedEnvironment
+from jinja2 import select_autoescape
 
 from extensions import db
 from models import (
@@ -61,6 +63,8 @@ from models import (
     UserDevice,
     ConfigEvent,
     ConfigEventAction,
+    ConfigTimer,
+    ConfigTimerAction,
     Configuration,
     ConfigSection,
     ConfigClass,
@@ -75,6 +79,115 @@ try:
     import qrcode
 except Exception:  # pragma: no cover - optional dependency, checked at route call time
     qrcode = None
+
+
+def _is_probably_print_template_base64(value: Any) -> bool:
+    s = str(value or '').strip()
+    if not s or len(s) % 4:
+        return False
+    try:
+        raw = base64.b64decode(s.encode('ascii'), validate=True)
+        text = raw.decode('utf-8')
+    except Exception:
+        return False
+    return '\x00' not in text
+
+
+def _decode_print_html_template(value: Any) -> str:
+    s = str(value or '')
+    if _is_probably_print_template_base64(s):
+        try:
+            return base64.b64decode(s.strip().encode('ascii'), validate=True).decode('utf-8')
+        except Exception:
+            return s
+    return s
+
+
+def _encode_print_html_template(value: Any) -> str:
+    s = str(value or '')
+    if not s:
+        return ''
+    if _is_probably_print_template_base64(s):
+        return s.strip()
+    return base64.b64encode(s.encode('utf-8')).decode('ascii')
+
+
+class _PrintAttrDict(dict):
+    """Dictionary wrapper for PrintForm templates.
+
+    Jinja already supports dict.key access, but keys such as `items`, `keys`,
+    or `values` collide with dict methods. This wrapper makes dot-access prefer
+    data keys while staying limited to values explicitly present in _data.
+    """
+    def __getattribute__(self, name):
+        if name.startswith('__'):
+            return dict.__getattribute__(self, name)
+        try:
+            return dict.__getitem__(self, name)
+        except KeyError:
+            return dict.__getattribute__(self, name)
+
+
+def _print_attr_tree(value):
+    if isinstance(value, dict):
+        return _PrintAttrDict({k: _print_attr_tree(v) for k, v in value.items()})
+    if isinstance(value, list):
+        return [_print_attr_tree(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_print_attr_tree(v) for v in value)
+    return value
+
+
+class _PrintSandboxedEnvironment(SandboxedEnvironment):
+    def is_safe_attribute(self, obj, attr, value):
+        if isinstance(obj, _PrintAttrDict) and attr in obj and not str(attr).startswith('__'):
+            return True
+        return super().is_safe_attribute(obj, attr, value)
+
+
+def _normalize_print_targets(raw):
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(x).strip() for x in raw if str(x or '').strip()]
+    s = str(raw or '').strip()
+    if not s:
+        return []
+    try:
+        parsed = json.loads(s)
+        if isinstance(parsed, list):
+            return [str(x).strip() for x in parsed if str(x or '').strip()]
+    except Exception:
+        pass
+    return [x.strip() for x in s.split(',') if x.strip()]
+
+
+def _print_qr_data_url(value):
+    if qrcode is None:
+        return ''
+    try:
+        img = qrcode.make(str(value or ''))
+        buf = BytesIO()
+        img.save(buf, format='PNG')
+        return 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode('ascii')
+    except Exception:
+        return ''
+
+
+def _render_print_html_template(template_text, data):
+    template_text = _decode_print_html_template(template_text)
+    data = data if isinstance(data, dict) else {}
+    wrapped_data = _print_attr_tree(data)
+    ctx = {'_data': wrapped_data, 'data': wrapped_data, 'qr': _print_qr_data_url}
+    for k, v in data.items():
+        key = str(k)
+        if key:
+            wrapped_value = _print_attr_tree(v)
+            ctx[key] = wrapped_value
+            ctx['_' + key.lstrip('_')] = wrapped_value
+    env = _PrintSandboxedEnvironment(autoescape=select_autoescape(['html', 'xml']))
+    env.globals.update(qr=_print_qr_data_url)
+    return env.from_string(template_text or '').render(**ctx)
 
 
 class _RouteCollector:
@@ -745,6 +858,22 @@ def _last_python_script_upload_url(max_age_seconds: int = 3600) -> str:
         pass
     return ""
 
+def _normalize_special_method_name_for_export(value):
+    value = str(value or "").strip()
+    return "HTTPRequest" if value == "HTTP Request" else value
+
+def _action_method_value(action_data, key):
+    if not isinstance(action_data, dict):
+        return ""
+    return _normalize_special_method_name_for_export(action_data.get(key, ""))
+
+def _is_builtin_action_method(value):
+    value = str(value or "").strip()
+    return value in ("NodaScript", "PythonScript", "HTTPRequest", "HTTP Request")
+
+def _action_method_text_value(action_data, *, post=False):
+    return _action_python_text_value(action_data, post=post) if isinstance(action_data, dict) else ""
+
 def _action_python_text_value(action: dict, *, post: bool = False) -> str:
     """Return a PythonScript ref from all known UI key variants."""
     if not isinstance(action, dict):
@@ -1098,9 +1227,11 @@ def upload_handlers(uid):
         )
         
         
-        if 'from nodes import Node' not in file_content:
-            
-            file_content =android_imports + NODE_CLASS_CODE_ANDROID + '\n' + file_content
+        file_content = _rewrite_android_handlers_instance_refs_code(
+            file_content,
+            config.uid,
+            url_for('get_config', uid=config.uid, _external=True)
+        )
         
         config.nodes_handlers = base64.b64encode(file_content.encode('utf-8')).decode('utf-8')
         config.nodes_handlers_meta = metadata
@@ -1322,10 +1453,10 @@ def add_config_event(config_uid):
         action = ConfigEventAction(
             event_id=new_event.id,
             action=action_data.get('action', 'run'),
-            method=action_data.get('method', ''),
+            method=_action_method_value(action_data, 'method'),
             source=action_data.get('source', 'internal'),
             server=action_data.get('server', ''),
-            post_execute_method=action_data.get('postExecuteMethod', ''),
+            post_execute_method=_action_method_value(action_data, 'postExecuteMethod'),
             method_text=(_action_python_text_value(action_data, post=False) or '') if _is_script_text_method(action_data.get('method', '')) else '',
             post_execute_text=(_action_python_text_value(action_data, post=True) or '') if _is_script_text_method(action_data.get('postExecuteMethod', '')) else '',
             http_function_name=(action_data.get('httpFunctionName', '') or '') if _is_http_request_method(action_data.get('method', '')) else '',
@@ -1864,6 +1995,93 @@ def _wiz_build_cover_table(specs, index):
         "table_header": header,
     }]]
 
+
+def _wiz_parse_node_type_list(expr, allowed=('node', 'childnode')):
+    """Parse Node("Class") / ChildNode("Class") separated by | or comma."""
+    expr = (expr or '').strip()
+    if expr.startswith('[') and expr.endswith(']'):
+        expr = expr[1:-1].strip()
+    parts = []
+    # ChildNode("A")|ChildNode("B") is the compact structure syntax.
+    for chunk in _wiz_split_top_level(expr, delimiter='|'):
+        for part in _wiz_split_top_level(chunk, delimiter=','):
+            part = (part or '').strip()
+            if not part:
+                continue
+            fn_call = _wiz_parse_fn_call(part)
+            if not fn_call:
+                continue
+            fn, arg = fn_call
+            if fn in allowed and arg:
+                parts.append({'fn': fn, 'class': arg})
+    return parts
+
+
+def _wiz_build_add_buttons(field_id, node_specs):
+    buttons = []
+    used = set()
+    for item in node_specs or []:
+        cls = str(item.get('class') or '').strip()
+        if not cls or cls in used:
+            continue
+        used.add(cls)
+        buttons.append({
+            "type": "Button",
+            "id": f"btn_add_{field_id}_{_wiz_norm_id(cls)}",
+            "caption": f"Добавить {cls}",
+            "target_class": cls,
+            "target_field": field_id,
+            "target_relation": item.get('fn') or 'node',
+        })
+    return buttons
+
+
+def _wiz_try_structure_element(line):
+    """Return layout rows for NodeChildren/ListChildNodes/ListNodes structure lines."""
+    left, right = _wiz_split_once_top_level(line, ':')
+    if not left or not right:
+        return None
+    caption, field_id = _wiz_split_once_top_level(left, '|')
+    raw_field_id = (field_id or caption or '').strip()
+    field_id = raw_field_id if raw_field_id == '_children' else _wiz_norm_id(raw_field_id)
+    expr = (right or '').strip()
+
+    # NodeChildren: _children: ChildNode("OrderPosition")|ChildNode("Special")
+    direct_specs = _wiz_parse_node_type_list(expr, allowed=('childnode',))
+    if direct_specs and not (expr.startswith('[') and expr.endswith(']')):
+        rows = []
+        buttons = _wiz_build_add_buttons(field_id, direct_specs)
+        if buttons:
+            rows.append(buttons)
+        rows.append([{
+            "type": "NodeChildren",
+            "id": field_id,
+            "value": '@' + field_id,
+            "child_classes": [x['class'] for x in direct_specs],
+        }])
+        return rows
+
+    # ListChildNodes/ListNodes: positions:[ChildNode("OrderPosition")] / positions:[Node("CommonLine")]
+    if expr.startswith('[') and expr.endswith(']'):
+        list_specs = _wiz_parse_node_type_list(expr, allowed=('childnode', 'node'))
+        if list_specs:
+            rows = []
+            buttons = _wiz_build_add_buttons(field_id, list_specs)
+            if buttons:
+                rows.append(buttons)
+            rows.append([
+                {"type": "Parameters", "w": 1, "height": -1},
+                {
+                    "type": "Table",
+                    "id": f"tbl_{field_id}",
+                    "nodes_source": True,
+                    "value": '@' + field_id,
+                }
+            ])
+            return rows
+
+    return None
+
 def simplified_markup_to_layout(text, mode):
     mode = (mode or 'active').strip().lower()
     if mode not in ('active', 'cover'):
@@ -1882,6 +2100,12 @@ def simplified_markup_to_layout(text, mode):
             else:
                 tables.append(_wiz_build_cover_table(specs, len(tables) + 1))
             continue
+
+        if mode == 'active':
+            structure_rows = _wiz_try_structure_element(line)
+            if structure_rows is not None:
+                rows.extend(structure_rows)
+                continue
 
         parts = [x.strip() for x in _wiz_split_top_level(line) if x.strip()]
         if mode == 'active':
@@ -2034,9 +2258,26 @@ def layout_to_simplified_markup(layout, mode):
             t = item.get('type')
 
             if t == 'Table':
+                if mode == 'active' and item.get('nodes_source'):
+                    field_id = str(item.get('id') or 'tbl_nodes')
+                    if field_id.startswith('tbl_'):
+                        field_id = field_id[4:]
+                    classes = item.get('node_classes') or []
+                    fn = 'ChildNode' if str(item.get('node_relation') or '').lower() == 'childnode' else 'Node'
+                    if classes:
+                        lines.append(f'{field_id}:[' + '|'.join([f'{fn}("{c}")' for c in classes]) + ']')
+                        continue
                 s = _wiz_table_to_simple(item, mode)
                 if s:
                     lines.append(s)
+                continue
+
+            if t == 'NodeChildren':
+                if mode == 'active':
+                    field_id = str(item.get('id') or '_children')
+                    classes = item.get('child_classes') or []
+                    if classes:
+                        lines.append(f'{field_id}: ' + '|'.join([f'ChildNode("{c}")' for c in classes]))
                 continue
 
             if t == 'Tabs':
@@ -2157,10 +2398,10 @@ def edit_config_event(config_uid):
         action = ConfigEventAction(
             event_id=event.id,
             action=action_data.get('action', 'run'),
-            method=action_data.get('method', ''),
+            method=_action_method_value(action_data, 'method'),
             source=action_data.get('source', 'internal'),
             server=action_data.get('server', ''),
-            post_execute_method=action_data.get('postExecuteMethod', ''),
+            post_execute_method=_action_method_value(action_data, 'postExecuteMethod'),
             method_text=(_action_python_text_value(action_data, post=False) or '') if _is_script_text_method(action_data.get('method', '')) else '',
             post_execute_text=(_action_python_text_value(action_data, post=True) or '') if _is_script_text_method(action_data.get('postExecuteMethod', '')) else '',
             http_function_name=(action_data.get('httpFunctionName', '') or '') if _is_http_request_method(action_data.get('method', '')) else '',
@@ -2217,6 +2458,235 @@ def get_config_event_json():
         "listener": event.listener,
         "actions": event.actions_as_dicts()
     })
+
+
+def _timer_active_from_form() -> bool:
+    return str(request.form.get('active') or '').strip().lower() in {'1', 'true', 'on', 'yes'}
+
+
+def _timer_worker_from_form() -> bool:
+    return str(request.form.get('worker') or '').strip().lower() in {'1', 'true', 'on', 'yes'}
+
+
+def _normalize_timer_runtime(value, default='server') -> str:
+    value = str(value or default or 'server').strip().lower()
+    if value in {'client', 'browser', 'web'}:
+        return 'client'
+    return 'server'
+
+
+def _timer_runtime_from_form() -> str:
+    return _normalize_timer_runtime(request.form.get('runtime') or request.form.get('run_on'), default='server')
+
+
+def _timer_runtime_from_timer_data(timer_data) -> str:
+    return _normalize_timer_runtime(
+        timer_data.get('runtime')
+        or timer_data.get('run_on')
+        or ('server' if _bool_from_timer_value(timer_data.get('server'), default=False) else None),
+        default='server'
+    )
+
+
+def _bool_from_timer_value(value, default=False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    value = str(value).strip().lower()
+    if value in {'1', 'true', 'on', 'yes'}:
+        return True
+    if value in {'0', 'false', 'off', 'no'}:
+        return False
+    return default
+
+
+def _normalize_timer_period_seconds(value, runtime='server', worker=False) -> int:
+    try:
+        period_seconds = int(float(value or 0))
+    except Exception:
+        period_seconds = 0
+    runtime = _normalize_timer_runtime(runtime, default='server')
+    min_period_seconds = 900 if runtime == 'server' or worker else 1
+    return max(min_period_seconds, period_seconds)
+
+
+def _period_seconds_from_form(runtime='server', worker=False) -> int:
+    return _normalize_timer_period_seconds(request.form.get('period_seconds'), runtime=runtime, worker=worker)
+
+
+def _period_seconds_from_timer_data(timer_data, runtime='server', worker=False) -> int:
+    return _normalize_timer_period_seconds(
+        timer_data.get('period_seconds') or timer_data.get('period') or 900,
+        runtime=runtime,
+        worker=worker,
+    )
+
+
+def _add_timer_actions(timer, actions):
+    for action_data in actions:
+        action = ConfigTimerAction(
+            timer_obj=timer,
+            action=action_data.get('action', 'run'),
+            method=_action_method_value(action_data, 'method'),
+            source=action_data.get('source', 'internal'),
+            server=action_data.get('server', ''),
+            post_execute_method=_action_method_value(action_data, 'postExecuteMethod'),
+            method_text=(_action_python_text_value(action_data, post=False) or '') if _is_script_text_method(action_data.get('method', '')) else '',
+            post_execute_text=(_action_python_text_value(action_data, post=True) or '') if _is_script_text_method(action_data.get('postExecuteMethod', '')) else '',
+            http_function_name=(action_data.get('httpFunctionName', '') or '') if _is_http_request_method(action_data.get('method', '')) else '',
+            post_http_function_name=(action_data.get('postHttpFunctionName', '') or '') if _is_http_request_method(action_data.get('postExecuteMethod', '')) else '',
+            order=action_data.get('order', 0),
+        )
+        db.session.add(action)
+
+
+@_routes.route('/config/<config_uid>/add-timer', methods=['POST'])
+@login_required
+def add_config_timer(config_uid):
+    config = Configuration.query.filter_by(uid=config_uid).first()
+    if not config or config.user_id != current_user.id:
+        return jsonify({"status": "error", "message": "Configuration not found"})
+
+    timer_id = (request.form.get('timer_id') or '').strip()
+    actions_json = request.form.get('actions_json', '[]')
+    active_tab = request.form.get('active_tab', 'timers')
+    if not timer_id:
+        return jsonify({"status": "error", "message": "Timer ID is required"})
+
+    try:
+        actions = json.loads(actions_json)
+    except Exception:
+        actions = []
+
+    existing_timer = ConfigTimer.query.filter_by(config_id=config.id, timer_id=timer_id).first()
+    if existing_timer:
+        return jsonify({"status": "error", "message": "Timer already exists"})
+
+    try:
+        _normalize_event_action_python_scripts_for_save(
+            actions,
+            filename_prefix=f"config_{config.id}_timer_{timer_id or 'timer'}"
+        )
+    except Exception as exc:
+        current_app.logger.exception("PythonScript S3 autosave failed")
+        return jsonify({"status": "error", "message": f"PythonScript S3 autosave failed: {exc}"})
+
+    worker = _timer_worker_from_form()
+    runtime = _timer_runtime_from_form()
+    new_timer = ConfigTimer(
+        timer_id=timer_id,
+        period_seconds=_period_seconds_from_form(runtime=runtime, worker=worker),
+        active=_timer_active_from_form(),
+        worker=worker,
+        runtime=runtime,
+        config_id=config.id,
+    )
+    db.session.add(new_timer)
+    db.session.flush()
+    _add_timer_actions(new_timer, actions)
+    db.session.commit()
+
+    return jsonify({
+        "status": "success",
+        "message": "Timer added successfully",
+        "redirect_url": url_for('edit_config', uid=config_uid, tab=active_tab)
+    })
+
+
+@_routes.route('/config/<config_uid>/edit-timer', methods=['POST'])
+@login_required
+def edit_config_timer(config_uid):
+    config = Configuration.query.filter_by(uid=config_uid).first()
+    if not config or config.user_id != current_user.id:
+        return jsonify({"status": "error", "message": "Configuration not found"})
+
+    old_timer_id = (request.form.get('old_timer_id') or '').strip()
+    timer_id = (request.form.get('timer_id') or '').strip()
+    actions_json = request.form.get('actions_json', '[]')
+    active_tab = request.form.get('active_tab', 'timers')
+    if not timer_id:
+        return jsonify({"status": "error", "message": "Timer ID is required"})
+
+    try:
+        actions = json.loads(actions_json)
+    except Exception:
+        actions = []
+
+    timer = ConfigTimer.query.filter_by(config_id=config.id, timer_id=old_timer_id).first()
+    if not timer:
+        return jsonify({"status": "error", "message": "Timer not found"})
+
+    duplicate = ConfigTimer.query.filter(
+        ConfigTimer.config_id == config.id,
+        ConfigTimer.timer_id == timer_id,
+        ConfigTimer.id != timer.id,
+    ).first()
+    if duplicate:
+        return jsonify({"status": "error", "message": "Timer already exists"})
+
+    _carry_existing_event_python_script_refs(actions, getattr(timer, "actions", None))
+
+    try:
+        _normalize_event_action_python_scripts_for_save(
+            actions,
+            filename_prefix=f"config_{config.id}_timer_{timer_id or 'timer'}"
+        )
+    except Exception as exc:
+        current_app.logger.exception("PythonScript S3 autosave failed")
+        return jsonify({"status": "error", "message": f"PythonScript S3 autosave failed: {exc}"})
+
+    worker = _timer_worker_from_form()
+    runtime = _timer_runtime_from_form()
+    timer.timer_id = timer_id
+    timer.period_seconds = _period_seconds_from_form(runtime=runtime, worker=worker)
+    timer.active = _timer_active_from_form()
+    timer.worker = worker
+    timer.runtime = runtime
+
+    ConfigTimerAction.query.filter_by(timer_id=timer.id).delete()
+    _add_timer_actions(timer, actions)
+    db.session.commit()
+
+    return jsonify({
+        "status": "success",
+        "message": "Timer updated successfully",
+        "redirect_url": url_for('edit_config', uid=config_uid, tab=active_tab)
+    })
+
+
+@_routes.route('/config/<config_uid>/delete-timer', methods=['POST'])
+@login_required
+def delete_config_timer(config_uid):
+    config = Configuration.query.filter_by(uid=config_uid).first()
+    if not config or config.user_id != current_user.id:
+        return jsonify({"status": "error", "message": "Configuration not found"})
+
+    timer_id = (request.form.get('timer_id') or '').strip()
+    active_tab = request.form.get('active_tab', 'timers')
+
+    timer = ConfigTimer.query.filter_by(config_id=config.id, timer_id=timer_id).first()
+    if timer:
+        db.session.delete(timer)
+        db.session.commit()
+
+    return jsonify({
+        "status": "success",
+        "message": "Timer deleted successfully",
+        "redirect_url": url_for('edit_config', uid=config_uid, tab=active_tab)
+    })
+
+
+@_routes.route('/get-config-timer-json')
+def get_config_timer_json():
+    timer_pk = request.args.get('timer_id')
+    timer = ConfigTimer.query.get(timer_pk)
+    if not timer:
+        return jsonify({})
+    return jsonify(timer.to_dict() if hasattr(timer, 'to_dict') else {})
+
 
 @_routes.route('/config/<config_uid>/common-layouts', methods=['POST'])
 @login_required
@@ -2472,6 +2942,7 @@ def edit_class(class_id):
         class_obj.display_image_table = request.form.get('display_image_table')
         class_obj.init_screen_layout = request.form.get('init_screen_layout') or ""
         class_obj.init_screen_layout_web = request.form.get('init_screen_layout_web') or ""
+        class_obj.show_tag_cloud = 'show_tag_cloud' in request.form
         class_obj.plug_in = request.form.get('plug_in') or ""
         class_obj.plug_in_web = request.form.get('plug_in_web') or ""
 
@@ -2516,7 +2987,40 @@ def edit_class(class_id):
 
         class_obj.has_storage = 'has_storage' in request.form
         class_obj.class_type = request.form.get('class_type')
-        class_obj.hidden = 'hidden' in request.form 
+        if (class_obj.class_type or '') == 'data_node':
+            class_obj.data_structure = request.form.get('data_structure') or ""
+        else:
+            class_obj.data_structure = ""
+        if (class_obj.class_type or '') == 'projection':
+            class_obj.projection_type = (request.form.get('projection_type') or 'kanban_projection').strip()
+            raw_cols = (request.form.get('projection_kanban_columns') or '').strip()
+            if class_obj.projection_type == 'kanban_projection':
+                try:
+                    parsed_cols = json.loads(raw_cols) if raw_cols else []
+                    if not isinstance(parsed_cols, list):
+                        parsed_cols = []
+                    class_obj.projection_kanban_columns = json.dumps(parsed_cols, ensure_ascii=False, indent=2)
+                except Exception:
+                    class_obj.projection_kanban_columns = raw_cols
+            else:
+                class_obj.projection_kanban_columns = raw_cols
+        else:
+            class_obj.projection_type = ''
+            class_obj.projection_kanban_columns = ''
+
+        is_print_form_class = (class_obj.class_type or '') == 'print_form'
+        class_obj.mobile_print_enabled = ('mobile_print_enabled' in request.form) and not is_print_form_class
+        if is_print_form_class:
+            class_obj.print_template_type = (request.form.get('print_template_type') or 'html_jinja').strip() or 'html_jinja'
+            class_obj.print_target_classes = _normalize_print_targets(request.form.getlist('print_target_classes'))
+            class_obj.print_html_template = _encode_print_html_template(request.form.get('print_html_template') or '')
+            class_obj.has_storage = False
+            class_obj.use_standard_commands = False
+        else:
+            class_obj.print_template_type = getattr(class_obj, 'print_template_type', '') or 'html_jinja'
+            class_obj.print_target_classes = []
+            class_obj.print_html_template = ''
+        class_obj.hidden = 'hidden' in request.form or (class_obj.class_type or '') == 'print_form'
 
         section_code = request.form.get('section_code')
         
@@ -2533,8 +3037,8 @@ def edit_class(class_id):
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({"ok": True, "class_id": class_obj.id})
         flash(_('Class saved'), 'success')
-        active_tab = request.form.get("active_tab", "config")
-        return redirect(url_for('edit_config', uid=class_obj.config.uid, tab=active_tab))
+        active_tab = request.form.get("active_tab", request.args.get('tab', 'classes'))
+        return redirect(url_for('edit_class', class_id=class_obj.id, tab=active_tab))
 
     rooms = Room.query.filter_by(user_id=current_user.id).order_by(Room.name.asc()).all()
     room_aliases = RoomAlias.query.filter_by(config_id=class_obj.config_id).order_by(RoomAlias.alias.asc()).all()
@@ -2546,6 +3050,8 @@ def edit_class(class_id):
                          class_obj=class_obj,
                          rooms=rooms,
                          room_aliases=room_aliases,
+                         available_print_target_classes=[c for c in (class_obj.config.classes or []) if c.id != class_obj.id and (c.class_type or '') != 'print_form'],
+                         print_html_template_text=_decode_print_html_template(getattr(class_obj, 'print_html_template', '') or ''),
                          ui_tpl_buttons=ui_tpl_buttons,
                          ui_tpl_map=ui_tpl_map,
                          plugin_tpl_buttons=plugin_tpl_buttons,
@@ -2553,6 +3059,24 @@ def edit_class(class_id):
                          wizard_active_buttons=get_wizard_active_templates(),
                          wizard_cover_buttons=get_wizard_cover_templates(),
                          event_types=['onShow', 'onInput', 'onChange', 'onShowWeb', 'onInputWeb', "onAcceptServer", "onAfterAcceptServer", "onAccept","onAfterAcccept"])
+
+@_routes.route('/edit-class/<int:class_id>/print-preview', methods=['POST'])
+@login_required
+def print_form_template_preview(class_id):
+    class_obj = db.session.get(ConfigClass, class_id)
+    if not class_obj:
+        abort(404)
+    if class_obj.config.user_id != current_user.id:
+        abort(403)
+    payload = request.get_json(silent=True) or {}
+    template_text = payload.get('template') or ''
+    data = payload.get('data') if isinstance(payload.get('data'), dict) else {}
+    try:
+        html = _render_print_html_template(template_text, data)
+        return jsonify({'ok': True, 'html': html})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e), 'html': ''})
+
 
 @_routes.route('/add-method/<int:class_id>', methods=['POST'])
 @login_required
@@ -2690,7 +3214,7 @@ def add_event(class_id):
     
     for a in actions:
         mname = a.get('method','').strip()
-        if mname and mname not in ('NodaScript', 'PythonScript', 'HTTP Request'):
+        if mname and not _is_builtin_action_method(mname):
             m = db.session.execute(
                 select(ClassMethod).where(ClassMethod.name == mname, ClassMethod.class_id == class_id)
             ).scalar_one_or_none()
@@ -2730,8 +3254,8 @@ def add_event(class_id):
             action = a.get('action','run'),
             source = a.get('source','internal') or 'internal',
             server = a.get('server','') or '',
-            method = a.get('method','') or '',
-            post_execute_method = a.get('postExecuteMethod','') or '',
+            method = _action_method_value(a, 'method'),
+            post_execute_method = _action_method_value(a, 'postExecuteMethod'),
             method_text = (_action_python_text_value(a, post=False) or '') if _is_script_text_method(a.get('method','')) else '',
             post_execute_text = (_action_python_text_value(a, post=True) or '') if _is_script_text_method(a.get('postExecuteMethod','')) else '',
             http_function_name = (a.get('httpFunctionName','') or '') if _is_http_request_method(a.get('method','')) else '',
@@ -2783,7 +3307,7 @@ def edit_event(class_id):
     
     for a in actions:
         mname = a.get('method','').strip()
-        if mname and mname not in ('NodaScript', 'PythonScript', 'HTTP Request'):
+        if mname and not _is_builtin_action_method(mname):
             m = db.session.execute(
                 select(ClassMethod).where(ClassMethod.name == mname, ClassMethod.class_id == class_id)
             ).first()
@@ -2819,8 +3343,8 @@ def edit_event(class_id):
             action = a.get('action','run'),
             source = a.get('source','internal') or 'internal',
             server = a.get('server','') or '',
-            method = a.get('method','') or '',
-            post_execute_method = a.get('postExecuteMethod','') or '',
+            method = _action_method_value(a, 'method'),
+            post_execute_method = _action_method_value(a, 'postExecuteMethod'),
             method_text = (_action_python_text_value(a, post=False) or '') if _is_script_text_method(a.get('method','')) else '',
             post_execute_text = (_action_python_text_value(a, post=True) or '') if _is_script_text_method(a.get('postExecuteMethod','')) else '',
             http_function_name = (a.get('httpFunctionName','') or '') if _is_http_request_method(a.get('method','')) else '',
@@ -2932,12 +3456,36 @@ def create_class(config_uid):
         return redirect(url_for('edit_config', uid=config_uid, tab=active_tab))
     
     
+    requested_class_type = (request.form.get('class_type') or 'custom_process').strip()
+    if requested_class_type not in ('custom_process', 'projection', 'data_node', 'custom_task', 'background_task', 'solo_object', 'print_form'):
+        requested_class_type = 'custom_process'
+
     new_class = ConfigClass(
         name=class_name,
         display_name=class_name,
         config_id=config.id,
-        class_type='custom_process',
-        section_code='server'
+        class_type=requested_class_type,
+        section_code='' if requested_class_type == 'print_form' else 'server',
+        has_storage=False if requested_class_type == 'print_form' else False,
+        use_standard_commands=False if requested_class_type == 'print_form' else True,
+        hidden=True if requested_class_type == 'print_form' else False,
+        print_template_type='html_jinja' if requested_class_type == 'print_form' else '',
+        print_target_classes=[] if requested_class_type == 'print_form' else [],
+        print_html_template=_encode_print_html_template('''<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 14px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #ddd; padding: 6px; }
+  </style>
+</head>
+<body>
+  <h1>{{ _basement_data._view or _basement_data._id }}</h1>
+  {# Example: {{ customer._id }} {{ customer.name }} #}
+</body>
+</html>''') if requested_class_type == 'print_form' else '',
     )
     db.session.add(new_class)
     db.session.commit()
@@ -3055,7 +3603,7 @@ def export_config(uid):
         "NodaLogicFormat": NL_FORMAT,
         "NodaLogicType": "ANDROID_SERVER",
         'last_modified': local_time.isoformat(),
-        'provider': provider,
+        'provider': config.vendor,
         "CommonLayouts": config.common_layouts or [],
         'classes': [
             {
@@ -3070,6 +3618,9 @@ def export_config(uid):
                 'display_image_table': getattr(c, 'display_image_table', '') or '',
                 'init_screen_layout': getattr(c, 'init_screen_layout', '') or '',
                 'init_screen_layout_web': getattr(c, 'init_screen_layout_web', '') or '',
+                'data_structure': getattr(c, 'data_structure', '') or '',
+                'show_tag_cloud': bool(getattr(c, 'show_tag_cloud', False)),
+                'mobile_print_enabled': bool(getattr(c, 'mobile_print_enabled', False)),
                 'plug_in': getattr(c, 'plug_in', '') or '',
                 'plug_in_web': getattr(c, 'plug_in_web', '') or '',
 
@@ -3085,6 +3636,11 @@ def export_config(uid):
                 'indexes': getattr(c, 'indexes_json', None) or [],
 
                 'class_type': c.class_type,
+                'projection_type': getattr(c, 'projection_type', '') or '',
+                'projection_kanban_columns': getattr(c, 'projection_kanban_columns', '') or '',
+                'print_template_type': getattr(c, 'print_template_type', '') or 'html_jinja',
+                'print_target_classes': getattr(c, 'print_target_classes', None) or [],
+                'print_html_template': _encode_print_html_template(getattr(c, 'print_html_template', '') or ''),
                 'hidden': c.hidden,
                 'methods': [{
                     'name': m.name,
@@ -3101,8 +3657,8 @@ def export_config(uid):
                                 'action': a.action,
                                 'source': a.source,
                                 'server': a.server,
-                                'method': a.method,
-                                'postExecuteMethod': a.post_execute_method,
+                                'method': _normalize_special_method_name_for_export(a.method),
+                                'postExecuteMethod': _normalize_special_method_name_for_export(a.post_execute_method),
                                 **({"methodText": a.method_text} if _is_script_text_method(a.method) else {}),
                                 **({"postExecuteMethodText": a.post_execute_text} if _is_script_text_method(a.post_execute_method) else {}),
                                 **({"httpFunctionName": a.http_function_name} if _is_http_request_method(a.method) else {}),
@@ -3152,8 +3708,10 @@ def export_config(uid):
                         'action': a.action,
                         'source': a.source,
                         'server': a.server,
-                        'method': a.method,
-                        'postExecuteMethod': a.post_execute_method,
+                        'method': _normalize_special_method_name_for_export(a.method),
+                        'postExecuteMethod': _normalize_special_method_name_for_export(a.post_execute_method),
+                        **({'methodText': a.method_text} if _is_script_text_method(a.method) else {}),
+                        **({'postExecuteMethodText': a.post_execute_text} if _is_script_text_method(a.post_execute_method) else {}),
                         **({'httpFunctionName': a.http_function_name} if _is_http_request_method(a.method) else {}),
                         **({'postHttpFunctionName': a.post_http_function_name} if _is_http_request_method(a.post_execute_method) else {})
                     }
@@ -3161,6 +3719,18 @@ def export_config(uid):
                 ]
             }
             for e in config.config_events
+        ],
+        'Timers': [
+            t.to_dict() if hasattr(t, 'to_dict') else {
+                'id': getattr(t, 'timer_id', '') or '',
+                'timer_id': getattr(t, 'timer_id', '') or '',
+                'period_seconds': _normalize_timer_period_seconds(getattr(t, 'period_seconds', 0) or 0, runtime=getattr(t, 'runtime', '') or 'server', worker=bool(getattr(t, 'worker', False))),
+                'active': bool(getattr(t, 'active', False)),
+                'worker': bool(getattr(t, 'worker', False)),
+                'runtime': _normalize_timer_runtime(getattr(t, 'runtime', '') or 'server'),
+                'actions': t.actions_as_dicts() if hasattr(t, 'actions_as_dicts') else [],
+            }
+            for t in (getattr(config, 'config_timers', None) or [])
         ]
     }
     
@@ -3222,6 +3792,7 @@ def import_config_new():
             existing_config.name = data.get('name', existing_config.name)
             existing_config.server_name = data.get('server_name', existing_config.server_name)
             existing_config.version = data.get('version', existing_config.version)
+            existing_config.vendor = data.get('vendor', data.get('provider', existing_config.vendor))
             existing_config.nodes_handlers = data.get('nodes_handlers', existing_config.nodes_handlers)
             existing_config.nodes_handlers_meta = data.get('nodes_handlers_meta', existing_config.nodes_handlers_meta)
             existing_config.nodes_server_handlers = data.get('nodes_server_handlers', existing_config.nodes_server_handlers)
@@ -3240,7 +3811,9 @@ def import_config_new():
             for ra in (getattr(existing_config, 'room_aliases', None) or []):
                 db.session.delete(ra)
             for event in existing_config.config_events:
-                db.session.delete(event)    
+                db.session.delete(event)
+            for timer in (getattr(existing_config, 'config_timers', None) or []):
+                db.session.delete(timer)
             
             config_to_use = existing_config
             is_update = True
@@ -3263,7 +3836,7 @@ def import_config_new():
                 user_id=current_user.id,
                 uid=str(uuid.uuid4()), 
                 content_uid=content_uid,
-                vendor=data.get("vendor"),
+                vendor=data.get("vendor", data.get("provider")),
                 common_layouts=data.get('CommonLayouts', data.get('common_layouts', [])) or []
             )
             
@@ -3274,6 +3847,12 @@ def import_config_new():
 
             # Import common layouts
             config_to_use.common_layouts = data.get('CommonLayouts', data.get('common_layouts', [])) or []
+        
+        config_to_use.nodes_handlers = _rewrite_android_handlers_instance_refs_b64(
+            config_to_use.nodes_handlers,
+            config_to_use.uid,
+            url_for('get_config', uid=config_to_use.uid, _external=True)
+        )
         
         # IMPORT CLASSES (same for creation and update)
         classes_data = data.get('classes', [])
@@ -3292,6 +3871,9 @@ def import_config_new():
                 display_image_table=class_data.get('display_image_table', ''),
                 init_screen_layout=class_data.get('init_screen_layout', ''),
                 init_screen_layout_web=class_data.get('init_screen_layout_web', ''),
+                data_structure=class_data.get('data_structure', class_data.get('dataStructure', '')),
+                show_tag_cloud=bool(class_data.get('show_tag_cloud', class_data.get('showTagCloud', False))),
+                mobile_print_enabled=bool(class_data.get('mobile_print_enabled', class_data.get('mobilePrintEnabled', False))),
                 plug_in=class_data.get('plug_in', ''),
                 plug_in_web=class_data.get('plug_in_web', ''),
 
@@ -3307,6 +3889,11 @@ def import_config_new():
                 indexes_json=class_data.get('indexes', class_data.get('indexes_json', [])) or [],
 
                 class_type=class_data.get('class_type', ''),
+                projection_type=class_data.get('projection_type', ''),
+                projection_kanban_columns=class_data.get('projection_kanban_columns', ''),
+                print_template_type=class_data.get('print_template_type', class_data.get('printTemplateType', 'html_jinja')),
+                print_target_classes=class_data.get('print_target_classes', class_data.get('printTargetClasses', [])) or [],
+                print_html_template=_encode_print_html_template(class_data.get('print_html_template', class_data.get('printHtmlTemplate', ''))),
                 hidden=class_data.get('hidden', False),
                 config_id=config_to_use.id
             )
@@ -3349,10 +3936,12 @@ def import_config_new():
                         action=action_data.get('action', 'run'),
                         source=action_data.get('source', 'internal'),
                         server=action_data.get('server', ''),
-                        method=action_data.get('method', ''),
-                        post_execute_method=action_data.get('postExecuteMethod', ''),
-                        method_text=(_action_python_text_value(action_data, post=False) or '') if _is_script_text_method(action_data.get('method', '')) else '',
-                        post_execute_text=(_action_python_text_value(action_data, post=True) or '') if _is_script_text_method(action_data.get('postExecuteMethod', '')) else '',
+                        method=_action_method_value(action_data, 'method'),
+                        post_execute_method=_action_method_value(action_data, 'postExecuteMethod'),
+                        method_text=_action_method_text_value(action_data, post=False),
+                        post_execute_text=_action_method_text_value(action_data, post=True),
+                        http_function_name=(action_data.get('httpFunctionName', '') or '') if _is_http_request_method(action_data.get('method', '')) else '',
+                        post_http_function_name=(action_data.get('postHttpFunctionName', '') or '') if _is_http_request_method(action_data.get('postExecuteMethod', '')) else '',
                         order=action_data.get('order', 0),
                         event_id=new_event.id
                     )
@@ -3436,10 +4025,48 @@ def import_config_new():
                     action=action_data.get('action', ''),
                     source=action_data.get('source', ''),
                     server=action_data.get('server', ''),
-                    method=action_data.get('method', ''),
-                    post_execute_method=action_data.get('postExecuteMethod', '')
+                    method=_action_method_value(action_data, 'method'),
+                    post_execute_method=_action_method_value(action_data, 'postExecuteMethod'),
+                    method_text=_action_method_text_value(action_data, post=False),
+                    post_execute_text=_action_method_text_value(action_data, post=True),
+                    http_function_name=(action_data.get('httpFunctionName', '') or '') if _is_http_request_method(action_data.get('method', '')) else '',
+                    post_http_function_name=(action_data.get('postHttpFunctionName', '') or '') if _is_http_request_method(action_data.get('postExecuteMethod', '')) else ''
                 )
-                db.session.add(new_action)    
+                db.session.add(new_action)
+
+        timers_data = data.get('Timers', data.get('timers', []))
+        print(f"Importing {len(timers_data)} timers.")
+
+        for timer_data in timers_data:
+            timer_id = (timer_data.get('timer_id') or timer_data.get('id') or '').strip()
+            if not timer_id:
+                continue
+            worker = _bool_from_timer_value(timer_data.get('worker'), default=False)
+            runtime = _timer_runtime_from_timer_data(timer_data)
+            new_timer = ConfigTimer(
+                timer_id=timer_id,
+                period_seconds=_period_seconds_from_timer_data(timer_data, runtime=runtime, worker=worker),
+                active=_bool_from_timer_value(timer_data.get('active'), default=True),
+                worker=worker,
+                runtime=runtime,
+                config_id=config_to_use.id
+            )
+            db.session.add(new_timer)
+
+            for action_data in timer_data.get('actions', []):
+                new_action = ConfigTimerAction(
+                    timer_obj=new_timer,
+                    action=action_data.get('action', ''),
+                    source=action_data.get('source', ''),
+                    server=action_data.get('server', ''),
+                    method=_action_method_value(action_data, 'method'),
+                    post_execute_method=_action_method_value(action_data, 'postExecuteMethod'),
+                    method_text=_action_method_text_value(action_data, post=False),
+                    post_execute_text=_action_method_text_value(action_data, post=True),
+                    http_function_name=(action_data.get('httpFunctionName', '') or '') if _is_http_request_method(action_data.get('method', '')) else '',
+                    post_http_function_name=(action_data.get('postHttpFunctionName', '') or '') if _is_http_request_method(action_data.get('postExecuteMethod', '')) else ''
+                )
+                db.session.add(new_action)
         
         # CREATE/UPDATE THE SERVER HANDLERS FILE IF THERE ARE ANY
         if config_to_use.nodes_server_handlers:
@@ -3483,10 +4110,16 @@ def apply_full_config_from_json(config, data):
     """
     # COMPLETE UPDATE OF ALL CONFIGURATION FIELDS
     config.name = data.get('name', config.name)
-    config.vendor = data.get('vendor', config.vendor)
+    config.vendor = data.get('vendor', data.get('provider', config.vendor))
+    config.content_uid = data.get('content_uid', config.content_uid)
     config.server_name = data.get('server_name', config.server_name)
     config.version = data.get('version', config.version)
     config.nodes_handlers = data.get('nodes_handlers', config.nodes_handlers)
+    config.nodes_handlers = _rewrite_android_handlers_instance_refs_b64(
+        config.nodes_handlers,
+        config.uid,
+        url_for('get_config', uid=config.uid, _external=True)
+    )
     config.nodes_handlers_meta = data.get('nodes_handlers_meta', config.nodes_handlers_meta)
     config.nodes_server_handlers = data.get('nodes_server_handlers', config.nodes_server_handlers)
     config.nodes_server_handlers_meta = data.get('nodes_server_handlers_meta', config.nodes_server_handlers_meta)
@@ -3505,7 +4138,9 @@ def apply_full_config_from_json(config, data):
     for ra in (getattr(config, 'room_aliases', None) or []):
         db.session.delete(ra)
     for event in config.config_events:
-        db.session.delete(event)    
+        db.session.delete(event)
+    for timer in (getattr(config, 'config_timers', None) or []):
+        db.session.delete(timer)
     
     # Importing classes
     classes_data = data.get('classes', [])
@@ -3524,6 +4159,9 @@ def apply_full_config_from_json(config, data):
                 display_image_table=class_data.get('display_image_table', ''),
                 init_screen_layout=class_data.get('init_screen_layout', ''),
                 init_screen_layout_web=class_data.get('init_screen_layout_web', ''),
+                data_structure=class_data.get('data_structure', class_data.get('dataStructure', '')),
+                show_tag_cloud=bool(class_data.get('show_tag_cloud', class_data.get('showTagCloud', False))),
+                mobile_print_enabled=bool(class_data.get('mobile_print_enabled', class_data.get('mobilePrintEnabled', False))),
                 plug_in=class_data.get('plug_in', ''),
                 plug_in_web=class_data.get('plug_in_web', ''),
 
@@ -3539,6 +4177,11 @@ def apply_full_config_from_json(config, data):
                 indexes_json=class_data.get('indexes', class_data.get('indexes_json', [])) or [],
 
                 class_type=class_data.get('class_type', ''),
+                projection_type=class_data.get('projection_type', ''),
+                projection_kanban_columns=class_data.get('projection_kanban_columns', ''),
+                print_template_type=class_data.get('print_template_type', class_data.get('printTemplateType', 'html_jinja')),
+                print_target_classes=class_data.get('print_target_classes', class_data.get('printTargetClasses', [])) or [],
+                print_html_template=_encode_print_html_template(class_data.get('print_html_template', class_data.get('printHtmlTemplate', ''))),
                 hidden=class_data.get('hidden', False),
                 config_id=config.id
             )
@@ -3581,8 +4224,12 @@ def apply_full_config_from_json(config, data):
                     action=action_data.get('action', 'run'),
                     source=action_data.get('source', 'internal'),
                     server=action_data.get('server', ''),
-                    method=action_data.get('method', ''),
-                    post_execute_method=action_data.get('postExecuteMethod', ''),
+                    method=_action_method_value(action_data, 'method'),
+                    post_execute_method=_action_method_value(action_data, 'postExecuteMethod'),
+                    method_text=_action_method_text_value(action_data, post=False),
+                    post_execute_text=_action_method_text_value(action_data, post=True),
+                    http_function_name=(action_data.get('httpFunctionName', '') or '') if _is_http_request_method(action_data.get('method', '')) else '',
+                    post_http_function_name=(action_data.get('postHttpFunctionName', '') or '') if _is_http_request_method(action_data.get('postExecuteMethod', '')) else '',
                     order=action_data.get('order', 0),
                     event_id=new_event.id
                 )
@@ -3671,10 +4318,46 @@ def apply_full_config_from_json(config, data):
                 action=action_data.get('action', ''),
                 source=action_data.get('source', ''),
                 server=action_data.get('server', ''),
-                method=action_data.get('method', ''),
-                post_execute_method=action_data.get('postExecuteMethod', '')
+                method=_action_method_value(action_data, 'method'),
+                post_execute_method=_action_method_value(action_data, 'postExecuteMethod'),
+                method_text=_action_method_text_value(action_data, post=False),
+                post_execute_text=_action_method_text_value(action_data, post=True),
+                http_function_name=(action_data.get('httpFunctionName', '') or '') if _is_http_request_method(action_data.get('method', '')) else '',
+                post_http_function_name=(action_data.get('postHttpFunctionName', '') or '') if _is_http_request_method(action_data.get('postExecuteMethod', '')) else ''
             )
-            db.session.add(new_action)    
+            db.session.add(new_action)
+
+    timers_data = data.get('Timers', data.get('timers', []))
+    print(f"Importing {len(timers_data)} timers.")
+
+    for timer_data in timers_data:
+        timer_id = (timer_data.get('timer_id') or timer_data.get('id') or '').strip()
+        if not timer_id:
+            continue
+        new_timer = ConfigTimer(
+            timer_id=timer_id,
+            period_seconds=_period_seconds_from_timer_data(timer_data),
+            active=_bool_from_timer_value(timer_data.get('active'), default=True),
+            worker=_bool_from_timer_value(timer_data.get('worker'), default=False),
+            runtime=_timer_runtime_from_timer_data(timer_data),
+            config_id=config.id
+        )
+        db.session.add(new_timer)
+
+        for action_data in timer_data.get('actions', []):
+            new_action = ConfigTimerAction(
+                timer_obj=new_timer,
+                action=action_data.get('action', ''),
+                source=action_data.get('source', ''),
+                server=action_data.get('server', ''),
+                method=_action_method_value(action_data, 'method'),
+                post_execute_method=_action_method_value(action_data, 'postExecuteMethod'),
+                method_text=_action_method_text_value(action_data, post=False),
+                post_execute_text=_action_method_text_value(action_data, post=True),
+                http_function_name=(action_data.get('httpFunctionName', '') or '') if _is_http_request_method(action_data.get('method', '')) else '',
+                post_http_function_name=(action_data.get('postHttpFunctionName', '') or '') if _is_http_request_method(action_data.get('postExecuteMethod', '')) else ''
+            )
+            db.session.add(new_action)
     
     # Updating the timestamp
     config.update_last_modified()
@@ -3711,8 +4394,8 @@ def import_config(uid):
         flash(_('File not selected'), 'error')
         return redirect(url_for('edit_config', uid=uid))
     
-    if not file.filename.endswith('.json'):
-        flash(_('Only JSON files allowed'), 'error')
+    if not file.filename.lower().endswith(('.nod', '.json')):
+        flash(_('Only NOD files allowed'), 'error')
         return redirect(url_for('edit_config', uid=uid))
     
     try:
@@ -4456,7 +5139,8 @@ def ensure_handlers_skeleton_and_headers(config_uid: str, config_url: str, cfg: 
         if "from nodes import Node" not in android_code:
             android_imports = ANDROID_IMPORTS_TEMPLATE.format(uid=config_uid, config_url=config_url)
             android_code = android_imports + NODE_CLASS_CODE_ANDROID.strip() + "\n" + android_code
-            cfg["nodes_handlers"] = _encode_b64_text(android_code)
+        android_code = _rewrite_android_handlers_instance_refs_code(android_code, config_uid, config_url)
+        cfg["nodes_handlers"] = _encode_b64_text(android_code)
 
     # SERVER
     server_code = _decode_b64_text(cfg.get("nodes_server_handlers", "") or "")
@@ -5634,10 +6318,52 @@ _downloads_dir = su.get_downloads_dir(current_module_name)
 
 '''
 
+
+def _rewrite_android_handlers_instance_refs_code(code: str, config_uid: str, config_url: str) -> str:
+    """Keep imported Android handlers portable between configuration instances."""
+    code = code or ""
+    android_imports = ANDROID_IMPORTS_TEMPLATE.format(uid=config_uid, config_url=config_url)
+
+    if not code.strip():
+        code = android_imports + NODE_CLASS_CODE_ANDROID + "\n"
+    elif "current_module_name" not in code or "current_configuration_url" not in code:
+        # Imported body from another source: add the runtime Android header once.
+        if "from nodes import Node" not in code:
+            code = android_imports + NODE_CLASS_CODE_ANDROID + "\n" + code
+        elif "from com.dv.noda import SimpleUtilites as su" not in code:
+            code = android_imports + "\n" + code
+
+    def repl_const(src: str, name: str, value: str) -> str:
+        line = f'{name}="{value}"'
+        pattern = rf'(?m)^\s*{re.escape(name)}\s*=\s*([\"\']).*?\1\s*$'
+        if re.search(pattern, src):
+            return re.sub(pattern, line, src)
+        return line + "\n" + src
+
+    code = repl_const(code, "current_module_name", config_uid)
+    code = repl_const(code, "current_configuration_url", config_url)
+
+    # These paths must follow the current instance uid as well.
+    if "_data_dir = su.get_data_dir(current_module_name)" not in code:
+        code = re.sub(r'(?m)^\s*_data_dir\s*=.*$', '_data_dir = su.get_data_dir(current_module_name)', code)
+    if "_downloads_dir = su.get_downloads_dir(current_module_name)" not in code:
+        code = re.sub(r'(?m)^\s*_downloads_dir\s*=.*$', '_downloads_dir = su.get_downloads_dir(current_module_name)', code)
+    return code
+
+
+def _rewrite_android_handlers_instance_refs_b64(encoded: str, config_uid: str, config_url: str) -> str:
+    try:
+        code = base64.b64decode((encoded or "").encode("utf-8")).decode("utf-8", errors="replace") if encoded else ""
+    except Exception:
+        code = ""
+    code = _rewrite_android_handlers_instance_refs_code(code, config_uid, config_url)
+    return base64.b64encode(code.encode("utf-8")).decode("utf-8")
+
 UI_COMPONENT_TEMPLATES = OrderedDict([
     ('Text', '{"type":"Text","value":"my text"}'),
     ('Text(tag)', '{"type":"Text","value":"my text","radius":10,"background":"#F54927"}'),
     ('Picture', '{"type":"Picture","value":"filename/path"}'),
+    ('ImageSlider', '{"type":"ImageSlider","value":"array of filename/path"}'),
     ('Button', '{"type":"Button","id":"btn_update","caption":"Simple button"}'),
     ('Switch', '{"type":"Switch","caption":"Setting 1","id":"sw1","value":"@sw1"}'),
     ('CheckBox', '{"type":"CheckBox","caption":"My checkbox","id":"cb1","value":"@cb1"}'),
@@ -5666,6 +6392,9 @@ WIZARD_ACTIVE_TEMPLATES = OrderedDict([
     ('DatasetField', 'Product|product: DataSet("goods")'),
     ('Spinner', 'Operation|operation: select(Receipt|StockIn, Shipment|StockOut)'),
     ('Table', '[Product|product: Node("Product"), Quantity|qty: number]'),
+    ('NodeChildren', '_children: ChildNode("OrderPosition")|ChildNode("OrderPositionSpecial")'),
+    ('ListChildNodes', 'positions:[ChildNode("OrderPosition")]'),
+    ('ListNodes', 'lines:[Node("CommonLine")]'),
 ])
 
 WIZARD_COVER_TEMPLATES = OrderedDict([
@@ -6237,8 +6966,7 @@ def contracts_create():
         'name': request.form.get('name'),
         'display_name': request.form.get('display_name'),
         'source_type': request.form.get('source_type'),
-        'source_config_uid': request.form.get('source_config_uid'),
-        'class_name': request.form.get('class_name'),
+        'source_classes_text': request.form.get('source_classes_text'),
         'global_index_name': request.form.get('global_index_name'),
         'global_index_value': request.form.get('global_index_value'),
     }
@@ -6267,8 +6995,7 @@ def contracts_update(contract_uid):
         'name': request.form.get('name'),
         'display_name': request.form.get('display_name'),
         'source_type': request.form.get('source_type'),
-        'source_config_uid': request.form.get('source_config_uid'),
-        'class_name': request.form.get('class_name'),
+        'source_classes_text': request.form.get('source_classes_text'),
         'global_index_name': request.form.get('global_index_name'),
         'global_index_value': request.form.get('global_index_value'),
     }
@@ -6348,4 +7075,4 @@ def update_config_timestamp(response):
 
 
 
-MOVED_EDITOR_NAMES = ['b64decode_filter', 'before_request', 'update_config_timestamp', 'ANDROID_IMPORTS_TEMPLATE', 'DEEPSEEK_API_URL', 'LANGUAGES', 'LMSTUDIO_API_KEY', 'LMSTUDIO_API_URL', 'LMSTUDIO_MODEL', 'NODE_CLASS_CODE', 'NODE_CLASS_CODE_ANDROID', 'PLUGIN_TEMPLATES', 'UI_COMPONENT_TEMPLATES', 'WIZARD_ACTIVE_TEMPLATES', 'WIZARD_COVER_TEMPLATES', '_enforce_web_access_modes', 'admin_dashboard', 'admin_toggle_user_active', 'admin_user_detail', 'choose_mode', 'contracts_create', 'contracts_delete', 'contracts_page', 'contracts_qr', 'contracts_update', 'create_room', 'dashboard', 'delete_room', 'edit_profile', 'generate_qr_code', 'get_default_server_handlers', 'get_locale', 'get_plugin_templates', 'get_timezone', 'get_ui_component_templates', 'get_wizard_active_templates', 'get_wizard_cover_templates', 'index', 'init_editor_ui', 'logout', 'room_detail', 'set_language', 'update_device_token', 'users_create', 'users_delete', 'users_manage', 'users_update', 'utility_processor', 'ALLOWED_INPUT_TYPES_AI', 'ALLOWED_UI_TYPES_AI', 'CONTAINER_UI_TYPES_AI', '_PY_SCRIPT_UPLOAD_SESSION_KEY', '_ShowPlugInLiteralValidatorAI', '_action_python_text_value', '_call_llm_code_only', '_carry_existing_event_python_script_refs', '_decode_b64_py', '_decode_b64_text', '_deep_merge_dict_keep_existing', '_encode_b64_py', '_encode_b64_text', '_generate_handlers_body_ai', '_is_remote_script_ref', '_iter_layout_elements_ai', '_last_python_script_upload_url', '_merge_class', '_normalize_event_action_python_scripts_for_save', '_normalize_python_script_text_for_save', '_remember_python_script_upload', '_s3_text_content_type', '_save_python_text_to_s3_via_upload_url', '_split_commands_str', '_split_handlers_header_and_body', '_upsert_list_by_key_keep_missing', '_wiz_active_field_to_json', '_wiz_build_active_table', '_wiz_build_cover_table', '_wiz_cover_field_to_json', '_wiz_cover_row_to_simple', '_wiz_json_field_to_simple', '_wiz_norm_id', '_wiz_parse_fn_call', '_wiz_parse_line_spec', '_wiz_parse_select', '_wiz_split_once_top_level', '_wiz_split_top_level', '_wiz_table_to_simple', '_wiz_unquote', '_wizard_build_active_field', '_wizard_build_cover_field', '_wizard_build_table', '_wizard_normalize_id', '_wizard_parse_fn_call', '_wizard_parse_select', '_wizard_split_once_top_level', '_wizard_split_top_level', 'add_class', 'add_config_event', 'add_dataset', 'add_event', 'add_method', 'add_method_to_class', 'add_new_method_to_class', 'add_section', 'ai_generate', 'ai_generate_layout', 'apply_full_config_from_json', 'call_deepseek', 'call_llm', 'call_lmstudio', 'clear_handlers', 'clear_server_handlers', 'code_editor', 'create_class', 'create_config', 'create_debug_room', 'create_room_alias', 'create_server', 'debug_room', 'delete_class', 'delete_config', 'delete_config_event', 'delete_dataset', 'delete_event', 'delete_method', 'delete_room_alias', 'delete_s3_text', 'delete_section', 'delete_server', 'download_handlers', 'download_server_handlers', 'edit_class', 'edit_config', 'edit_config_event', 'edit_dataset', 'edit_event', 'edit_method', 'ensure_all_classes_present_in_handlers', 'ensure_class_stub_in_module', 'ensure_handlers_skeleton_and_headers', 'export_class_json', 'export_config', 'extract_functions_from_handlers', 'extract_json_array_from_text', 'extract_json_from_text', 'extract_method_body_from_code', 'extract_method_names_ai', 'get_config_event_json', 'get_config_methods', 'get_dataset_json', 'get_method_body', 'get_s3_text_upload_url', 'get_section_json', 'get_user_local_time', 'import_config', 'import_config_new', 'layout_to_simplified_markup', 'layout_wizard', 'merge_llm_config_into_current_ai', 'method_exists_in_code', 'python_s3_editor', 'read_s3_text', 'remove_class_from_module', 'remove_method_from_code', 'remove_method_from_module', 'save_common_layouts', 'save_method', 'save_s3_text_via_upload_url', 'simplified_markup_to_layout', 'split_handlers_by_immutable_prefix_ai', 'sync_android_methods_from_code', 'sync_classes_from_android_handlers', 'sync_classes_from_server_handlers', 'sync_methods_from_code', 'sync_server_methods_from_code', 'update_config', 'update_dataset', 'update_existing_method', 'update_handlers_code', 'update_room_alias', 'update_section', 'update_server', 'update_server_handlers_code', 'upload_handlers', 'upload_s3_text', 'upload_server_handlers', 'validate_cover_images_ai', 'validate_full_llm_config_ai', 'validate_handlers_semantics_ai', 'validate_layout_types_ai', 'validate_python_syntax', 'validate_sections_ai', 'validate_sections_command_targets_ai', 'validate_show_plugin_literals_ai']
+MOVED_EDITOR_NAMES = ['b64decode_filter', 'before_request', 'update_config_timestamp', 'ANDROID_IMPORTS_TEMPLATE', 'DEEPSEEK_API_URL', 'LANGUAGES', 'LMSTUDIO_API_KEY', 'LMSTUDIO_API_URL', 'LMSTUDIO_MODEL', 'NODE_CLASS_CODE', 'NODE_CLASS_CODE_ANDROID', 'PLUGIN_TEMPLATES', 'UI_COMPONENT_TEMPLATES', 'WIZARD_ACTIVE_TEMPLATES', 'WIZARD_COVER_TEMPLATES', '_enforce_web_access_modes', 'admin_dashboard', 'admin_toggle_user_active', 'admin_user_detail', 'choose_mode', 'contracts_create', 'contracts_delete', 'contracts_page', 'contracts_qr', 'contracts_update', 'create_room', 'dashboard', 'delete_room', 'edit_profile', 'generate_qr_code', 'get_default_server_handlers', 'get_locale', 'get_plugin_templates', 'get_timezone', 'get_ui_component_templates', 'get_wizard_active_templates', 'get_wizard_cover_templates', 'index', 'init_editor_ui', 'logout', 'room_detail', 'set_language', 'update_device_token', 'users_create', 'users_delete', 'users_manage', 'users_update', 'utility_processor', 'ALLOWED_INPUT_TYPES_AI', 'ALLOWED_UI_TYPES_AI', 'CONTAINER_UI_TYPES_AI', '_PY_SCRIPT_UPLOAD_SESSION_KEY', '_ShowPlugInLiteralValidatorAI', '_action_python_text_value', '_call_llm_code_only', '_carry_existing_event_python_script_refs', '_decode_b64_py', '_decode_b64_text', '_deep_merge_dict_keep_existing', '_encode_b64_py', '_encode_b64_text', '_generate_handlers_body_ai', '_is_remote_script_ref', '_iter_layout_elements_ai', '_last_python_script_upload_url', '_merge_class', '_normalize_event_action_python_scripts_for_save', '_normalize_python_script_text_for_save', '_remember_python_script_upload', '_s3_text_content_type', '_save_python_text_to_s3_via_upload_url', '_split_commands_str', '_split_handlers_header_and_body', '_upsert_list_by_key_keep_missing', '_wiz_active_field_to_json', '_wiz_build_active_table', '_wiz_build_cover_table', '_wiz_cover_field_to_json', '_wiz_cover_row_to_simple', '_wiz_json_field_to_simple', '_wiz_norm_id', '_wiz_parse_fn_call', '_wiz_parse_line_spec', '_wiz_parse_select', '_wiz_split_once_top_level', '_wiz_split_top_level', '_wiz_table_to_simple', '_wiz_unquote', '_wizard_build_active_field', '_wizard_build_cover_field', '_wizard_build_table', '_wizard_normalize_id', '_wizard_parse_fn_call', '_wizard_parse_select', '_wizard_split_once_top_level', '_wizard_split_top_level', 'add_class', 'add_config_event', 'add_dataset', 'add_event', 'add_method', 'add_method_to_class', 'add_new_method_to_class', 'add_section', 'ai_generate', 'ai_generate_layout', 'apply_full_config_from_json', 'call_deepseek', 'call_llm', 'call_lmstudio', 'clear_handlers', 'clear_server_handlers', 'code_editor', 'create_class', 'create_config', 'create_debug_room', 'create_room_alias', 'create_server', 'debug_room', 'delete_class', 'delete_config', 'delete_config_event', 'delete_dataset', 'delete_event', 'delete_method', 'delete_room_alias', 'delete_s3_text', 'delete_section', 'delete_server', 'download_handlers', 'download_server_handlers', 'edit_class', 'edit_config', 'edit_config_event', 'edit_dataset', 'edit_event', 'edit_method', 'ensure_all_classes_present_in_handlers', 'ensure_class_stub_in_module', 'ensure_handlers_skeleton_and_headers', 'export_class_json', 'export_config', 'extract_functions_from_handlers', 'extract_json_array_from_text', 'extract_json_from_text', 'extract_method_body_from_code', 'extract_method_names_ai', 'get_config_event_json', 'get_config_methods', 'get_dataset_json', 'get_method_body', 'get_s3_text_upload_url', 'get_section_json', 'get_user_local_time', 'import_config', 'import_config_new', 'layout_to_simplified_markup', 'layout_wizard', 'merge_llm_config_into_current_ai', 'method_exists_in_code', 'print_form_template_preview', 'python_s3_editor', 'read_s3_text', 'remove_class_from_module', 'remove_method_from_code', 'remove_method_from_module', 'save_common_layouts', 'save_method', 'save_s3_text_via_upload_url', 'simplified_markup_to_layout', 'split_handlers_by_immutable_prefix_ai', 'sync_android_methods_from_code', 'sync_classes_from_android_handlers', 'sync_classes_from_server_handlers', 'sync_methods_from_code', 'sync_server_methods_from_code', 'update_config', 'update_dataset', 'update_existing_method', 'update_handlers_code', 'update_room_alias', 'update_section', 'update_server', 'update_server_handlers_code', 'upload_handlers', 'upload_s3_text', 'upload_server_handlers', 'validate_cover_images_ai', 'validate_full_llm_config_ai', 'validate_handlers_semantics_ai', 'validate_layout_types_ai', 'validate_python_syntax', 'validate_sections_ai', 'validate_sections_command_targets_ai', 'validate_show_plugin_literals_ai']
