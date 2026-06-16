@@ -77,7 +77,17 @@ class NodaScriptEngine:
             "GetByIndex": self._get_by_index,
             "FindByGlobalIndex": self._find_by_global_index,
             "GetByGlobalIndex": self._get_by_global_index,
+            "RunProjection": self._run_projection,
+            "run_projection": self._run_projection,
         }
+
+    def _run_projection(self):
+        try:
+            import nodes as server_nodes
+            return server_nodes.RunProjection()
+        except Exception as e:
+            raise NodaScriptError(str(e))
+
 
     def _parse_date(self, text, pattern=None):
         if pattern:
