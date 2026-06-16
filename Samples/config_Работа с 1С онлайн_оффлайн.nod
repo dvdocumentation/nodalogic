@@ -1,0 +1,349 @@
+{
+    "name": "Работа с 1С онлайн/оффлайн",
+    "server_name": "",
+    "uid": "9e3d0006-1965-41e2-b7b8-02e9d969e0ad",
+    "url": "http://192.168.1.133:5000/api/config/9e3d0006-1965-41e2-b7b8-02e9d969e0ad",
+    "content_uid": "619dc4a3-e5c3-4a35-b620-4080bdf088e8",
+    "vendor": "Dmitry Vorontsov",
+    "nodes_handlers": "ZnJvbSBub2Rlc2NsaWVudCBpbXBvcnQgUmVmcmVzaFRhYixTZXRUaXRsZSxDbG9zZU5vZGUsUnVuR1BTLFN0b3BHUFMsVXBkYXRlVmlldyxEaWFsb2csU2NhbkJhcmNvZGUsR2V0TG9jYXRpb24sQWRkVGltZXIsU3RvcFRpbWVyLFNob3dQcm9ncmVzc0J1dHRvbixIaWRlUHJvZ3Jlc3NCdXR0b24sU2hvd1Byb2dyZXNzR2xvYmFsLEhpZGVQcm9ncmVzc0dsb2JhbCxDb250cm9scyxTZXRDb3ZlcixnZXRCYXNlNjRGcm9tSW1hZ2VGaWxlLGNvbnZlcnRJbWFnZUZpbGVzVG9CYXNlNjRBcnJheSxzYXZlQmFzZTY0VG9GaWxlLGNvbnZlcnRCYXNlNjRBcnJheVRvRmlsZVBhdGhzLFVwZGF0ZU1lZGlhR2FsbGVyeQ0KZnJvbSBhbmRyb2lkIGltcG9ydCAqDQpmcm9tIG5vZGVzIGltcG9ydCBOZXdOb2RlLCBEZWxldGVOb2RlLCBHZXRBbGxOb2RlcywgR2V0Tm9kZSwgR2V0QWxsTm9kZXNTdHIsIEdldFJlbW90ZUNsYXNzLCBDcmVhdGVEYXRhU2V0LCBHZXREYXRhU2V0LCBEZWxldGVEYXRhU2V0LHRvX3VpZCwgZnJvbV91aWQsIGdldEJ5SW5kZXgsIGZpbmRCeUluZGV4LCBnZXRCeUdsb2JhbEluZGV4LCBmaW5kQnlHbG9iYWxJbmRleCwgc2VuZFRleHRNZXNzYWdlLCBzZW5kSW1hZ2VNZXNzYWdlDQpmcm9tIGNvbS5kdi5ub2RhIGltcG9ydCBEYXRhU2V0DQpmcm9tIGNvbS5kdi5ub2RhIGltcG9ydCBEYXRhU2V0cw0KZnJvbSBjb20uZHYubm9kYSBpbXBvcnQgU2ltcGxlVXRpbGl0ZXMgYXMgc3UNCmZyb20gZGF0YXNldHMgaW1wb3J0IEdldERhdGFTZXREYXRhDQoNCiMgQ29uZmlndXJhdGlvbiBjb25zdGFudHMNCmN1cnJlbnRfbW9kdWxlX25hbWU9IjllM2QwMDA2LTE5NjUtNDFlMi1iN2I4LTAyZTlkOTY5ZTBhZCIKY3VycmVudF9jb25maWd1cmF0aW9uX3VybD0iaHR0cDovL2xvY2FsaG9zdDo1MDAwL2FwaS9jb25maWcvOWUzZDAwMDYtMTk2NS00MWUyLWI3YjgtMDJlOWQ5NjllMGFkIgpfZGF0YV9kaXIgPSBzdS5nZXRfZGF0YV9kaXIoY3VycmVudF9tb2R1bGVfbmFtZSkNCl9kb3dubG9hZHNfZGlyID0gc3UuZ2V0X2Rvd25sb2Fkc19kaXIoY3VycmVudF9tb2R1bGVfbmFtZSkNCg0KDQpmcm9tIG5vZGVzIGltcG9ydCBOb2RlDQoNCg0KDQpjbGFzcyBHb29kcyhOb2RlKToNCiAgICBkZWYgX19pbml0X18oc2VsZiwgbW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpOg0KICAgICAgICBzdXBlcigpLl9faW5pdF9fKG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKQ0KDQogICAgIiIiQ2xhc3MgR29vZHMiIiINCg0KDQoNCmNsYXNzIENvbnRhaW5lcihOb2RlKToNCiAgICBkZWYgX19pbml0X18oc2VsZiwgbW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpOg0KICAgICAgICBzdXBlcigpLl9faW5pdF9fKG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKQ0KDQogICAgIiIiQ2xhc3MgQ29udGFpbmVyIiIiDQoNCiAgICBkZWYgT3BlbihzZWxmLCBpbnB1dF9kYXRhPU5vbmUpOg0KICAgICAgICByb3dzID0gZmluZEJ5SW5kZXgoIkNvbnRhaW5lckxpbmUiLCAicGFyZW50X2RvYyIsIHNlbGYuX2RhdGFbIl9pZCJdKSBvciBbXSAj0L3QsNGF0L7QtNC40Lwg0L/QviDQuNC90LTQtdC60YHRgyDRgdGC0YDQvtC60Lgg0LTQvtC60YPQvNC10L3RgtCwDQogICAgICAgIHJvd191aWRzID0gdG9fdWlkKHJvd3MpICPRgtCw0LHQu9C40YbQsCDQv9GA0LjQvdC40LzQsNC10YIgItC80LDRgdGB0LjQsiDQmNCUIiDQv9C+0Y3RgtC+0LzRgyDQv9GA0LXQvtCx0YDQsNC30YPQtdC8INC80LDRgdGB0LjQsiDRg9C30LvQvtCyINCyINC90LXQs9C+DQogICAgICAgIHNlbGYuX2RhdGFbImNvbnRhaW5lcl9saW5lcyJdID0gcm93X3VpZHMNCiAgICAgICAgI9CY0YHQv9C+0LvRjNC30YPQtdC8INGA0YPRh9C90L7QuSBTaG93INC00LvRjyDQvtGC0YDQuNGB0L7QstC60LgsINGDINC90LDRgSAyINGN0LrRgNCw0L3QsA0KICAgICAgICBzZWxmLlNob3coDQogICAgICAgICAgWw0KICAgICAgICAgIFsgeyJ0eXBlIjoiSW5wdXQiLCJjYXB0aW9uIjoi0JTQsNGC0LAiLCJpZCI6ImRhdGUiLCJ2YWx1ZSI6IkBkYXRlIiwiaW5wdXRfdHlwZSI6ImRhdGUifSBdLA0KICAgICAgICAgIFsgeyJ0eXBlIjoiSW5wdXQiLCJjYXB0aW9uIjoi0JrQvtC80LzQtdC90YLQsNGA0LjQuSIsImlkIjoiZGVzY3JpcHRpb24iLCJ2YWx1ZSI6IkBkZXNjcmlwdGlvbiJ9IF0sDQogICAgICAgICAgWyB7InR5cGUiOiJCdXR0b24iLCJpZCI6ImJ0bl9hZGRfcG9zaXRpb25zX0NvbnRhaW5lckxpbmUiLCJjYXB0aW9uIjoi0JTQvtCx0LDQstC40YLRjCDRgdGC0YDQvtC60YMiLCJ0YXJnZXRfY2xhc3MiOiJDb250YWluZXJMaW5lIiwidGFyZ2V0X2ZpZWxkIjoicG9zaXRpb25zIiwidGFyZ2V0X3JlbGF0aW9uIjoiY2hpbGRub2RlIn0gXSwNCiAgICAgICAgICBbIHsidHlwZSI6IlBhcmFtZXRlcnMiLCJ3IjoxLCJoZWlnaHQiOi0xfSwgeyJ0eXBlIjoiVGFibGUiLCJ0YWJsZSI6VHJ1ZSwidGFibGVfaGVhZGVyIjpbItCo0YLRgNC40YXQutC+0LR8YmFyY29kZXwyIiwi0KLQvtCy0LDRgHxza3Vfdmlld3wyIiwi0JrQvtC7LdCy0L58cXR5fDEiXSwiaWQiOiJwb3NpdGlvbnMiLCJub2Rlc19zb3VyY2UiOlRydWUsInZhbHVlIjoiQGNvbnRhaW5lcl9saW5lcyJ9IF0NCiAgICAgICAgXQ0KICAgICAgICApDQogICAgICAgIHJldHVybiBUcnVlLHt9CiAgICBkZWYgQWRkUG9zaXRpb24oc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToNCiAgICAgICAgI9Cf0YDQvtCy0LXRgNC40Lwg0YfRgtC+INGB0L7RhdGA0LDQvdC10L0g0L/QviDRhNC70LDQs9GDLiDQkCDRgtC+INC80L7QttC10Lwg0LfQsNCx0YvRgtGMINGB0L7RhdGA0LDQvdC40YLRjC4NCiAgICAgICAgaWYgbm90ICJkb2Nfc2F2ZWQiIGluIHNlbGYuX2RhdGE6DQogICAgICAgICAgc2VsZi5fc2F2ZSgpDQogICAgICAgICAgc2VsZi5fZGF0YVsiZG9jX3NhdmVkIl0gPSBUcnVlDQoKICAgICAgICAj0KLQsNC6INC00LXQu9Cw0LXRgtGB0Y8g0L3QvtCy0YvQuSDRg9C30LXQuywg0YHRgNCw0LfRgyDQsiBfZGF0YSDQtdC80YMg0LrQuNC00LDQtdC8INGB0YHRi9C70LrRgyDQvdCwINC00L7QutGD0LzQtdC90YINCiAgICAgICAgbmV3X2xpbmUgPSBDb250YWluZXJMaW5lLmNyZWF0ZShkYXRhPXsNCiAgICAgICAgICAgICJwYXJlbnRfZG9jIjogc2VsZi5fZGF0YVsiX2lkIl0sDQogICAgICAgICAgICAicXR5IjogMQ0KICAgICAgICB9KQ0KCiAgICAgICAgI9C+0YLQutGA0YvQstCw0LXQvCDRgdGC0YDQvtC60YMt0YPQt9C10LsNCiAgICAgICAgbmV3X2xpbmUuX29wZW4oKQ0KCgogICAgICAgIHJldHVybiBUcnVlLHt9CiAgICBkZWYgQWRkUG9zaXRpb25CYXJjb2RlKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgI9Cf0YDQvtCy0LXRgNC40Lwg0YfRgtC+INGB0L7RhdGA0LDQvdC10L0g0L/QviDRhNC70LDQs9GDLiDQkCDRgtC+INC80L7QttC10Lwg0LfQsNCx0YvRgtGMINGB0L7RhdGA0LDQvdC40YLRjC4NCiAgICAgICAgaWYgbm90ICJkb2Nfc2F2ZWQiIGluIHNlbGYuX2RhdGE6DQogICAgICAgICAgc2VsZi5fc2F2ZSgpDQogICAgICAgICAgc2VsZi5fZGF0YVsiZG9jX3NhdmVkIl0gPSBUcnVlDQoKICAgICAgICAj0JjRidC10Lwg0YLQvtCy0LDRgCDQv9C+INC40L3QtNC10LrRgdGDLdGI0YLRgNC40YXQutC+0LTRgw0KICAgICAgICBza3UgPSBnZXRCeUluZGV4KCJHb29kcyIsImJhcmNvZGUiLHNlbGYuX2RhdGEuZ2V0KCJiYXJjb2RlIikpDQogICAgICAgIGlmIG5vdCBza3U6DQogICAgICAgICAgc3BlYWsoItCi0L7QstCw0YAg0L3QtSDQvdCw0LnQtNC10L0iKQ0KICAgICAgICAgICPQndC+INCy0YHQtSDRgNCw0LLQvdC+INC00L7QsdCw0LLQuNC8INGB0YLRgNC+0LrRgyAgDQogICAgICAgICAgbmV3X2xpbmUgPSBDb250YWluZXJMaW5lLmNyZWF0ZShkYXRhPXsNCiAgICAgICAgICAgICJwYXJlbnRfZG9jIjogc2VsZi5fZGF0YVsiX2lkIl0sDQogICAgICAgICAgICAicXR5IjogMSwNCiAgICAgICAgICAgICJiYXJjb2RlIjpzZWxmLl9kYXRhLmdldCgiYmFyY29kZSIpDQoKICAgICAgICB9KQ0KICAgICAgICAgIG5ld19saW5lLl9zYXZlKCkNCiAgICAgICAgZWxzZToNCiAgICAgICAgICBuZXdfbGluZSA9IENvbnRhaW5lckxpbmUuY3JlYXRlKGRhdGE9ew0KICAgICAgICAgICAgInBhcmVudF9kb2MiOiBzZWxmLl9kYXRhWyJfaWQiXSwNCiAgICAgICAgICAgICJxdHkiOiAxLA0KICAgICAgICAgICAgImJhcmNvZGUiOnNlbGYuX2RhdGEuZ2V0KCJiYXJjb2RlIiksDQogICAgICAgICAgICAic2t1Ijpza3UuX2RhdGFbIl9pZCJdDQogICAgICAgIH0pDQogICAgICAgICAgbmV3X2xpbmUuX3NhdmUoKSAgDQoKICAgICAgICAj0K3RgtC+INC00LvRjyDQv9C10YDQtdGA0LjRgdC+0LLQutC4INCy0YHQtdCz0L4g0Y3QutGA0LDQvdCwLdCy0YvQt9C+0LLQtdC8INC80LXRgtC+0LQgT3Blbi4g0JzQvtC20L3QviDRgtC+0LvRjNC60L4g0L7QsdC90L7QstC40YLRjCDRgtCw0LHQu9C40YbRgywg0L3QviDQvdCwINGN0LrRgNCw0L3QtSDQv9C+INGB0YPRgtC4INC/0L7Rh9GC0Lgg0L3QuNGH0LXQs9C+INCx0L7Qu9GM0YjQtSDQvdC10YINCiAgICAgICAgc2VsZi5PcGVuKCkNCgogICAgICAgIHJldHVybiBUcnVlLHt9CiAgICBkZWYgUHJlcGFyZVRvVXBsb2FkKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgcm93cyA9IGZpbmRCeUluZGV4KCJDb250YWluZXJMaW5lIiwgInBhcmVudF9kb2MiLCBzZWxmLl9kYXRhWyJfaWQiXSkgb3IgW10NCiAgICAgICAgcm93X2RhdGEgPSBbXQ0KICAgICAgICBmb3Igcm93IGluIHJvd3M6DQogICAgICAgICAgcm93X2RhdGEuYXBwZW5kKHJvdy5fZGF0YSkNCgoKICAgICAgICBzZWxmLl9kYXRhWyJyb3dfZGF0YSJdICA9IHJvd19kYXRhDQoKICAgICAgICByZXR1cm4gVHJ1ZSx7fQpjbGFzcyBDb250YWluZXJMaW5lKE5vZGUpOg0KICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6DQogICAgICAgIHN1cGVyKCkuX19pbml0X18obW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpDQoNCiAgICAiIiJDbGFzcyBDb250YWluZXJMaW5lIiIiDQoKICAgIGRlZiBiZWZvcmVfc2F2ZShzZWxmLCBpbnB1dF9kYXRhPU5vbmUpOgogICAgICAgIHNrdV9yZWYgPSBzZWxmLl9kYXRhLmdldCgic2t1IikNCiAgICAgICAgaWYgc2t1X3JlZjoNCiAgICAgICAgICAgIGdvb2RzID0gR29vZHMuZ2V0KHNrdV9yZWYpDQogICAgICAgICAgICBpZiBnb29kcyBpcyBub3QgTm9uZToNCiAgICAgICAgICAgICAgICBzZWxmLl9kYXRhWyJza3VfdmlldyJdID0gZ29vZHMuX2RhdGEuZ2V0KCJuYW1lIiwgIiIpDQogICAgICAgICAgICBlbHNlOg0KICAgICAgICAgICAgICAgIHNlbGYuX2RhdGFbInNrdV92aWV3Il0gPSBza3VfcmVmDQoKICAgICAgICByZXR1cm4gVHJ1ZSx7fQ==",
+    "nodes_handlers_meta": null,
+    "nodes_server_handlers": "DQpmcm9tIG5vZGVzIGltcG9ydCBOb2RlLCBtZXNzYWdlLCBEaWFsb2csIHRvX3VpZCwgZnJvbV91aWQsIENsb3NlTm9kZSwgRGF0YVNldHMsIGNvbnZlcnRCYXNlNjRBcnJheVRvRmlsZVBhdGhzLGNvbnZlcnRJbWFnZUZpbGVzVG9CYXNlNjRBcnJheSxnZXRCYXNlNjRGcm9tSW1hZ2VGaWxlLHNhdmVCYXNlNjRUb0ZpbGUsIGdldEJ5SW5kZXgsIGZpbmRCeUluZGV4LCBnZXRCeUdsb2JhbEluZGV4LCBmaW5kQnlHbG9iYWxJbmRleCwgc2VuZFRleHRNZXNzYWdlLCBzZW5kSW1hZ2VNZXNzYWdlLCBzZW5kVGV4dFRvTm9kZURpc2N1c3Npb24sIHNlbmRJbWFnZVRvTm9kZURpc2N1c3Npb24sIGRvd25sb2FkSnNvbkNhY2hlZCwgZGlzcGF0Y2hfanNvbl9ub2RlX2V2ZW50LCBkaXNwYXRjaF9kb3dubG9hZGVkX25vZGVfZXZlbnQNCg0KZGVmIHByaW50X3RpbWVyKGlucHV0X2RhdGEpOg0KICBwcmludChpbnB1dF9kYXRhWyJfdGltZXJfaWQiXSkNCiAgcmV0dXJuIFRydWUse30NCg0KY2xhc3MgR29vZHMoTm9kZSk6DQogICAgDQogICAgZGVmIF9faW5pdF9fKHNlbGYsIG5vZGVfaWQ9Tm9uZSwgY29uZmlnX3VpZD1Ob25lKToNCiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQ0KICAgICAgICAjIEFkZGl0aW9uYWwgaW5pdGlhbG96YXRpb24gZm9yIEdvb2RzDQoNCg0KDQpjbGFzcyBDb250YWluZXIoTm9kZSk6CiAgICAKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQogICAgICAgICMgQWRkaXRpb25hbCBpbml0aWFsb3phdGlvbiBmb3IgQ29udGFpbmVyCgoKCmNsYXNzIENvbnRhaW5lckxpbmUoTm9kZSk6CiAgICAKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQogICAgICAgICMgQWRkaXRpb25hbCBpbml0aWFsb3phdGlvbiBmb3IgQ29udGFpbmVyTGluZQo=",
+    "nodes_server_handlers_meta": null,
+    "version": "00.00.02",
+    "NodaLogicFormat": "1.1",
+    "NodaLogicType": "ANDROID_SERVER",
+    "last_modified": "2026-06-12T15:10:30.677347+03:00",
+    "provider": "Dmitry Vorontsov",
+    "CommonLayouts": [],
+    "classes": [
+        {
+            "name": "Goods",
+            "section": "1С онлайн: прочее",
+            "section_code": "online_1c_service",
+            "has_storage": false,
+            "display_name": "Goods",
+            "record_view": "{name},{article}",
+            "cover_image": "[\r\n  [ {\"type\":\"Text\",\"value\":\"Name\"}, {\"type\":\"Text\",\"value\":\"@name\",\"bold\":true} ],\r\n  [ {\"type\":\"Text\",\"value\":\"Article\"}, {\"type\":\"Text\",\"value\":\"@article\",\"bold\":true} ],\r\n  [ {\"type\":\"Text\",\"value\":\"Barcode\"}, {\"type\":\"Text\",\"value\":\"@barcode\",\"bold\":true} ]\r\n]",
+            "display_image_web": "",
+            "display_image_table": "",
+            "init_screen_layout": "[\r\n  [ {\"type\":\"Input\",\"caption\":\"Name\",\"id\":\"name\",\"value\":\"@name\"} ],\r\n  [ {\"type\":\"Input\",\"caption\":\"Article\",\"id\":\"article\",\"value\":\"@article\"} ],\r\n  [ {\"type\":\"Input\",\"caption\":\"Barcode\",\"id\":\"barcode\",\"value\":\"@barcode\"} ]\r\n]",
+            "init_screen_layout_web": "",
+            "data_structure": "Name|name: string\r\nArticle|article: string\r\nBarcode|barcode: string",
+            "show_tag_cloud": false,
+            "mobile_print_enabled": false,
+            "plug_in": "",
+            "plug_in_web": "",
+            "commands": "",
+            "use_standard_commands": true,
+            "svg_commands": "",
+            "migration_register_command": false,
+            "migration_register_on_save": false,
+            "migration_default_room_uid": "",
+            "migration_default_room_alias": "",
+            "link_share_mode": "",
+            "indexes": [
+                {
+                    "name": "barcode",
+                    "kind": "hash_index",
+                    "keys": "barcode",
+                    "filter_enabled": true,
+                    "filter_label": "Sku barcode",
+                    "filter_type": "string",
+                    "filter_list_enabled": false
+                },
+                {
+                    "name": "name",
+                    "kind": "trigram_index",
+                    "keys": "name",
+                    "filter_enabled": false,
+                    "filter_label": "",
+                    "filter_type": "string",
+                    "filter_list_enabled": false
+                }
+            ],
+            "class_type": "data_node",
+            "projection_type": "",
+            "projection_kanban_columns": "",
+            "print_template_type": "html_jinja",
+            "print_target_classes": [],
+            "print_html_template": "",
+            "hidden": false,
+            "methods": [],
+            "events": []
+        },
+        {
+            "name": "Container",
+            "section": "1С онлайн:документы",
+            "section_code": "online_1c_sample",
+            "has_storage": false,
+            "display_name": "Container",
+            "record_view": "Контейнер от {date}, комментарий: {description}",
+            "cover_image": "[[{\"type\":\"Text\",\"value\":\"Контейнер, дата:\"},{\"type\":\"Text\",\"value\":\"@date\",\"bold\":true}],\r\n[{\"type\":\"Text\",\"value\":\"@description\",\"italic\":true}]\r\n]",
+            "display_image_web": "",
+            "display_image_table": "",
+            "init_screen_layout": "",
+            "init_screen_layout_web": "",
+            "data_structure": "Дата|date: date\r\nКомментарий|description: string\r\npositions:[Node(\"ContainerLine\")]",
+            "show_tag_cloud": false,
+            "mobile_print_enabled": false,
+            "plug_in": "[{\"type\":\"BarcodeScanner \",\"id\":\"barcode\"},{\"type\":\"CameraBarcodeScannerButton\",\"id\":\"barcode\"},{\"type\":\"ToolbarButton\",\"id\":\"upload\",\"caption\":\"Выгрузить в 1С\"}]",
+            "plug_in_web": "",
+            "commands": "",
+            "use_standard_commands": true,
+            "svg_commands": "",
+            "migration_register_command": false,
+            "migration_register_on_save": false,
+            "migration_default_room_uid": "",
+            "migration_default_room_alias": "",
+            "link_share_mode": "",
+            "indexes": [],
+            "class_type": "data_node",
+            "projection_type": "",
+            "projection_kanban_columns": "",
+            "print_template_type": "html_jinja",
+            "print_target_classes": [],
+            "print_html_template": "",
+            "hidden": false,
+            "methods": [
+                {
+                    "name": "Open",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "Open"
+                },
+                {
+                    "name": "AddPosition",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "AddPosition"
+                },
+                {
+                    "name": "AddPositionBarcode",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "AddPositionBarcode"
+                },
+                {
+                    "name": "PrepareToUpload",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "PrepareToUpload"
+                }
+            ],
+            "events": [
+                {
+                    "event": "onShow",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "Open",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "btn_add_positions_ContainerLine",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "AddPosition",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "dlg_add_positive",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "AddPositionDialog",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onResume",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "Open",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "barcode",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "AddPositionBarcode",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "upload",
+                    "actions": [
+                        {
+                            "action": "runprogress",
+                            "source": "internal",
+                            "server": "",
+                            "method": "HTTPRequest",
+                            "postExecuteMethod": "",
+                            "httpFunctionName": "upload_to_documents_open"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "selected_type",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "HTTPRequest",
+                            "postExecuteMethod": "",
+                            "httpFunctionName": "upload_to_documents_select"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "table_upload_documents_click",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "PrepareToUpload",
+                            "postExecuteMethod": ""
+                        },
+                        {
+                            "action": "runprogress",
+                            "source": "internal",
+                            "server": "",
+                            "method": "HTTPRequest",
+                            "postExecuteMethod": "",
+                            "httpFunctionName": "upload_to_documents_select_line"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "message(_data.listener)"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "ContainerLine",
+            "section": "1С онлайн: прочее",
+            "section_code": "online_1c_service",
+            "has_storage": true,
+            "display_name": "ContainerLine",
+            "record_view": "{_id}",
+            "cover_image": "[\r\n  [ {\"type\":\"Text\",\"value\":\"Товар\"}, {\"type\":\"NodeLink\",\"value\":\"@sku\",\"bold\":true} ],\r\n  [ {\"type\":\"Text\",\"value\":\"Штрихкод\"}, {\"type\":\"Text\",\"value\":\"@barcode\",\"bold\":true} ],\r\n  [ {\"type\":\"Text\",\"value\":\"Кол-во\"}, {\"type\":\"Text\",\"value\":\"@qty\",\"bold\":true} ]\r\n]",
+            "display_image_web": "",
+            "display_image_table": "",
+            "init_screen_layout": "[\r\n  [ {\"type\":\"NodeInput\",\"caption\":\"Номенклатура\",\"id\":\"sku\",\"dataset\":\"Goods\",\"value\":\"@sku\"} ],\r\n  [ {\"type\":\"Input\",\"caption\":\"Штрихкод\",\"id\":\"barcode\",\"value\":\"@barcode\"} ],\r\n  [ {\"type\":\"Input\",\"caption\":\"Количество\",\"id\":\"qty\",\"value\":\"@qty\",\"input_type\":\"number\"} ],\r\n  [{\"type\":\"NodeLink\",\"value\":\"@parent_doc\"} ]\r\n]",
+            "init_screen_layout_web": "",
+            "data_structure": "Номенклатура|sku: Node(\"Goods\")\r\nШтрихкод|barcode: string\r\nКоличество|qty: number\r\nparent_doc|parent_doc: Node(\"Container\")",
+            "show_tag_cloud": false,
+            "mobile_print_enabled": false,
+            "plug_in": "",
+            "plug_in_web": "",
+            "commands": "",
+            "use_standard_commands": true,
+            "svg_commands": "",
+            "migration_register_command": false,
+            "migration_register_on_save": false,
+            "migration_default_room_uid": "",
+            "migration_default_room_alias": "",
+            "link_share_mode": "",
+            "indexes": [
+                {
+                    "name": "parent_doc",
+                    "kind": "hash_index",
+                    "keys": "parent_doc",
+                    "filter_enabled": false,
+                    "filter_label": "",
+                    "filter_type": "string",
+                    "filter_list_enabled": false
+                }
+            ],
+            "class_type": "data_node",
+            "projection_type": "",
+            "projection_kanban_columns": "",
+            "print_template_type": "html_jinja",
+            "print_target_classes": [],
+            "print_html_template": "",
+            "hidden": false,
+            "methods": [
+                {
+                    "name": "before_save",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "before_save"
+                }
+            ],
+            "events": [
+                {
+                    "event": "onAccept",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "before_save",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "datasets": [],
+    "sections": [
+        {
+            "name": "1С онлайн:документы",
+            "code": "online_1c_sample",
+            "commands": ""
+        },
+        {
+            "name": "1С онлайн: прочее",
+            "code": "online_1c_service",
+            "commands": ""
+        }
+    ],
+    "servers": [],
+    "rooms": [],
+    "CommonEvents": [],
+    "Timers": []
+}
