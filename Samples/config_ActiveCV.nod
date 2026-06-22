@@ -1,0 +1,276 @@
+{
+    "name": "ActiveCV",
+    "server_name": "",
+    "uid": "39866576-4b2a-48c4-bd7d-900a7e602f15",
+    "url": "http://nmaker.pw/api/config/39866576-4b2a-48c4-bd7d-900a7e602f15",
+    "content_uid": "80e0881c-774f-4b1e-aa69-b4ee3176d3cf",
+    "vendor": "Dmitry Vorontsov",
+    "nodes_handlers": "ZnJvbSBub2Rlc2NsaWVudCBpbXBvcnQgUmVmcmVzaFRhYixTZXRUaXRsZSxDbG9zZU5vZGUsUnVuR1BTLFN0b3BHUFMsVXBkYXRlVmlldyxEaWFsb2csU2NhbkJhcmNvZGUsR2V0TG9jYXRpb24sQWRkVGltZXIsU3RvcFRpbWVyLFNob3dQcm9ncmVzc0J1dHRvbixIaWRlUHJvZ3Jlc3NCdXR0b24sU2hvd1Byb2dyZXNzR2xvYmFsLEhpZGVQcm9ncmVzc0dsb2JhbCxDb250cm9scyxTZXRDb3ZlcixnZXRCYXNlNjRGcm9tSW1hZ2VGaWxlLGNvbnZlcnRJbWFnZUZpbGVzVG9CYXNlNjRBcnJheSxzYXZlQmFzZTY0VG9GaWxlLGNvbnZlcnRCYXNlNjRBcnJheVRvRmlsZVBhdGhzLFVwZGF0ZU1lZGlhR2FsbGVyeQ0KZnJvbSBhbmRyb2lkIGltcG9ydCAqDQpmcm9tIG5vZGVzIGltcG9ydCAqDQpmcm9tIGNvbS5kdi5ub2RhIGltcG9ydCBEYXRhU2V0DQpmcm9tIGNvbS5kdi5ub2RhIGltcG9ydCBEYXRhU2V0cw0KZnJvbSBjb20uZHYubm9kYSBpbXBvcnQgU2ltcGxlVXRpbGl0ZXMgYXMgc3UNCmZyb20gZGF0YXNldHMgaW1wb3J0IEdldERhdGFTZXREYXRhDQoNCiMgQ29uZmlndXJhdGlvbiBjb25zdGFudHMNCmN1cnJlbnRfbW9kdWxlX25hbWU9IjM5ODY2NTc2LTRiMmEtNDhjNC1iZDdkLTkwMGE3ZTYwMmYxNSINCmN1cnJlbnRfY29uZmlndXJhdGlvbl91cmw9Imh0dHA6Ly9ubWFrZXIucHcvYXBpL2NvbmZpZy8zOTg2NjU3Ni00YjJhLTQ4YzQtYmQ3ZC05MDBhN2U2MDJmMTUiDQpfZGF0YV9kaXIgPSBzdS5nZXRfZGF0YV9kaXIoY3VycmVudF9tb2R1bGVfbmFtZSkNCl9kb3dubG9hZHNfZGlyID0gc3UuZ2V0X2Rvd25sb2Fkc19kaXIoY3VycmVudF9tb2R1bGVfbmFtZSkNCg0KDQpmcm9tIG5vZGVzIGltcG9ydCBOb2RlDQoNCg0KDQpjbGFzcyBBY3RpdmVDVihOb2RlKToNCiAgICBkZWYgX19pbml0X18oc2VsZiwgbW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpOg0KICAgICAgICBzdXBlcigpLl9faW5pdF9fKG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKQ0KDQogICAgIiIiQ2xhc3MgQWN0aXZlQ1YiIiINCg0KICAgIGRlZiBPcGVuKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6DQogICAgICAgIHNlbGYuX2RhdGFbIkNhbWVyYVNldERldGVjdG9yIl0gPSAiQkFSQ09ERSINCiAgICAgICAgc2VsZi5fZGF0YVsiQ2FtZXJhU2V0U3VwcG9ydGVkQmFyY29kZXMiXSA9ICJRUixDT0RFXzEyOCxFQU4xMyINCiAgICAgICAgc2VsZi5fZGF0YVsiQ2FtZXJhU2V0UmVzb2x1dGlvblByZXZpZXciXSA9ICI3MjAiDQogICAgICAgIHNlbGYuX2RhdGFbIkNhbWVyYVNldFJlc29sdXRpb25BbmFseXNpcyJdID0gIjY0MCINCiAgICAgICAgc2VsZi5fZGF0YVsiQ2FtZXJhU2V0U2VsZWN0b3IiXSA9ICJiYWNrIg0KCiAgICAgICAgI9C80L7QttC90L4g0LjRgdC/0L7Qu9GM0LfQvtCy0LDRgtGMINC40L3QtNC10LrRgSDQtNC70Y8g0LLQsNC70LjQtNCw0YbQuNC4INGB0YDQsNC30YMsINGN0YLQviDRg9GB0LrQvtGA0Y/QtdGCINC00LXQu9C+DQogICAgICAgICNzZWxmLl9kYXRhWyJDYW1lcmFTZXRCYXJjb2RlVmFsaWRhdG9yIl0gPSB7DQogICAgICAgICMgICAgIm5vZGVfaW5kZXgiOiB7DQogICAgICAgICMgICAgICAgICJjbGFzcyI6ICJTS1UiLA0KICAgICAgICAjICAgICAgICAibmFtZSI6ICJiYXJjb2RlIg0KICAgICAgICAjICAgIH0NCiAgICAgICAgI30NCgoKICAgICAgICByZXR1cm4gVHJ1ZSx7fQogICAgZGVmIHByb2Nlc3NfYmFyY29kZXMoc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToNCiAgICAgICAgdmFsdWVzID0gc2VsZi5fZGF0YS5nZXQoImRldGVjdGVkX3ZhbHVlcyIsIFtdKSAj0J/QvtC70YPRh9Cw0LXQvCDQvtCx0YrQtdC60YLRiyDQsiDQutCw0LTRgNC1DQogICAgICAgIG9iamVjdHMgPSBzZWxmLl9kYXRhLmdldCgiU2V0T2JqZWN0c1ZpZXciLCBbXSkgI9C80LDRgdGB0LjQsiDRgNCw0YHQutGA0LDRgdC60LggDQoKICAgICAgICBpZiB2YWx1ZXM6DQogICAgICAgICAgICBiYXJjb2RlID0gdmFsdWVzWzBdLmdldCgidmFsdWUiLCAiIikNCiAgICAgICAgICAgIHNlbGYuX2RhdGFbImxhc3RfYmFyY29kZSJdID0gYmFyY29kZQ0KICAgICAgICAgICAgYmVlcCgpDQoKICAgICAgICAgICAgIyDQntCx0L3QvtCy0LvRj9C10Lwg0YLQvtC70YzQutC+INGC0LXQutGB0YLQvtCy0L7QtSDQv9C+0LvQtSwgQWN0aXZlQ1Yg0L3QtSDRgtGA0L7Qs9Cw0LXQvA0KICAgICAgICAgICAgc2VsZi5VcGRhdGVWaWV3KCJsYXN0X2JhcmNvZGUiLCBOb25lKQ0KICAgICAgICAgICAgI9C40YnQtdC8INC+0LHRitC10LrRgiDQv9C+INC40L3QtNC10LrRgdGDDQogICAgICAgICAgICByZXMgPSBnZXRCeUluZGV4KCJTS1UiLCAiYmFyY29kZSIsIGJhcmNvZGUpDQoKICAgICAgICAgICAgI0NhbWVyYVNldE9iamVjdFZpZXcoYmFyY29kZSwgIiNmMGUyMjQiLCBuYW1lKSAj0LzQvtC20L3QviDQvNC10L3Rj9GC0Ywg0YLQsNC6LCDQv9C+INC+0LTQvdC+0LzRgy4g0J3QuNC20LUgLSDQsdC+0LvQtdC1INC+0LHRidC40Lkg0YHQv9C+0YHQvtCxDQoKICAgICAgICAgICAgbmFtZSA9ICJOb3QgZm91bmQiDQogICAgICAgICAgICBpZiByZXMgaXMgbm90IE5vbmU6DQogICAgICAgICAgICAgICAgbmFtZSA9IHJlcy5fZGF0YS5nZXQoIm5hbWUiLCAiIikNCgogICAgICAgICAgICBjdiA9IHsNCiAgICAgICAgICAgICAgICAiaWQiOiBiYXJjb2RlLA0KICAgICAgICAgICAgICAgICJjb2xvciI6ICIjZjBlMjI0IiwNCiAgICAgICAgICAgICAgICAiY2FwdGlvbiI6IG5hbWUNCiAgICAgICAgICAgIH0NCgogICAgICAgICAgICBpdGVtID0gbmV4dCgoeCBmb3IgeCBpbiBvYmplY3RzIGlmIHguZ2V0KCJpZCIpID09IGJhcmNvZGUpLCBOb25lKQ0KCiAgICAgICAgICAgIGlmIGl0ZW0gaXMgTm9uZToNCiAgICAgICAgICAgICAgICBvYmplY3RzLmFwcGVuZChjdikNCiAgICAgICAgICAgIGVsc2U6DQogICAgICAgICAgICAgICAgaXRlbVsiY29sb3IiXSA9IGN2WyJjb2xvciJdDQogICAgICAgICAgICAgICAgaXRlbVsiY2FwdGlvbiJdID0gY3ZbImNhcHRpb24iXQ0KCiAgICAgICAgICAgIENhbWVyYVNldE9iamVjdHNWaWV3KG9iamVjdHMpDQoKICAgICAgICByZXR1cm4gVHJ1ZSwge30KY2xhc3MgU0tVKE5vZGUpOg0KICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6DQogICAgICAgIHN1cGVyKCkuX19pbml0X18obW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpDQoNCiAgICAiIiJDbGFzcyBTS1UiIiINCgoKCmNsYXNzIEFjdGl2ZUNWT0NSKE5vZGUpOgogICAgZGVmIF9faW5pdF9fKHNlbGYsIG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKToKICAgICAgICBzdXBlcigpLl9faW5pdF9fKG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKQoKICAgICIiIkNsYXNzIEFjdGl2ZUNWT0NSIiIiCgogICAgZGVmIE9wZW4oc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKICAgICAgICBzZWxmLl9kYXRhWyJDYW1lcmFTZXREZXRlY3RvciJdID0gIk9DUiINCiAgICAgICAgc2VsZi5fZGF0YVsiQ2FtZXJhU2V0UmVzb2x1dGlvblByZXZpZXciXSA9ICI3MjAiDQogICAgICAgIHNlbGYuX2RhdGFbIkNhbWVyYVNldFJlc29sdXRpb25BbmFseXNpcyJdID0gIjY0MCINCiAgICAgICAgc2VsZi5fZGF0YVsiQ2FtZXJhU2V0U2VsZWN0b3IiXSA9ICJiYWNrIg0KICAgICAgICAj0J7QsdGP0LfQsNGC0LXQu9GM0L3QviDQsiBPQ1Ig0LjRgdC/0L7Qu9GM0LfRg9C10Lwg0LzQsNGB0LrRgw0KICAgICAgICBzZWxmLl9kYXRhWyJDYW1lcmFTZXRPQ1JNYXNrIl09WyIoW2EtekEtWjAtOS0uXXszLDE1fSkiXQ0KICAgICAgICAj0JLQsNC70LjQtNCw0YLQvtGAIC0g0L/QviDQttC10LvQsNC90LjRjiwg0LzQvtC20L3QviDQsdC10Lcg0L3QtdCz0L4NCiAgICAgICAgI3NlbGYuX2RhdGFbIkNhbWVyYVNldE9DUlZhbGlkYXRvciJdID0gew0KICAgICAgICAjICAgICJub2RlX2luZGV4Ijogew0KICAgICAgICAjICAgICAgICAiY2xhc3MiOiAiU0tVIiwNCiAgICAgICAgIyAgICAgICAgIm5hbWUiOiAiYXJ0aWNsZSINCiAgICAgICAgIyAgICB9LA0KICAgICAgICAjICAgICJtaW5fY2hhcnMiOiAzLA0KICAgICAgICAjICAgICJtYXhfY2hhcnMiOiAxNQ0KICAgICAgICAjfQ0KCiAgICAgICAgcmV0dXJuIFRydWUse30KICAgIGRlZiBwcm9jZXNzX3RleHQoc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKICAgICAgICB0b2FzdCgn0JIg0LrQsNC00YDQtTogJysnLCAnLmpvaW4oaXRlbVsndmFsdWUnXSBmb3IgaXRlbSBpbiBzZWxmLl9kYXRhWyJkZXRlY3RlZF92YWx1ZXMiXSkpDQogICAgICAgIGJlZXAoKQ0KCiAgICAgICAgcmV0dXJuIFRydWUse30=",
+    "nodes_handlers_meta": null,
+    "nodes_server_handlers": "CmZyb20gbm9kZXMgaW1wb3J0IE5vZGUsIG1lc3NhZ2UsIERpYWxvZywgdG9fdWlkLCBmcm9tX3VpZCwgQ2xvc2VOb2RlLCBEYXRhU2V0cywgY29udmVydEJhc2U2NEFycmF5VG9GaWxlUGF0aHMsY29udmVydEltYWdlRmlsZXNUb0Jhc2U2NEFycmF5LGdldEJhc2U2NEZyb21JbWFnZUZpbGUsc2F2ZUJhc2U2NFRvRmlsZSwgZ2V0QnlJbmRleCwgZmluZEJ5SW5kZXgsIGdldEJ5R2xvYmFsSW5kZXgsIGZpbmRCeUdsb2JhbEluZGV4LCBzZW5kVGV4dE1lc3NhZ2UsIHNlbmRJbWFnZU1lc3NhZ2UsIHNlbmRUZXh0VG9Ob2RlRGlzY3Vzc2lvbiwgc2VuZEltYWdlVG9Ob2RlRGlzY3Vzc2lvbiwgZG93bmxvYWRKc29uQ2FjaGVkLCBkaXNwYXRjaF9qc29uX25vZGVfZXZlbnQsIGRpc3BhdGNoX2Rvd25sb2FkZWRfbm9kZV9ldmVudAoKCgpjbGFzcyBBY3RpdmVDVihOb2RlKToKICAgIAogICAgZGVmIF9faW5pdF9fKHNlbGYsIG5vZGVfaWQ9Tm9uZSwgY29uZmlnX3VpZD1Ob25lKToKICAgICAgICBzdXBlcigpLl9faW5pdF9fKG5vZGVfaWQsIGNvbmZpZ191aWQpCiAgICAgICAgIyBBZGRpdGlvbmFsIGluaXRpYWxvemF0aW9uIGZvciBBY3RpdmVDVgoKCgpjbGFzcyBTS1UoTm9kZSk6CiAgICAKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQogICAgICAgICMgQWRkaXRpb25hbCBpbml0aWFsb3phdGlvbiBmb3IgU0tVCgoKCmNsYXNzIEFjdGl2ZUNWT0NSKE5vZGUpOgogICAgCiAgICBkZWYgX19pbml0X18oc2VsZiwgbm9kZV9pZD1Ob25lLCBjb25maWdfdWlkPU5vbmUpOgogICAgICAgIHN1cGVyKCkuX19pbml0X18obm9kZV9pZCwgY29uZmlnX3VpZCkKICAgICAgICAjIEFkZGl0aW9uYWwgaW5pdGlhbG96YXRpb24gZm9yIEFjdGl2ZUNWT0NSCg==",
+    "nodes_server_handlers_meta": null,
+    "version": "00.00.01",
+    "NodaLogicFormat": "1.1",
+    "NodaLogicType": "ANDROID_SERVER",
+    "last_modified": "2026-06-22T07:54:03.594378+03:00",
+    "provider": "Dmitry Vorontsov",
+    "CommonLayouts": [],
+    "classes": [
+        {
+            "name": "ActiveCV",
+            "section": "ActiveCV",
+            "section_code": "ActiveCV",
+            "has_storage": false,
+            "display_name": "ActiveCV (barcode)",
+            "record_view": "",
+            "cover_image": "[[\"ActiveCV sample (barcode)\"],[\"Пример раскраски по штрихкодам и запуск ActiveCV(OCR) в отдельном окне\"]]",
+            "display_image_web": "",
+            "display_image_table": "",
+            "init_screen_layout": "[\r\n  [ {\"type\":\"Parameters\",\"height\":0,\"w\":1}, {\"type\":\"ActiveCV\",\"id\":\"active_cv\",\"width\":-1,\"height\":-1} ],\r\n  [ {\"type\":\"Parameters\",\"height\":0,\"w\":2}, {\"type\":\"VerticalLayout\",\"id\":\"cv_info_container\",\"width\":-1,\"height\":-1,\"value\":[{\"type\":\"Text\",\"value\":\"Последний штрихкод:\",\"w\":0},{\"type\":\"Text\",\"value\":\"@last_barcode\",\"id\":\"last_barcode\",\"w\":0},{\"type\":\"Button\",\"id\":\"run_cv\",\"w\":0,\"caption\":\"RunCV\"}]} ]\r\n]",
+            "init_screen_layout_web": "",
+            "data_structure": "",
+            "show_tag_cloud": false,
+            "mobile_print_enabled": false,
+            "plug_in": "",
+            "plug_in_web": "",
+            "commands": "",
+            "use_standard_commands": false,
+            "svg_commands": "",
+            "migration_register_command": false,
+            "migration_register_on_save": false,
+            "migration_send_via_queue": false,
+            "migration_default_room_uid": "",
+            "migration_default_room_alias": "",
+            "link_share_mode": "",
+            "indexes": [],
+            "class_type": "custom_process",
+            "projection_type": "",
+            "projection_kanban_columns": "",
+            "print_template_type": "html_jinja",
+            "print_target_classes": [],
+            "print_html_template": "",
+            "hidden": false,
+            "methods": [
+                {
+                    "name": "Open",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "Open"
+                },
+                {
+                    "name": "process_barcodes",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "process_barcodes"
+                }
+            ],
+            "events": [
+                {
+                    "event": "onShow",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "Open",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "new_barcodes_detected",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "process_barcodes",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "run_cv",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "_data.CameraSetDetector=\"OCR\";\n_data.CameraSetOCRMask=[\"([a-zA-Z0-9-.]{3,15})\"];\nRunCV(\"my_cv\")"
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "my_cv",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "NodaScript",
+                            "postExecuteMethod": "",
+                            "methodText": "message(_data.detected_values[0].value)"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "SKU",
+            "section": "ActiveCV",
+            "section_code": "ActiveCV",
+            "has_storage": false,
+            "display_name": "SKU",
+            "record_view": "{name},{article}",
+            "cover_image": "[\r\n  [ {\"type\":\"Text\",\"value\":\"@name\",\"bold\":true} ],\r\n  [ {\"type\":\"Text\",\"value\":\"Article\"}, {\"type\":\"Text\",\"value\":\"@article\",\"bold\":true} ]\r\n]",
+            "display_image_web": "",
+            "display_image_table": "",
+            "init_screen_layout": "[\r\n  [ {\"type\":\"Input\",\"caption\":\"Barcode\",\"id\":\"barcode\",\"value\":\"@barcode\"} ],\r\n  [ {\"type\":\"Input\",\"caption\":\"Name\",\"id\":\"name\",\"value\":\"@name\"} ],\r\n  [ {\"type\":\"Input\",\"caption\":\"Article\",\"id\":\"article\",\"value\":\"@article\"} ]\r\n]",
+            "init_screen_layout_web": "",
+            "data_structure": "Barcode|barcode: string\r\nName|name: string\r\nArticle|article: string",
+            "show_tag_cloud": false,
+            "mobile_print_enabled": false,
+            "plug_in": "",
+            "plug_in_web": "",
+            "commands": "",
+            "use_standard_commands": true,
+            "svg_commands": "",
+            "migration_register_command": true,
+            "migration_register_on_save": false,
+            "migration_send_via_queue": true,
+            "migration_default_room_uid": "",
+            "migration_default_room_alias": "",
+            "link_share_mode": "",
+            "indexes": [
+                {
+                    "name": "barcode",
+                    "kind": "hash_index",
+                    "keys": "barcode",
+                    "filter_enabled": false,
+                    "filter_label": "",
+                    "filter_type": "string",
+                    "filter_list_enabled": false
+                },
+                {
+                    "name": "article",
+                    "kind": "text_index_full",
+                    "keys": "article",
+                    "filter_enabled": false,
+                    "filter_label": "",
+                    "filter_type": "string",
+                    "filter_list_enabled": false
+                }
+            ],
+            "class_type": "data_node",
+            "projection_type": "",
+            "projection_kanban_columns": "",
+            "print_template_type": "html_jinja",
+            "print_target_classes": [],
+            "print_html_template": "",
+            "hidden": false,
+            "methods": [],
+            "events": []
+        },
+        {
+            "name": "ActiveCVOCR",
+            "section": "ActiveCV",
+            "section_code": "ActiveCV",
+            "has_storage": false,
+            "display_name": "ActiveCV (OCR)",
+            "record_view": "",
+            "cover_image": "[[\"ActiveCV sample (OCR)\"]]",
+            "display_image_web": "",
+            "display_image_table": "",
+            "init_screen_layout": "[\r\n  [ {\"type\":\"Parameters\",\"height\":0,\"w\":1}, {\"type\":\"ActiveCV\",\"id\":\"active_cv\",\"width\":-1,\"height\":-1} ],\r\n  [ {\"type\":\"Parameters\",\"height\":0,\"w\":1}, {\"type\":\"VerticalLayout\",\"id\":\"cv_info_container\",\"width\":-1,\"height\":-1,\"value\":[]} ]\r\n]",
+            "init_screen_layout_web": "",
+            "data_structure": "",
+            "show_tag_cloud": false,
+            "mobile_print_enabled": false,
+            "plug_in": "",
+            "plug_in_web": "",
+            "commands": "",
+            "use_standard_commands": false,
+            "svg_commands": "",
+            "migration_register_command": false,
+            "migration_register_on_save": false,
+            "migration_send_via_queue": false,
+            "migration_default_room_uid": "",
+            "migration_default_room_alias": "",
+            "link_share_mode": "",
+            "indexes": [],
+            "class_type": "custom_process",
+            "projection_type": "",
+            "projection_kanban_columns": "",
+            "print_template_type": "html_jinja",
+            "print_target_classes": [],
+            "print_html_template": "",
+            "hidden": false,
+            "methods": [
+                {
+                    "name": "Open",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "Open"
+                },
+                {
+                    "name": "process_text",
+                    "source": "internal",
+                    "engine": "android_python",
+                    "code": "process_text"
+                }
+            ],
+            "events": [
+                {
+                    "event": "onShow",
+                    "listener": "",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "Open",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                },
+                {
+                    "event": "onInput",
+                    "listener": "new_text_detected",
+                    "actions": [
+                        {
+                            "action": "run",
+                            "source": "internal",
+                            "server": "",
+                            "method": "process_text",
+                            "postExecuteMethod": ""
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "datasets": [],
+    "sections": [
+        {
+            "name": "ActiveCV",
+            "code": "ActiveCV",
+            "commands": ""
+        }
+    ],
+    "servers": [
+        {
+            "alias": "main",
+            "url": "https://nmaker.pw",
+            "is_default": true
+        }
+    ],
+    "rooms": [],
+    "CommonEvents": [],
+    "Timers": []
+}
