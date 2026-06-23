@@ -1146,55 +1146,100 @@ _SERVER_NODE_CLASS_MEM: Dict[Tuple[str, str, str], Any] = {}
 
 # -------- client settings (stored in client.sqlite) --------
 
+def _split_dataset_item_uid(ds_name: str, item_uid: str) -> Tuple[str, str]:
+    """Return (dataset_name, item_id) from DatasetLink value.
+
+    Dataset links are self-describing: ``Goods$123`` already contains the
+    dataset name, so cover layouts do not need an additional ``dataset`` field.
+    If ``ds_name`` is explicitly provided, it is kept as fallback/override for
+    old layouts that store only ``123``.
+    """
+    ds = str(ds_name or "").strip()
+    uid = str(item_uid or "").strip()
+    if "$" in uid:
+        left, right = uid.split("$", 1)
+        if not ds:
+            ds = left.strip()
+        return ds, right.strip()
+    return ds, uid
+
+
+def _render_template_fields(template: str, data: Dict[str, Any]) -> str:
+    """Small {field} renderer for dataset/record views."""
+    template = str(template or "")
+    if not template:
+        return ""
+
+    def repl(match: re.Match) -> str:
+        field_name = match.group(1)
+        value = data.get(field_name, "")
+        return str(value) if value is not None else ""
+
+    return _CLASS_VIEW_RE.sub(repl, template).strip()
+
+
 def _get_dataset_item_direct(config_uid: str, ds_name: str, item_id: str) -> Optional[Dict[str, Any]]:
     """Directly get dataset item from database without HTTP."""
     try:
-        # Find configuration
-        Configuration = main.Configuration
-        cfg = Configuration.query.filter_by(uid=config_uid).first()
-        if not cfg:
+        ds_name, item_id = _split_dataset_item_uid(ds_name, item_id)
+        if not ds_name or not item_id:
             return None
-        
-        # Find dataset
+
+        Configuration = main.Configuration
         Dataset = main.Dataset
-        ds = Dataset.query.filter_by(config_id=cfg.id, name=ds_name).first()
+        DatasetItem = main.DatasetItem
+
+        cfg = Configuration.query.filter_by(uid=config_uid).first() if config_uid else None
+        ds = None
+
+        # Сначала ищем в текущей конфигурации репозитория.
+        if cfg:
+            ds = Dataset.query.filter_by(config_id=cfg.id, name=ds_name).first()
+
+        # В ссылке DatasetLink/DatasetInput хранится только Dataset$Id, без config_uid.
+        # Поэтому, если dataset не найден в текущей конфе, пробуем найти такой dataset
+        # в конфигурациях репозиториев текущего пользователя. Это особенно важно для
+        # node_form и динамических layout-ов, где layout может прийти из другого контекста.
+        if not ds:
+            try:
+                repos = models.Repo.query.filter_by(user_id=current_user.id).all() if current_user.is_authenticated else []
+                for r in repos:
+                    cfg_uid = str(getattr(r, "config_uid", "") or "").strip()
+                    if not cfg_uid:
+                        continue
+                    c2 = Configuration.query.filter_by(uid=cfg_uid).first()
+                    if not c2:
+                        continue
+                    ds2 = Dataset.query.filter_by(config_id=c2.id, name=ds_name).first()
+                    if ds2:
+                        cfg = c2
+                        ds = ds2
+                        break
+            except Exception:
+                pass
+
         if not ds:
             return None
-        
-        # Find item
-        DatasetItem = main.DatasetItem
+
         item = DatasetItem.query.filter_by(dataset_id=ds.id, item_id=item_id).first()
         if not item:
             return None
-        
-        # Get data
+
         data = item.data or {}
         if not isinstance(data, dict):
             data = {}
-        
-        # Apply view template
-        view = None
-        tpl = (ds.view_template or "").strip()
-        if tpl:
-            import re
-            pattern = r'{([\w.]+)}'
-            
-            def repl(match):
-                field_name = match.group(1)
-                value = data.get(field_name, "")
-                return str(value) if value is not None else ""
-            
-            view = re.sub(pattern, repl, tpl).strip()
-        
-        # Fallback
+
+        view = str(data.get("_view") or "").strip()
         if not view:
-            view = data.get("title") or data.get("name") or item_id
-        
+            view = _render_template_fields(ds.view_template or "", data)
+        if not view:
+            view = str(data.get("title") or data.get("name") or item_id)
+
         return {
             "_id": item_id,
             "_view": view,
             "_data": data,
-            "_dataset": ds_name
+            "_dataset": ds_name,
         }
     except Exception as e:
         print(f"Error getting dataset item: {e}")
@@ -1456,8 +1501,8 @@ def _node_children_tree(repo: models.Repo, class_name: str, node_id: str) -> Lis
     
     return build(class_name, node_id)
 
-def _walk_layout_find_nodeinputs(layout_obj):
-    """Yield NodeInput elements (dicts) from layout (2d/1d/json str)."""
+def _walk_layout_find_link_elements(layout_obj):
+    """Yield link/input elements from layout (2d/1d/json str)."""
     import json
     if layout_obj is None:
         return
@@ -1470,7 +1515,7 @@ def _walk_layout_find_nodeinputs(layout_obj):
     def walk(x):
         if isinstance(x, dict):
             t = x.get("type") or x.get("t")
-            if t == "NodeInput":
+            if t in ("NodeInput", "NodeLink", "DatasetInput", "DatasetField", "DatasetLink", "DataSetLink"):
                 yield x
             # walk common nested places
             for k in ("layout", "tabs", "rows", "cols", "items", "children"):
@@ -1486,153 +1531,163 @@ def _walk_layout_find_nodeinputs(layout_obj):
 
     yield from walk(layout_obj)
 
+
+def _walk_layout_find_nodeinputs(layout_obj):
+    """Backward-compatible iterator name."""
+    yield from _walk_layout_find_link_elements(layout_obj)
+
 def _fill_nodeinput_views(repo, parsed, layout, node_data):
     """
-    For each NodeInput in layout:
-      - read its value from node_data (usually via @field)
-      - if it's like cfg$Class$Id (or Class$Id), load node and set <id>_view
+    Pre-fill <field>_view for link widgets in node_form.
+
+    Important: DatasetLink/DatasetInput values are self-describing:
+      Dataset$ItemId
+    NodeLink/NodeInput values are self-describing:
+      config_uid$ClassName$Id   or legacy ClassName$Id
+
+    So node_form must not require an extra "dataset" attribute just to show
+    the human-readable value.
     """
     import nodes as _nodes_mod
 
-    cache = {}  # uid -> view
+    node_cache = {}      # uid -> view
+    dataset_cache = {}   # (dataset, item_id) -> view
 
-    for el in _walk_layout_find_nodeinputs(layout):
-        nid = str(el.get("id") or "").strip()
-        if not nid:
-            continue
-
-        view_key = f"{nid}_view"
-        if view_key in node_data:
-            continue  # already provided
-
+    def _raw_ref_for_el(el: dict) -> str:
         raw_val = el.get("value")
-        ref = ""
-
-        # value обычно "@field"
         if isinstance(raw_val, str) and raw_val.startswith("@"):
-            ref = node_data.get(raw_val[1:], "") or ""
-        elif isinstance(raw_val, str):
-            ref = raw_val
-        else:
+            return str(node_data.get(raw_val[1:], "") or "").strip()
+        if isinstance(raw_val, str):
+            return raw_val.strip()
+        return ""
+
+    for el in _walk_layout_find_link_elements(layout):
+        t = str(el.get("type") or el.get("t") or "")
+        lid = str(el.get("id") or "").strip()
+        raw_ref = _raw_ref_for_el(el)
+        if not raw_ref:
             continue
 
-        ref = str(ref).strip()
-        if "$" not in ref:
+        # For @field values the renderer looks for <field>_view.
+        raw_val = el.get("value")
+        field_name = raw_val[1:] if isinstance(raw_val, str) and raw_val.startswith("@") else lid
+        if not field_name:
+            continue
+        view_key = f"{field_name}_view"
+        if view_key in node_data:
             continue
 
-        if ref in cache:
-            node_data[view_key] = cache[ref]
-            continue
-
-        try:
-            cfg_uid, cls_name, internal_id = _nodes_mod.parse_uid_any(ref)
-            if not internal_id:
+        # Dataset widgets/links
+        if t in ("DatasetInput", "DatasetField", "DatasetLink", "DataSetLink"):
+            ds_name, item_id = _split_dataset_item_uid(str(el.get("dataset") or "").strip(), raw_ref)
+            if not ds_name or not item_id:
                 continue
-
-            eff_cfg = cfg_uid or repo.config_uid
-
-            # класс берём из handlers (как ты и хотел)
-            if cls_name:
-                node_cls = _load_server_node_class(eff_cfg, cls_name)
-            else:
-                # если вдруг "Id" без класса — смысла резолвить нет
+            ck = (ds_name, item_id)
+            if ck in dataset_cache:
+                node_data[view_key] = dataset_cache[ck]
                 continue
-
-            n = node_cls.get(internal_id, eff_cfg)
-            if not n:
-                continue
-
-            d = {}
             try:
-                d = n.get_data() or {}
+                item = _get_dataset_item_direct(repo.config_uid, ds_name, item_id)
+                if not item:
+                    continue
+                view = str(item.get("_view") or item_id)
+                dataset_cache[ck] = view
+                node_data[view_key] = view
             except Exception:
-                d = {}
+                pass
+            continue
 
-            view = _render_class_record_view(parsed, cls_name, internal_id, d)
-            cache[ref] = view
-            node_data[view_key] = view
-        except Exception:
-            # молча: если не смогли — остаётся как есть (будет показан id)
-            pass
+        # Node widgets/links
+        if t in ("NodeInput", "NodeLink"):
+            if "$" not in raw_ref:
+                continue
+            if raw_ref in node_cache:
+                node_data[view_key] = node_cache[raw_ref]
+                continue
+            try:
+                cfg_uid, cls_name, internal_id = _nodes_mod.parse_uid_any(raw_ref)
+                if not cls_name or not internal_id:
+                    continue
+                eff_cfg = cfg_uid or repo.config_uid
+                node_cls = _load_server_node_class(eff_cfg, cls_name)
+                n = node_cls.get(internal_id, eff_cfg)
+                if not n:
+                    continue
+                try:
+                    d = n.get_data() or {}
+                except Exception:
+                    d = {}
+                view = _render_class_record_view(parsed, cls_name, internal_id, d)
+                node_cache[raw_ref] = view
+                node_data[view_key] = view
+            except Exception:
+                pass
 
 
 def _nl_context(repo: models.Repo, *, class_name: str, node_id: str) -> Dict[str, Any]:
     def get_dataset_item_view(ds_name: str, item_uid: str) -> str:
-        """Get dataset item view for display."""
+        """Resolve DatasetLink value to display text.
+
+        The normal value format is self-describing: ``DatasetName$ItemId``.
+        ``ds_name`` is only a fallback for legacy layouts that store just ItemId.
+        """
+        raw = str(item_uid or "").strip()
         try:
-            # Parse UID
-            item_id = item_uid
-            if "$" in item_uid:
-                parts = item_uid.split("$", 1)
-                if len(parts) == 2:
-                    # If dataset name not provided, extract from UID
-                    if not ds_name:
-                        ds_name = parts[0]
-                    item_id = parts[1]
-            
-            if not ds_name or not item_id:
-                return item_uid
-            
-            # Get item directly
-            item_data = _get_dataset_item_direct(repo.config_uid, ds_name, item_id)
+            parsed_ds, item_id = _split_dataset_item_uid(ds_name, raw)
+            if not parsed_ds or not item_id:
+                return raw
+            item_data = _get_dataset_item_direct(repo.config_uid, parsed_ds, item_id)
             if item_data:
-                return item_data.get("_view", item_id)
-            
+                return str(item_data.get("_view") or item_id)
             return item_id
         except Exception:
-            return item_uid
+            return raw
 
     def get_node_view(node_uid: str) -> str:
-        """Resolve node UID/Class$Id into plain display text (_view or id)."""
+        """Resolve NodeLink value to display text.
+
+        Node links are also self-describing: ``config_uid$ClassName$Id``.
+        For old ``ClassName$Id`` links we use the current repo config_uid.
+        """
+        uid = str(node_uid or "").strip()
+        if not uid:
+            return ""
         try:
-            uid = str(node_uid or "").strip()
-            if not uid:
-                return ""
-            lst = _nodes_mod.from_uid([uid], config_uid=str(repo.config_uid))
-            if not lst:
+            uid_cfg, cls_name, internal_id = _nodes_mod.parse_uid_any(uid)
+            if not internal_id:
                 return uid
-            n = lst[0]
-            d = None
+            eff_cfg = uid_cfg or str(repo.config_uid)
+            if not cls_name:
+                return internal_id
+
+            node_cls = _load_server_node_class(eff_cfg, cls_name)
+            n = node_cls.get(internal_id, eff_cfg)
+            if not n:
+                return internal_id
+
             try:
                 d = n.get_data() or {}
             except Exception:
-                d = {}
-            if isinstance(d, dict):
-                return _render_class_record_view(parsed, getattr(n, "__class__", type(n)).__name__, getattr(n, "_id", "") or uid, d)
-            return str(getattr(n, "_id", "") or uid)
+                try:
+                    d = n._data if isinstance(getattr(n, "_data", None), dict) else {}
+                except Exception:
+                    d = {}
+
+            return _render_class_record_view(parsed, cls_name, internal_id, d if isinstance(d, dict) else {})
         except Exception:
-            return str(node_uid or "")
+            return uid
 
     def uid_resolve(uid: str):
+        """Resolve global node uid to (class_name, internal_id) for link/table helpers."""
+        raw = str(uid or "").strip()
         try:
-            lst = _nodes_mod.from_uid([str(uid)], config_uid=str(repo.config_uid))
-            if not lst:
+            uid_cfg, cls_name, internal_id = _nodes_mod.parse_uid_any(raw)
+            if not internal_id:
                 return ("", "")
-            n = lst[0]
-
-            
-            d = None
-            try:
-                d = n._data_cache if hasattr(n, "_data_cache") else None
-            except Exception:
-                d = None
-            if not isinstance(d, dict):
-                try:
-                    d = n._data if isinstance(getattr(n, "_data", None), dict) else None
-                except Exception:
-                    d = None
-
-            cls = ""
-            if isinstance(d, dict):
-                cls = (d.get("_class") or d.get("class") or "").strip()
-
-            if not cls:
-                
-                cls = (getattr(n, "_schema_class_name", "") or n.__class__.__name__).strip()
-
-            return (cls, str(n._id))
+            return (str(cls_name or ""), str(internal_id or ""))
         except Exception:
             return ("", "")
+
 
     return {
         "target": {
@@ -2131,7 +2186,7 @@ def _text_like_index_ids_for_class(config_uid: str, class_name: str, q: str) -> 
         if not isinstance(idx, dict):
             continue
         kind = str(idx.get("kind") or "hash_index").strip().lower()
-        if kind not in ("text_index", "trigram_index"):
+        if kind not in ("text_index", "trigram_index", "text_index_full"):
             continue
         name = str(idx.get("name") or "").strip()
         if name and name not in idx_names:
