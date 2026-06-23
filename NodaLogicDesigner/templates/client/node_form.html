@@ -1319,8 +1319,42 @@ function nlResolveTemplateString(tpl){
   return s;
 }
 
+function nlResolveLinkTextTemplate(el, tpl){
+  // DatasetLink/NodeLink рендерятся на сервере уже как человекочитаемый текст,
+  // но для динамического обновления получают data-nl-tpl-text="@field".
+  // Обычная подстановка @field брала бы сырой UID (Catalog1$3 или
+  // config_uid$Class$id) и затирала бы представление сразу после загрузки.
+  // Поэтому для ссылочных элементов сначала используем подготовленный
+  // <field>_view, а raw-значение оставляем только как fallback.
+  if (!el || !el.classList) return null;
+  const isLink = el.classList.contains('nl-dataset-link') || el.classList.contains('nl-node-link');
+  if (!isLink) return null;
+
+  const m = String(tpl == null ? '' : tpl).trim().match(/^@([^\s@{}\[\](),;:<>'"/]+)$/);
+  if (!m) return null;
+
+  const key = m[1];
+  const view = nlGetByPath(_data, `${key}_view`);
+  if (view != null && String(view).trim() !== '') return String(view);
+
+  const raw = nlGetByPath(_data, key);
+  if (raw == null) return '';
+
+  // Не деградируем начальный серверный текст во время DOMContentLoaded,
+  // если по какой-то причине <field>_view ещё не подготовлен.
+  const rawS = String(raw);
+  const curS = String(el.textContent || '').trim();
+  if (curS && curS !== rawS && rawS.includes('$')) return curS;
+
+  return rawS;
+}
+
 function nlApplyTemplateAttr(el, name, tpl){
-  const val = nlResolveTemplateString(tpl);
+  let val = nlResolveTemplateString(tpl);
+  if (name === 'text') {
+    const linkVal = nlResolveLinkTextTemplate(el, tpl);
+    if (linkVal !== null) val = linkVal;
+  }
   const s = (val == null) ? '' : String(val);
   switch (name) {
     case 'text': {
