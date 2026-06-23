@@ -442,6 +442,7 @@ class ConfigClass(db.Model):
     # Migration / registration helpers (used by web-client)
     migration_register_command = db.Column(db.Boolean, default=False)
     migration_register_on_save = db.Column(db.Boolean, default=False)
+    migration_send_via_queue = db.Column(db.Boolean, default=False)
     # Stores Room.uid (string)
     migration_default_room_uid = db.Column(db.String(36), default="")
     # Stores RoomAlias.alias (string)

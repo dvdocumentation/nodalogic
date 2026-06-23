@@ -2102,7 +2102,7 @@ class Node:
                 _append_bucket(out, seen, res)
             return out
 
-        def _collect_text_many(seq):
+        def _collect_text_many(seq, bidirectional: bool = False):
             needles = []
             seen_needles = set()
             for one in seq:
@@ -2122,15 +2122,21 @@ class Node:
                 store_keys = []
 
             # text_index and trigram_index both store the full extracted value as the
-            # index key. Runtime lookup is therefore SQL-LIKE semantics: value contains
-            # the search string (case-insensitive). trigram_index can later be replaced
-            # by a real trigram storage without changing the public API.
+            # index key. Runtime lookup is SQL-LIKE semantics: indexed field value
+            # contains the search string (case-insensitive). text_index_full extends
+            # this with the reverse direction too: the search string may contain the
+            # whole indexed field value, useful for OCR/articul strings like
+            # field=96546 and query=196456.
             for store_key in store_keys:
                 skey = str(store_key or "").strip()
                 if not skey:
                     continue
                 skey_l = skey.lower()
-                if not any(n in skey_l for n in needles):
+                if bidirectional:
+                    matched = any((n in skey_l) or (skey_l in n) for n in needles)
+                else:
+                    matched = any(n in skey_l for n in needles)
+                if not matched:
                     continue
                 try:
                     res = store.get(store_key, []) or []
@@ -2142,6 +2148,8 @@ class Node:
         seq = values if isinstance(values, (list, tuple, set)) else [values]
         if idx_kind in ("text_index", "trigram_index"):
             return _collect_text_many(seq)
+        if idx_kind == "text_index_full":
+            return _collect_text_many(seq, bidirectional=True)
         return _collect_hash_many(seq)
 
     @classmethod

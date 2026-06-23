@@ -2954,6 +2954,7 @@ def edit_class(class_id):
         # Migration tab
         class_obj.migration_register_command = 'migration_register_command' in request.form
         class_obj.migration_register_on_save = 'migration_register_on_save' in request.form
+        class_obj.migration_send_via_queue = 'migration_send_via_queue' in request.form
         class_obj.migration_default_room_alias = (request.form.get('migration_default_room_alias') or '').strip()
         class_obj.link_share_mode = (request.form.get('link_share_mode') or '').strip()
         # Backward compatibility: keep old UID if it's still posted
@@ -3630,6 +3631,7 @@ def export_config(uid):
                 # Migration tab
                 'migration_register_command': bool(getattr(c, 'migration_register_command', False)),
                 'migration_register_on_save': bool(getattr(c, 'migration_register_on_save', False)),
+                'migration_send_via_queue': bool(getattr(c, 'migration_send_via_queue', False)),
                 'migration_default_room_uid': getattr(c, 'migration_default_room_uid', '') or '',
                 'migration_default_room_alias': getattr(c, 'migration_default_room_alias', '') or '',
                 'link_share_mode': getattr(c, 'link_share_mode', '') or '',
@@ -3883,6 +3885,7 @@ def import_config_new():
 
                 migration_register_command=bool(class_data.get('migration_register_command', False)),
                 migration_register_on_save=bool(class_data.get('migration_register_on_save', False)),
+                migration_send_via_queue=bool(class_data.get('migration_send_via_queue', class_data.get('migrationSendViaQueue', False))),
                 migration_default_room_uid=class_data.get('migration_default_room_uid', ''),
                 migration_default_room_alias=class_data.get('migration_default_room_alias', ''),
                 link_share_mode=class_data.get('link_share_mode', ''),
@@ -4171,6 +4174,7 @@ def apply_full_config_from_json(config, data):
 
                 migration_register_command=bool(class_data.get('migration_register_command', False)),
                 migration_register_on_save=bool(class_data.get('migration_register_on_save', False)),
+                migration_send_via_queue=bool(class_data.get('migration_send_via_queue', class_data.get('migrationSendViaQueue', False))),
                 migration_default_room_uid=class_data.get('migration_default_room_uid', ''),
                 migration_default_room_alias=class_data.get('migration_default_room_alias', ''),
                 link_share_mode=class_data.get('link_share_mode', ''),
@@ -6304,7 +6308,7 @@ from nodes import Node
 
 ANDROID_IMPORTS_TEMPLATE = '''from nodesclient import RefreshTab,SetTitle,CloseNode,RunGPS,StopGPS,UpdateView,Dialog,ScanBarcode,GetLocation,AddTimer,StopTimer,ShowProgressButton,HideProgressButton,ShowProgressGlobal,HideProgressGlobal,Controls,SetCover,getBase64FromImageFile,convertImageFilesToBase64Array,saveBase64ToFile,convertBase64ArrayToFilePaths,UpdateMediaGallery
 from android import *
-from nodes import NewNode, DeleteNode, GetAllNodes, GetNode, GetAllNodesStr, GetRemoteClass, CreateDataSet, GetDataSet, DeleteDataSet,to_uid, from_uid, getByIndex, findByIndex, getByGlobalIndex, findByGlobalIndex, sendTextMessage, sendImageMessage
+from nodes import * #NewNode, DeleteNode, GetAllNodes, GetNode, GetAllNodesStr, GetRemoteClass, CreateDataSet, GetDataSet, DeleteDataSet,to_uid, from_uid, getByIndex, findByIndex, getByGlobalIndex, findByGlobalIndex, sendTextMessage, sendImageMessage
 from com.dv.noda import DataSet
 from com.dv.noda import DataSets
 from com.dv.noda import SimpleUtilites as su
@@ -6381,6 +6385,8 @@ UI_COMPONENT_TEMPLATES = OrderedDict([
     ('HorizontalLayout', '{"type":"HorizontalLayout","value":[]}'),
     ('VerticalScroll', '{"type":"VerticalScroll","value":[]}'),
     ('HorizontalScroll', '{"type":"HorizontalScroll","value":[]}'),
+    ('Parameters', '{"type":"Parameters","height":0,"w":1}'),
+    ('ActiveCV', ' [ {"type":"Parameters","height":0,"w":1}, {"type":"ActiveCV","id":"active_cv","width":-1,"height":-1} ],   [ {"type":"Parameters","height":0,"w":1}, {"type":"VerticalLayout","id":"cv_info_container","width":-1,"height":-1,"value":[]} ]'),
 ])
 
 WIZARD_ACTIVE_TEMPLATES = OrderedDict([

@@ -1066,6 +1066,8 @@ def _ensure_sqlite_schema():
             _add_col("config_class", "migration_register_command BOOLEAN DEFAULT 0", "migration_register_command")
         if "migration_register_on_save" not in cols:
             _add_col("config_class", "migration_register_on_save BOOLEAN DEFAULT 0", "migration_register_on_save")
+        if "migration_send_via_queue" not in cols:
+            _add_col("config_class", "migration_send_via_queue BOOLEAN DEFAULT 0", "migration_send_via_queue")
         if "migration_default_room_uid" not in cols:
             _add_col("config_class", 'migration_default_room_uid VARCHAR(36) DEFAULT ""', "migration_default_room_uid")
         if "migration_default_room_alias" not in cols:
@@ -3396,12 +3398,20 @@ def handle_websocket(ws, room_uid):
             data = json.loads(init_message)
             if data.get('type') != 'connection':
                 raise ValueError("First message must be connection type")
-                
-            user = data.get('user')
+
+            requested_user = data.get('user')
+            # For authenticated sockets, keep the DB/API identity as the delivery/ack key.
+            # Otherwise WS ack and HTTP /api/room/<room_uid>/objects ack may use
+            # different users (for example display name vs email) and the same room
+            # object will be delivered again forever.
+            if not (auth_success and user):
+                user = requested_user
+
             if not user:
                 raise ValueError("User not specified")
-                
-            
+
+            # Drop the temporary unauthenticated slot created before auth.
+            active_connections[room_uid].pop(None, None)
             active_connections[room_uid][user] = ws
             print(f"User {user} connected to room {room_uid}")
             
@@ -3512,6 +3522,7 @@ def send_nodes_update(room_uid, user_id=None):
                         continue
                         
                     objects_data.append({
+                        'id': obj.id,
                         'object_id': obj.id,  
                         'config_uid': obj.config_uid,
                         'class_name': obj.class_name,
@@ -3754,6 +3765,7 @@ def get_config(uid):
                 # Migration tab
                 'migration_register_command': bool(getattr(c, 'migration_register_command', False)),
                 'migration_register_on_save': bool(getattr(c, 'migration_register_on_save', False)),
+                'migration_send_via_queue': bool(getattr(c, 'migration_send_via_queue', False)),
                 'migration_default_room_uid': getattr(c, 'migration_default_room_uid', '') or '',
                 'migration_default_room_alias': getattr(c, 'migration_default_room_alias', '') or '',
                 'link_share_mode': getattr(c, 'link_share_mode', '') or '',
@@ -3955,6 +3967,8 @@ def _export_class_json(class_obj: ConfigClass) -> dict:
         data['migration_register_command'] = True
     if bool(getattr(class_obj, 'migration_register_on_save', False)):
         data['migration_register_on_save'] = True
+    if bool(getattr(class_obj, 'migration_send_via_queue', False)):
+        data['migration_send_via_queue'] = True
     if (getattr(class_obj, 'migration_default_room_uid', '') or '').strip():
         data['migration_default_room_uid'] = class_obj.migration_default_room_uid
     if (getattr(class_obj, 'migration_default_room_alias', '') or '').strip():
@@ -4121,6 +4135,7 @@ def _upsert_config_class_from_json(config: Configuration, class_json: dict, *, p
         'use_standard_commands': ('use_standard_commands', 'useStandardCommands'),
         'migration_register_command': ('migration_register_command', 'migrationRegisterCommand'),
         'migration_register_on_save': ('migration_register_on_save', 'migrationRegisterOnSave'),
+        'migration_send_via_queue': ('migration_send_via_queue', 'migrationSendViaQueue'),
         'show_tag_cloud': ('show_tag_cloud', 'showTagCloud'),
         'mobile_print_enabled': ('mobile_print_enabled', 'mobilePrintEnabled'),
     }
@@ -5995,7 +6010,7 @@ def nodes_api_page(config_uid, class_name):
             if not isinstance(idx, dict):
                 continue
             kind = str(idx.get("kind") or "hash_index").strip().lower()
-            if kind not in ("text_index", "trigram_index"):
+            if kind not in ("text_index", "trigram_index", "text_index_full"):
                 continue
             name = str(idx.get("name") or "").strip()
             if name and name not in idx_names:
@@ -9644,6 +9659,7 @@ def get_room_objects(room_uid):
     for obj in objects:
         objects_data.append({
             'id': obj.id,
+            'object_id': obj.id,
             'config_uid': obj.config_uid,
             'class_name': obj.class_name,
             'objects': obj.objects_data,
@@ -10082,24 +10098,32 @@ def handle_ws_command(room_uid, user, data, auth_success):
             pending_responses[request_id]['error'] = error
     
     elif command == 'get_objects':
-       # Client requests objects
+       # Client requests objects. This is the WebSocket equivalent of
+       # GET /api/room/<room_uid>/objects and can be used as a recovery pull
+       # when a previous nodes_update frame was missed.
         config_uid = data.get('config_uid')
         class_name = data.get('class_name')
         since = data.get('since')
+        object_id = data.get('object_id') or data.get('id')
         
         with app.app_context():
             query = RoomObjects.query.filter_by(room_uid=room_uid)
-            
-            #if config_uid:
-            #    query = query.filter_by(config_uid=config_uid)
-            #if class_name:
-            #    query = query.filter_by(class_name=class_name)
-            #if since:
-            #    try:
-            #        since_date = datetime.fromisoformat(since.replace('Z', '+00:00'))
-            #        query = query.filter(RoomObjects.created_at > since_date)
-            #    except ValueError:
-            #        pass
+
+            if object_id:
+                try:
+                    query = query.filter(RoomObjects.id == int(object_id))
+                except Exception:
+                    pass
+            if config_uid:
+                query = query.filter_by(config_uid=config_uid)
+            if class_name:
+                query = query.filter_by(class_name=class_name)
+            if since:
+                try:
+                    since_date = datetime.fromisoformat(str(since).replace('Z', '+00:00'))
+                    query = query.filter(RoomObjects.created_at > since_date)
+                except ValueError:
+                    pass
             
             objects = query.order_by(RoomObjects.created_at.desc()).all()
 
@@ -10112,10 +10136,12 @@ def handle_ws_command(room_uid, user, data, auth_success):
                 for obj in objects:
                     objects_data.append({
                         'id': obj.id,
+                        'object_id': obj.id,
                         'config_uid': obj.config_uid,
                         'class_name': obj.class_name,
                         'objects': obj.objects_data,
-                        'created_at': obj.created_at.isoformat()
+                        'created_at': obj.created_at.isoformat(),
+                        'expires_at': obj.expires_at.isoformat() if obj.expires_at else None
                     })
                 
                 ws.send(json.dumps({
@@ -10616,6 +10642,8 @@ if __name__ == '__main__':
                     conn.execute(text('ALTER TABLE config_class ADD COLUMN migration_register_command BOOLEAN DEFAULT 0'))
                 if 'migration_register_on_save' not in col_names:
                     conn.execute(text('ALTER TABLE config_class ADD COLUMN migration_register_on_save BOOLEAN DEFAULT 0'))
+                if 'migration_send_via_queue' not in col_names:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN migration_send_via_queue BOOLEAN DEFAULT 0'))
                 if 'migration_default_room_uid' not in col_names:
                     conn.execute(text('ALTER TABLE config_class ADD COLUMN migration_default_room_uid VARCHAR(36) DEFAULT ""'))
                 if 'migration_default_room_alias' not in col_names:
