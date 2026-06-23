@@ -107,7 +107,6 @@
             <select class="form-select" id="classType" name="class_type">
               <option value="">{{ _('-- Not specified --') }}</option>
               <option value="custom_process" {% if class_obj.class_type == 'custom_process' %}selected{% endif %}>{{ _('Custom process') }}</option>
-              <option value="projection" {% if class_obj.class_type == 'projection' %}selected{% endif %}>{{ _('Projection') }}</option>
               <option value="print_form" {% if class_obj.class_type == 'print_form' %}selected{% endif %}>{{ _('PrintForm') }}</option>
               <option value="data_node" {% if class_obj.class_type == 'data_node' %}selected{% endif %}>{{ _('Data node') }}</option>
               <option value="custom_task" {% if class_obj.class_type == 'custom_task' %}selected{% endif %}>{{ _('User task') }}</option>
@@ -482,6 +481,13 @@
             <small class="text-muted d-block">{{_('After saving the node, register in the default room.')}}</small>
           </div>
 
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="migrationSendViaQueue" name="migration_send_via_queue"
+                   {% if class_obj.migration_send_via_queue %}checked{% endif %}>
+            <label class="form-check-label" for="migrationSendViaQueue">{{ _('Send via a queue') }}</label>
+            <small class="text-muted d-block">{{ _('Send migration objects through the room delivery queue.') }}</small>
+          </div>
+
           <div class="mb-3">
             <label for="migrationDefaultRoomAlias" class="form-label">{{_('Default room alias')}}</label>
             <input class="form-control" id="migrationDefaultRoomAlias" name="migration_default_room_alias"
@@ -567,6 +573,7 @@
           <select class="form-select" id="idxKind">
             <option value="hash_index">hash_index</option>
             <option value="text_index">text_index</option>
+            <option value="text_index_full">text_index_full</option>
             <option value="trigram_index">trigram_index</option>
           </select>
         </div>
