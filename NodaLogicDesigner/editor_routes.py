@@ -9,12 +9,16 @@ them directly on the Flask app while keeping the same endpoints.
 
 import ast
 import base64
+import hashlib
 import io
 from io import BytesIO
 import json
+import pickle
+import sqlite3
 import os
 import re
 import traceback
+import sys
 import time
 import uuid
 from collections import OrderedDict
@@ -23,6 +27,7 @@ from ast import FunctionDef, fix_missing_locations, parse
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
+from functools import wraps
 
 import requests
 from flask import (
@@ -43,6 +48,7 @@ from flask import (
 )
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import select, text
+from sqlalchemy.orm import selectinload
 import sqlalchemy as sa
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -51,6 +57,8 @@ from flask_babel import Babel, _, format_datetime, format_date
 from sqlitedict import SqliteDict
 from jinja2.sandbox import SandboxedEnvironment
 from jinja2 import select_autoescape
+from markupsafe import escape as html_escape
+from llm_credentials import chat_completion as _shared_chat_completion, message_content as _shared_message_content
 
 from extensions import db
 from models import (
@@ -61,6 +69,9 @@ from models import (
     User,
     UserConfigAccess,
     UserDevice,
+    UserProfile,
+    UserProfileRole,
+    UserProfileClassAccess,
     ConfigEvent,
     ConfigEventAction,
     ConfigTimer,
@@ -68,6 +79,8 @@ from models import (
     Configuration,
     ConfigSection,
     ConfigClass,
+    NGenieCodeFeatureRequest,
+    NGenieCodeChatMessage,
     ClassMethod,
     ClassEvent,
     EventAction,
@@ -79,6 +92,466 @@ try:
     import qrcode
 except Exception:  # pragma: no cover - optional dependency, checked at route call time
     qrcode = None
+
+
+# Debug/production switch for nGenie Code lockdown.
+# False: nGenie Code still marks configs with ngenie_code_locked, but the editor/export UI
+#        remains available so you can inspect and debug what the LLM generated.
+# True:  enforce the hard guard and show lock warnings/buttons as disabled.
+NGENIE_CODE_LOCK_ENABLED = False
+
+
+def _ngenie_code_lock_enabled() -> bool:
+    return bool(NGENIE_CODE_LOCK_ENABLED)
+
+
+def _ngenie_code_available() -> bool:
+    try:
+        import ngenie_code
+        return bool(ngenie_code.available())
+    except Exception:
+        return False
+
+
+def _config_has_ngenie_code_lock_marker(config) -> bool:
+    try:
+        return bool(getattr(config, 'ngenie_code_locked', False))
+    except Exception:
+        return False
+
+
+def _config_is_ngenie_code_locked(config) -> bool:
+    # The DB marker is kept, but real blocking is controlled by NGENIE_CODE_LOCK_ENABLED.
+    return _ngenie_code_lock_enabled() and _config_has_ngenie_code_lock_marker(config)
+
+
+def _ngenie_code_bool(value) -> bool:
+    return str(value or '').strip().lower() in {'1', 'true', 'on', 'yes', 'y'}
+
+
+def _ngenie_code_current_json(config) -> dict:
+    try:
+        return json.loads(get_config(config.uid))
+    except Exception:
+        return {}
+
+
+def _ngenie_code_mark_locked(config) -> None:
+    if hasattr(config, 'ngenie_code_locked'):
+        config.ngenie_code_locked = True
+
+
+def _ngenie_code_forbid_message():
+    return _('This configuration is managed by nGenie Code and is locked for ordinary configurator/export operations.')
+
+
+
+
+def _ngenie_code_add_chat_message(config, role: str, content: str, request_id: str = '', meta: dict | None = None, *, commit: bool = False):
+    """Append one persistent nGenie Code chat message."""
+    try:
+        row = NGenieCodeChatMessage(
+            user_id=getattr(current_user, 'id', None),
+            config_id=getattr(config, 'id', None),
+            config_uid=getattr(config, 'uid', '') or '',
+            request_id=str(request_id or ''),
+            role=(role or 'assistant')[:20],
+            content=(content or '')[:30000],
+            meta_json=meta or {},
+        )
+        db.session.add(row)
+        if commit:
+            db.session.commit()
+        else:
+            db.session.flush()
+        return row
+    except Exception:
+        current_app.logger.exception('Could not append nGenie Code chat message')
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return None
+
+
+def _ngenie_code_chat_rows(config, limit: int = 200):
+    rows = (
+        db.session.query(NGenieCodeChatMessage)
+        .filter(NGenieCodeChatMessage.config_id == getattr(config, 'id', None))
+        .order_by(NGenieCodeChatMessage.created_at.desc())
+        .limit(max(1, min(int(limit or 200), 500)))
+        .all()
+    )
+    rows = list(reversed(rows))
+    return [{
+        'id': r.id,
+        'created_at': r.created_at.isoformat() if getattr(r, 'created_at', None) else '',
+        'role': r.role or 'assistant',
+        'content': r.content or '',
+        'request_id': r.request_id or '',
+        'meta': r.meta_json or {},
+    } for r in rows]
+
+
+def _ngenie_code_parse_jsonish(value):
+    """Parse JSON from a request field that may already be an object."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(str(value))
+    except Exception:
+        return value
+
+
+def _ngenie_code_format_question_answers_for_chat(prompt: str, question_answers) -> str:
+    """Human-readable chat text for structured question answers."""
+    base = (prompt or "").strip()
+    if not question_answers:
+        return base
+    lines = []
+    try:
+        qa = question_answers if isinstance(question_answers, dict) else {"answers": question_answers}
+        questions = qa.get("questions") or []
+        answers = qa.get("answers") or {}
+        if isinstance(answers, list):
+            answers = {str(i): v for i, v in enumerate(answers)}
+        q_by_id = {str(q.get("id") or i): q for i, q in enumerate(questions) if isinstance(q, dict)}
+        lines.append("Ответы на уточняющие вопросы:")
+        if isinstance(answers, dict):
+            for qid, answer in answers.items():
+                q = q_by_id.get(str(qid)) or {}
+                title = str(q.get("text") or qid).strip()
+                lines.append(f"- {title}")
+                if isinstance(answer, dict):
+                    fields = q.get("fields") or []
+                    captions = {}
+                    skip_fields = set()
+                    for f in fields:
+                        if not isinstance(f, dict):
+                            continue
+                        fid = str(f.get("id") or "")
+                        if bool(f.get("do_not_save")) or str(f.get("do_not_save") or "").strip().lower() in {"1", "true", "yes", "on", "да"}:
+                            skip_fields.add(fid)
+                            continue
+                        captions[fid] = str(f.get("caption") or f.get("id") or "")
+                    for fid, val in answer.items():
+                        if str(fid) in skip_fields:
+                            continue
+                        caption = captions.get(str(fid), str(fid))
+                        if not caption:
+                            continue
+                        lines.append(f"  - {caption}: {val}")
+                else:
+                    lines.append(f"  - Ответ: {answer}")
+        else:
+            lines.append(json.dumps(question_answers, ensure_ascii=False, indent=2))
+    except Exception:
+        lines = ["Ответы на уточняющие вопросы:", str(question_answers)]
+    text = "\n".join(lines).strip()
+    return (base + "\n\n" + text).strip() if base else text
+
+
+def _ngenie_code_chat_context_for_llm(config, limit: int = 30) -> str:
+    """Compact chat context for LLM: previous questions and answers are important requirements."""
+    try:
+        rows = _ngenie_code_chat_rows(config, limit=limit)
+    except Exception:
+        rows = []
+    parts = []
+    for row in rows[-limit:]:
+        role = row.get('role') or 'assistant'
+        content = (row.get('content') or '').strip()
+        meta = row.get('meta') or {}
+        if not content and not meta:
+            continue
+        if meta.get('kind') == 'questions' and meta.get('questions'):
+            parts.append(f"assistant questions: {json.dumps(meta.get('questions'), ensure_ascii=False)}")
+        elif meta.get('kind') == 'question_answers' and meta.get('question_answers'):
+            parts.append(f"user answers: {json.dumps(meta.get('question_answers'), ensure_ascii=False)}")
+        elif content:
+            parts.append(f"{role}: {content[:2000]}")
+    return "\n".join(parts)[-20000:]
+
+
+
+
+
+def _solutions_optional_call(function_name: str, *args, **kwargs):
+    """Call optional Solutions helper if the folder-based feature is installed."""
+    try:
+        import solutions
+        fn = getattr(solutions, function_name, None)
+        if callable(fn):
+            return fn(*args, **kwargs)
+    except Exception:
+        current_app.logger.exception('Optional Solutions helper failed: %s', function_name)
+    return None
+
+
+def _solutions_enrich_prompt_if_needed(config, prompt: str, question_answers=None) -> str:
+    enriched = _solutions_optional_call(
+        'enrich_prompt_for_config',
+        config,
+        prompt,
+        question_answers=question_answers,
+        user=current_user,
+    )
+    return enriched if isinstance(enriched, str) and enriched.strip() else prompt
+
+
+def _solutions_record_answers_if_needed(config, question_answers) -> None:
+    if question_answers:
+        _solutions_optional_call(
+            'record_question_answers_for_config',
+            config,
+            question_answers,
+            user=current_user,
+            commit=True,
+        )
+
+
+def _solutions_record_questions_if_needed(config, questions, message: str = '') -> None:
+    if questions:
+        _solutions_optional_call(
+            'record_questions_for_config',
+            config,
+            questions,
+            message=message,
+            user=current_user,
+            commit=False,
+        )
+
+
+def _solutions_record_success_if_needed(config, message: str = '') -> None:
+    _solutions_optional_call(
+        'record_generation_success_for_config',
+        config,
+        message=message,
+        user=current_user,
+        commit=False,
+    )
+
+
+def _solutions_run_plan_if_needed(config, question_answers=None, start_only: bool = False):
+    """Continue optional Solutions plan.py.
+
+    Returns a payload with type=questions/message/generate/waiting/finished, or None.
+    Kept here so the core editor still works when the solutions folder is absent.
+    """
+    def _solution_llm(plan_prompt: str, debug_stage: str = 'solution_plan') -> str:
+        import ngenie_code
+        system_prompt = ngenie_code.build_system_prompt()
+        return call_llm('ngenie_code', system_prompt, plan_prompt, debug_stage=debug_stage)
+
+    return _solutions_optional_call(
+        'run_plan_for_config',
+        config,
+        user=current_user,
+        question_answers=question_answers,
+        call_llm=None if start_only else _solution_llm,
+        commit=True,
+        start_only=start_only,
+    )
+
+
+def _ngenie_code_summarize_generation(before: dict, after: dict, request_id: str = '', instruction_url: str = '') -> str:
+    """Deterministic user-visible summary; avoids relying on LLM to explain what changed."""
+    before = before or {}
+    after = after or {}
+    b_classes = {str(c.get('name') or ''): c for c in before.get('classes', []) or [] if isinstance(c, dict)}
+    a_classes = {str(c.get('name') or ''): c for c in after.get('classes', []) or [] if isinstance(c, dict)}
+    added = [n for n in a_classes if n and n not in b_classes]
+    changed = []
+    important_keys = [
+        'display_name', 'class_type', 'init_screen_layout', 'init_screen_layout_web', 'record_view',
+        'methods', 'events', 'indexes', 'data_structure', 'ngenie_role', 'ngenie_prompt', 'ngenie_description'
+    ]
+    for name, cls in a_classes.items():
+        if not name or name not in b_classes:
+            continue
+        changed_keys = [k for k in important_keys if (b_classes[name].get(k) or None) != (cls.get(k) or None)]
+        if changed_keys:
+            changed.append(f"{name} ({', '.join(changed_keys[:5])}{'…' if len(changed_keys) > 5 else ''})")
+
+    lines = ['Готово. Конфигурация обновлена и прошла валидацию nGenie Code.']
+    if added:
+        lines.append('Добавлены классы: ' + ', '.join(added[:20]) + (f' и еще {len(added)-20}' if len(added) > 20 else ''))
+    if changed:
+        lines.append('Изменены классы: ' + '; '.join(changed[:20]) + (f'; и еще {len(changed)-20}' if len(changed) > 20 else ''))
+    if (before.get('sections') or None) != (after.get('sections') or None):
+        lines.append('Обновлены разделы/команды конфигурации.')
+    if (before.get('CommonEvents') or None) != (after.get('CommonEvents') or None):
+        lines.append('Обновлены общие события.')
+    if str(before.get('nodes_handlers') or '') != str(after.get('nodes_handlers') or ''):
+        lines.append('Сгенерированы/обновлены Android handlers.')
+    if str(before.get('nodes_server_handlers') or '') != str(after.get('nodes_server_handlers') or ''):
+        lines.append('Сгенерированы/обновлены server handlers.')
+    if instruction_url:
+        lines.append('Инструкция создана и прикреплена к конфигурации.')
+    if request_id:
+        lines.append('Debug request id: ' + request_id)
+    return '\n'.join(lines)
+
+
+def _ngenie_code_record_feature_request(config, prompt: str, requested_feature: str, reason: str = '', llm_response: str = ''):
+    """Persist a developer-visible request for a capability nGenie Code cannot implement."""
+    try:
+        row = NGenieCodeFeatureRequest(
+            user_id=getattr(current_user, 'id', None),
+            config_id=getattr(config, 'id', None),
+            config_uid=getattr(config, 'uid', '') or '',
+            config_name=getattr(config, 'name', '') or '',
+            prompt=(prompt or '')[:20000],
+            requested_feature=(requested_feature or '')[:1000],
+            reason=(reason or '')[:4000],
+            llm_response=(llm_response or '')[:20000],
+            status='new',
+        )
+        db.session.add(row)
+        db.session.flush()
+        return row
+    except Exception:
+        current_app.logger.exception('Could not record nGenie Code feature request')
+        return None
+
+
+def _ngenie_code_unavailable_is_handler_patch_contract(unavailable: dict) -> bool:
+    """Treat "handlers are forbidden in JSON patch" as routing noise, not a missing platform feature."""
+    if not isinstance(unavailable, dict):
+        return False
+    text = " ".join(str(unavailable.get(k) or "") for k in ("requested_feature", "requested", "feature", "reason", "details"))
+    low = text.lower()
+    return any(x in low for x in (
+        "nodes_handlers", "nodes_server_handlers", "handler", "handlers",
+        "обработчик", "обработчиков", "pure configuration", "pure config",
+        "json patch", "patch output rules", "контракт генерации"
+    ))
+
+
+def _ngenie_code_minimal_ack_patch():
+    try:
+        import ngenie_code
+        return {"_ngenie_code_instruction_ack": ngenie_code.required_instruction_ack()}
+    except Exception:
+        return {}
+
+
+def _ngenie_code_validation_errors_look_like_missing_feature(errors):
+    text_value = '\n'.join(str(e or '') for e in (errors or []))
+    needles = (
+        'unknown UI type', 'unknown input type', 'unsupported UI type', 'unsupported input type',
+        'no such ui', 'not supported', 'missing library', 'missing component', 'unknown command',
+    )
+    low = text_value.lower()
+    return any(n.lower() in low for n in needles)
+
+
+_NGENIE_CODE_LOCK_ALLOWED_ENDPOINTS = {
+    'edit_config',
+    'ai_generate',
+    'ai_generate_layout',
+    'ngenie_code_document',
+    'ngenie_code_write_instruction',
+    'ngenie_code_generate_example',
+    'ngenie_code_debug_file',
+    'ngenie_code_chat',
+    'ngenie_code_chat_add',
+    'ngenie_code_question_answers',
+    'ngenie_code_chat_new',
+}
+
+
+def _ngenie_code_owned_config_by_uid(uid):
+    uid = str(uid or '').strip()
+    if not uid or not getattr(current_user, 'is_authenticated', False):
+        return None
+    return db.session.execute(
+        select(Configuration).where(Configuration.uid == uid, Configuration.user_id == current_user.id)
+    ).scalar_one_or_none()
+
+
+def _ngenie_code_config_from_route_kwargs(kwargs):
+    """Best-effort resolution of the configuration touched by an editor route."""
+    if not isinstance(kwargs, dict):
+        kwargs = {}
+
+    uid = kwargs.get('uid') or kwargs.get('config_uid')
+    if uid:
+        cfg = _ngenie_code_owned_config_by_uid(uid)
+        if cfg is not None:
+            return cfg
+
+    class_id = kwargs.get('class_id')
+    if class_id is not None:
+        obj = db.session.get(ConfigClass, class_id)
+        if obj is not None and obj.config and obj.config.user_id == current_user.id:
+            return obj.config
+
+    method_id = kwargs.get('method_id')
+    if method_id is not None:
+        obj = db.session.get(ClassMethod, method_id)
+        cfg = getattr(getattr(obj, 'class_obj', None), 'config', None) if obj is not None else None
+        if cfg is not None and cfg.user_id == current_user.id:
+            return cfg
+
+    dataset_id = kwargs.get('dataset_id')
+    if dataset_id is not None:
+        obj = db.session.get(Dataset, dataset_id)
+        cfg = getattr(obj, 'config', None) if obj is not None else None
+        if cfg is not None and cfg.user_id == current_user.id:
+            return cfg
+
+    section_id = kwargs.get('section_id')
+    if section_id is not None:
+        obj = db.session.get(ConfigSection, section_id)
+        cfg = getattr(obj, 'config', None) if obj is not None else None
+        if cfg is not None and cfg.user_id == current_user.id:
+            return cfg
+
+    server_id = kwargs.get('server_id')
+    if server_id is not None:
+        obj = db.session.get(Server, server_id)
+        cfg = getattr(obj, 'config', None) if obj is not None else None
+        if cfg is not None and cfg.user_id == current_user.id:
+            return cfg
+
+    alias_id = kwargs.get('alias_id')
+    if alias_id is not None:
+        obj = db.session.get(RoomAlias, alias_id)
+        cfg = getattr(obj, 'config', None) if obj is not None else None
+        if cfg is not None and cfg.user_id == current_user.id:
+            return cfg
+
+    return None
+
+
+def _ngenie_code_should_block_endpoint(endpoint, method):
+    endpoint = str(endpoint or '')
+    method = str(method or 'GET').upper()
+    if endpoint in _NGENIE_CODE_LOCK_ALLOWED_ENDPOINTS:
+        return False
+    # edit_config GET is the container for the nGenie Code chat; all normal POST saves are blocked.
+    if endpoint == 'edit_config' and method == 'GET':
+        return False
+    return True
+
+
+def _ngenie_code_guard_view(endpoint, view_func):
+    @wraps(view_func)
+    def _wrapped(*args, **kwargs):
+        try:
+            cfg = _ngenie_code_config_from_route_kwargs(kwargs)
+            if cfg is not None and _config_is_ngenie_code_locked(cfg):
+                if _ngenie_code_should_block_endpoint(endpoint, request.method):
+                    abort(403, description=_ngenie_code_forbid_message())
+        except Exception:
+            # Do not let the guard hide the original route's own 404/403 logic,
+            # except for explicit aborts raised above.
+            raise
+        return view_func(*args, **kwargs)
+    return _wrapped
 
 
 def _is_probably_print_template_base64(value: Any) -> bool:
@@ -227,12 +700,15 @@ _REQUIRED_APP_CONTEXT_NAMES = (
     'TASKS_DB_PATH',
     '_contract_accessible_configs',
     '_contract_add_payload',
+    '_contract_recreate_nodes_for_contract',
     '_contract_total_object_count',
     '_contract_update_from_data',
     '_export_class_json',
     '_get_owned_contract_or_404',
     '_is_http_request_method',
     '_is_script_text_method',
+    '_load_server_handlers_ns',
+    '_nodes_mod',
     '_runtime_cache_invalidate',
     '_runtime_download_text_cached',
     '_s3_key_from_public_url',
@@ -254,12 +730,15 @@ if TYPE_CHECKING:
     s3: Any
     _contract_accessible_configs: Any
     _contract_add_payload: Any
+    _contract_recreate_nodes_for_contract: Any
     _contract_total_object_count: Any
     _contract_update_from_data: Any
     _export_class_json: Any
     _get_owned_contract_or_404: Any
     _is_http_request_method: Any
     _is_script_text_method: Any
+    _load_server_handlers_ns: Any
+    _nodes_mod: Any
     _runtime_cache_invalidate: Any
     _runtime_download_text_cached: Any
     _s3_key_from_public_url: Any
@@ -286,7 +765,7 @@ def register_editor_routes(flask_app, context=None):
         endpoint = opts.pop("endpoint", None) or view_func.__name__
         if endpoint in flask_app.view_functions:
             continue
-        flask_app.add_url_rule(rule, endpoint, view_func, **opts)
+        flask_app.add_url_rule(rule, endpoint, _ngenie_code_guard_view(endpoint, view_func), **opts)
 
     if context is not None:
         for name in MOVED_EDITOR_NAMES:
@@ -1327,6 +1806,8 @@ def download_handlers(uid):
     
     if not config or not config.nodes_handlers:
         abort(404)
+    if _config_is_ngenie_code_locked(config):
+        abort(403, description=_ngenie_code_forbid_message())
     
     try:
         
@@ -1861,6 +2342,30 @@ def _wiz_parse_line_spec(spec):
     field_id = _wiz_norm_id(field_id or caption)
     return caption, field_id, (right or '').strip()
 
+
+def _wiz_parse_named_table(line):
+    """Parse ``caption|field:[column declarations]`` tabular-part syntax.
+
+    The bracket must contain declarations with their own ``: type``. This keeps
+    list-node syntax such as ``positions:[Node("Line")]`` separate.
+    """
+    left, right = _wiz_split_once_top_level(line, ':')
+    right = (right or '').strip()
+    if not left or not (right.startswith('[') and right.endswith(']')):
+        return None
+
+    inner = right[1:-1].strip()
+    specs = [x.strip() for x in _wiz_split_top_level(inner) if x.strip()]
+    if not specs:
+        return None
+    if not any(bool(_wiz_split_once_top_level(spec, ':')[1]) for spec in specs):
+        return None
+
+    caption, field_id = _wiz_split_once_top_level(left, '|')
+    caption = (caption or field_id or '').strip()
+    field_id = _wiz_norm_id(field_id or caption)
+    return caption or field_id, field_id, specs
+
 def _wiz_active_field_to_json(spec):
     caption, field_id, right = _wiz_parse_line_spec(spec)
     value_ref = '@' + field_id
@@ -1953,7 +2458,64 @@ def _wiz_cover_field_to_json(spec):
         {"type": "Text", "value": value, "bold": True}
     ]
 
-def _wiz_build_active_table(specs, index):
+def _wiz_cover_structure_field_to_json(spec):
+    """Generate one cover row from a DataStructure field declaration.
+
+    Cover generation is intentionally conservative: it may emit only Text,
+    NodeLink and DatasetLink. Type declarations are never shown as literal
+    values; every generated value references the node field through ``@``.
+    """
+    _caption, field_id, type_expr = _wiz_parse_line_spec(spec)
+    value_ref = '@' + field_id
+
+    fn_call = _wiz_parse_fn_call(type_expr)
+    if fn_call:
+        fn, _arg = fn_call
+        if fn in ('node', 'childnode'):
+            return [{"type": "NodeLink", "value": value_ref, "bold": True}]
+        if fn == 'dataset':
+            return [{"type": "DatasetLink", "value": value_ref, "bold": True}]
+
+    # Cover generation intentionally emits only field-bound values. A Text item
+    # always uses @field; literal captions and Table/Tabs controls are not added.
+    return [{"type": "Text", "value": value_ref, "bold": True}]
+
+
+def _wiz_cover_from_data_structure(text):
+    rows = []
+    for raw_line in (text or '').replace(';', '\n').splitlines():
+        line = str(raw_line or '').strip().strip(',')
+        if not line or line.startswith('#') or line.startswith('//'):
+            continue
+
+        named_table = _wiz_parse_named_table(line)
+        if named_table:
+            _caption, _field_id, specs = named_table
+            for spec in specs:
+                rows.append(_wiz_cover_structure_field_to_json(spec))
+            continue
+
+        if line.startswith('[') and line.endswith(']'):
+            inner = line[1:-1].strip()
+            specs = [x.strip() for x in _wiz_split_top_level(inner) if x.strip()]
+            for spec in specs:
+                rows.append(_wiz_cover_structure_field_to_json(spec))
+            continue
+
+        specs = [x.strip() for x in _wiz_split_top_level(line) if x.strip()]
+        for spec in specs:
+            rows.append(_wiz_cover_structure_field_to_json(spec))
+
+    allowed = {'Text', 'NodeLink', 'DatasetLink'}
+    for row in rows:
+        for item in row:
+            if not isinstance(item, dict) or item.get('type') not in allowed:
+                raise ValueError('Cover generator produced an unsupported element')
+    return rows
+
+
+
+def _wiz_build_active_table(specs, index, table_id=None, table_caption=None):
     layout_row = []
     cover_row = []
 
@@ -1969,16 +2531,23 @@ def _wiz_build_active_table(specs, index):
         else:
             cover_row.append({"type": "Text", "value": '@' + field_id, "bold": True})
 
-    return [[{
+    explicit_name = str(table_id or '').strip()
+    resolved_id = _wiz_norm_id(explicit_name) if explicit_name else f"tab{index}"
+    table = {
         "type": "Table",
-        "id": f"tab{index}",
+        "id": resolved_id,
         "virtual_node": {
             "layout": [layout_row],
             "cover": [cover_row],
         }
-    }]]
+    }
+    if explicit_name:
+        table["data_structure_name"] = resolved_id
+        table["caption"] = str(table_caption or explicit_name)
+    return [[table]]
 
-def _wiz_build_cover_table(specs, index):
+
+def _wiz_build_cover_table(specs, index, table_id=None, table_caption=None):
     header = []
     value_row = []
 
@@ -1987,13 +2556,20 @@ def _wiz_build_cover_table(specs, index):
         header.append(f"{caption}|{field_id}|1")
         value_row.append(right or ('@' + field_id))
 
-    return [[{
+    explicit_name = str(table_id or '').strip()
+    resolved_id = _wiz_norm_id(explicit_name) if explicit_name else f"tab{index}"
+    table = {
         "type": "Table",
-        "id": f"tab{index}",
+        "id": resolved_id,
         "value": [value_row],
         "table": True,
         "table_header": header,
-    }]]
+    }
+    if explicit_name:
+        table["data_structure_name"] = resolved_id
+        table["caption"] = str(table_caption or explicit_name)
+    return [[table]]
+
 
 
 def _wiz_parse_node_type_list(expr, allowed=('node', 'childnode')):
@@ -2084,6 +2660,8 @@ def _wiz_try_structure_element(line):
 
 def simplified_markup_to_layout(text, mode):
     mode = (mode or 'active').strip().lower()
+    if mode == 'cover_structure':
+        return _wiz_cover_from_data_structure(text)
     if mode not in ('active', 'cover'):
         raise ValueError('Unsupported mode')
 
@@ -2092,13 +2670,26 @@ def simplified_markup_to_layout(text, mode):
     tables = []
 
     for line in lines:
+        named_table = _wiz_parse_named_table(line)
+        if named_table:
+            table_caption, table_id, specs = named_table
+            index = len(tables) + 1
+            if mode == 'active':
+                table_layout = _wiz_build_active_table(specs, index, table_id, table_caption)
+            else:
+                table_layout = _wiz_build_cover_table(specs, index, table_id, table_caption)
+            tables.append({"caption": table_caption, "id": table_id, "layout": table_layout})
+            continue
+
         if line.startswith('[') and line.endswith(']'):
             inner = line[1:-1].strip()
             specs = [x.strip() for x in _wiz_split_top_level(inner) if x.strip()]
+            index = len(tables) + 1
             if mode == 'active':
-                tables.append(_wiz_build_active_table(specs, len(tables) + 1))
+                table_layout = _wiz_build_active_table(specs, index)
             else:
-                tables.append(_wiz_build_cover_table(specs, len(tables) + 1))
+                table_layout = _wiz_build_cover_table(specs, index)
+            tables.append({"caption": f"Table {index}", "id": f"tab{index}", "layout": table_layout})
             continue
 
         if mode == 'active':
@@ -2109,29 +2700,30 @@ def simplified_markup_to_layout(text, mode):
 
         parts = [x.strip() for x in _wiz_split_top_level(line) if x.strip()]
         if mode == 'active':
-            rows.append([_wiz_active_field_to_json(p) for p in parts])
+            rows.append([_wiz_active_field_to_json(part) for part in parts])
         else:
             row = []
-            for p in parts:
-                row.extend(_wiz_cover_field_to_json(p))
+            for part in parts:
+                row.extend(_wiz_cover_field_to_json(part))
             rows.append(row)
 
     if not tables:
         return rows
 
     if len(tables) == 1:
-        return rows + tables[0]
+        return rows + tables[0]["layout"]
 
     tabs = []
-    for i, table_layout in enumerate(tables, start=1):
+    for index, table_info in enumerate(tables, start=1):
         tabs.append({
             "type": "Tab",
-            "id": f"tab_{i}",
-            "caption": f"Table {i}",
-            "layout": table_layout,
+            "id": f"tab_{_wiz_norm_id(table_info.get('id') or index)}",
+            "caption": str(table_info.get('caption') or f"Table {index}"),
+            "layout": table_info.get("layout") or [],
         })
 
     return rows + [[{"type": "Tabs", "value": tabs}]]
+
 
 def _wiz_json_field_to_simple(item):
     if not isinstance(item, dict):
@@ -2210,6 +2802,9 @@ def _wiz_table_to_simple(table_item, mode):
     if not isinstance(table_item, dict) or table_item.get('type') != 'Table':
         return None
 
+    structure_name = str(table_item.get('data_structure_name') or '').strip()
+    prefix = f'{structure_name}:' if structure_name else ''
+
     if mode == 'active':
         v = table_item.get('virtual_node') or {}
         layout = v.get('layout') or []
@@ -2218,26 +2813,27 @@ def _wiz_table_to_simple(table_item, mode):
 
         cols = []
         for item in layout[0]:
-            s = _wiz_json_field_to_simple(item)
-            if s:
-                cols.append(s)
+            value = _wiz_json_field_to_simple(item)
+            if value:
+                cols.append(value)
         if cols:
-            return '[' + ', '.join(cols) + ']'
+            return prefix + '[' + ', '.join(cols) + ']'
         return None
 
     headers = table_item.get('table_header') or []
     if headers:
         cols = []
-        for h in headers:
-            if not isinstance(h, str):
+        for header in headers:
+            if not isinstance(header, str):
                 continue
-            parts = h.split('|')
+            parts = header.split('|')
             caption = parts[0].strip() if len(parts) > 0 else 'Field'
             field_id = parts[1].strip() if len(parts) > 1 else _wiz_norm_id(caption)
             cols.append(f'{caption}|@{field_id}')
         if cols:
-            return '[' + ', '.join(cols) + ']'
+            return prefix + '[' + ', '.join(cols) + ']'
     return None
+
 
 def layout_to_simplified_markup(layout, mode):
     mode = (mode or 'active').strip().lower()
@@ -2470,7 +3066,7 @@ def _timer_worker_from_form() -> bool:
 
 def _normalize_timer_runtime(value, default='server') -> str:
     value = str(value or default or 'server').strip().lower()
-    if value in {'client', 'browser', 'web'}:
+    if value in {'client', 'android', 'mobile', 'клиент', 'андроид'}:
         return 'client'
     return 'server'
 
@@ -2795,12 +3391,33 @@ def edit_config(uid):
     if not config:
         abort(404)
 
-     
     if request.method == 'GET':
+        _ensure_system_config_for_current_user(sync_users=True)
+        _cleanup_reserved_user_classes_for_current_user()
+        try:
+            db.session.refresh(config)
+        except Exception:
+            pass
+
+    if _config_is_ngenie_code_locked(config) and request.method == 'POST':
+        abort(403, description=_ngenie_code_forbid_message())
+
+     
+    if request.method == 'GET' and not _config_is_ngenie_code_locked(config):
         sync_classes_from_server_handlers(config)
         sync_classes_from_android_handlers(config)
         sync_methods_from_code(config)  
         db.session.refresh(config) 
+
+    # Solutions/nGenie Code: F5 or direct opening of edit_config must resume
+    # unfinished plan.py as well. The chat JSON endpoint also does this, but this
+    # server-side hook makes startup independent of JS tab/loading order.
+    if request.method == 'GET' and _config_is_ngenie_code_locked(config):
+        _solutions_run_plan_if_needed(config, start_only=True)
+        try:
+            db.session.refresh(config)
+        except Exception:
+            pass
 
     edit_dataset = None
     if request.args.get('edit_dataset'):
@@ -2818,7 +3435,18 @@ def edit_config(uid):
                 pass
         config.name = request.form.get('name')
         config.server_name = request.form.get('server_name')
+        if 'ngenie_prompt' in request.form:
+            config.ngenie_prompt = request.form.get('ngenie_prompt') or ''
+        if 'profile_templates_json' in request.form and hasattr(config, 'profile_templates'):
+            raw_profile_templates = request.form.get('profile_templates_json') or '[]'
+            try:
+                config.profile_templates = json.loads(raw_profile_templates) if raw_profile_templates.strip() else []
+            except Exception as e:
+                flash(_('Profile templates JSON error') + ': ' + str(e), 'error')
+                return redirect(url_for('edit_config', uid=uid, tab='profile-templates'))
         db.session.commit()
+        if 'profile_templates_json' in request.form and hasattr(config, 'profile_templates'):
+            _materialize_profile_templates_for_config(config)
         flash(_('Configuration saved'), 'success')
         return redirect(url_for('dashboard'))
     
@@ -2829,7 +3457,10 @@ def edit_config(uid):
                            base64=base64,
                            rooms=rooms,
                            ui_tpl_buttons=ui_tpl_buttons,
-                           ui_tpl_map=ui_tpl_map)
+                           ui_tpl_map=ui_tpl_map,
+                           ngenie_code_available=_ngenie_code_available(),
+                           ngenie_code_lock_enabled=_ngenie_code_lock_enabled(),
+                           ngenie_code_locked=_config_is_ngenie_code_locked(config))
 
 @_routes.route('/add-class/<config_uid>', methods=['POST'])
 @login_required
@@ -2943,6 +3574,13 @@ def edit_class(class_id):
         class_obj.init_screen_layout = request.form.get('init_screen_layout') or ""
         class_obj.init_screen_layout_web = request.form.get('init_screen_layout_web') or ""
         class_obj.show_tag_cloud = 'show_tag_cloud' in request.form
+        class_obj.hide_mobile_client = 'hide_mobile_client' in request.form
+        class_obj.hide_web_client = 'hide_web_client' in request.form
+        class_obj.dashboard_enabled = 'dashboard_enabled' in request.form
+        class_obj.dashboard_width = (request.form.get('dashboard_width') or '100').strip()
+        if class_obj.dashboard_width not in ('100', '50', '25'):
+            class_obj.dashboard_width = '100'
+        class_obj.dashboard_top = 'dashboard_top' in request.form
         class_obj.plug_in = request.form.get('plug_in') or ""
         class_obj.plug_in_web = request.form.get('plug_in_web') or ""
 
@@ -2957,6 +3595,7 @@ def edit_class(class_id):
         class_obj.migration_send_via_queue = 'migration_send_via_queue' in request.form
         class_obj.migration_default_room_alias = (request.form.get('migration_default_room_alias') or '').strip()
         class_obj.link_share_mode = (request.form.get('link_share_mode') or '').strip()
+        class_obj.include_in_contract = 'include_in_contract' in request.form
         # Backward compatibility: keep old UID if it's still posted
         if 'migration_default_room_uid' in request.form:
             class_obj.migration_default_room_uid = (request.form.get('migration_default_room_uid') or '').strip()
@@ -2968,6 +3607,16 @@ def edit_class(class_id):
                 parsed_indexes = []
         except Exception:
             parsed_indexes = []
+        def _parse_index_float01(value, default=0.5):
+            raw = default if value is None else value
+            if isinstance(raw, str):
+                raw = raw.strip().replace(',', '.')
+            try:
+                parsed = float(raw)
+            except Exception:
+                parsed = default
+            return max(0.0, min(1.0, parsed))
+
         normalized_indexes = []
         for idx in parsed_indexes:
             if not isinstance(idx, dict):
@@ -2975,15 +3624,38 @@ def edit_class(class_id):
             name = str(idx.get('name') or '').strip()
             if not name:
                 continue
-            normalized_indexes.append({
+            kind = str(idx.get('kind') or idx.get('type') or 'hash_index').strip() or 'hash_index'
+            raw_keys = idx.get('keys')
+            if raw_keys in (None, '', []):
+                raw_keys = idx.get('field')
+            if raw_keys in (None, '', []):
+                raw_keys = idx.get('key')
+            if raw_keys in (None, '', []):
+                raw_keys = idx.get('fields')
+            if isinstance(raw_keys, (list, tuple, set)):
+                raw_keys = '|'.join(str(x or '').strip() for x in raw_keys if str(x or '').strip())
+            item = {
                 'name': name,
-                'kind': str(idx.get('kind') or 'hash_index').strip() or 'hash_index',
-                'keys': str(idx.get('keys') or '').strip(),
+                'kind': kind,
+                'keys': str(raw_keys or '').strip(),
                 'filter_enabled': bool(idx.get('filter_enabled')),
                 'filter_label': str(idx.get('filter_label') or '').strip(),
                 'filter_type': str(idx.get('filter_type') or 'string').strip() or 'string',
                 'filter_list_enabled': bool(idx.get('filter_list_enabled')),
-            })
+                'server_only': bool(idx.get('server_only')),
+                'ngenie_server_search': bool(idx.get('ngenie_server_search')),
+            }
+            if kind.lower() in {'semantic', 'semantic_index', 'semanic_index'}:
+                default_model = 'intfloat/multilingual-e5-small'
+                item['model'] = str(idx.get('model') or idx.get('model_name') or idx.get('embedding_model') or default_model).strip() or default_model
+                is_default_e5 = item['model'].strip().lower().rstrip('/') == default_model
+                default_threshold = 0.8 if is_default_e5 else 0.5
+                default_embedding_weight = 1.0 if is_default_e5 else 0.5
+                default_token_weight = 0.0 if is_default_e5 else 0.5
+                item['threshold'] = _parse_index_float01(idx.get('threshold', idx.get('min_score', idx.get('min_similarity', default_threshold))), default_threshold)
+                item['embedding_weight'] = _parse_index_float01(idx.get('embedding_weight', idx.get('semantic_weight', idx.get('vector_weight', default_embedding_weight))), default_embedding_weight)
+                item['technical_token_weight'] = _parse_index_float01(idx.get('technical_token_weight', idx.get('token_weight', idx.get('technical_weight', default_token_weight))), default_token_weight)
+            normalized_indexes.append(item)
         class_obj.indexes_json = normalized_indexes
 
         class_obj.has_storage = 'has_storage' in request.form
@@ -3023,6 +3695,13 @@ def edit_class(class_id):
             class_obj.print_html_template = ''
         class_obj.hidden = 'hidden' in request.form or (class_obj.class_type or '') == 'print_form'
 
+        if 'ngenie_role' in request.form:
+            class_obj.ngenie_role = (request.form.get('ngenie_role') or '').strip()
+        if 'ngenie_prompt' in request.form:
+            class_obj.ngenie_prompt = request.form.get('ngenie_prompt') or ''
+        if 'ngenie_description' in request.form and hasattr(class_obj, 'ngenie_description'):
+            class_obj.ngenie_description = request.form.get('ngenie_description') or ''
+
         section_code = request.form.get('section_code')
         
 
@@ -3034,6 +3713,10 @@ def edit_class(class_id):
 
         class_obj.section = section_name
         class_obj.section_code = section_code
+        # Parsed web-client configuration is cached by Configuration.last_modified.
+        # Touch the parent row for every class edit so SQL-backed cache invalidation
+        # is immediate and does not require rebuilding all repositories in a timer.
+        class_obj.config.last_modified = datetime.now(timezone.utc)
         db.session.commit()
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({"ok": True, "class_id": class_obj.id})
@@ -3060,6 +3743,48 @@ def edit_class(class_id):
                          wizard_active_buttons=get_wizard_active_templates(),
                          wizard_cover_buttons=get_wizard_cover_templates(),
                          event_types=['onShow', 'onInput', 'onChange', 'onShowWeb', 'onInputWeb', "onAcceptServer", "onAfterAcceptServer", "onAccept","onAfterAcccept"])
+
+@_routes.route('/edit-class/<int:class_id>/rebuild-indexes', methods=['POST'], endpoint='rebuild_class_indexes')
+@login_required
+def rebuild_class_indexes(class_id):
+    class_obj = db.session.get(ConfigClass, class_id)
+    if not class_obj:
+        abort(404)
+    if class_obj.config.user_id != current_user.id:
+        abort(403)
+
+    payload = request.get_json(silent=True) or {}
+    raw_index = str(payload.get('index_name') or '').strip()
+    index_names = [raw_index] if raw_index else None
+    config_uid = str(getattr(class_obj.config, 'uid', '') or '').strip()
+
+    try:
+        isolated_globals = _load_server_handlers_ns(config_uid, class_obj.config) or {}
+        node_class = isolated_globals.get(class_obj.name)
+        if node_class is None:
+            return jsonify({
+                'ok': False,
+                'error': _('Server handler class was not found. Save/generate server handlers first.'),
+                'nodes': 0,
+                'indexes': 0,
+            }), 400
+
+        result = node_class.rebuild_defined_indexes(config_uid, index_names=index_names)
+        if not isinstance(result, dict):
+            result = {'ok': True, 'nodes': 0, 'indexes': 0}
+        result.setdefault('ok', True)
+        return jsonify(result)
+    except Exception as e:
+        tb = traceback.format_exc()
+        try:
+            current_app.logger.exception('Index rebuild failed for class_id=%s index=%s', class_id, raw_index or '*')
+        except Exception:
+            print(tb)
+        payload = {'ok': False, 'error': str(e), 'nodes': 0, 'indexes': 0}
+        if current_app.debug or request.args.get('debug') == '1':
+            payload['traceback'] = tb
+        return jsonify(payload), 500
+
 
 @_routes.route('/edit-class/<int:class_id>/print-preview', methods=['POST'])
 @login_required
@@ -3562,6 +4287,8 @@ def export_class_json(class_id):
         abort(404)
     if class_obj.config.user_id != current_user.id:
         abort(403)
+    if _config_is_ngenie_code_locked(class_obj.config):
+        abort(403, description=_ngenie_code_forbid_message())
 
     payload = _export_class_json(class_obj)
     buf = io.BytesIO(json.dumps(payload, ensure_ascii=False, indent=2).encode('utf-8'))
@@ -3577,6 +4304,9 @@ def export_config(uid):
     
     if not config:
         abort(404)
+    if _config_is_ngenie_code_locked(config):
+        flash(_ngenie_code_forbid_message(), 'error')
+        return redirect(url_for('edit_config', uid=uid, tab='ai-generator'))
     
     
     provider = (config.user.config_display_name 
@@ -3600,12 +4330,18 @@ def export_config(uid):
         'nodes_handlers_meta': config.nodes_handlers_meta,
         'nodes_server_handlers': config.nodes_server_handlers,  
         'nodes_server_handlers_meta': config.nodes_server_handlers_meta,  
+        'ngenie_prompt': getattr(config, 'ngenie_prompt', '') or '',
+        'ngenie_code_locked': bool(getattr(config, 'ngenie_code_locked', False)),
+        'ngenie_code_instruction': getattr(config, 'ngenie_code_instruction', '') or '',
+        'ngenie_code_example': getattr(config, 'ngenie_code_example', '') or '',
+        'demo_product': bool(getattr(config, 'demo_product', False)),
         'version': getattr(config, 'version', '00.00.01'),
         "NodaLogicFormat": NL_FORMAT,
         "NodaLogicType": "ANDROID_SERVER",
         'last_modified': local_time.isoformat(),
         'provider': config.vendor,
         "CommonLayouts": config.common_layouts or [],
+        "profile_templates": getattr(config, 'profile_templates', None) or [],
         'classes': [
             {
                 'name': c.name,
@@ -3620,8 +4356,16 @@ def export_config(uid):
                 'init_screen_layout': getattr(c, 'init_screen_layout', '') or '',
                 'init_screen_layout_web': getattr(c, 'init_screen_layout_web', '') or '',
                 'data_structure': getattr(c, 'data_structure', '') or '',
+                'ngenie_role': getattr(c, 'ngenie_role', '') or '',
+                'ngenie_prompt': getattr(c, 'ngenie_prompt', '') or '',
+                'ngenie_description': getattr(c, 'ngenie_description', '') or '',
                 'show_tag_cloud': bool(getattr(c, 'show_tag_cloud', False)),
                 'mobile_print_enabled': bool(getattr(c, 'mobile_print_enabled', False)),
+                'hide_mobile_client': bool(getattr(c, 'hide_mobile_client', False)),
+                'hide_web_client': bool(getattr(c, 'hide_web_client', False)),
+                'dashboard_enabled': bool(getattr(c, 'dashboard_enabled', False)),
+                'dashboard_width': str(getattr(c, 'dashboard_width', '') or '100'),
+                'dashboard_top': bool(getattr(c, 'dashboard_top', False)),
                 'plug_in': getattr(c, 'plug_in', '') or '',
                 'plug_in_web': getattr(c, 'plug_in_web', '') or '',
 
@@ -3635,6 +4379,7 @@ def export_config(uid):
                 'migration_default_room_uid': getattr(c, 'migration_default_room_uid', '') or '',
                 'migration_default_room_alias': getattr(c, 'migration_default_room_alias', '') or '',
                 'link_share_mode': getattr(c, 'link_share_mode', '') or '',
+                'include_in_contract': bool(getattr(c, 'include_in_contract', False)),
                 'indexes': getattr(c, 'indexes_json', None) or [],
 
                 'class_type': c.class_type,
@@ -3644,6 +4389,8 @@ def export_config(uid):
                 'print_target_classes': getattr(c, 'print_target_classes', None) or [],
                 'print_html_template': _encode_print_html_template(getattr(c, 'print_html_template', '') or ''),
                 'hidden': c.hidden,
+                'hide_mobile_client': bool(getattr(c, 'hide_mobile_client', False)),
+                'hide_web_client': bool(getattr(c, 'hide_web_client', False)),
                 'methods': [{
                     'name': m.name,
                     'source': m.source,
@@ -3690,7 +4437,9 @@ def export_config(uid):
             {
                 'name': s.name,
                 'code': s.code,
-                'commands': s.commands
+                'commands': s.commands,
+                'hide_mobile_client': bool(getattr(s, 'hide_mobile_client', False)),
+                'hide_web_client': bool(getattr(s, 'hide_web_client', False))
             } for s in config.sections
         ],
         "servers": [
@@ -3746,6 +4495,50 @@ def export_config(uid):
         mimetype='application/json'
     )
 
+def _normalize_imported_indexes(raw_indexes):
+    """Normalize both kind/keys and legacy type/field index definitions."""
+    if isinstance(raw_indexes, str):
+        try:
+            raw_indexes = json.loads(raw_indexes)
+        except Exception:
+            raw_indexes = []
+    if not isinstance(raw_indexes, list):
+        return []
+    out = []
+    positions = {}
+    for raw in raw_indexes:
+        if not isinstance(raw, dict):
+            continue
+        item = dict(raw)
+        name = str(item.get('name') or item.get('index') or item.get('id') or '').strip()
+        if not name:
+            continue
+        kind = str(item.get('kind') or item.get('type') or 'hash_index').strip().lower() or 'hash_index'
+        keys = item.get('keys')
+        if keys in (None, '', []):
+            keys = item.get('field')
+        if keys in (None, '', []):
+            keys = item.get('key')
+        if keys in (None, '', []):
+            keys = item.get('fields')
+        if isinstance(keys, (list, tuple, set)):
+            keys = '|'.join(str(x or '').strip() for x in keys if str(x or '').strip())
+        else:
+            keys = str(keys or '').strip()
+        item['name'] = name
+        item['kind'] = kind
+        item['keys'] = keys
+        item.setdefault('type', kind)
+        if keys and not item.get('field') and '|' not in keys:
+            item['field'] = keys
+        if name in positions:
+            out[positions[name]] = item
+        else:
+            positions[name] = len(out)
+            out.append(item)
+    return out
+
+
 @_routes.route('/import-config-new', methods=['POST'])
 @login_required
 def import_config_new():
@@ -3799,6 +4592,15 @@ def import_config_new():
             existing_config.nodes_handlers_meta = data.get('nodes_handlers_meta', existing_config.nodes_handlers_meta)
             existing_config.nodes_server_handlers = data.get('nodes_server_handlers', existing_config.nodes_server_handlers)
             existing_config.nodes_server_handlers_meta = data.get('nodes_server_handlers_meta', existing_config.nodes_server_handlers_meta)
+            existing_config.ngenie_prompt = data.get('ngenie_prompt', getattr(existing_config, 'ngenie_prompt', '') or '')
+            if hasattr(existing_config, 'demo_product'):
+                existing_config.demo_product = bool(data.get('demo_product', False))
+            if hasattr(existing_config, 'ngenie_code_locked'):
+                existing_config.ngenie_code_locked = _ngenie_code_bool(data.get('ngenie_code_locked'))
+            if hasattr(existing_config, 'ngenie_code_instruction'):
+                existing_config.ngenie_code_instruction = data.get('ngenie_code_instruction', getattr(existing_config, 'ngenie_code_instruction', '') or '')
+            if hasattr(existing_config, 'ngenie_code_example'):
+                existing_config.ngenie_code_example = data.get('ngenie_code_example', getattr(existing_config, 'ngenie_code_example', '') or '')
             
             # Delete all existing related data for a complete update
             print("Deleting existing related data...")
@@ -3822,6 +4624,8 @@ def import_config_new():
 
             # Import common layouts
             config_to_use.common_layouts = data.get('CommonLayouts', data.get('common_layouts', [])) or []
+            if hasattr(config_to_use, 'profile_templates'):
+                config_to_use.profile_templates = data.get('profile_templates', data.get('ProfileTemplates', [])) or []
             
         else:
             # IF THERE IS NO CONFIGURATION - CREATE A NEW ONE
@@ -3839,7 +4643,13 @@ def import_config_new():
                 uid=str(uuid.uuid4()), 
                 content_uid=content_uid,
                 vendor=data.get("vendor", data.get("provider")),
-                common_layouts=data.get('CommonLayouts', data.get('common_layouts', [])) or []
+                common_layouts=data.get('CommonLayouts', data.get('common_layouts', [])) or [],
+                profile_templates=data.get('profile_templates', data.get('ProfileTemplates', [])) or [],
+                ngenie_prompt=data.get('ngenie_prompt', ''),
+                ngenie_code_locked=_ngenie_code_bool(data.get('ngenie_code_locked')),
+                ngenie_code_instruction=data.get('ngenie_code_instruction', ''),
+                ngenie_code_example=data.get('ngenie_code_example', ''),
+                demo_product=bool(data.get('demo_product', False))
             )
             
             db.session.add(new_config)
@@ -3849,6 +4659,8 @@ def import_config_new():
 
             # Import common layouts
             config_to_use.common_layouts = data.get('CommonLayouts', data.get('common_layouts', [])) or []
+            if hasattr(config_to_use, 'profile_templates'):
+                config_to_use.profile_templates = data.get('profile_templates', data.get('ProfileTemplates', [])) or []
         
         config_to_use.nodes_handlers = _rewrite_android_handlers_instance_refs_b64(
             config_to_use.nodes_handlers,
@@ -3874,8 +4686,14 @@ def import_config_new():
                 init_screen_layout=class_data.get('init_screen_layout', ''),
                 init_screen_layout_web=class_data.get('init_screen_layout_web', ''),
                 data_structure=class_data.get('data_structure', class_data.get('dataStructure', '')),
+                ngenie_role=class_data.get('ngenie_role', class_data.get('ngenieRole', class_data.get('nGenieRole', ''))),
+                ngenie_prompt=class_data.get('ngenie_prompt', class_data.get('ngeniePrompt', class_data.get('nGeniePrompt', ''))),
+                ngenie_description=class_data.get('ngenie_description', class_data.get('ngenieDescription', class_data.get('nGenieDescription', ''))),
                 show_tag_cloud=bool(class_data.get('show_tag_cloud', class_data.get('showTagCloud', False))),
                 mobile_print_enabled=bool(class_data.get('mobile_print_enabled', class_data.get('mobilePrintEnabled', False))),
+                dashboard_enabled=bool(class_data.get('dashboard_enabled', class_data.get('dashboardEnabled', False))),
+                dashboard_width=str(class_data.get('dashboard_width', class_data.get('dashboardWidth', '100')) or '100'),
+                dashboard_top=bool(class_data.get('dashboard_top', class_data.get('dashboardTop', False))),
                 plug_in=class_data.get('plug_in', ''),
                 plug_in_web=class_data.get('plug_in_web', ''),
 
@@ -3889,7 +4707,8 @@ def import_config_new():
                 migration_default_room_uid=class_data.get('migration_default_room_uid', ''),
                 migration_default_room_alias=class_data.get('migration_default_room_alias', ''),
                 link_share_mode=class_data.get('link_share_mode', ''),
-                indexes_json=class_data.get('indexes', class_data.get('indexes_json', [])) or [],
+                include_in_contract=bool(class_data.get('include_in_contract', class_data.get('includeInContract', False))),
+                indexes_json=_normalize_imported_indexes(class_data.get('indexes', class_data.get('indexes_json', class_data.get('indexesJson', []))) or []),
 
                 class_type=class_data.get('class_type', ''),
                 projection_type=class_data.get('projection_type', ''),
@@ -3898,6 +4717,8 @@ def import_config_new():
                 print_target_classes=class_data.get('print_target_classes', class_data.get('printTargetClasses', [])) or [],
                 print_html_template=_encode_print_html_template(class_data.get('print_html_template', class_data.get('printHtmlTemplate', ''))),
                 hidden=class_data.get('hidden', False),
+                hide_mobile_client=bool(class_data.get('hide_mobile_client', class_data.get('hideMobileClient', False))),
+                hide_web_client=bool(class_data.get('hide_web_client', class_data.get('hideWebClient', False))),
                 config_id=config_to_use.id
             )
             db.session.add(new_class)
@@ -3978,6 +4799,8 @@ def import_config_new():
                 name=section_data['name'],
                 code=section_data['code'],
                 commands=section_data.get('commands', ''),
+                hide_mobile_client=bool(section_data.get('hide_mobile_client', section_data.get('hideMobileClient', False))),
+                hide_web_client=bool(section_data.get('hide_web_client', section_data.get('hideWebClient', False))),
                 config_id=config_to_use.id
             )
             db.session.add(new_section)
@@ -4088,6 +4911,7 @@ def import_config_new():
         config_to_use.update_last_modified()
         
         db.session.commit()
+        _materialize_profile_templates_for_config(config_to_use)
         
         if is_update:
             print(f"Configuration updated successfully: {config_to_use.name}")
@@ -4117,6 +4941,16 @@ def apply_full_config_from_json(config, data):
     config.content_uid = data.get('content_uid', config.content_uid)
     config.server_name = data.get('server_name', config.server_name)
     config.version = data.get('version', config.version)
+    if 'ngenie_prompt' in data:
+        config.ngenie_prompt = data.get('ngenie_prompt') or ''
+    if 'ngenie_code_instruction' in data and hasattr(config, 'ngenie_code_instruction'):
+        config.ngenie_code_instruction = data.get('ngenie_code_instruction') or ''
+    if 'ngenie_code_example' in data and hasattr(config, 'ngenie_code_example'):
+        config.ngenie_code_example = data.get('ngenie_code_example') or ''
+    if 'ngenie_code_locked' in data and hasattr(config, 'ngenie_code_locked'):
+        config.ngenie_code_locked = _ngenie_code_bool(data.get('ngenie_code_locked'))
+    if 'demo_product' in data and hasattr(config, 'demo_product'):
+        config.demo_product = bool(data.get('demo_product'))
     config.nodes_handlers = data.get('nodes_handlers', config.nodes_handlers)
     config.nodes_handlers = _rewrite_android_handlers_instance_refs_b64(
         config.nodes_handlers,
@@ -4127,6 +4961,8 @@ def apply_full_config_from_json(config, data):
     config.nodes_server_handlers = data.get('nodes_server_handlers', config.nodes_server_handlers)
     config.nodes_server_handlers_meta = data.get('nodes_server_handlers_meta', config.nodes_server_handlers_meta)
     config.common_layouts = data.get('CommonLayouts', data.get('common_layouts', config.common_layouts)) or []
+    if hasattr(config, 'profile_templates'):
+        config.profile_templates = data.get('profile_templates', data.get('ProfileTemplates', getattr(config, 'profile_templates', []))) or []
     
     # We delete ALL existing related data
     print("Deleting existing data...")
@@ -4163,8 +4999,14 @@ def apply_full_config_from_json(config, data):
                 init_screen_layout=class_data.get('init_screen_layout', ''),
                 init_screen_layout_web=class_data.get('init_screen_layout_web', ''),
                 data_structure=class_data.get('data_structure', class_data.get('dataStructure', '')),
+                ngenie_role=class_data.get('ngenie_role', class_data.get('ngenieRole', class_data.get('nGenieRole', ''))),
+                ngenie_prompt=class_data.get('ngenie_prompt', class_data.get('ngeniePrompt', class_data.get('nGeniePrompt', ''))),
+                ngenie_description=class_data.get('ngenie_description', class_data.get('ngenieDescription', class_data.get('nGenieDescription', ''))),
                 show_tag_cloud=bool(class_data.get('show_tag_cloud', class_data.get('showTagCloud', False))),
                 mobile_print_enabled=bool(class_data.get('mobile_print_enabled', class_data.get('mobilePrintEnabled', False))),
+                dashboard_enabled=bool(class_data.get('dashboard_enabled', class_data.get('dashboardEnabled', False))),
+                dashboard_width=str(class_data.get('dashboard_width', class_data.get('dashboardWidth', '100')) or '100'),
+                dashboard_top=bool(class_data.get('dashboard_top', class_data.get('dashboardTop', False))),
                 plug_in=class_data.get('plug_in', ''),
                 plug_in_web=class_data.get('plug_in_web', ''),
 
@@ -4178,7 +5020,8 @@ def apply_full_config_from_json(config, data):
                 migration_default_room_uid=class_data.get('migration_default_room_uid', ''),
                 migration_default_room_alias=class_data.get('migration_default_room_alias', ''),
                 link_share_mode=class_data.get('link_share_mode', ''),
-                indexes_json=class_data.get('indexes', class_data.get('indexes_json', [])) or [],
+                include_in_contract=bool(class_data.get('include_in_contract', class_data.get('includeInContract', False))),
+                indexes_json=_normalize_imported_indexes(class_data.get('indexes', class_data.get('indexes_json', class_data.get('indexesJson', []))) or []),
 
                 class_type=class_data.get('class_type', ''),
                 projection_type=class_data.get('projection_type', ''),
@@ -4187,6 +5030,8 @@ def apply_full_config_from_json(config, data):
                 print_target_classes=class_data.get('print_target_classes', class_data.get('printTargetClasses', [])) or [],
                 print_html_template=_encode_print_html_template(class_data.get('print_html_template', class_data.get('printHtmlTemplate', ''))),
                 hidden=class_data.get('hidden', False),
+                hide_mobile_client=bool(class_data.get('hide_mobile_client', class_data.get('hideMobileClient', False))),
+                hide_web_client=bool(class_data.get('hide_web_client', class_data.get('hideWebClient', False))),
                 config_id=config.id
             )
         db.session.add(new_class)
@@ -4271,6 +5116,8 @@ def apply_full_config_from_json(config, data):
             name=section_data['name'],
             code=section_data['code'],
             commands=section_data.get('commands', ''),
+            hide_mobile_client=bool(section_data.get('hide_mobile_client', section_data.get('hideMobileClient', False))),
+            hide_web_client=bool(section_data.get('hide_web_client', section_data.get('hideWebClient', False))),
             config_id=config.id
         )
         db.session.add(new_section)
@@ -4388,6 +5235,9 @@ def import_config(uid):
     
     if not config:
         abort(404)
+    if _config_is_ngenie_code_locked(config):
+        flash(_ngenie_code_forbid_message(), 'error')
+        return redirect(url_for('edit_config', uid=uid, tab='ai-generator'))
     
     if 'config_file' not in request.files:
         flash(_('File not selected'), 'error')
@@ -4412,6 +5262,7 @@ def import_config(uid):
         apply_full_config_from_json(config, data)
         
         db.session.commit()
+        _materialize_profile_templates_for_config(config)
         print("Import completed successfully")
         
         flash(_('Configuration imported successfully'), 'success')
@@ -4426,27 +5277,91 @@ def import_config(uid):
     active_tab = request.form.get("active_tab", "config")
     return redirect(url_for('edit_config', uid=uid, tab=active_tab))
 
-def call_deepseek(system_prompt: str, user_prompt: str) -> str:
-    if not DEEPSEEK_API_KEY:
-        raise RuntimeError("DEEPSEEK_API_KEY is not set")
+def _extract_llm_message_content(data):
+    """Safe extractor for OpenAI-compatible chat/completions responses."""
+    def flat(v):
+        if v is None:
+            return ""
+        if isinstance(v, str):
+            return v
+        if isinstance(v, (int, float, bool)):
+            return str(v)
+        if isinstance(v, list):
+            return "".join(flat(x) for x in v)
+        if isinstance(v, dict):
+            for k in ("text", "content", "output_text"):
+                if k in v:
+                    t = flat(v.get(k))
+                    if t:
+                        return t
+            if "parsed" in v:
+                try:
+                    return json.dumps(v.get("parsed"), ensure_ascii=False)
+                except Exception:
+                    return str(v.get("parsed") or "")
+        return ""
 
-    headers = {
-        'Authorization': f'Bearer {DEEPSEEK_API_KEY}',
-        'Content-Type': 'application/json'
-    }
-    payload = {
-        "model": "deepseek-chat",
-        "messages": [
+    try:
+        if isinstance(data, dict):
+            for k in ("output_text", "content", "text"):
+                if k in data:
+                    t = flat(data.get(k))
+                    if t:
+                        return t
+            choices = data.get("choices")
+            if isinstance(choices, list) and choices:
+                choice = choices[0] if isinstance(choices[0], dict) else {}
+                msg = choice.get("message") if isinstance(choice, dict) else None
+                if isinstance(msg, dict):
+                    for k in ("content", "text", "output_text"):
+                        if k in msg:
+                            t = flat(msg.get(k))
+                            if t:
+                                return t
+                    if "parsed" in msg:
+                        try:
+                            return json.dumps(msg.get("parsed"), ensure_ascii=False)
+                        except Exception:
+                            return str(msg.get("parsed") or "")
+                for k in ("text", "content", "delta"):
+                    if k in choice:
+                        t = flat(choice.get(k))
+                        if t:
+                            return t
+        return ""
+    except Exception:
+        return ""
+
+
+def _llm_response_shape(data):
+    try:
+        if isinstance(data, dict):
+            choices = data.get("choices")
+            if isinstance(choices, list) and choices:
+                c0 = choices[0] if isinstance(choices[0], dict) else {}
+                msg = c0.get("message") if isinstance(c0, dict) else None
+                return f"top_keys={sorted(data.keys())}; choice0_keys={sorted(c0.keys())}; message_keys={sorted(msg.keys()) if isinstance(msg, dict) else []}"
+            return f"top_keys={sorted(data.keys())}"
+        return f"type={type(data).__name__}"
+    except Exception:
+        return "response_shape_unavailable"
+
+
+def call_deepseek(system_prompt: str, user_prompt: str) -> str:
+    data = _shared_chat_completion(
+        [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "temperature": 0.2,
-        "max_tokens": 8000
-    }
-    resp = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=60)
-    resp.raise_for_status()
-    data = resp.json()
-    return data["choices"][0]["message"]["content"]
+        require_json=False,
+        temperature=0.2,
+        max_tokens=8000,
+    )
+    content = _shared_message_content(data)
+    if not content:
+        raise RuntimeError("LLM response did not contain assistant content. " + _llm_response_shape(data))
+    return content
+
 
 def call_lmstudio(system_prompt: str, user_prompt: str) -> str:
     # LM Studio обычно OpenAI-compatible: /v1/chat/completions
@@ -4466,10 +5381,16 @@ def call_lmstudio(system_prompt: str, user_prompt: str) -> str:
     resp = requests.post(LMSTUDIO_API_URL, headers=headers, json=payload, timeout=1200)
     resp.raise_for_status()
     data = resp.json()
-    return data["choices"][0]["message"]["content"]
+    content = _extract_llm_message_content(data)
+    if not content:
+        raise RuntimeError("LLM response did not contain assistant content. " + _llm_response_shape(data))
+    return content
 
-def call_llm(provider: str, system_prompt: str, user_prompt: str) -> str:
+def call_llm(provider: str, system_prompt: str, user_prompt: str, *, debug_stage: str = "call", debug_meta: dict = None) -> str:
     provider = (provider or "").strip().lower()
+    if provider == "ngenie_code":
+        import ngenie_code
+        return ngenie_code.call_llm(system_prompt, user_prompt, debug_stage=debug_stage, debug_meta=debug_meta or {})
     if provider == "lmstudio":
         return call_lmstudio(system_prompt, user_prompt)
     # default
@@ -4532,7 +5453,12 @@ def extract_json_from_text(text: str) -> str:
 ALLOWED_UI_TYPES_AI = {
     # BASIC
     "Text", "Picture", "HTML", "Button", "BottomButtons", "Input", "Switch", "CheckBox",
-    "Table", "Parameters", "NodeChildren", "DatasetField",
+    "Table", "Parameters", "NodeChildren", "Spinner",
+    "gauge", "pie", "bar", "line", "Gauge", "Pie", "Bar", "Line",
+
+    # DATA REFERENCES (these are valid runtime UI controls and are documented in nGenie Code instructions)
+    "DatasetField", "DatasetInput", "DatasetLink", "DataSetLink",
+    "NodeInput", "NodeLink",
 
     # CONTAINERS
     "VerticalLayout", "HorizontalLayout", "VerticalScroll", "HorizontalScroll", "Card",
@@ -4546,7 +5472,7 @@ ALLOWED_UI_TYPES_AI = {
 
 CONTAINER_UI_TYPES_AI = {"VerticalLayout", "HorizontalLayout", "VerticalScroll", "HorizontalScroll", "Card"}
 
-ALLOWED_INPUT_TYPES_AI = {"NUMBER", "PASSWORD", "MULTILINE", "DATE"}
+ALLOWED_INPUT_TYPES_AI = {"NUMBER", "number", "PASSWORD", "password", "MULTILINE", "multiline", "DATE", "date"}
 
 def _split_commands_str(commands: str):
     # "Caption|code,Caption2|code2" -> [("Caption","code"), ...]
@@ -4691,44 +5617,15 @@ def _encode_b64_py(code: str):
     return base64.b64encode(code.encode("utf-8")).decode("utf-8")
 
 def validate_handlers_semantics_ai(py_code: str, where="handlers"):
-    """Validate: methods have input_data=None and return (bool, dict)."""
-    errors = []
-    try:
-        tree = ast.parse(py_code)
-    except SyntaxError as e:
-        return [f"{where}: syntax error: {e}"]
+    """Do not block nGenie Code on handler helper signatures.
 
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            # ignore dunder and __init__
-            if node.name.startswith("__") or node.name == "__init__":
-                continue
-
-            # must accept input_data
-            args = node.args.args or []
-            has_input = any(a.arg == "input_data" for a in args)
-            if not has_input:
-                errors.append(f"{where}: {node.name} must accept parameter input_data=None")
-            else:
-                # check default None
-                total = len(args)
-                ndef = len(node.args.defaults or [])
-                default_map = {}
-                for a, d in zip(args[total-ndef:], node.args.defaults):
-                    default_map[a.arg] = d
-                d = default_map.get("input_data")
-                if d is None or not isinstance(d, ast.Constant) or d.value is not None:
-                    errors.append(f"{where}: {node.name} input_data must default to None")
-
-            # must return tuple of 2 elements somewhere
-            returns = [n for n in ast.walk(node) if isinstance(n, ast.Return)]
-            if not returns:
-                errors.append(f"{where}: {node.name} must return (bool, dict)")
-            else:
-                ok_any = any(isinstance(r.value, ast.Tuple) and len(r.value.elts) == 2 for r in returns)
-                if not ok_any:
-                    errors.append(f"{where}: {node.name} must return a tuple of 2 elements (bool, dict)")
-    return errors
+    Older strict validation treated every Python function/helper as a NodaLogic
+    event method and caused the LLM to refuse fixes with messages like
+    "handler fields are forbidden in JSON patch". Syntax is still checked in
+    validate_full_llm_config_ai(); method signatures are guided by instructions,
+    not enforced here.
+    """
+    return []
 
 class _ShowPlugInLiteralValidatorAI(ast.NodeVisitor):
     """Validate only static literals for Show([...]) and PlugIn([...]) calls."""
@@ -4928,6 +5825,10 @@ def merge_llm_config_into_current_ai(current_cfg: dict, llm_cfg: dict):
     """
     out = dict(current_cfg)
 
+    for root_key in ("ngenie_prompt", "ngenie_code_instruction", "ngenie_code_example"):
+        if root_key in llm_cfg:
+            out[root_key] = llm_cfg.get(root_key) or ""
+
     # classes upsert by name
     if "classes" in llm_cfg:
         out["classes"] = _upsert_list_by_key_keep_missing(
@@ -5047,12 +5948,12 @@ def _split_handlers_header_and_body(code: str):
     body = body.lstrip("\n")
     return header, body
 
-def _call_llm_code_only(provider: str, system_prompt: str, user_prompt: str) -> str:
+def _call_llm_code_only(provider: str, system_prompt: str, user_prompt: str, *, debug_stage: str = "handler_body") -> str:
     """
     Calls LLM and returns the text "as is", but:
     - truncates the ``` if LLM did send it
     """
-    txt = call_llm(provider, system_prompt, user_prompt) or ""
+    txt = call_llm(provider, system_prompt, user_prompt, debug_stage=debug_stage) or ""
     s = txt.strip()
     if s.startswith("```"):
         # снять fence
@@ -5078,14 +5979,23 @@ def _generate_handlers_body_ai(
     Generates ONLY the body (after the header) for handlers.
     We keep the header exactly the same as in the current configuration.
     """
+    extra_contract = ""
+    if (provider or "").strip().lower() == "ngenie_code":
+        try:
+            import ngenie_code
+            extra_contract = ngenie_code.build_generation_contract(kind_label)
+        except Exception:
+            extra_contract = ""
+
     # Strict requirements for the response format
     base_prompt = (
         f"You are updating NodaLogic {kind_label} handlers.\n"
-        "Return ONLY python code BODY (no imports, no constants, no markdown, no ```).\n"
+        + (("\nMandatory nGenie Code generation contract:\n" + extra_contract + "\n\n") if extra_contract else "")
+        + "Return ONLY python code BODY (no imports, no constants, no markdown, no ```).\n"
         "The BODY must start with class definitions (e.g., 'class ...').\n"
         "Do NOT repeat the header. Do NOT include 'from nodes import Node'.\n"
-        "Keep method signatures and return types exactly as required by the NodaLogic LLM rules.\n"
-        "Each method must have parameters and must return a tuple: (bool, dict).\n"
+        "Keep NodaLogic event/class methods declared in JSON class.methods callable as def MethodName(self, input_data=None) returning (bool, dict).\n"
+        "Normal Python helpers may be module-level functions with ordinary arguments; avoid making them class methods unless they follow the same NodaLogic callable contract.\n"
         "\n"
         "User request:\n"
         f"{user_request}\n\n"
@@ -5109,7 +6019,7 @@ def _generate_handlers_body_ai(
             "Fix the BODY and return ONLY the corrected BODY.\n"
         )
 
-        candidate_body = _call_llm_code_only(provider, system_prompt, prompt)
+        candidate_body = _call_llm_code_only(provider, system_prompt, prompt, debug_stage=f"{kind_label.lower()}_handlers_attempt_{attempt}")
 
         # Quick check: Does it look like body (must start with class/decorator)
         if not candidate_body or ("from nodes import Node" in candidate_body) or ("import " in candidate_body[:200]):
@@ -5223,47 +6133,193 @@ def ai_generate(uid):
     if not config:
         abort(404)
 
-    data = request.get_json() or {}
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+    else:
+        data = request.form or {}
     prompt = (data.get('prompt') or '').strip()
+    question_answers = _ngenie_code_parse_jsonish(data.get('ngenie_code_question_answers') or data.get('question_answers'))
+    if not prompt and question_answers:
+        prompt = 'Продолжи генерацию с учетом ответов на уточняющие вопросы.'
+    original_user_prompt = prompt
+    write_instruction = _ngenie_code_bool(data.get('write_instruction'))
+    solution_plan_generate = _ngenie_code_bool(data.get('solution_plan_generate'))
+    force_old_ai = _ngenie_code_bool(data.get('old_ai') or data.get('force_old_ai'))
     llm_provider = (data.get('llm') or 'deepseek').strip().lower()
+    ngenie_code_mode = _ngenie_code_available() and not force_old_ai
+    ngenie_code_request_id = uuid.uuid4().hex
 
-    if not prompt:
+    if force_old_ai and _config_is_ngenie_code_locked(config):
+        return jsonify({"status": "error", "message": _ngenie_code_forbid_message()}), 403
+
+    if not prompt and not question_answers:
         return jsonify({"status": "error", "message": "Empty prompt"}), 400
 
-    try:
-        # 1. Downloading the system prompt from GitHub
-        llm_url = "https://raw.githubusercontent.com/dvdocumentation/nodalogic/refs/heads/main/LLM.txt"
-        r = requests.get(llm_url, timeout=10)
-        if r.status_code == 200:
-            system_prompt = r.text
+    if ngenie_code_mode:
+        if solution_plan_generate:
+            user_chat_content = 'Генерация конфигурации по утвержденному ТЗ Solution.'
         else:
-            system_prompt = "You are the NodaLogic configuration generation assistant. Always return valid JSON without any explanations."
+            user_chat_content = _ngenie_code_format_question_answers_for_chat(original_user_prompt, question_answers)
+        user_meta = {'kind': 'question_answers' if question_answers else 'generate', 'write_instruction': bool(write_instruction), 'solution_plan_generate': bool(solution_plan_generate)}
+        if question_answers:
+            user_meta['question_answers'] = question_answers
+        _ngenie_code_add_chat_message(
+            config,
+            'user',
+            user_chat_content,
+            request_id=ngenie_code_request_id,
+            meta=user_meta,
+            commit=True,
+        )
+        _solutions_record_answers_if_needed(config, question_answers)
+        if question_answers:
+            plan_payload = _solutions_run_plan_if_needed(config, question_answers=question_answers, start_only=False)
+            if isinstance(plan_payload, dict):
+                ptype = str(plan_payload.get('type') or '').lower()
+                if ptype == 'questions':
+                    assistant_text = str(plan_payload.get('message') or 'Для начала уточни вот эти данные')
+                    return jsonify({
+                        "status": "ok",
+                        "message": assistant_text,
+                        "ngenie_code_questions": plan_payload.get('questions') or [],
+                        "ngenie_code_request_id": ngenie_code_request_id,
+                    })
+                if ptype in {'message', 'waiting', 'finished'}:
+                    assistant_text = str(plan_payload.get('message') or 'План решения обновлен.')
+                    return jsonify({
+                        "status": "ok",
+                        "message": assistant_text,
+                        "ngenie_code_request_id": ngenie_code_request_id,
+                    })
+                if ptype == 'generate':
+                    prompt = str(plan_payload.get('prompt') or prompt or 'Сгенерируй конфигурацию по утвержденному решению.')
+                    original_user_prompt = prompt
+
+    try:
+        # 1. System prompt. nGenie Code is used unless the request explicitly asks for old_ai.
+        attachments_text = ""
+        if ngenie_code_mode:
+            import ngenie_code
+            llm_provider = "ngenie_code"
+            ngenie_code.set_debug_context(
+                request_id=ngenie_code_request_id,
+                user_id=getattr(current_user, 'id', None),
+                user_email=getattr(current_user, 'email', ''),
+                config_uid=getattr(config, 'uid', ''),
+                config_name=getattr(config, 'name', ''),
+                original_prompt=original_user_prompt[:4000],
+            )
+            system_prompt = ngenie_code.build_system_prompt(request_id=ngenie_code_request_id)
+            attachments_text = ngenie_code.read_uploaded_files(request.files.getlist('attachments')) if getattr(request, 'files', None) else ""
+            chat_context = _ngenie_code_chat_context_for_llm(config)
+            prompt = _solutions_enrich_prompt_if_needed(config, prompt, question_answers=question_answers)
+            prompt = ngenie_code.build_user_prompt(prompt, attachments_text, chat_context=chat_context, question_answers=question_answers)
+        else:
+            llm_url = "https://raw.githubusercontent.com/dvdocumentation/nodalogic/refs/heads/main/LLM.txt"
+            r = requests.get(llm_url, timeout=10)
+            if r.status_code == 200:
+                system_prompt = r.text
+            else:
+                system_prompt = "You are the NodaLogic configuration generation assistant. Always return valid JSON without any explanations."
 
         # 2. current configuration
         current_config_json = json.loads(get_config(config.uid))
+        before_config_json_for_summary = json.loads(json.dumps(current_config_json, ensure_ascii=False))
 
         # 3. form a request to LLM:
         #    Request return the COMPLETE new configuration in the same JSON format.
-        #3) STEP 1: Ask LLM for ONLY the JSON patch WITHOUT handlers.
+        #3) STEP 1: Ask LLM for a JSON patch. Handler code is generated in STEP 2.
+        ngenie_code_generation_contract = ""
+        if ngenie_code_mode:
+            try:
+                import ngenie_code
+                ngenie_code_generation_contract = ngenie_code.build_generation_contract("PATCH")
+            except Exception:
+                ngenie_code_generation_contract = ""
+
         user_prompt_patch = (
             "User request:\n"
             f"{prompt}\n\n"
-            "Below is the current configuration in JSON format.\n"
-            "Return ONE JSON object of the SAME FORMAT as NodaLogic config, BUT DO NOT include:\n"
-            "nodes_handlers, nodes_server_handlers.\n"
-            "Return only changed/added: classes, datasets, sections, CommonEvents.\n"
+            + (("Mandatory nGenie Code generation contract:\n" + ngenie_code_generation_contract + "\n\n") if ngenie_code_generation_contract else "")
+            + "Below is the current configuration in JSON format.\n"
+            "Return ONE JSON object. Normally this is a JSON patch with only changed/added: classes, datasets, sections, CommonEvents, ngenie_prompt.\n"
+            "If important semantics are ambiguous, return a question response with root field ngenie_code_questions instead of a patch; do not change the configuration in that response.\n"
+            "Handler Python is regenerated in the next step from the current handler body and the user request.\n"
+            "If the user asks to fix handler logic, do NOT answer that handlers are forbidden in this JSON patch; return the needed class/event metadata changes or an otherwise minimal patch, then the handler generation step will update nodes_handlers/nodes_server_handlers.\n"
+            "For every new/changed class fill ngenie_role, ngenie_prompt and ngenie_description.\n"
+            + ((ngenie_code.instruction_ack_prompt_text() + "\n\n") if ngenie_code_mode else "")
+            + "Do not generate handlers or methods that export/download/send the configuration or access other configs.\n"
             "Unchanged fields can be omitted. Do not delete anything unless explicitly asked.\n"
             "No comments, ONLY JSON.\n\n"
             "Current configuration:\n"
             f"{json.dumps(current_config_json, ensure_ascii=False, indent=2)}"
         )
 
-        completion_text = call_llm(llm_provider, system_prompt, user_prompt_patch)
+        completion_text = call_llm(llm_provider, system_prompt, user_prompt_patch, debug_stage="json_patch_initial")
         json_str = extract_json_from_text(completion_text)
         llm_patch_data = json.loads(json_str)
+        if ngenie_code_mode:
+            try:
+                import ngenie_code
+                clarification_questions = ngenie_code.extract_questions_response(llm_patch_data)
+            except Exception:
+                clarification_questions = []
+            if clarification_questions:
+                assistant_text = str(llm_patch_data.get('message') or llm_patch_data.get('reply') or 'Для начала уточни вот эти данные').strip()
+                _solutions_record_questions_if_needed(config, clarification_questions, assistant_text)
+                _ngenie_code_add_chat_message(
+                    config,
+                    'assistant',
+                    assistant_text,
+                    request_id=ngenie_code_request_id,
+                    meta={'kind': 'questions', 'questions': clarification_questions, 'source_prompt': original_user_prompt},
+                    commit=True,
+                )
+                return jsonify({
+                    "status": "ok",
+                    "message": assistant_text,
+                    "ngenie_code_questions": clarification_questions,
+                    "ngenie_code_request_id": ngenie_code_request_id,
+                })
+        ngenie_code_ack_errors = []
+        if ngenie_code_mode:
+            try:
+                import ngenie_code
+                ngenie_code_ack_errors = ngenie_code.validate_instruction_ack(llm_patch_data)
+            except Exception as _ack_error:
+                ngenie_code_ack_errors = [f"nGenie Code instruction ack validation failed: {_ack_error}"]
+
+        if ngenie_code_mode:
+            try:
+                import ngenie_code
+                unavailable = ngenie_code.extract_unavailable_request(llm_patch_data)
+            except Exception:
+                unavailable = None
+            if unavailable:
+                if _ngenie_code_unavailable_is_handler_patch_contract(unavailable):
+                    # Continue to handler generation instead of recording a fake missing-feature request.
+                    llm_patch_data = _ngenie_code_minimal_ack_patch()
+                    ngenie_code_ack_errors = []
+                else:
+                    requested = str(unavailable.get('requested_feature') or unavailable.get('requested') or unavailable.get('feature') or 'запрошенная возможность').strip()
+                    reason = str(unavailable.get('reason') or unavailable.get('details') or 'В текущих инструкциях/платформе нет такой возможности.').strip()
+                    _ngenie_code_record_feature_request(config, original_user_prompt, requested, reason, completion_text)
+                    assistant_text = "Такой возможности пока нет: " + requested + "\n" + reason + "\nЯ записал заявку разработчику; конфигурация не изменялась."
+                    _ngenie_code_add_chat_message(config, 'assistant', assistant_text, request_id=ngenie_code_request_id, meta={'kind': 'unavailable'}, commit=False)
+                    db.session.commit()
+                    return jsonify({
+                        "status": "ok",
+                        "message": assistant_text,
+                        "ngenie_code_feature_request": True,
+                        "ngenie_code_request_id": ngenie_code_request_id if 'ngenie_code_request_id' in locals() else ""
+                    })
 
         # Merge patch into current (handlers remain current for now—we'll update them in step 2)
-        merged_config_data = merge_llm_config_into_current_ai(current_config_json, llm_patch_data)
+        if ngenie_code_mode:
+            llm_patch_data_for_merge = ngenie_code.strip_instruction_ack(llm_patch_data)
+        else:
+            llm_patch_data_for_merge = llm_patch_data
+        merged_config_data = merge_llm_config_into_current_ai(current_config_json, llm_patch_data_for_merge)
 
         # 4) STEP 2: Generate handlers as CODE (body), and do base64 yourself
         # Android handlers
@@ -5325,6 +6381,11 @@ def ai_generate(uid):
         ensure_all_classes_present_in_handlers(merged_config_data)
 
         errors = validate_full_llm_config_ai(merged_config_data)
+        if ngenie_code_mode:
+            import ngenie_code
+            errors.extend(ngenie_code_ack_errors)
+            errors.extend(ngenie_code.validate_no_config_exfiltration(merged_config_data))
+            errors.extend(ngenie_code.validate_generation_quality(merged_config_data))
 
         # Retry up to 3 times: fix patch+body handlers (leave the header alone)
         attempts = 1
@@ -5332,21 +6393,59 @@ def ai_generate(uid):
             attempts += 1
 
             fix_prompt_patch = (
-                "Your configuration PATCH did NOT validate.\n"
+                (("Mandatory nGenie Code generation contract:\n" + ngenie_code_generation_contract + "\n\n") if ngenie_code_generation_contract else "")
+                + "Your configuration PATCH did NOT validate.\n"
                 "Fix ONLY the errors below.\n"
-                "Return ONE JSON object (PATCH) with only: classes, datasets, sections, CommonEvents.\n"
-                "DO NOT include nodes_handlers/nodes_server_handlers in this JSON.\n"
+                "Return ONE JSON object (PATCH) with only: classes, datasets, sections, CommonEvents and _ngenie_code_instruction_ack.\n"
+                + ((ngenie_code.instruction_ack_prompt_text() + "\n") if ngenie_code_mode else "")
+                + "If errors mention handler code, do not claim this is impossible; handler bodies are regenerated immediately after this JSON repair step. Fix class/event metadata here and let the handler step fix Python code.\n"
                 "No comments, ONLY JSON.\n\n"
                 "Errors:\n- " + "\n- ".join(errors) + "\n\n"
                 "Previous PATCH JSON:\n"
                 + json.dumps(llm_patch_data, ensure_ascii=False, indent=2)
             )
 
-            completion_text = call_llm(llm_provider, system_prompt, fix_prompt_patch)
+            completion_text = call_llm(llm_provider, system_prompt, fix_prompt_patch, debug_stage=f"json_patch_repair_{attempts}")
             json_str = extract_json_from_text(completion_text)
             llm_patch_data = json.loads(json_str)
+            ngenie_code_ack_errors = []
+            if ngenie_code_mode:
+                try:
+                    import ngenie_code
+                    ngenie_code_ack_errors = ngenie_code.validate_instruction_ack(llm_patch_data)
+                except Exception as _ack_error:
+                    ngenie_code_ack_errors = [f"nGenie Code instruction ack validation failed: {_ack_error}"]
 
-            merged_config_data = merge_llm_config_into_current_ai(current_config_json, llm_patch_data)
+            if ngenie_code_mode:
+                try:
+                    import ngenie_code
+                    unavailable = ngenie_code.extract_unavailable_request(llm_patch_data)
+                except Exception:
+                    unavailable = None
+                if unavailable:
+                    if _ngenie_code_unavailable_is_handler_patch_contract(unavailable):
+                        # Continue to handler generation instead of recording a fake missing-feature request.
+                        llm_patch_data = _ngenie_code_minimal_ack_patch()
+                        ngenie_code_ack_errors = []
+                    else:
+                        requested = str(unavailable.get('requested_feature') or unavailable.get('requested') or unavailable.get('feature') or 'запрошенная возможность').strip()
+                        reason = str(unavailable.get('reason') or unavailable.get('details') or 'В текущих инструкциях/платформе нет такой возможности.').strip()
+                        _ngenie_code_record_feature_request(config, original_user_prompt, requested, reason, completion_text)
+                        assistant_text = "Такой возможности пока нет: " + requested + "\n" + reason + "\nЯ записал заявку разработчику; конфигурация не изменялась."
+                        _ngenie_code_add_chat_message(config, 'assistant', assistant_text, request_id=ngenie_code_request_id, meta={'kind': 'unavailable'}, commit=False)
+                        db.session.commit()
+                        return jsonify({
+                            "status": "ok",
+                            "message": assistant_text,
+                            "ngenie_code_feature_request": True,
+                            "ngenie_code_request_id": ngenie_code_request_id if 'ngenie_code_request_id' in locals() else ""
+                        })
+
+            if ngenie_code_mode:
+                llm_patch_data_for_merge = ngenie_code.strip_instruction_ack(llm_patch_data)
+            else:
+                llm_patch_data_for_merge = llm_patch_data
+            merged_config_data = merge_llm_config_into_current_ai(current_config_json, llm_patch_data_for_merge)
 
             config_url = url_for('get_config', uid=config.uid, _external=True)
             ensure_handlers_skeleton_and_headers(config.uid, config_url, merged_config_data)
@@ -5386,11 +6485,33 @@ def ai_generate(uid):
             ensure_all_classes_present_in_handlers(merged_config_data)
 
             errors = validate_full_llm_config_ai(merged_config_data)
+            if ngenie_code_mode:
+                import ngenie_code
+                errors.extend(ngenie_code_ack_errors)
+                errors.extend(ngenie_code.validate_no_config_exfiltration(merged_config_data))
+                errors.extend(ngenie_code.validate_generation_quality(merged_config_data))
 
         if errors:
+            if ngenie_code_mode and _ngenie_code_validation_errors_look_like_missing_feature(errors):
+                requested = ' / '.join(str(e) for e in errors[:3])[:1000]
+                reason = 'Валидация показала, что LLM использовала компонент/возможность, которой нет в текущем NodaLogic/UI.'
+                _ngenie_code_record_feature_request(config, original_user_prompt, requested, reason, "\n".join(errors))
+                assistant_text = "Похоже, в текущей платформе нет нужного UI-компонента или возможности.\n" + "- " + "\n- ".join(errors) + "\nЯ записал заявку разработчику; конфигурация не изменялась."
+                _ngenie_code_add_chat_message(config, 'assistant', assistant_text, request_id=ngenie_code_request_id, meta={'kind': 'missing_feature_validation', 'errors': errors}, commit=False)
+                db.session.commit()
+                return jsonify({
+                    "status": "ok",
+                    "message": assistant_text,
+                    "ngenie_code_feature_request": True,
+                    "ngenie_code_request_id": ngenie_code_request_id if 'ngenie_code_request_id' in locals() else ""
+                })
+            error_text = "AI generation failed validation:\n- " + "\n- ".join(errors)
+            if ngenie_code_mode:
+                _ngenie_code_add_chat_message(config, 'assistant', error_text, request_id=ngenie_code_request_id, meta={'kind': 'validation_error', 'errors': errors}, commit=True)
             return jsonify({
                 "status": "error",
-                "message": "AI generation failed validation:\n- " + "\n- ".join(errors)
+                "message": error_text,
+                "ngenie_code_request_id": ngenie_code_request_id if ngenie_code_mode else ""
             }), 400
 
         
@@ -5401,25 +6522,333 @@ def ai_generate(uid):
 
     except Exception as e:
         #current_app.logger.exception("AI generator error")
+        error_text = f"An error occurred while requesting LLM or parsing the response.: {e}"
+        if locals().get('ngenie_code_mode'):
+            try:
+                _ngenie_code_add_chat_message(config, 'assistant', error_text, request_id=locals().get('ngenie_code_request_id', ''), meta={'kind': 'exception_before_apply'}, commit=True)
+            except Exception:
+                pass
         return jsonify({
             "status": "error",
-            "message": f"An error occurred while requesting LLM or parsing the response.: {e}"
+            "message": error_text,
+            "ngenie_code_request_id": locals().get('ngenie_code_request_id', '')
         }), 500
 
     try:
         apply_full_config_from_json(config, new_config_data)
+        if ngenie_code_mode:
+            _ngenie_code_mark_locked(config)
+            if write_instruction:
+                try:
+                    import ngenie_code
+                    cfg_after = _ngenie_code_current_json(config) or new_config_data
+                    doc_prompt = ngenie_code.build_instruction_prompt(cfg_after, prompt)
+                    config.ngenie_code_instruction = ngenie_code.call_llm(ngenie_code.build_system_prompt(request_id=ngenie_code_request_id), doc_prompt, max_tokens=8000, debug_stage="write_instruction_after_generation")
+                except Exception as doc_error:
+                    current_app.logger.exception('nGenie Code instruction generation failed')
+                    config.ngenie_code_instruction = (getattr(config, 'ngenie_code_instruction', '') or '') + (
+                        '\n\n> Instruction generation failed: ' + str(doc_error)
+                    )
+        instruction_url = url_for('ngenie_code_document', uid=config.uid, kind='instruction') if ngenie_code_mode and getattr(config, 'ngenie_code_instruction', '') else ""
+        if ngenie_code_mode:
+            cfg_after_summary = _ngenie_code_current_json(config) or new_config_data
+            assistant_message = _ngenie_code_summarize_generation(
+                locals().get('before_config_json_for_summary', {}),
+                cfg_after_summary,
+                request_id=ngenie_code_request_id,
+                instruction_url=instruction_url,
+            )
+            _ngenie_code_add_chat_message(config, 'assistant', assistant_message, request_id=ngenie_code_request_id, meta={'kind': 'generation_success'}, commit=False)
+            _solutions_record_success_if_needed(config, assistant_message)
+        else:
+            assistant_message = "Configuration successfully updated via AI generator"
         db.session.commit()
         return jsonify({
             "status": "ok",
-            "message": "Configuration successfully updated via AI generator"
+            "message": assistant_message if ngenie_code_mode else "Configuration successfully updated via AI generator",
+            "ngenie_code_locked": bool(getattr(config, 'ngenie_code_locked', False)),
+            "instruction_url": instruction_url,
+            "ngenie_code_request_id": ngenie_code_request_id if ngenie_code_mode else ""
         })
     except Exception as e:
         db.session.rollback()
         #current_app.logger.exception("AI generator apply config error")
+        error_text = f"Error applying configuration: {e}"
+        if locals().get('ngenie_code_mode'):
+            try:
+                _ngenie_code_add_chat_message(config, 'assistant', error_text, request_id=locals().get('ngenie_code_request_id', ''), meta={'kind': 'apply_error'}, commit=True)
+            except Exception:
+                pass
         return jsonify({
             "status": "error",
-            "message": f"Error applying configuration: {e}"
+            "message": error_text,
+            "ngenie_code_request_id": locals().get('ngenie_code_request_id', '')
         }), 500
+
+
+
+@_routes.route('/config/<uid>/ngenie-code-chat', methods=['GET', 'POST'])
+@login_required
+def ngenie_code_chat(uid):
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == uid, Configuration.user_id == current_user.id)
+    ).scalar_one_or_none()
+    if not config:
+        abort(404)
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        role = 'user' if str(data.get('role') or 'user').strip() == 'user' else 'assistant'
+        content = str(data.get('content') or '').strip()
+        meta = data.get('meta') if isinstance(data.get('meta'), dict) else {}
+        if not content and not meta:
+            return jsonify({'status': 'error', 'message': 'Empty chat message'}), 400
+        try:
+            _ngenie_code_add_chat_message(config, role, content, request_id=str(data.get('request_id') or ''), meta=meta, commit=False)
+            if role == 'user' and isinstance(meta, dict) and meta.get('kind') == 'question_answers':
+                qa = meta.get('question_answers')
+                _solutions_record_answers_if_needed(config, qa)
+                if _ngenie_code_bool(meta.get('resume_plan')):
+                    plan_payload = _solutions_run_plan_if_needed(config, question_answers=qa, start_only=False)
+                    if isinstance(plan_payload, dict):
+                        ptype = str(plan_payload.get('type') or '').lower()
+                        response = {
+                            'status': 'ok',
+                            'plan_type': ptype,
+                            'message': str(plan_payload.get('message') or 'План решения обновлен.'),
+                            'messages': _ngenie_code_chat_rows(config),
+                        }
+                        if ptype == 'questions':
+                            response['ngenie_code_questions'] = plan_payload.get('questions') or []
+                        elif ptype == 'generate':
+                            response['generate_prompt'] = str(plan_payload.get('prompt') or '')
+                        db.session.commit()
+                        return jsonify(response)
+            db.session.commit()
+            return jsonify({'status': 'ok', 'messages': _ngenie_code_chat_rows(config)})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+    _solutions_run_plan_if_needed(config, start_only=True)
+    return jsonify({'status': 'ok', 'messages': _ngenie_code_chat_rows(config)})
+
+
+
+@_routes.route('/config/<uid>/ngenie-code-chat/add', methods=['POST'])
+@login_required
+def ngenie_code_chat_add(uid):
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == uid, Configuration.user_id == current_user.id)
+    ).scalar_one_or_none()
+    if not config:
+        abort(404)
+    data = request.get_json(silent=True) or {}
+    role = 'user' if str(data.get('role') or 'user').strip() == 'user' else 'assistant'
+    content = str(data.get('content') or '').strip()
+    meta = data.get('meta') if isinstance(data.get('meta'), dict) else {}
+    if not content and not meta:
+        return jsonify({'status': 'error', 'message': 'Empty chat message'}), 400
+    try:
+        _ngenie_code_add_chat_message(config, role, content, request_id=str(data.get('request_id') or ''), meta=meta, commit=False)
+        if role == 'user' and isinstance(meta, dict) and meta.get('kind') == 'question_answers':
+            qa = meta.get('question_answers')
+            _solutions_record_answers_if_needed(config, qa)
+        db.session.commit()
+        return jsonify({'status': 'ok', 'messages': _ngenie_code_chat_rows(config)})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@_routes.route('/config/<uid>/ngenie-code-question-answers', methods=['POST'])
+@login_required
+def ngenie_code_question_answers(uid):
+    """Save structured question answers and optionally resume Solutions plan.py.
+
+    The UI calls this on every field change. Most calls only persist
+    Solution.answers_json. When the question action is `straight`, or `if_all`
+    and the whole question array is complete, the UI sends resume=true; then the
+    backend replays plan.py from the beginning and continues with the next DSL
+    statement.
+    """
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == uid, Configuration.user_id == current_user.id)
+    ).scalar_one_or_none()
+    if not config:
+        abort(404)
+    data = request.get_json(silent=True) or {}
+    questions = data.get('questions') if isinstance(data.get('questions'), list) else []
+    answers = data.get('answers') if isinstance(data.get('answers'), dict) else {}
+    action = str(data.get('action') or 'nothing').strip().lower()
+    if action in {'none', 'silent', 'save_only'}:
+        action = 'nothing'
+    if action not in {'nothing', 'straight', 'if_all'}:
+        action = 'nothing'
+    resume = _ngenie_code_bool(data.get('resume'))
+    qa = {'questions': questions, 'answers': answers, 'action': action}
+    try:
+        _solutions_record_answers_if_needed(config, qa)
+        if resume:
+            content = str(data.get('content') or '').strip() or _ngenie_code_format_question_answers_for_chat('', qa)
+            _ngenie_code_add_chat_message(
+                config,
+                'user',
+                content,
+                request_id=str(data.get('request_id') or ''),
+                meta={'kind': 'question_answers', 'question_answers': qa, 'resume_plan': True},
+                commit=False,
+            )
+            plan_payload = _solutions_run_plan_if_needed(config, question_answers=qa, start_only=False)
+            if isinstance(plan_payload, dict):
+                ptype = str(plan_payload.get('type') or '').lower()
+                response = {
+                    'status': 'ok',
+                    'plan_type': ptype,
+                    'message': str(plan_payload.get('message') or 'План решения обновлен.'),
+                    'answers': answers,
+                }
+                if ptype == 'questions':
+                    response['ngenie_code_questions'] = plan_payload.get('questions') or []
+                elif ptype == 'generate':
+                    response['generate_prompt'] = str(plan_payload.get('prompt') or '')
+                db.session.commit()
+                return jsonify(response)
+        db.session.commit()
+        return jsonify({'status': 'ok', 'message': 'Ответ сохранен.', 'answers': answers})
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception('Failed to save nGenie question answers')
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@_routes.route('/config/<uid>/ngenie-code-chat/new', methods=['POST'])
+@login_required
+def ngenie_code_chat_new(uid):
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == uid, Configuration.user_id == current_user.id)
+    ).scalar_one_or_none()
+    if not config:
+        abort(404)
+    try:
+        db.session.query(NGenieCodeChatMessage).filter(NGenieCodeChatMessage.config_id == config.id).delete(synchronize_session=False)
+        _ngenie_code_add_chat_message(config, 'assistant', 'Новый чат создан. История очищена.', request_id='', meta={'kind': 'new_chat'}, commit=False)
+        db.session.commit()
+        return jsonify({'status': 'ok', 'messages': _ngenie_code_chat_rows(config)})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@_routes.route('/admin/ngenie-code-debug/<path:filename>')
+@login_required
+def ngenie_code_debug_file(filename):
+    if current_user.email != ADMIN_LOGIN:
+        abort(403)
+    try:
+        import ngenie_code
+        safe = secure_filename(filename)
+        if safe != filename:
+            abort(400)
+        return send_from_directory(str(ngenie_code.DEBUG_DIR), safe, as_attachment=True, mimetype='application/json')
+    except FileNotFoundError:
+        abort(404)
+    except Exception:
+        current_app.logger.exception('nGenie Code debug file download failed')
+        abort(404)
+
+@_routes.route('/config/<uid>/ngenie-code-document/<kind>')
+@login_required
+def ngenie_code_document(uid, kind):
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == uid, Configuration.user_id == current_user.id)
+    ).scalar_one_or_none()
+    if not config:
+        abort(404)
+    kind = (kind or '').strip().lower()
+    if kind == 'example':
+        text_value = getattr(config, 'ngenie_code_example', '') or ''
+        title = f"nGenie Code example: {config.name or config.uid}"
+    else:
+        text_value = getattr(config, 'ngenie_code_instruction', '') or ''
+        title = f"nGenie Code instruction: {config.name or config.uid}"
+    if not text_value:
+        abort(404)
+    html = """
+<!doctype html><html><head><meta charset="utf-8"><title>{title}</title>
+<style>body{{font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:980px;margin:32px auto;padding:0 18px;line-height:1.45}}pre{{white-space:pre-wrap;background:#f7f7fb;border:1px solid #ddd;border-radius:12px;padding:18px}}</style>
+</head><body><p><a href="{back}">← Back to configuration</a></p><h1>{title}</h1><pre>{body}</pre></body></html>
+""".format(
+        title=str(title).replace('<','&lt;').replace('>','&gt;'),
+        back=url_for('edit_config', uid=config.uid, tab='config'),
+        body=str(text_value).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;'),
+    )
+    return html
+
+
+@_routes.route('/config/<uid>/ngenie-code-write-instruction', methods=['POST'])
+@login_required
+def ngenie_code_write_instruction(uid):
+    if not _ngenie_code_available():
+        return jsonify({"status": "error", "message": "nGenie Code module is not available"}), 404
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == uid, Configuration.user_id == current_user.id)
+    ).scalar_one_or_none()
+    if not config:
+        abort(404)
+    data = request.get_json(silent=True) if request.is_json else (request.form or {})
+    extra_prompt = (data.get('prompt') or '').strip()
+    try:
+        import ngenie_code
+        request_id = uuid.uuid4().hex
+        ngenie_code.set_debug_context(request_id=request_id, user_id=getattr(current_user, 'id', None), user_email=getattr(current_user, 'email', ''), config_uid=getattr(config, 'uid', ''), config_name=getattr(config, 'name', ''), original_prompt=extra_prompt[:4000])
+        cfg = _ngenie_code_current_json(config)
+        doc_prompt = ngenie_code.build_instruction_prompt(cfg, extra_prompt)
+        config.ngenie_code_instruction = ngenie_code.call_llm(ngenie_code.build_system_prompt(request_id=request_id), doc_prompt, max_tokens=8000, debug_stage="write_instruction_manual")
+        _ngenie_code_mark_locked(config)
+        assistant_text = "Инструкция создана и прикреплена к конфигурации."
+        _ngenie_code_add_chat_message(config, 'assistant', assistant_text, request_id=request_id, meta={'kind': 'write_instruction_manual'}, commit=False)
+        db.session.commit()
+        return jsonify({
+            "status": "ok",
+            "message": assistant_text,
+            "url": url_for('ngenie_code_document', uid=config.uid, kind='instruction')
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@_routes.route('/config/<uid>/ngenie-code-generate-example', methods=['POST'])
+@login_required
+def ngenie_code_generate_example(uid):
+    if not _ngenie_code_available():
+        return jsonify({"status": "error", "message": "nGenie Code module is not available"}), 404
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == uid, Configuration.user_id == current_user.id)
+    ).scalar_one_or_none()
+    if not config:
+        abort(404)
+    data = request.get_json(silent=True) if request.is_json else (request.form or {})
+    extra_prompt = (data.get('prompt') or '').strip()
+    try:
+        import ngenie_code
+        request_id = uuid.uuid4().hex
+        ngenie_code.set_debug_context(request_id=request_id, user_id=getattr(current_user, 'id', None), user_email=getattr(current_user, 'email', ''), config_uid=getattr(config, 'uid', ''), config_name=getattr(config, 'name', ''), original_prompt=extra_prompt[:4000])
+        cfg = _ngenie_code_current_json(config)
+        example_prompt = ngenie_code.build_example_prompt(cfg, extra_prompt)
+        config.ngenie_code_example = ngenie_code.call_llm(ngenie_code.build_system_prompt(request_id=request_id), example_prompt, max_tokens=8000, debug_stage="generate_example_manual")
+        _ngenie_code_mark_locked(config)
+        assistant_text = "Пример создан и прикреплен к конфигурации."
+        _ngenie_code_add_chat_message(config, 'assistant', assistant_text, request_id=request_id, meta={'kind': 'generate_example_manual'}, commit=False)
+        db.session.commit()
+        return jsonify({
+            "status": "ok",
+            "message": assistant_text,
+            "url": url_for('ngenie_code_document', uid=config.uid, kind='example')
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 @_routes.route('/config/<uid>/ai-generate-layout', methods=['POST'])
 @login_required
@@ -5686,6 +7115,8 @@ def save_method(method_id):
 @login_required
 def update_config(uid):
     config = Configuration.query.filter_by(uid=uid, user_id=current_user.id).first_or_404()
+    if _config_is_ngenie_code_locked(config):
+        abort(403, description=_ngenie_code_forbid_message())
     
     if 'name' in request.form:
         config.name = request.form['name']
@@ -5693,10 +7124,23 @@ def update_config(uid):
         config.version = request.form['version']
     if 'server_name' in request.form: 
         config.server_name = request.form['server_name']    
+    if 'ngenie_prompt' in request.form:
+        config.ngenie_prompt = request.form.get('ngenie_prompt') or ''
+    if 'demo_product_present' in request.form and hasattr(config, 'demo_product'):
+        config.demo_product = 'demo_product' in request.form
+    if 'profile_templates_json' in request.form and hasattr(config, 'profile_templates'):
+        raw_profile_templates = request.form.get('profile_templates_json') or '[]'
+        try:
+            config.profile_templates = json.loads(raw_profile_templates) if raw_profile_templates.strip() else []
+        except Exception as e:
+            flash(_('Profile templates JSON error') + ': ' + str(e), 'error')
+            return redirect(url_for('edit_config', uid=uid, tab=request.form.get("active_tab", "profile-templates")))
     
 
     config.last_modified = get_user_local_time()
     db.session.commit()
+    if 'profile_templates_json' in request.form and hasattr(config, 'profile_templates'):
+        _materialize_profile_templates_for_config(config)
     
     flash(_('Configuration updated'), 'success')
     active_tab = request.form.get("active_tab", "config")
@@ -5837,7 +7281,9 @@ def get_section_json():
         'id': section.id,
         'code': section.code,
         'name': section.name,
-        'commands': section.commands
+        'commands': section.commands,
+        'hide_mobile_client': bool(getattr(section, 'hide_mobile_client', False)),
+        'hide_web_client': bool(getattr(section, 'hide_web_client', False))
     })
 
 @_routes.route('/edit-dataset/<dataset_id>', methods=['GET', 'POST'])
@@ -5918,15 +7364,20 @@ def add_section(config_uid):
     code = request.form.get('code')
     name = request.form.get('name')
     commands = request.form.get('commands', '')
+    hide_mobile_client = 'hide_mobile_client' in request.form
+    hide_web_client = 'hide_web_client' in request.form
     
     if code and name:
         new_section = ConfigSection(
             code=code,
             name=name,
             commands=commands,
+            hide_mobile_client=hide_mobile_client,
+            hide_web_client=hide_web_client,
             config_id=config.id
         )
         db.session.add(new_section)
+        config.last_modified = datetime.now(timezone.utc)
         db.session.commit()
         return jsonify({"status": "success"})
     
@@ -5942,6 +7393,9 @@ def update_section(section_id):
     section.code = request.form.get('code')
     section.name = request.form.get('name')
     section.commands = request.form.get('commands', '')
+    section.hide_mobile_client = 'hide_mobile_client' in request.form
+    section.hide_web_client = 'hide_web_client' in request.form
+    section.config.last_modified = datetime.now(timezone.utc)
     db.session.commit()
     
     return jsonify({"status": "success"})
@@ -5954,6 +7408,7 @@ def delete_section(section_id):
         abort(404)
     
     config_uid = section.config.uid
+    section.config.last_modified = datetime.now(timezone.utc)
     db.session.delete(section)
     db.session.commit()
     active_tab = request.form.get("active_tab", "config")
@@ -6084,6 +7539,8 @@ def upload_server_handlers(uid):
 @login_required
 def download_server_handlers(uid):
     config = Configuration.query.filter_by(uid=uid, user_id=current_user.id).first_or_404()
+    if _config_is_ngenie_code_locked(config):
+        abort(403, description=_ngenie_code_forbid_message())
     
     if not config.nodes_server_handlers:
         flash(_('No server handlers available for download'), 'error')
@@ -6178,11 +7635,11 @@ def create_server(config_uid):
     config = Configuration.query.filter_by(uid=config_uid, user_id=current_user.id).first_or_404()
     alias = request.form['alias']
     url = request.form['url']
-    is_default = 'is_default' in request.form
+    existing_count = Server.query.filter_by(config_id=config.id).count()
+    is_default = ('is_default' in request.form) or existing_count == 0
 
     if is_default:
-        
-        Server.query.filter_by(config_id=config.id, is_default=True).update({"is_default": False})
+        Server.query.filter_by(config_id=config.id).update({"is_default": False})
 
     new_server = Server(alias=alias, url=url, config_id=config.id, is_default=is_default)
     db.session.add(new_server)
@@ -6197,7 +7654,14 @@ def delete_server(server_id):
         Server.id == server_id, Configuration.user_id == current_user.id
     ).first_or_404()
     config_uid = server.config.uid
+    config_id = server.config_id
+    was_default = bool(server.is_default)
     db.session.delete(server)
+    db.session.flush()
+    if was_default:
+        replacement = Server.query.filter_by(config_id=config_id).order_by(Server.id.asc()).first()
+        if replacement:
+            replacement.is_default = True
     db.session.commit()
     flash(_("Server deleted"), "success")
     return redirect(url_for('edit_config', uid=config_uid, tab="servers"))
@@ -6211,11 +7675,24 @@ def update_server(server_id):
 
     server.alias = request.form['alias']
     server.url = request.form['url']
-    server.is_default = 'is_default' in request.form
+    make_default = 'is_default' in request.form
+    was_default = bool(server.is_default)
+    others = Server.query.filter(Server.config_id == server.config_id, Server.id != server.id).order_by(Server.id.asc()).all()
 
-    if server.is_default:
-        
-        Server.query.filter_by(config_id=server.config_id, is_default=True).update({"is_default": False})
+    if make_default:
+        for other in others:
+            other.is_default = False
+        server.is_default = True
+    elif was_default:
+        if others:
+            server.is_default = False
+            others[0].is_default = True
+        else:
+            server.is_default = True
+    elif not any(bool(x.is_default) for x in others):
+        server.is_default = True
+    else:
+        server.is_default = False
 
     db.session.commit()
     flash(_("Server updated"), "success")
@@ -6299,7 +7776,7 @@ LMSTUDIO_MODEL = os.environ.get("LMSTUDIO_MODEL", "local-model")
 LMSTUDIO_API_KEY = os.environ.get("LMSTUDIO_API_KEY", "")
 
 NODE_CLASS_CODE = '''
-from nodes import Node, message, Dialog, to_uid, from_uid, CloseNode, DataSets, convertBase64ArrayToFilePaths,convertImageFilesToBase64Array,getBase64FromImageFile,saveBase64ToFile, getByIndex, findByIndex, getByGlobalIndex, findByGlobalIndex, sendTextMessage, sendImageMessage, sendTextToNodeDiscussion, sendImageToNodeDiscussion, downloadJsonCached, dispatch_json_node_event, dispatch_downloaded_node_event
+from nodes import Node, CallSwarm, message, Dialog, to_uid, from_uid, CloseNode, DataSets, convertBase64ArrayToFilePaths,convertImageFilesToBase64Array,getBase64FromImageFile,saveBase64ToFile, getByIndex, findByIndex, getByGlobalIndex, findByGlobalIndex, sendTextMessage, sendImageMessage, sendTextToNodeDiscussion, sendImageToNodeDiscussion, downloadJsonCached, dispatch_json_node_event, dispatch_downloaded_node_event, banner, banner_html, banner_layout, close_banner, ngenie, node_view, ngenie_nodes, ngenie_data, ngenie_rows, ngenie_ref_view
 '''
 
 NODE_CLASS_CODE_ANDROID = '''
@@ -6368,6 +7845,10 @@ UI_COMPONENT_TEMPLATES = OrderedDict([
     ('Text(tag)', '{"type":"Text","value":"my text","radius":10,"background":"#F54927"}'),
     ('Picture', '{"type":"Picture","value":"filename/path"}'),
     ('ImageSlider', '{"type":"ImageSlider","value":"array of filename/path"}'),
+    ('Gauge', '{"type":"gauge","id":"load_gauge","caption":"Load","min":0,"max":100,"value":"@load_percent","unit":"%","show_range_labels":true,"scale_precision":0,"ranges":[{"from":0,"to":40,"color":"#55D956"},{"from":40,"to":70,"color":"#FFC107"},{"from":70,"to":85,"color":"#F05252"},{"from":85,"to":100,"color":"#760000"}],"height":300,"width":-1}'),
+    ('Pie chart', '{"type":"pie","id":"sales_pie","caption":"Sales by channel","value":"@pie_points","show_legend":true,"height":280,"width":-1}'),
+    ('Bar chart', '{"type":"bar","id":"sales_bar","caption":"Monthly sales","value":"@bar_points","show_legend":true,"height":300,"width":-1}'),
+    ('Line chart', '{"type":"line","id":"sales_line","caption":"Sales trend","value":"@line_points","show_legend":true,"smooth":true,"height":300,"width":-1}'),
     ('Button', '{"type":"Button","id":"btn_update","caption":"Simple button"}'),
     ('Switch', '{"type":"Switch","caption":"Setting 1","id":"sw1","value":"@sw1"}'),
     ('CheckBox', '{"type":"CheckBox","caption":"My checkbox","id":"cb1","value":"@cb1"}'),
@@ -6397,10 +7878,10 @@ WIZARD_ACTIVE_TEMPLATES = OrderedDict([
     ('NodeInput', 'Partner|partner: Node("Partner")'),
     ('DatasetField', 'Product|product: DataSet("goods")'),
     ('Spinner', 'Operation|operation: select(Receipt|StockIn, Shipment|StockOut)'),
-    ('Table', '[Product|product: Node("Product"), Quantity|qty: number]'),
+    ('Table', 'lines:[Product|product: Node("Product"), Quantity|qty: number]'),
     ('NodeChildren', '_children: ChildNode("OrderPosition")|ChildNode("OrderPositionSpecial")'),
     ('ListChildNodes', 'positions:[ChildNode("OrderPosition")]'),
-    ('ListNodes', 'lines:[Node("CommonLine")]'),
+    ('ListNodes', 'linked_lines:[Node("CommonLine")]'),
 ])
 
 WIZARD_COVER_TEMPLATES = OrderedDict([
@@ -6421,7 +7902,7 @@ PLUGIN_TEMPLATES = OrderedDict([
     ('CameraBarcodeScannerButton', '{"type":"CameraBarcodeScannerButton","id":"cam_barcode"}'),
     ('BarcodeScanner ', '{"type":"BarcodeScanner ","id":"barcode"}'),
     ('ToolbarButton ', '{"type":"ToolbarButton","id":"pin","caption":"Save","svg":svg2,"svg_size":24,"svg_color":"#FFFFFF"}'),
-    ('PhotoButton', '{"type":"PhotoButton","id":"photo"}'),
+    ('PhotoButton', '{"type":"PhotoButton","id":"photo","compress":72,"size":55}'),
     ('GalleryButton', '{"type":"GalleryButton","id":"photo"'),
     ('MediaGallery', '{"type":"MediaGallery","id":"gallery"}'),
 ])
@@ -6437,30 +7918,83 @@ def get_ui_component_templates():
     buttons = [{'key': k, 'label': k} for k in UI_COMPONENT_TEMPLATES.keys()]
     return buttons, dict(UI_COMPONENT_TEMPLATES)
 
-def _enforce_web_access_modes():
-    """Restrict Designer (server UI) for users without can_designer.
+def _scope_owner_id(user=None):
+    """Return tenant owner for owner and delegated child accounts."""
+    user = user or current_user
+    try:
+        return int(getattr(user, "parent_user_id", None) or getattr(user, "id", None))
+    except Exception:
+        return getattr(user, "parent_user_id", None) or getattr(user, "id", None)
 
-    Client UI is handled in client_app blueprint.
-    API uses basic auth decorators.
-    """
+
+def _can_manage(kind: str, user=None) -> bool:
+    user = user or current_user
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if bool(getattr(user, "can_designer", False)):
+        return True
+    attr = {
+        "users": "can_manage_users",
+        "rooms": "can_manage_rooms",
+        "servers": "can_manage_servers",
+    }.get(str(kind or "").strip().lower())
+    return bool(attr and getattr(user, attr, False))
+
+
+def _can_open_mobile_setup(user=None) -> bool:
+    user = user or current_user
+    return any(_can_manage(k, user) for k in ("users", "rooms", "servers"))
+
+
+def _has_administrative_role(user) -> bool:
+    """Administrative accounts may only be changed by Configurator users."""
+    return any(bool(getattr(user, attr, False)) for attr in (
+        "can_designer",
+        "can_manage_users",
+        "can_manage_rooms",
+        "can_manage_servers",
+    ))
+
+
+def _enforce_web_access_modes():
+    """Restrict Designer UI while allowing delegated mobile administration."""
     if not getattr(current_user, "is_authenticated", False):
         return
 
-    # allow landing / mode switch / logout
-    if request.endpoint in {"index", "logout", "choose_mode", "static"}:
+    endpoint = str(request.endpoint or "")
+
+    # Common authenticated pages that do not expose configuration internals.
+    if endpoint in {
+        "index", "logout", "choose_mode", "static", "set_language",
+        "edit_profile", "update_device_token",
+    }:
         return
 
-    # allow API routes (their own auth)
+    # API and Client have their own authorization checks.
     if (request.path or "").startswith("/api/"):
         return
-
-    # allow client blueprint routes (blueprint has its own guard)
     if (request.path or "").startswith("/client"):
         return
 
-    # everything else is Designer/Server UI
-    if not bool(getattr(current_user, "can_designer", False)):
-        abort(403)
+    if bool(getattr(current_user, "can_designer", False)):
+        return
+
+    if endpoint == "mobile_setup" and _can_open_mobile_setup():
+        return
+
+    if endpoint in {"users_manage", "users_create", "users_update", "users_delete"} and _can_manage("users"):
+        return
+
+    if endpoint in {"create_room", "room_detail", "update_room", "delete_room"} and _can_manage("rooms"):
+        return
+
+    if endpoint in {
+        "mobile_server_save", "mobile_server_delete",
+        "mobile_room_alias_save", "mobile_room_alias_delete",
+    } and (_can_manage("servers") or _can_manage("rooms")):
+        return
+
+    abort(403)
 
 
 LANGUAGES = {
@@ -6539,9 +8073,16 @@ def edit_profile():
     if request.method == 'POST':
         current_user.email = request.form.get('email')
         if request.form.get('password'):
-            current_user.password = generate_password_hash(request.form.get('password'))
+            pwd = request.form.get('password')
+            current_user.password = generate_password_hash(pwd)
+            current_user.android_password_sha256 = hashlib.sha256(pwd.encode('utf-8')).hexdigest()
         current_user.config_display_name = request.form.get('config_display_name')
+        # Main/owner account is also a real _System/_User for Android business login.
+        # These flags are edited here, while child users are edited in /users.
+        current_user.android_authorization = bool(request.form.get('android_authorization'))
+        current_user.offer_pin = bool(request.form.get('offer_pin'))
         db.session.commit()
+        _sync_system_users_for_current_user()
         flash(_('Profile updated successfully'), 'success')
         return redirect(url_for('dashboard'))
 
@@ -6603,13 +8144,29 @@ def admin_dashboard():
         User,
         db.func.count(UserDevice.id).label('device_count')
     ).outerjoin(UserDevice).group_by(User.id).all()
+
+    ngenie_code_feature_requests = (
+        db.session.query(NGenieCodeFeatureRequest, User)
+        .outerjoin(User, NGenieCodeFeatureRequest.user_id == User.id)
+        .order_by(NGenieCodeFeatureRequest.created_at.desc())
+        .limit(100)
+        .all()
+    )
+    try:
+        import ngenie_code
+        ngenie_code_debug_records = ngenie_code.list_debug_records(limit=100)
+    except Exception:
+        ngenie_code_debug_records = []
     
     return render_template('admin_dashboard.html',
                          total_users=total_users,
                          total_devices=total_devices,
                          active_users_count=active_users_count,
                          active_devices_count=active_devices_count,
-                         users_with_stats=users_with_stats,active_connections=active_connections)
+                         users_with_stats=users_with_stats,
+                         ngenie_code_feature_requests=ngenie_code_feature_requests,
+                         ngenie_code_debug_records=ngenie_code_debug_records,
+                         active_connections=active_connections)
 
 
 @_routes.route('/admin/user/<int:user_id>')
@@ -6627,7 +8184,7 @@ def admin_user_detail(user_id):
     devices = UserDevice.query.filter_by(user_id=user_id).all()
     
    
-    configurations = Configuration.query.filter_by(user_id=user_id).all()
+    configurations = Configuration.query.filter_by(user_id=user_id, is_system=False).all()
     
     
     rooms = Room.query.filter_by(user_id=user_id).all()
@@ -6663,21 +8220,352 @@ def choose_mode():
     return render_template('choose_mode.html')
 
 
+def _materialize_profile_templates_for_config(config):
+    """Create/update UserProfile rows from config.profile_templates."""
+    if not config or not getattr(config, 'profile_templates', None):
+        return []
+    out = []
+    templates = getattr(config, 'profile_templates', None) or []
+    for tpl in templates:
+        if not isinstance(tpl, dict):
+            continue
+        tpl_uid = str(tpl.get('uid') or tpl.get('id') or tpl.get('name') or uuid.uuid4())
+        name = str(tpl.get('name') or tpl_uid)
+        profile = db.session.execute(
+            select(UserProfile).where(
+                UserProfile.owner_user_id == config.user_id,
+                UserProfile.source_config_id == config.id,
+                UserProfile.source_template_uid == tpl_uid,
+            )
+        ).scalar_one_or_none()
+        if not profile:
+            profile = UserProfile(
+                uid=str(uuid.uuid4()),
+                name=name,
+                description=str(tpl.get('description') or ''),
+                owner_user_id=config.user_id,
+                source_config_id=config.id,
+                source_template_uid=tpl_uid,
+                is_template_generated=True,
+            )
+            db.session.add(profile)
+            db.session.flush()
+        else:
+            profile.name = name
+            profile.description = str(tpl.get('description') or '')
+        classes = tpl.get('classes') or tpl.get('access') or []
+        for item in classes:
+            if isinstance(item, str):
+                item = {'class_name': item, 'visible': True}
+            if not isinstance(item, dict):
+                continue
+            class_name = str(item.get('class_name') or item.get('class') or item.get('name') or '').strip()
+            if not class_name:
+                continue
+            access = db.session.execute(
+                select(UserProfileClassAccess).where(
+                    UserProfileClassAccess.profile_id == profile.id,
+                    UserProfileClassAccess.config_id == config.id,
+                    UserProfileClassAccess.class_name == class_name,
+                )
+            ).scalar_one_or_none()
+            if not access:
+                access = UserProfileClassAccess(profile_id=profile.id, config_id=config.id, class_name=class_name)
+                db.session.add(access)
+            access.visible = bool(item.get('visible', item.get('access', True)))
+            rls = item.get('rls') if isinstance(item.get('rls'), dict) else item
+            access.rls_enabled = bool(rls.get('rls_enabled', rls.get('enabled', False)))
+            access.rls_mode = str(rls.get('rls_mode', rls.get('mode', 'allow')) or 'allow')
+            access.rls_rules_json = rls.get('rules', rls.get('rls_rules_json', [])) or []
+            access.rls_handler_code = str(rls.get('handler_code', rls.get('rls_handler_code', '')) or '')
+        out.append(profile)
+    db.session.commit()
+    return out
+
+
+
+def _app_helper(name):
+    app_mod = sys.modules.get('app') or sys.modules.get('__main__')
+    return getattr(app_mod, name, None) if app_mod else None
+
+
+def _ensure_system_config_for_current_user(sync_users=True):
+    fn = _app_helper('_ensure_system_config_for_owner')
+    if callable(fn):
+        try:
+            return fn(_scope_owner_id(), sync_users=sync_users)
+        except Exception as e:
+            print('Could not ensure system configuration:', e)
+    return None
+
+
+def _sync_system_users_for_current_user():
+    fn = _app_helper('_sync_system_users_for_owner')
+    if callable(fn):
+        try:
+            return fn(_scope_owner_id())
+        except Exception as e:
+            print('Could not sync system users:', e)
+    return 0
+
+
+def _cleanup_reserved_user_classes_for_current_user():
+    fn = _app_helper('_cleanup_reserved_user_classes_from_business_configs')
+    if callable(fn):
+        try:
+            return fn(_scope_owner_id())
+        except Exception as e:
+            print('Could not cleanup old _User classes:', e)
+    return 0
+
+
+def _ensure_reserved_user_class_from_app(config):
+    # Compatibility no-op: _User now belongs only to the hidden system config.
+    return None
+
+
+def _parse_class_fields_meta_for_profile_editor(cls):
+    """Best-effort field metadata for RLS editor: name/type/ref class."""
+    meta = [
+        {"name": "_id", "type": "string", "caption": "_id"},
+        {"name": "_class", "type": "string", "caption": "_class"},
+    ]
+    seen = {"_id", "_class"}
+    raw = getattr(cls, "data_structure", None) or ""
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) and raw.strip() else raw
+    except Exception:
+        parsed = None
+
+    fields = []
+    if isinstance(parsed, dict):
+        fields = parsed.get("fields") or parsed.get("Fields") or []
+    elif isinstance(parsed, list):
+        fields = parsed
+
+    node_re = re.compile(r'Node\(["\']([^"\']+)["\']\)', re.I)
+    for item in fields or []:
+        name = ""
+        caption = ""
+        ftype = "string"
+        ref_class = ""
+        if isinstance(item, dict):
+            name = str(item.get("name") or item.get("id") or item.get("field") or "").strip()
+            caption = str(item.get("caption") or item.get("title") or name or "")
+            ftype = str(item.get("type") or item.get("input_type") or item.get("field_type") or "string").strip() or "string"
+            ref_class = str(item.get("class") or item.get("class_name") or item.get("node_class") or item.get("ref_class") or "").strip()
+        elif isinstance(item, str):
+            txt = item.strip()
+            caption = txt
+            if "|" in txt:
+                caption, txt = txt.split("|", 1)
+            if ":" in txt:
+                name_part, type_part = txt.split(":", 1)
+                name = name_part.strip()
+                ftype = type_part.strip()
+            else:
+                name = txt.strip()
+            m = node_re.search(ftype or "")
+            if m:
+                ref_class = m.group(1)
+                ftype = "node"
+            elif str(ftype).lower().startswith('node'):
+                ftype = "node"
+        if not name or name in seen:
+            continue
+        norm_type = str(ftype or "string").strip().lower()
+        if norm_type in ("str", "text", "stringfield"):
+            norm_type = "string"
+        elif norm_type in ("bool", "checkbox"):
+            norm_type = "boolean"
+        elif norm_type in ("int", "integer", "float", "decimal", "numeric"):
+            norm_type = "number"
+        elif norm_type.startswith("node"):
+            norm_type = "node"
+        meta.append({"name": name, "type": norm_type, "caption": caption or name, "ref_class": ref_class})
+        seen.add(name)
+    return meta
+
+
+def _parse_class_fields_for_profile_editor(cls):
+    return [x.get('name') for x in _parse_class_fields_meta_for_profile_editor(cls)]
+
+
+def _profile_access_key(config_id, class_id):
+    return f"{int(config_id)}_{int(class_id)}"
+
+
+def _rls_normalize_rule_values(values):
+    if values is None:
+        return []
+    if isinstance(values, (list, tuple, set)):
+        return [str(x).strip() for x in values if str(x).strip()]
+    return [x.strip() for x in str(values or '').replace(';', ',').replace('\n', ',').split(',') if x.strip()]
+
+
+def _build_rls_handler_from_rules(rules):
+    """Generated editable Python body. It sets result=True when the row matches the table."""
+    compact_rules = []
+    for r in rules or []:
+        if not isinstance(r, dict):
+            continue
+        field = str(r.get("field") or "").strip()
+        if not field:
+            continue
+        op = str(r.get("op") or "in").strip().lower() or "in"
+        value_type = str(r.get("value_type") or r.get("type") or "string").strip().lower() or "string"
+        values = _rls_normalize_rule_values(r.get("values") or r.get("value") or [])
+        if op in ("=", "eq", "equal", "equals", "!=", "<>", "ne", "neq", "not_equal", "not equal") and values:
+            values = values[:1]
+        compact_rules.append({
+            "field": field,
+            "op": op,
+            "value_type": value_type,
+            "ref_config_uid": str(r.get("ref_config_uid") or ""),
+            "ref_class_name": str(r.get("ref_class_name") or ""),
+            "values": values,
+        })
+
+    lines = [
+        "# Generated from the RLS table. You may edit this code.",
+        "# Context/signature:",
+        "#   data / _data  - current node data dict",
+        "#   node_id / _id  - current node id",
+        "#   config_uid, class_name, profile, _system_user",
+        "# Helpers: _rls_get(data, path), _rls_norm(value, type)",
+        "rules = " + json.dumps(compact_rules, ensure_ascii=False, indent=4),
+        "",
+        "result = True",
+    ]
+
+    for idx, rule in enumerate(compact_rules, 1):
+        field = rule.get('field') or ''
+        op = (rule.get('op') or 'in').lower()
+        value_type = rule.get('value_type') or 'string'
+        values = rule.get('values') or []
+        lines.append("")
+        lines.append(f"# Rule {idx}: {field} {op} {values}")
+        lines.append(f"actual = _rls_norm(_rls_get(data, {json.dumps(field, ensure_ascii=False)}), {json.dumps(value_type, ensure_ascii=False)})")
+        if op in ('=', 'eq', 'equal', 'equals'):
+            expected = values[0] if values else ''
+            lines.append(f"expected = _rls_norm({json.dumps(expected, ensure_ascii=False)}, {json.dumps(value_type, ensure_ascii=False)})")
+            lines.append("if result and actual != expected:")
+            lines.append("    result = False")
+        elif op in ('!=', '<>', 'ne', 'neq', 'not_equal', 'not equal'):
+            forbidden = values[0] if values else ''
+            lines.append(f"forbidden = _rls_norm({json.dumps(forbidden, ensure_ascii=False)}, {json.dumps(value_type, ensure_ascii=False)})")
+            lines.append("if result and actual == forbidden:")
+            lines.append("    result = False")
+        elif op in ('not', 'not in', 'not_in', 'exclude'):
+            lines.append(f"forbidden_values = [_rls_norm(x, {json.dumps(value_type, ensure_ascii=False)}) for x in {json.dumps(values, ensure_ascii=False)}]")
+            lines.append("if result and actual in forbidden_values:")
+            lines.append("    result = False")
+        else:
+            lines.append(f"allowed_values = [_rls_norm(x, {json.dumps(value_type, ensure_ascii=False)}) for x in {json.dumps(values, ensure_ascii=False)}]")
+            lines.append("if result and actual not in allowed_values:")
+            lines.append("    result = False")
+
+    return "\n".join(lines).lstrip() + "\n"
+
+def _profile_rules_from_form(form, key):
+    fields = form.getlist(f"rls_field_{key}")
+    ops = form.getlist(f"rls_op_{key}")
+    value_types = form.getlist(f"rls_value_type_{key}")
+    ref_config_uids = form.getlist(f"rls_ref_config_uid_{key}")
+    ref_class_names = form.getlist(f"rls_ref_class_name_{key}")
+    values = form.getlist(f"rls_values_{key}")
+    rules = []
+    for i, field in enumerate(fields):
+        field = str(field or "").strip()
+        if not field:
+            continue
+        op = str(ops[i] if i < len(ops) else "in").strip() or "in"
+        value_type = str(value_types[i] if i < len(value_types) else "string").strip() or "string"
+        raw_values = values[i] if i < len(values) else ""
+        vals = _rls_normalize_rule_values(raw_values)
+        if str(op).strip().lower() in ('=', 'eq', 'equal', 'equals', '!=', '<>', 'ne', 'neq', 'not_equal', 'not equal') and vals:
+            vals = vals[:1]
+        rules.append({
+            "field": field,
+            "op": op,
+            "value_type": value_type,
+            "ref_config_uid": str(ref_config_uids[i] if i < len(ref_config_uids) else "").strip(),
+            "ref_class_name": str(ref_class_names[i] if i < len(ref_class_names) else "").strip(),
+            "values": vals,
+        })
+    return rules
+
+
+def _profile_rebuild_rls_for_access(access):
+    """Rebuild decisions for existing records after profile/RLS settings change."""
+    if not access or not getattr(access, 'rls_enabled', False):
+        return 0
+    cfg = getattr(access, 'config', None) or db.session.get(Configuration, access.config_id)
+    if not cfg:
+        return 0
+    app_mod = sys.modules.get('app') or sys.modules.get('__main__')
+    fn = getattr(app_mod, 'update_node_rls_index_global', None) if app_mod else None
+    if not callable(fn):
+        return 0
+    try:
+        import nodes as _nodes_mod_local
+        from sqlitedict import SqliteDict as _SqliteDict
+        storage_path = os.path.join(getattr(_nodes_mod_local, 'STORAGE_BASE_PATH', 'node_storage'), f"{access.class_name}_{cfg.uid}.sqlite")
+        if not os.path.exists(storage_path):
+            return 0
+        count = 0
+        with _SqliteDict(storage_path, autocommit=True) as st:
+            for node_id in list(st.keys()):
+                payload = st.get(node_id) or {}
+                data = payload.get('_data') if isinstance(payload, dict) else {}
+                fn(str(cfg.uid), str(access.class_name), str(node_id), data or {})
+                count += 1
+        return count
+    except Exception as e:
+        print('Could not rebuild RLS index:', e)
+        return 0
+
+def _assign_profiles_to_user(user_id, profile_ids, owner_id):
+    owned = db.session.execute(select(UserProfile.id).where(UserProfile.owner_user_id == owner_id)).scalars().all()
+    owned_set = {int(x) for x in owned}
+    wanted = set()
+    for pid in profile_ids or []:
+        try:
+            ipid = int(pid)
+        except Exception:
+            continue
+        if ipid in owned_set:
+            wanted.add(ipid)
+    db.session.execute(sa.delete(UserProfileRole).where(UserProfileRole.user_id == user_id))
+    for ipid in sorted(wanted):
+        db.session.add(UserProfileRole(user_id=user_id, profile_id=ipid))
+    db.session.commit()
+
+
 @_routes.route('/users', methods=['GET'])
 @login_required
 def users_manage():
-    # only Designer accounts can manage users
-    if not bool(getattr(current_user, 'can_designer', False)):
+    if not _can_manage("users"):
         abort(403)
+
+    owner_id = _scope_owner_id()
+    _ensure_system_config_for_current_user(sync_users=True)
+    _cleanup_reserved_user_classes_for_current_user()
 
     # users created under current_user
     users = db.session.execute(
-        select(User).where(User.parent_user_id == current_user.id).order_by(User.email)
+        select(User).where(User.parent_user_id == owner_id).order_by(User.email)
     ).scalars().all()
 
-    # configs owned by current_user (only these can be shared)
+    # configs owned by current_user (only business configs can be shared here)
     cfgs = db.session.execute(
-        select(Configuration).where(Configuration.user_id == current_user.id).order_by(Configuration.name)
+        select(Configuration)
+        .where(Configuration.user_id == owner_id, sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)))
+        .order_by(Configuration.name)
+    ).scalars().all()
+
+    profiles = db.session.execute(
+        select(UserProfile).where(UserProfile.owner_user_id == owner_id).order_by(UserProfile.name)
     ).scalars().all()
 
     # map: user_id -> set(config_id)
@@ -6691,15 +8579,21 @@ def users_manage():
                 pass
         access_map[u.id] = ids
 
-    return render_template('users_manage.html', users=users, configs=cfgs, access_map=access_map)
+    role_map = {}
+    for u in users:
+        role_map[u.id] = {int(r.profile_id) for r in (u.profile_roles or [])}
+
+    return render_template('users_manage.html', users=users, configs=cfgs, access_map=access_map, profiles=profiles, role_map=role_map, can_grant_admin=bool(getattr(current_user, 'can_designer', False)))
 
 
 @_routes.route('/users/create', methods=['POST'])
 @login_required
 def users_create():
-    if not bool(getattr(current_user, 'can_designer', False)):
+    if not _can_manage("users"):
         abort(403)
 
+    owner_id = _scope_owner_id()
+    can_grant_admin = bool(getattr(current_user, 'can_designer', False))
     email = (request.form.get('email') or '').strip()
     password = (request.form.get('password') or '').strip()
     if not email or not password:
@@ -6714,17 +8608,23 @@ def users_create():
     u = User(
         email=email,
         password=generate_password_hash(password),
-        parent_user_id=current_user.id,
-        can_designer=bool(request.form.get('can_designer')),
+        android_password_sha256=hashlib.sha256(password.encode('utf-8')).hexdigest(),
+        parent_user_id=owner_id,
+        can_designer=bool(request.form.get('can_designer')) if can_grant_admin else False,
         can_client=bool(request.form.get('can_client')),
         can_api=bool(request.form.get('can_api')),
+        can_manage_users=bool(request.form.get('can_manage_users')) if can_grant_admin else False,
+        can_manage_rooms=bool(request.form.get('can_manage_rooms')) if can_grant_admin else False,
+        can_manage_servers=bool(request.form.get('can_manage_servers')) if can_grant_admin else False,
+        android_authorization=bool(request.form.get('android_authorization')),
+        offer_pin=bool(request.form.get('offer_pin')),
     )
     db.session.add(u)
     db.session.commit()
 
     # config access (only configs owned by current_user)
     cfg_ids = request.form.getlist('config_ids')
-    owned_cfgs = db.session.execute(select(Configuration.id).where(Configuration.user_id == current_user.id)).scalars().all()
+    owned_cfgs = db.session.execute(select(Configuration.id).where(Configuration.user_id == owner_id, sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)))).scalars().all()
     owned_set = set(int(x) for x in owned_cfgs)
     for cid in cfg_ids:
         try:
@@ -6735,6 +8635,8 @@ def users_create():
             continue
         db.session.add(UserConfigAccess(user_id=u.id, config_id=icid))
     db.session.commit()
+    _assign_profiles_to_user(u.id, request.form.getlist('profile_ids'), owner_id)
+    _sync_system_users_for_current_user()
 
     flash('Пользователь создан', 'success')
     return redirect(url_for('users_manage'))
@@ -6743,24 +8645,35 @@ def users_create():
 @_routes.route('/users/<int:user_id>/update', methods=['POST'])
 @login_required
 def users_update(user_id: int):
-    if not bool(getattr(current_user, 'can_designer', False)):
+    if not _can_manage("users"):
         abort(403)
 
+    owner_id = _scope_owner_id()
+    can_grant_admin = bool(getattr(current_user, 'can_designer', False))
     u = db.session.get(User, user_id)
-    if not u or u.parent_user_id != current_user.id:
+    if not u or u.parent_user_id != owner_id:
         abort(404)
+    if not can_grant_admin and _has_administrative_role(u):
+        abort(403)
 
-    u.can_designer = bool(request.form.get('can_designer'))
+    if can_grant_admin:
+        u.can_designer = bool(request.form.get('can_designer'))
+        u.can_manage_users = bool(request.form.get('can_manage_users'))
+        u.can_manage_rooms = bool(request.form.get('can_manage_rooms'))
+        u.can_manage_servers = bool(request.form.get('can_manage_servers'))
     u.can_client = bool(request.form.get('can_client'))
     u.can_api = bool(request.form.get('can_api'))
+    u.android_authorization = bool(request.form.get('android_authorization'))
+    u.offer_pin = bool(request.form.get('offer_pin'))
 
     new_pwd = (request.form.get('password') or '').strip()
     if new_pwd:
         u.password = generate_password_hash(new_pwd)
+        u.android_password_sha256 = hashlib.sha256(new_pwd.encode('utf-8')).hexdigest()
 
     # rewrite config access set
     cfg_ids = request.form.getlist('config_ids')
-    owned_cfgs = db.session.execute(select(Configuration.id).where(Configuration.user_id == current_user.id)).scalars().all()
+    owned_cfgs = db.session.execute(select(Configuration.id).where(Configuration.user_id == owner_id, sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)))).scalars().all()
     owned_set = set(int(x) for x in owned_cfgs)
     wanted = set()
     for cid in cfg_ids:
@@ -6780,21 +8693,464 @@ def users_update(user_id: int):
     for icid in sorted(wanted):
         db.session.add(UserConfigAccess(user_id=u.id, config_id=icid))
     db.session.commit()
+    _assign_profiles_to_user(u.id, request.form.getlist('profile_ids'), owner_id)
+    _sync_system_users_for_current_user()
 
     flash('Права обновлены', 'success')
+    return redirect(url_for('users_manage'))
+
+
+@_routes.route('/profiles/create', methods=['POST'])
+@login_required
+def profiles_create():
+    if not bool(getattr(current_user, 'can_designer', False)):
+        abort(403)
+    data = request.get_json(silent=True) or {}
+    name = (request.form.get('name') or data.get('name') or '').strip()
+    if not name:
+        flash(_('Profile name is required'), 'error')
+        return redirect(url_for('users_manage'))
+    profile = UserProfile(uid=str(uuid.uuid4()), name=name, owner_user_id=current_user.id)
+    db.session.add(profile)
+    db.session.commit()
+    flash(_('Profile created'), 'success')
+    return redirect(url_for('profile_edit', profile_uid=profile.uid))
+
+
+@_routes.route('/api/profiles', methods=['GET', 'POST'])
+@login_required
+def api_profiles():
+    if not bool(getattr(current_user, 'can_designer', False)):
+        abort(403)
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        profile = UserProfile(
+            uid=str(data.get('uid') or uuid.uuid4()),
+            name=str(data.get('name') or '').strip(),
+            description=str(data.get('description') or ''),
+            owner_user_id=current_user.id,
+        )
+        db.session.add(profile)
+        db.session.commit()
+        return jsonify({'uid': profile.uid, 'id': profile.id})
+    profiles = db.session.execute(select(UserProfile).where(UserProfile.owner_user_id == current_user.id).order_by(UserProfile.name)).scalars().all()
+    return jsonify([
+        {
+            'id': p.id,
+            'uid': p.uid,
+            'name': p.name,
+            'description': p.description,
+            'classes': [
+                {
+                    'config_uid': a.config.uid if a.config else '',
+                    'config_id': a.config_id,
+                    'class_name': a.class_name,
+                    'visible': bool(a.visible),
+                    'rls_enabled': bool(a.rls_enabled),
+                    'rls_mode': a.rls_mode or 'allow',
+                    'rules': a.rls_rules_json or [],
+                    'handler_code': a.rls_handler_code or '',
+                }
+                for a in (p.class_access or [])
+            ]
+        }
+        for p in profiles
+    ])
+
+
+@_routes.route('/api/profiles/<profile_uid>/access', methods=['POST'])
+@login_required
+def api_profile_access(profile_uid):
+    if not bool(getattr(current_user, 'can_designer', False)):
+        abort(403)
+    profile = db.session.execute(select(UserProfile).where(UserProfile.uid == profile_uid, UserProfile.owner_user_id == current_user.id)).scalar_one_or_none()
+    if not profile:
+        abort(404)
+    data = request.get_json(silent=True) or {}
+    items = data.get('classes') or data.get('access') or []
+    for item in items:
+        config_uid = str(item.get('config_uid') or '').strip()
+        cfg = db.session.execute(select(Configuration).where(Configuration.uid == config_uid, Configuration.user_id == current_user.id, sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)))).scalar_one_or_none()
+        if not cfg:
+            continue
+        class_name = str(item.get('class_name') or item.get('class') or '').strip()
+        if not class_name:
+            continue
+        access = db.session.execute(select(UserProfileClassAccess).where(
+            UserProfileClassAccess.profile_id == profile.id,
+            UserProfileClassAccess.config_id == cfg.id,
+            UserProfileClassAccess.class_name == class_name,
+        )).scalar_one_or_none()
+        if not access:
+            access = UserProfileClassAccess(profile_id=profile.id, config_id=cfg.id, class_name=class_name)
+            db.session.add(access)
+        access.visible = bool(item.get('visible', True))
+        access.rls_enabled = bool(item.get('rls_enabled', item.get('rls', False)))
+        access.rls_mode = str(item.get('rls_mode', item.get('mode', 'allow')) or 'allow')
+        access.rls_rules_json = item.get('rules', item.get('rls_rules_json', [])) or []
+        access.rls_handler_code = str(item.get('handler_code', item.get('rls_handler_code', '')) or '')
+    db.session.commit()
+    return jsonify({'status': True})
+
+
+def _profile_value_source_options(configs=None):
+    """Class sources for RLS Node values.
+
+    Keep this list in sync with the profile editor's available classes.  The
+    previous implementation filtered by ``has_storage`` and this made the RLS
+    class dropdown empty while the same classes were visible in the right-side
+    available-classes panel.  RLS should let the designer select any class that
+    is present in the configuration; the node picker itself will simply return
+    no nodes if a selected class has no stored records yet.
+    """
+    # When the caller already loaded configurations, do not run another
+    # _System/user synchronisation merely to populate a class dropdown.
+    if configs is None:
+        _ensure_system_config_for_current_user(sync_users=False)
+    cfgs = list(configs or [])
+    if not cfgs:
+        cfgs = db.session.execute(
+            select(Configuration)
+            .where(Configuration.user_id == current_user.id)
+            .order_by(Configuration.is_system, Configuration.name)
+        ).scalars().all()
+    out = []
+    for cfg in cfgs:
+        classes = []
+        for cls in sorted((cfg.classes or []), key=lambda c: (c.display_name or c.name or '').lower()):
+            name = str(getattr(cls, 'name', '') or '').strip()
+            if not name:
+                continue
+            classes.append({
+                'name': name,
+                'display_name': getattr(cls, 'display_name', None) or name,
+            })
+        out.append({
+            'id': cfg.id,
+            'uid': cfg.uid,
+            'name': cfg.name or cfg.uid,
+            'classes': classes,
+        })
+    return out
+
+
+def _profile_node_option_label(cls, node_id, data):
+    data = data if isinstance(data, dict) else {}
+    view = data.get('_view')
+    if isinstance(view, str) and view.strip():
+        return view.strip()
+    for key in ('name', 'title', 'caption', 'display_name', 'login', 'email', 'code'):
+        value = data.get(key)
+        if value not in (None, ''):
+            return str(value)
+    tpl = str(getattr(cls, 'record_view', '') or '').strip()
+    if tpl:
+        try:
+            env = SandboxedEnvironment(autoescape=False)
+            rendered = str(env.from_string(tpl).render(**data, _data=data, _id=node_id)).strip()
+            if rendered:
+                return rendered[:200]
+        except Exception:
+            pass
+    return str(node_id)
+
+
+def _profile_node_cover_html(class_name, node_uid, label, data=None):
+    """Small NodeInput-like card for RLS picker. Keep it safe and independent from client templates."""
+    subtitle = node_uid or ''
+    label = label or node_uid or ''
+    return (
+        '<div class="card"><div class="card-body p-2">'
+        f'<div class="fw-semibold">{html_escape(label)}</div>'
+        f'<div class="text-muted small">{html_escape(class_name)} · {html_escape(subtitle)}</div>'
+        '</div></div>'
+    )
+
+
+def _profile_storage_items(config_uid, class_name, *, q='', ids=None, limit=100):
+    """Read nodes for profile RLS picker from the same sqlitedict storage as normal node pages."""
+    q = (q or '').strip().lower()
+    ids = [str(x).strip() for x in (ids or []) if str(x).strip()]
+    id_set = set(ids)
+    storage_key = f"{class_name}_{config_uid}"
+    db_path = os.path.join('node_storage', f"{storage_key}.sqlite")
+
+    def unpack(blob):
+        try:
+            return pickle.loads(blob)
+        except Exception:
+            return None
+
+    def normalize_uid(node_id):
+        node_id = str(node_id or '').strip()
+        if not node_id:
+            return ''
+        if '$' in node_id:
+            return node_id
+        return f"{config_uid}${class_name}${node_id}"
+
+    def matches(node_id, label, data):
+        uid = normalize_uid(node_id)
+        if id_set:
+            return node_id in id_set or uid in id_set
+        if not q:
+            return True
+        hay = (str(node_id) + ' ' + str(uid) + ' ' + str(label)).lower()
+        if q in hay:
+            return True
+        try:
+            return q in json.dumps(data or {}, ensure_ascii=False).lower()
+        except Exception:
+            return False
+
+    raw_items = []
+    if os.path.exists(db_path):
+        try:
+            conn = sqlite3.connect(db_path)
+            try:
+                cur = conn.cursor()
+                if id_set:
+                    candidate_ids = set()
+                    for raw in id_set:
+                        candidate_ids.add(raw)
+                        parts = raw.split('$')
+                        if len(parts) >= 3:
+                            candidate_ids.add(parts[-1])
+                    for cid in candidate_ids:
+                        cur.execute("SELECT key, value FROM unnamed WHERE key = ?", (str(cid),))
+                        row = cur.fetchone()
+                        if row:
+                            obj = unpack(row[1])
+                            raw_items.append((str(row[0]), obj))
+                else:
+                    cur.execute("SELECT key, value FROM unnamed ORDER BY key")
+                    for key, val_blob in cur.fetchall():
+                        raw_items.append((str(key), unpack(val_blob)))
+            finally:
+                conn.close()
+        except Exception:
+            raw_items = []
+
+    if not raw_items and os.path.exists(db_path):
+        try:
+            with SqliteDict(db_path, autocommit=False) as st:
+                keys = list(st.keys())
+                if id_set:
+                    wanted = set()
+                    for raw in id_set:
+                        wanted.add(raw)
+                        parts = raw.split('$')
+                        if len(parts) >= 3:
+                            wanted.add(parts[-1])
+                    keys = [k for k in keys if str(k) in wanted]
+                for key in keys:
+                    raw_items.append((str(key), st.get(key)))
+        except Exception:
+            raw_items = []
+
+    out = []
+    seen = set()
+    cls_obj = None
+    try:
+        cfg = db.session.execute(select(Configuration).where(Configuration.uid == config_uid)).scalar_one_or_none()
+        if cfg:
+            for c in (cfg.classes or []):
+                if str(c.name) == str(class_name):
+                    cls_obj = c
+                    break
+    except Exception:
+        cls_obj = None
+
+    for node_id, payload in raw_items:
+        if not isinstance(payload, dict):
+            continue
+        data = payload.get('_data') if isinstance(payload.get('_data'), dict) else {}
+        real_id = str(payload.get('_id') or data.get('_id') or node_id)
+        uid = normalize_uid(real_id)
+        if uid in seen:
+            continue
+        label = _profile_node_option_label(cls_obj, real_id, data or {}) if cls_obj else real_id
+        if not matches(real_id, label, data):
+            continue
+        seen.add(uid)
+        text_value = f"{label} · {real_id}"
+        out.append({
+            'id': uid,
+            'uid': uid,
+            '_id': real_id,
+            '_class': class_name,
+            '_view': label,
+            'text': text_value,
+            'cover_html': _profile_node_cover_html(class_name, uid, label, data),
+            'data': data or {},
+        })
+        if len(out) >= int(limit or 100):
+            break
+    return out
+
+
+@_routes.route('/api/profile-value-options')
+@login_required
+def api_profile_value_options():
+    if not bool(getattr(current_user, 'can_designer', False)):
+        abort(403)
+    config_uid = (request.args.get('config_uid') or '').strip()
+    class_name = (request.args.get('class_name') or '').strip()
+    q = (request.args.get('q') or '').strip()
+    ids_raw = (request.args.get('ids') or '').strip()
+    try:
+        limit = max(1, min(int(request.args.get('limit') or 100), 500))
+    except Exception:
+        limit = 100
+    cfg = db.session.execute(
+        select(Configuration).where(Configuration.uid == config_uid, Configuration.user_id == current_user.id)
+    ).scalar_one_or_none()
+    if not cfg or not class_name:
+        return jsonify([])
+    cls = None
+    for c in (cfg.classes or []):
+        if str(c.name) == class_name:
+            cls = c
+            break
+    if not cls:
+        return jsonify([])
+    ids = _rls_normalize_rule_values(ids_raw) if ids_raw else []
+    try:
+        return jsonify(_profile_storage_items(config_uid, class_name, q=q, ids=ids, limit=limit))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@_routes.route('/profiles/<profile_uid>/edit', methods=['GET', 'POST'])
+@login_required
+def profile_edit(profile_uid):
+    if not bool(getattr(current_user, 'can_designer', False)):
+        abort(403)
+    profile = db.session.execute(
+        select(UserProfile)
+        .options(selectinload(UserProfile.class_access))
+        .where(UserProfile.uid == profile_uid, UserProfile.owner_user_id == current_user.id)
+    ).scalar_one_or_none()
+    if not profile:
+        abort(404)
+
+    # Opening a role only needs class schemas. Avoid the old synchronous
+    # _System user refresh and eager-load all class rows in one SQL round trip.
+    _ensure_system_config_for_current_user(sync_users=False)
+    all_cfgs = db.session.execute(
+        select(Configuration)
+        .options(selectinload(Configuration.classes))
+        .where(Configuration.user_id == current_user.id)
+        .order_by(Configuration.is_system, Configuration.name)
+    ).scalars().unique().all()
+    cfgs = [cfg for cfg in all_cfgs if not bool(getattr(cfg, 'is_system', False))]
+
+    class_rows = []
+    config_groups = []
+    access_by_key = {}
+    for access in (profile.class_access or []):
+        access_by_key[(int(access.config_id), str(access.class_name))] = access
+
+    for cfg in cfgs:
+        group_rows = []
+        for cls in sorted((cfg.classes or []), key=lambda c: (c.display_name or c.name or '').lower()):
+            key = _profile_access_key(cfg.id, cls.id)
+            access = access_by_key.get((int(cfg.id), str(cls.name)))
+            rules = []
+            if access and access.rls_rules_json:
+                rules = access.rls_rules_json if isinstance(access.rls_rules_json, list) else []
+            field_meta = _parse_class_fields_meta_for_profile_editor(cls)
+            row = {
+                'key': key,
+                'config': cfg,
+                'class': cls,
+                'access': access,
+                'enabled': bool(access and access.visible),
+                'fields': [x.get('name') for x in field_meta],
+                'field_meta': field_meta,
+                'rules': rules,
+                'handler_code': ((access.rls_handler_code if access else '') or _build_rls_handler_from_rules(rules)).lstrip(),
+            }
+            class_rows.append(row)
+            group_rows.append(row)
+        config_groups.append({'config': cfg, 'rows': group_rows})
+
+    if request.method == 'POST':
+        profile.name = (request.form.get('name') or '').strip() or profile.name
+        profile.description = request.form.get('description') or ''
+        rebuild_count = 0
+        for row in class_rows:
+            cfg = row['config']
+            cls = row['class']
+            key = row['key']
+            enabled = bool(request.form.get(f'class_enabled_{key}'))
+            access = row['access']
+            if not enabled:
+                if access:
+                    db.session.delete(access)
+                continue
+
+            if not access:
+                access = UserProfileClassAccess(profile_id=profile.id, config_id=cfg.id, class_name=cls.name)
+                db.session.add(access)
+                db.session.flush()
+            access.visible = True
+            access.rls_enabled = bool(request.form.get(f'rls_enabled_{key}'))
+            access.rls_mode = request.form.get(f'rls_mode_{key}') or 'allow'
+            rules = _profile_rules_from_form(request.form, key)
+            access.rls_rules_json = rules
+            posted_code = request.form.get(f'rls_handler_{key}')
+            generated = _build_rls_handler_from_rules(rules)
+            access.rls_handler_code = posted_code.lstrip() if posted_code is not None and posted_code.strip() else generated
+            db.session.flush()
+            rebuild_count += _profile_rebuild_rls_for_access(access)
+        db.session.commit()
+        flash(_('Profile saved') + (f'. RLS index updated: {rebuild_count}' if rebuild_count else ''), 'success')
+        return redirect(url_for('profile_edit', profile_uid=profile.uid))
+
+    return render_template(
+        'profile_access_edit.html',
+        profile=profile,
+        class_rows=class_rows,
+        config_groups=config_groups,
+        value_source_configs=_profile_value_source_options(configs=all_cfgs),
+        selected_count=sum(1 for r in class_rows if r.get('enabled')),
+    )
+
+
+@_routes.route('/profiles/<profile_uid>/delete', methods=['POST'])
+@login_required
+def profile_delete(profile_uid):
+    if not bool(getattr(current_user, 'can_designer', False)):
+        abort(403)
+    profile = db.session.execute(
+        select(UserProfile).where(UserProfile.uid == profile_uid, UserProfile.owner_user_id == current_user.id)
+    ).scalar_one_or_none()
+    if not profile:
+        abort(404)
+    db.session.delete(profile)
+    db.session.commit()
+    flash(_('Profile deleted'), 'success')
     return redirect(url_for('users_manage'))
 
 
 @_routes.route('/users/<int:user_id>/delete', methods=['POST'])
 @login_required
 def users_delete(user_id: int):
-    if not bool(getattr(current_user, 'can_designer', False)):
+    if not _can_manage("users"):
         abort(403)
+    owner_id = _scope_owner_id()
     u = db.session.get(User, user_id)
-    if not u or u.parent_user_id != current_user.id:
+    if not u or u.parent_user_id != owner_id:
         abort(404)
+    if int(getattr(u, 'id', 0) or 0) == int(getattr(current_user, 'id', 0) or 0):
+        flash('Нельзя удалить текущего пользователя', 'error')
+        return redirect(url_for('users_manage'))
+    if _has_administrative_role(u) and not bool(getattr(current_user, 'can_designer', False)):
+        abort(403)
     db.session.delete(u)
     db.session.commit()
+    _sync_system_users_for_current_user()
     flash('Пользователь удален', 'success')
     return redirect(url_for('users_manage'))
 
@@ -6831,6 +9187,7 @@ def index():
                 new_user = User(
                     email=email,
                     password=generate_password_hash(password),
+                    android_password_sha256=hashlib.sha256(password.encode('utf-8')).hexdigest(),
                     can_designer=True,
                     can_client=True,
                     can_api=True,
@@ -6853,17 +9210,22 @@ def logout():
 @_routes.route('/create-room', methods=['POST'])
 @login_required
 def create_room():
-    name = request.form.get('name', 'New room')
+    if not _can_manage("rooms"):
+        abort(403)
+    name = (request.form.get('name') or 'New room').strip()
     transport = (request.form.get('transport') or 'websocket').strip().lower()
     if transport not in ('websocket', 'fcm'):
         transport = 'websocket'
     new_room = Room(
         name=name,
         transport=transport,
-        user_id=current_user.id
+        user_id=_scope_owner_id()
     )
     db.session.add(new_room)
     db.session.commit()
+    if request.form.get('return_to') == 'mobile_setup':
+        flash(_('Room created'), 'success')
+        return redirect(url_for('mobile_setup'))
     return redirect(url_for('room_detail', room_uid=new_room.uid))
 
 
@@ -6884,7 +9246,9 @@ def generate_qr_code(data):
 @_routes.route('/room/<room_uid>')
 @login_required
 def room_detail(room_uid):
-    room = Room.query.filter_by(uid=room_uid, user_id=current_user.id).first_or_404()
+    if not _can_manage("rooms"):
+        abort(403)
+    room = Room.query.filter_by(uid=room_uid, user_id=_scope_owner_id()).first_or_404()
 
     with SqliteDict(TASKS_DB_PATH) as tasks_db:
         tasks = tasks_db.get(room_uid, [])
@@ -6920,26 +9284,569 @@ def room_detail(room_uid):
                          room_devices=room_devices)
 
 
+@_routes.route('/room/<room_uid>/update', methods=['POST'])
+@login_required
+def update_room(room_uid):
+    if not _can_manage("rooms"):
+        abort(403)
+    room = Room.query.filter_by(uid=room_uid, user_id=_scope_owner_id()).first_or_404()
+    room.name = (request.form.get('name') or room.name or 'Room').strip()
+    transport = (request.form.get('transport') or room.transport or 'websocket').strip().lower()
+    room.transport = transport if transport in ('websocket', 'fcm') else 'websocket'
+    db.session.commit()
+    flash(_('Room updated'), 'success')
+    return redirect(url_for('mobile_setup') if request.form.get('return_to') == 'mobile_setup' else url_for('room_detail', room_uid=room.uid))
+
+
 @_routes.route('/delete-room/<room_uid>')
 @login_required
 def delete_room(room_uid):
-    room = Room.query.filter_by(uid=room_uid, user_id=current_user.id).first_or_404()
+    if not _can_manage("rooms"):
+        abort(403)
+    room = Room.query.filter_by(uid=room_uid, user_id=_scope_owner_id()).first_or_404()
+    room_uid_value = room.uid
+    owner_id = _scope_owner_id()
+    owner_config_ids = db.session.execute(
+        select(Configuration.id).where(Configuration.user_id == owner_id)
+    ).scalars().all()
+    if owner_config_ids:
+        db.session.execute(
+            sa.delete(RoomAlias).where(
+                RoomAlias.room_uid == room_uid_value,
+                RoomAlias.config_id.in_(list(owner_config_ids)),
+            )
+        )
     db.session.delete(room)
     db.session.commit()
-    
-    
-    with SqliteDict(TASKS_DB_PATH) as tasks_db:
-        if room.uid in tasks_db:
-            del tasks_db[room.uid]
-        tasks_db.commit()
-    
-    return redirect(url_for('dashboard') + '#rooms')
+
+    with SqliteDict(TASKS_DB_PATH, autocommit=True) as tasks_db:
+        if room_uid_value in tasks_db:
+            del tasks_db[room_uid_value]
+
+    flash(_('Room deleted successfully'), 'success')
+    return redirect(url_for('mobile_setup') if request.args.get('return_to') == 'mobile_setup' else url_for('dashboard') + '#rooms')
+
+
+
+@_routes.route('/mobile-setup')
+@login_required
+def mobile_setup():
+    if not _can_open_mobile_setup():
+        abort(403)
+
+    owner_id = _scope_owner_id()
+    configs = db.session.execute(
+        select(Configuration)
+        .where(
+            Configuration.user_id == owner_id,
+            sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)),
+        )
+        .order_by(Configuration.name)
+    ).scalars().all()
+    rooms = db.session.execute(
+        select(Room).where(Room.user_id == owner_id).order_by(Room.name)
+    ).scalars().all()
+
+    config_rows = []
+    for cfg in configs:
+        cfg_servers = list(Server.query.filter_by(config_id=cfg.id).order_by(Server.is_default.desc(), Server.alias.asc()).all())
+        cfg_aliases = list(RoomAlias.query.filter_by(config_id=cfg.id).order_by(RoomAlias.alias.asc()).all())
+        config_url = url_for('get_config', uid=cfg.uid, _external=True)
+        config_rows.append({
+            'config': cfg,
+            'config_url': config_url,
+            'qr_img': generate_qr_code(config_url),
+            'servers': cfg_servers,
+            'room_aliases': cfg_aliases,
+            'default_server': next((x for x in cfg_servers if bool(x.is_default)), None),
+        })
+
+    ws_scheme = get_ws_scheme()
+    api_base = request.url_root.rstrip('/')
+    room_rows = []
+    for room in rooms:
+        ws_url = f"{ws_scheme}://{request.host}/ws?room={room.uid}"
+        if (room.transport or 'websocket') == 'websocket':
+            room_payload = ws_url
+        else:
+            room_payload = json.dumps({
+                "type": "room_connect",
+                "room_uid": room.uid,
+                "transport": (room.transport or 'websocket'),
+                "ws_url": '',
+                "register_device_url": f"{api_base}/api/room/{room.uid}/register-device",
+                "room_url": f"{api_base}/api/room/{room.uid}/objects",
+            }, ensure_ascii=False)
+        room_rows.append({
+            'room': room,
+            'qr_img': generate_qr_code(room_payload),
+            'payload': room_payload,
+        })
+
+    rooms_by_uid = {str(r.uid): r for r in rooms}
+    return render_template(
+        'mobile_setup.html',
+        config_rows=config_rows,
+        rooms=rooms,
+        room_rows=room_rows,
+        rooms_by_uid=rooms_by_uid,
+        can_manage_users=_can_manage('users'),
+        can_manage_rooms=_can_manage('rooms'),
+        can_manage_servers=_can_manage('servers'),
+    )
+
+
+@_routes.route('/mobile-setup/server/save', methods=['POST'])
+@login_required
+def mobile_server_save():
+    if not _can_manage('servers'):
+        abort(403)
+    owner_id = _scope_owner_id()
+    config_uid = (request.form.get('config_uid') or '').strip()
+    cfg = db.session.execute(
+        select(Configuration).where(
+            Configuration.uid == config_uid,
+            Configuration.user_id == owner_id,
+            sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)),
+        )
+    ).scalar_one_or_none()
+    if not cfg:
+        abort(404)
+
+    alias = (request.form.get('alias') or '').strip()
+    url = (request.form.get('url') or '').strip().rstrip('/')
+    if not alias or not url:
+        flash(_('Alias and URL are required'), 'error')
+        return redirect(url_for('mobile_setup') + '#servers')
+
+    server_id = request.form.get('server_id')
+    server = None
+    if server_id:
+        try:
+            server = Server.query.filter_by(id=int(server_id), config_id=cfg.id).first()
+        except Exception:
+            server = None
+        if not server:
+            abort(404)
+    if server is None:
+        server = Server(config_id=cfg.id)
+        db.session.add(server)
+
+    make_default = bool(request.form.get('is_default'))
+    was_default = bool(getattr(server, 'is_default', False))
+    existing_servers = list(Server.query.filter_by(config_id=cfg.id).order_by(Server.id.asc()).all())
+    other_servers = [x for x in existing_servers if getattr(server, 'id', None) is None or x.id != server.id]
+    if make_default:
+        for other in existing_servers:
+            other.is_default = False
+    elif was_default:
+        if other_servers:
+            # Do not leave RemoteClass without a default when the current default
+            # is explicitly unchecked. Promote the oldest remaining server.
+            other_servers[0].is_default = True
+        else:
+            make_default = True
+    elif not any(bool(x.is_default) for x in other_servers):
+        # First server (or repair of old inconsistent data) becomes default.
+        make_default = True
+
+    server.alias = alias
+    server.url = url
+    server.is_default = make_default
+    db.session.commit()
+    flash(_('Server saved'), 'success')
+    return redirect(url_for('mobile_setup') + '#servers')
+
+
+@_routes.route('/mobile-setup/server/<int:server_id>/delete', methods=['POST'])
+@login_required
+def mobile_server_delete(server_id):
+    if not _can_manage('servers'):
+        abort(403)
+    owner_id = _scope_owner_id()
+    server = Server.query.join(Configuration).filter(
+        Server.id == server_id,
+        Configuration.user_id == owner_id,
+        sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)),
+    ).first_or_404()
+    config_id = server.config_id
+    was_default = bool(server.is_default)
+    db.session.delete(server)
+    db.session.flush()
+    if was_default:
+        replacement = Server.query.filter_by(config_id=config_id).order_by(Server.id.asc()).first()
+        if replacement:
+            replacement.is_default = True
+    db.session.commit()
+    flash(_('Server deleted'), 'success')
+    return redirect(url_for('mobile_setup') + '#servers')
+
+
+@_routes.route('/mobile-setup/room-alias/save', methods=['POST'])
+@login_required
+def mobile_room_alias_save():
+    if not _can_manage('rooms'):
+        abort(403)
+    owner_id = _scope_owner_id()
+    config_uid = (request.form.get('config_uid') or '').strip()
+    cfg = db.session.execute(
+        select(Configuration).where(
+            Configuration.uid == config_uid,
+            Configuration.user_id == owner_id,
+            sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)),
+        )
+    ).scalar_one_or_none()
+    if not cfg:
+        abort(404)
+    alias = (request.form.get('alias') or '').strip()
+    room_uid = (request.form.get('room_uid') or '').strip()
+    room = Room.query.filter_by(uid=room_uid, user_id=owner_id).first()
+    if not alias or not room:
+        flash(_('Alias and room are required'), 'error')
+        return redirect(url_for('mobile_setup') + '#rooms')
+
+    alias_id = request.form.get('alias_id')
+    row = None
+    if alias_id:
+        try:
+            row = RoomAlias.query.filter_by(id=int(alias_id), config_id=cfg.id).first()
+        except Exception:
+            row = None
+        if not row:
+            abort(404)
+    if row is None:
+        row = RoomAlias.query.filter_by(config_id=cfg.id, alias=alias).first()
+    if row is None:
+        row = RoomAlias(config_id=cfg.id)
+        db.session.add(row)
+    row.alias = alias
+    row.room_uid = room_uid
+    db.session.commit()
+    flash(_('Room alias saved'), 'success')
+    return redirect(url_for('mobile_setup') + '#rooms')
+
+
+@_routes.route('/mobile-setup/room-alias/<int:alias_id>/delete', methods=['POST'])
+@login_required
+def mobile_room_alias_delete(alias_id):
+    if not _can_manage('rooms'):
+        abort(403)
+    owner_id = _scope_owner_id()
+    row = RoomAlias.query.join(Configuration).filter(
+        RoomAlias.id == alias_id,
+        Configuration.user_id == owner_id,
+        sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)),
+    ).first_or_404()
+    db.session.delete(row)
+    db.session.commit()
+    flash(_('Room alias deleted'), 'success')
+    return redirect(url_for('mobile_setup') + '#rooms')
+
+
+
+def _copy_model_columns(source, target, *, exclude=None):
+    """Copy mapped scalar columns without copying primary/foreign keys."""
+    excluded = set(exclude or ())
+    for column in source.__table__.columns:
+        name = str(column.name)
+        if name in excluded:
+            continue
+        setattr(target, name, getattr(source, name))
+    return target
+
+
+def _clone_demo_configuration(source, owner_user_id):
+    """Install/update one demo configuration exactly like a Designer import."""
+    source_content_uid = str(getattr(source, 'content_uid', '') or getattr(source, 'uid', '') or uuid.uuid4())
+    target = db.session.execute(
+        select(Configuration).where(
+            Configuration.user_id == int(owner_user_id),
+            Configuration.content_uid == source_content_uid,
+        )
+    ).scalar_one_or_none()
+    if target is None:
+        target = Configuration(
+            uid=str(uuid.uuid4()),
+            content_uid=source_content_uid,
+            user_id=int(owner_user_id),
+        )
+        db.session.add(target)
+        db.session.flush()
+    else:
+        for relation_name in ('classes', 'datasets', 'sections', 'servers', 'room_aliases', 'config_events', 'config_timers'):
+            for row in list(getattr(target, relation_name, None) or []):
+                db.session.delete(row)
+        db.session.flush()
+
+    preserved_uid = target.uid
+    _copy_model_columns(source, target, exclude={'id', 'uid', 'user_id', 'is_system', 'demo_product', 'last_modified'})
+    target.uid = preserved_uid
+    target.user_id = int(owner_user_id)
+    target.is_system = False
+    target.demo_product = False
+    target.last_modified = datetime.now(timezone.utc)
+    target.nodes_handlers = _rewrite_android_handlers_instance_refs_b64(
+        target.nodes_handlers,
+        target.uid,
+        url_for('get_config', uid=target.uid, _external=True),
+    )
+    db.session.flush()
+
+    for source_class in list(source.classes or []):
+        target_class = ConfigClass(config_id=target.id)
+        _copy_model_columns(source_class, target_class, exclude={'id', 'config_id'})
+        db.session.add(target_class)
+        db.session.flush()
+        for source_method in list(source_class.methods or []):
+            target_method = ClassMethod(class_id=target_class.id)
+            _copy_model_columns(source_method, target_method, exclude={'id', 'class_id'})
+            db.session.add(target_method)
+        for source_event in list(source_class.event_objs or []):
+            target_event = ClassEvent(class_id=target_class.id)
+            _copy_model_columns(source_event, target_event, exclude={'id', 'class_id'})
+            db.session.add(target_event)
+            db.session.flush()
+            for source_action in list(source_event.actions or []):
+                target_action = EventAction(event_id=target_event.id)
+                _copy_model_columns(source_action, target_action, exclude={'id', 'event_id'})
+                db.session.add(target_action)
+
+    for source_dataset in list(source.datasets or []):
+        target_dataset = Dataset(config_id=target.id)
+        _copy_model_columns(source_dataset, target_dataset, exclude={'id', 'config_id', 'created_at', 'updated_at'})
+        db.session.add(target_dataset)
+
+    for source_section in list(source.sections or []):
+        target_section = ConfigSection(config_id=target.id)
+        _copy_model_columns(source_section, target_section, exclude={'id', 'config_id'})
+        db.session.add(target_section)
+
+    for source_server in list(source.servers or []):
+        target_server = Server(config_id=target.id)
+        _copy_model_columns(source_server, target_server, exclude={'id', 'config_id'})
+        db.session.add(target_server)
+
+    for source_alias in list(getattr(source, 'room_aliases', None) or []):
+        target_alias = RoomAlias(config_id=target.id)
+        _copy_model_columns(source_alias, target_alias, exclude={'id', 'config_id', 'created_at'})
+        db.session.add(target_alias)
+
+    for source_event in list(source.config_events or []):
+        target_event = ConfigEvent(config_id=target.id)
+        _copy_model_columns(source_event, target_event, exclude={'id', 'config_id'})
+        db.session.add(target_event)
+        db.session.flush()
+        for source_action in list(source_event.actions or []):
+            target_action = ConfigEventAction(event_id=target_event.id)
+            _copy_model_columns(source_action, target_action, exclude={'id', 'event_id'})
+            db.session.add(target_action)
+
+    for source_timer in list(getattr(source, 'config_timers', None) or []):
+        target_timer = ConfigTimer(config_id=target.id)
+        _copy_model_columns(source_timer, target_timer, exclude={'id', 'config_id', 'created_at', 'updated_at'})
+        db.session.add(target_timer)
+        db.session.flush()
+        for source_action in list(source_timer.actions or []):
+            target_action = ConfigTimerAction(timer_id=target_timer.id)
+            _copy_model_columns(source_action, target_action, exclude={'id', 'timer_id', 'created_at'})
+            db.session.add(target_action)
+
+    db.session.flush()
+    if target.nodes_server_handlers:
+        handlers_dir = os.path.join('Handlers', target.uid)
+        os.makedirs(handlers_dir, exist_ok=True)
+        try:
+            handlers_code = base64.b64decode(target.nodes_server_handlers).decode('utf-8')
+            with open(os.path.join(handlers_dir, 'handlers.py'), 'w', encoding='utf-8', newline='\n') as fh:
+                fh.write(handlers_code)
+        except Exception as exc:
+            current_app.logger.warning('Could not write demo handlers for %s: %s', target.uid, exc)
+    return target
+
+
+def _add_configuration_to_client_repo(config, user_id):
+    """Create/update the local client repository entry for an installed product."""
+    from client_app import models as client_models
+
+    config_payload = json.loads(get_config(config.uid))
+    config_url = (request.host_url or '').rstrip('/') + '/api/config/' + config.uid
+    repo = client_models.Repo.query.filter_by(user_id=int(user_id), config_uid=config.uid).first()
+    if repo is None:
+        repo = client_models.Repo(user_id=int(user_id), config_uid=config.uid, config_url=config_url)
+        client_models.db.session.add(repo)
+        client_models.db.session.flush()
+    repo.name = config_payload.get('name') or config.name or config.uid
+    repo.display_name = config_payload.get('display_name') or config_payload.get('name') or config.name or ''
+    repo.vendor = config_payload.get('vendor') or config_payload.get('provider') or ''
+    repo.version = config_payload.get('version') or ''
+    repo.base_url = ''
+    repo.config_url = config_url
+    repo.username = ''
+    repo.password = ''
+    repo.config_json = json.dumps(config_payload, ensure_ascii=False)
+    repo.config_cached_at = datetime.now(timezone.utc)
+
+    row = client_models.RepoConfig.query.filter_by(repo_id=repo.id).first()
+    if row is None:
+        row = client_models.RepoConfig(repo_id=repo.id, config_json=repo.config_json)
+        client_models.db.session.add(row)
+    else:
+        row.config_json = repo.config_json
+    row.updated_at = datetime.now(timezone.utc)
+    client_models.db.session.flush()
+    try:
+        from client_app.routes import _invalidate_repo_config_mem
+        _invalidate_repo_config_mem(repo.id)
+    except Exception:
+        pass
+    return repo
+
+
+@_routes.route('/demo-products')
+@login_required
+def demo_products_page():
+    if not bool(getattr(current_user, 'can_designer', False)):
+        abort(403)
+    products = db.session.execute(
+        select(Configuration).where(
+            Configuration.demo_product == True,
+            sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)),
+        ).order_by(Configuration.name, Configuration.version)
+    ).scalars().all()
+    from client_app import models as client_models
+    installed_config_uids = {
+        str(value) for value in client_models.db.session.execute(
+            select(client_models.Repo.config_uid).where(client_models.Repo.user_id == current_user.id)
+        ).scalars().all() if str(value or '').strip()
+    }
+    installed_content_uids = {
+        str(value) for value in db.session.execute(
+            select(Configuration.content_uid).where(
+                Configuration.user_id == current_user.id,
+                Configuration.uid.in_(installed_config_uids),
+                Configuration.content_uid.is_not(None),
+                Configuration.content_uid != '',
+            )
+        ).scalars().all()
+    } if installed_config_uids else set()
+    return render_template(
+        'demo_products.html',
+        products=products,
+        installed_content_uids=installed_content_uids,
+    )
+
+
+@_routes.route('/demo-products/<source_uid>/install', methods=['POST'])
+@login_required
+def demo_products_install(source_uid):
+    if not bool(getattr(current_user, 'can_designer', False)):
+        abort(403)
+    source = db.session.execute(
+        select(Configuration).where(
+            Configuration.uid == source_uid,
+            Configuration.demo_product == True,
+            sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)),
+        )
+    ).scalar_one_or_none()
+    if source is None:
+        abort(404)
+    try:
+        if not str(getattr(source, 'content_uid', '') or '').strip():
+            source.content_uid = str(source.uid)
+        target = source if int(source.user_id) == int(current_user.id) else _clone_demo_configuration(source, current_user.id)
+        db.session.flush()
+        _add_configuration_to_client_repo(target, current_user.id)
+        db.session.commit()
+        _materialize_profile_templates_for_config(target)
+        flash(_('Demo product installed and added to the repository'), 'success')
+        return redirect(url_for('client.sections_home'))
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.exception('Demo product install failed')
+        flash(_('Demo product installation failed') + ': ' + str(exc), 'error')
+        return redirect(url_for('demo_products_page'))
+
+
+def _prepare_configuration_contract(config, actor):
+    selected = [
+        {'config_uid': str(config.uid), 'class_name': str(class_obj.name)}
+        for class_obj in list(config.classes or [])
+        if bool(getattr(class_obj, 'include_in_contract', False)) and str(getattr(class_obj, 'name', '') or '').strip()
+    ]
+    if not selected:
+        raise ValueError(_('No classes are marked for inclusion in the contract'))
+
+    stable_name = 'config-' + str(config.uid)
+    contracts = db.session.execute(
+        select(Contract).where(Contract.user_id == actor.id, Contract.source_type == 'class')
+        .order_by(Contract.updated_at.desc(), Contract.created_at.desc())
+    ).scalars().all()
+    contract = next((row for row in contracts if str(row.name or '') == stable_name), None)
+    if contract is None:
+        for row in contracts:
+            refs = list(row.source_classes_json or [])
+            if not refs and row.source_config_uid and row.class_name:
+                refs = [{'config_uid': row.source_config_uid, 'class_name': row.class_name}]
+            if any(str(ref.get('config_uid') or '') == str(config.uid) for ref in refs if isinstance(ref, dict)):
+                contract = row
+                break
+
+    if contract is None:
+        contract = Contract(user_id=actor.id)
+        db.session.add(contract)
+        existing_refs = []
+    else:
+        existing_refs = list(contract.source_classes_json or [])
+        if not existing_refs and contract.source_config_uid and contract.class_name:
+            existing_refs = [{'config_uid': contract.source_config_uid, 'class_name': contract.class_name}]
+
+    preserved_other_configs = [
+        ref for ref in existing_refs
+        if isinstance(ref, dict) and str(ref.get('config_uid') or '') != str(config.uid)
+    ]
+    merged_refs = preserved_other_configs + selected
+    source_text = '\n'.join(str(ref['config_uid']) + '$' + str(ref['class_name']) for ref in merged_refs)
+    _contract_update_from_data(contract, {
+        'name': contract.name or stable_name,
+        'display_name': contract.display_name or ((config.name or stable_name) + ' · ' + _('Mobile data')),
+        'source_type': 'class',
+        'source_classes_text': source_text,
+    }, actor)
+    db.session.flush()
+    stats = _contract_recreate_nodes_for_contract(contract)
+    db.session.commit()
+    return contract, selected, stats
+
+
+@_routes.route('/contracts/config/<config_uid>/prepare', methods=['POST'])
+@login_required
+def contracts_prepare_config(config_uid):
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == config_uid, Configuration.user_id == current_user.id)
+    ).scalar_one_or_none()
+    if config is None:
+        abort(404)
+    try:
+        contract, selected, stats = _prepare_configuration_contract(config, current_user)
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+        return redirect(url_for('edit_config', uid=config.uid, tab='classes'))
+    payload = json.dumps(_contract_add_payload(contract), ensure_ascii=False, indent=2)
+    return render_template(
+        'contract_ready.html',
+        config=config,
+        contract=contract,
+        selected=selected,
+        stats=stats,
+        payload=payload,
+    )
 
 
 @_routes.route('/dashboard')
 @login_required
 def dashboard():
-    stmt = select(Configuration).where(Configuration.user_id == current_user.id)
+    stmt = select(Configuration).where(Configuration.user_id == current_user.id, sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)))
     configs = db.session.execute(stmt).scalars().all()
     
     stmt = select(Room).where(Room.user_id == current_user.id)
@@ -7026,6 +9933,25 @@ def contracts_delete(contract_uid):
     db.session.delete(contract)
     db.session.commit()
     flash(_('Contract deleted'), 'success')
+    return redirect(url_for('contracts_page'))
+
+
+@_routes.route('/contracts/<contract_uid>/recreate-nodes', methods=['POST'])
+@login_required
+def contracts_recreate_nodes(contract_uid):
+    contract = _get_owned_contract_or_404(contract_uid, actor=current_user)
+    if str(contract.source_type or 'class') != 'class':
+        flash(_('Only class contracts can recreate nodes'), 'error')
+        return redirect(url_for('contracts_page'))
+    stats = _contract_recreate_nodes_for_contract(contract)
+    db.session.commit()
+    msg = _('Nodes recreated: %(created)s created, %(updated)s updated, %(skipped)s skipped',
+            created=stats.get('created', 0), updated=stats.get('updated', 0), skipped=stats.get('skipped', 0))
+    if stats.get('errors'):
+        msg += ' / ' + _('errors') + ': ' + str(len(stats.get('errors') or []))
+        flash(msg, 'warning')
+    else:
+        flash(msg, 'success')
     return redirect(url_for('contracts_page'))
 
 

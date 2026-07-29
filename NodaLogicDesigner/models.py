@@ -162,13 +162,25 @@ class RoomAlias(db.Model):
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(100), unique=True)
-    password = db.Column(db.String(100))
+    password = db.Column(db.String(255))
+    android_password_sha256 = db.Column(db.String(64), default="")
     config_display_name = db.Column(db.String(100), default="")
 
     # Access flags
     can_designer = db.Column(db.Boolean, default=False)  # Configurator/Designer
     can_client = db.Column(db.Boolean, default=False)    # Web Client
     can_api = db.Column(db.Boolean, default=False)       # HTTP API (basic auth)
+
+    # Delegated server-side administration. Configurator/Designer implicitly
+    # grants all three permissions, but these flags let a tenant owner delegate
+    # mobile setup without exposing configuration structure or handler code.
+    can_manage_users = db.Column(db.Boolean, default=False)
+    can_manage_rooms = db.Column(db.Boolean, default=False)
+    can_manage_servers = db.Column(db.Boolean, default=False)
+
+    # Business mobile authorization flags. These are separate from messenger/cloud login.
+    android_authorization = db.Column(db.Boolean, default=False)
+    offer_pin = db.Column(db.Boolean, default=False)
 
     # User who created/owns this account ("admin" scope)
     parent_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
@@ -185,6 +197,153 @@ class UserConfigAccess(db.Model):
     user = db.relationship('User', backref=db.backref('config_access', cascade='all, delete-orphan', lazy=True))
     config = db.relationship('Configuration', backref=db.backref('user_access', cascade='all, delete-orphan', lazy=True))
 
+
+
+class UserProfile(db.Model):
+    """Reusable business access profile.
+
+    Users can have several profiles/roles. A profile owns class visibility and
+    optional row-level security rules. Profiles can be materialized from
+    configuration templates on import/update.
+    """
+    __tablename__ = 'user_profile'
+
+    id = db.Column(db.Integer, primary_key=True)
+    uid = db.Column(db.String(64), unique=True, nullable=False, default=lambda: str(uuid.uuid4()), index=True)
+    name = db.Column(db.String(200), nullable=False, default='')
+    description = db.Column(db.Text, default='')
+    owner_user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
+    source_config_id = db.Column(db.Integer, db.ForeignKey('configuration.id', ondelete='SET NULL'), nullable=True, index=True)
+    source_template_uid = db.Column(db.String(100), default='', index=True)
+    is_template_generated = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    owner = db.relationship('User', backref=db.backref('owned_profiles', cascade='all, delete-orphan', lazy=True), foreign_keys=[owner_user_id])
+    source_config = db.relationship('Configuration', backref=db.backref('profile_templates_materialized', lazy=True), foreign_keys=[source_config_id])
+
+
+class UserProfileRole(db.Model):
+    """Assignment of one business profile/role to one application user."""
+    __tablename__ = 'user_profile_role'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
+    profile_id = db.Column(db.Integer, db.ForeignKey('user_profile.id', ondelete='CASCADE'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = db.relationship('User', backref=db.backref('profile_roles', cascade='all, delete-orphan', lazy=True))
+    profile = db.relationship('UserProfile', backref=db.backref('assignments', cascade='all, delete-orphan', lazy=True))
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'profile_id', name='uq_user_profile_role_user_profile'),
+    )
+
+
+class UserProfileClassAccess(db.Model):
+    """Class visibility and RLS settings for a profile."""
+    __tablename__ = 'user_profile_class_access'
+
+    id = db.Column(db.Integer, primary_key=True)
+    profile_id = db.Column(db.Integer, db.ForeignKey('user_profile.id', ondelete='CASCADE'), nullable=False, index=True)
+    config_id = db.Column(db.Integer, db.ForeignKey('configuration.id', ondelete='CASCADE'), nullable=False, index=True)
+    class_name = db.Column(db.String(150), nullable=False, index=True)
+    visible = db.Column(db.Boolean, default=True)
+    rls_enabled = db.Column(db.Boolean, default=False)
+    rls_mode = db.Column(db.String(20), default='allow')  # allow: listed rows allowed; deny: listed rows forbidden
+    rls_rules_json = db.Column(db.JSON, default=list)
+    rls_handler_code = db.Column(db.Text, default='')
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    profile = db.relationship('UserProfile', backref=db.backref('class_access', cascade='all, delete-orphan', lazy=True))
+    config = db.relationship('Configuration', backref=db.backref('profile_class_access', cascade='all, delete-orphan', lazy=True))
+
+    __table_args__ = (
+        db.UniqueConstraint('profile_id', 'config_id', 'class_name', name='uq_profile_config_class'),
+        db.Index('ix_profile_class_access_lookup', 'config_id', 'class_name', 'profile_id'),
+    )
+
+
+def ensure_user_profile_tables_runtime():
+    """Create/upgrade profile/RLS tables for installations without Alembic."""
+    try:
+        with db.engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_profile (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    uid VARCHAR(64) NOT NULL UNIQUE,
+                    name VARCHAR(200) NOT NULL DEFAULT '',
+                    description TEXT DEFAULT '',
+                    owner_user_id INTEGER NOT NULL,
+                    source_config_id INTEGER,
+                    source_template_uid VARCHAR(100) DEFAULT '',
+                    is_template_generated BOOLEAN DEFAULT 0,
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+            """))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_user_profile_uid ON user_profile(uid)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_profile_owner ON user_profile(owner_user_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_profile_template ON user_profile(source_config_id, source_template_uid)"))
+
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_profile_role (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    profile_id INTEGER NOT NULL,
+                    created_at DATETIME
+                )
+            """))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_user_profile_role_user_profile ON user_profile_role(user_id, profile_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_profile_role_user ON user_profile_role(user_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_profile_role_profile ON user_profile_role(profile_id)"))
+
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_profile_class_access (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    profile_id INTEGER NOT NULL,
+                    config_id INTEGER NOT NULL,
+                    class_name VARCHAR(150) NOT NULL,
+                    visible BOOLEAN DEFAULT 1,
+                    rls_enabled BOOLEAN DEFAULT 0,
+                    rls_mode VARCHAR(20) DEFAULT 'allow',
+                    rls_rules_json JSON,
+                    rls_handler_code TEXT DEFAULT '',
+                    updated_at DATETIME
+                )
+            """))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_profile_config_class ON user_profile_class_access(profile_id, config_id, class_name)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_profile_class_access_lookup ON user_profile_class_access(config_id, class_name, profile_id)"))
+
+            # SQLite upgrades for old databases where a table existed before a column was added.
+            for table, cols in {
+                'configuration': [('profile_templates', 'JSON'), ('is_system', 'BOOLEAN DEFAULT 0')],
+                'user': [
+                    ('android_authorization', 'BOOLEAN DEFAULT 0'),
+                    ('offer_pin', 'BOOLEAN DEFAULT 0'),
+                    ('android_password_sha256', "VARCHAR(64) DEFAULT ''"),
+                ],
+                'user_profile': [
+                    ('description', "TEXT DEFAULT ''"),
+                    ('source_config_id', 'INTEGER'),
+                    ('source_template_uid', "VARCHAR(100) DEFAULT ''"),
+                    ('is_template_generated', 'BOOLEAN DEFAULT 0'),
+                    ('created_at', 'DATETIME'),
+                    ('updated_at', 'DATETIME'),
+                ],
+                'user_profile_class_access': [
+                    ('rls_mode', "VARCHAR(20) DEFAULT 'allow'"),
+                    ('rls_handler_code', "TEXT DEFAULT ''"),
+                    ('updated_at', 'DATETIME'),
+                ],
+            }.items():
+                existing = {row[1] for row in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()}
+                for col, col_sql in cols:
+                    if col not in existing:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_sql}"))
+    except Exception as e:
+        print('Could not ensure user profile/RLS tables at runtime:', e)
+
 class UserDevice(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -196,6 +355,46 @@ class UserDevice(db.Model):
     last_connected = db.Column(db.DateTime, default=datetime.now(timezone.utc))
 
     user = db.relationship('User', backref=db.backref('devices', lazy=True))
+
+
+
+class NGenieCodeFeatureRequest(db.Model):
+    """Requests captured when nGenie Code cannot implement a user-requested capability."""
+    __tablename__ = 'ngenie_code_feature_request'
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    config_id = db.Column(db.Integer, db.ForeignKey('configuration.id'), nullable=True, index=True)
+    config_uid = db.Column(db.String(100), default='', index=True)
+    config_name = db.Column(db.String(200), default='')
+    prompt = db.Column(db.Text, default='')
+    requested_feature = db.Column(db.Text, default='')
+    reason = db.Column(db.Text, default='')
+    llm_response = db.Column(db.Text, default='')
+    status = db.Column(db.String(32), default='new', index=True)
+
+    user = db.relationship('User', backref=db.backref('ngenie_code_feature_requests', lazy=True))
+    config = db.relationship('Configuration', backref=db.backref('ngenie_code_feature_requests', lazy=True))
+
+
+
+class NGenieCodeChatMessage(db.Model):
+    """Persistent chat log for nGenie Code per configuration."""
+    __tablename__ = 'ngenie_code_chat_message'
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    config_id = db.Column(db.Integer, db.ForeignKey('configuration.id'), nullable=True, index=True)
+    config_uid = db.Column(db.String(100), default='', index=True)
+    request_id = db.Column(db.String(80), default='', index=True)
+    role = db.Column(db.String(20), default='assistant', index=True)
+    content = db.Column(db.Text, default='')
+    meta_json = db.Column(db.JSON, default=dict)
+
+    user = db.relationship('User', backref=db.backref('ngenie_code_chat_messages', lazy=True))
+    config = db.relationship('Configuration', backref=db.backref('ngenie_code_chat_messages', lazy=True))
 
 class ConfigEvent(db.Model):
     __tablename__ = 'config_event'
@@ -368,6 +567,10 @@ class Configuration(db.Model):
     nodes_handlers_meta = db.Column(db.JSON)  
     nodes_server_handlers = db.Column(db.Text, nullable=True)  
     nodes_server_handlers_meta = db.Column(db.JSON)
+    ngenie_prompt = db.Column(db.Text, default="")
+    ngenie_code_locked = db.Column(db.Boolean, default=False)
+    ngenie_code_instruction = db.Column(db.Text, default="")
+    ngenie_code_example = db.Column(db.Text, default="")
     classes = db.relationship('ConfigClass', backref='config', cascade='all, delete-orphan')
     datasets = db.relationship('Dataset', backref='config', cascade='all, delete-orphan')
     sections = db.relationship('ConfigSection', backref='config', cascade='all, delete-orphan')
@@ -376,6 +579,12 @@ class Configuration(db.Model):
     config_events = db.relationship('ConfigEvent', backref='config', cascade='all, delete-orphan')
     config_timers = db.relationship('ConfigTimer', backref='config', cascade='all, delete-orphan', order_by='ConfigTimer.id')
     common_layouts = db.Column(db.JSON, default=list)
+    # Optional configuration-level templates. On import/load they are materialized into UserProfile rows.
+    profile_templates = db.Column(db.JSON, default=list)
+    # Hidden platform configuration used for system nodes such as _User.
+    is_system = db.Column(db.Boolean, default=False, index=True)
+    # Published in the separate Demo products catalog. Installed copies are not republished.
+    demo_product = db.Column(db.Boolean, default=False, index=True)
     
     def update_last_modified(self):
         self.last_modified = datetime.now()
@@ -394,6 +603,8 @@ class ConfigSection(db.Model):
     name = db.Column(db.String(100))
     code = db.Column(db.String(100))
     commands = db.Column(db.Text)
+    hide_mobile_client = db.Column(db.Boolean, default=False)
+    hide_web_client = db.Column(db.Boolean, default=False)
     config_id = db.Column(db.Integer, db.ForeignKey('configuration.id'))
 
 class ConfigClass(db.Model):
@@ -420,6 +631,8 @@ class ConfigClass(db.Model):
     methods = db.relationship('ClassMethod', backref='class_obj', cascade='all, delete-orphan')
     events = db.Column(db.JSON, default={})
     hidden = db.Column(db.Boolean, default=False)
+    hide_mobile_client = db.Column(db.Boolean, default=False)
+    hide_web_client = db.Column(db.Boolean, default=False)
     event_objs = db.relationship('ClassEvent', backref='class_obj', cascade='all, delete-orphan')
     # Display-related images / layouts
     display_image_web = db.Column(db.Text, default="")
@@ -427,8 +640,17 @@ class ConfigClass(db.Model):
     init_screen_layout = db.Column(db.Text, default="")
     init_screen_layout_web = db.Column(db.Text, default="")
     data_structure = db.Column(db.Text, default="")
+    ngenie_role = db.Column(db.String(30), default="")
+    ngenie_prompt = db.Column(db.Text, default="")
+    ngenie_description = db.Column(db.Text, default="")
     show_tag_cloud = db.Column(db.Boolean, default=False)
     mobile_print_enabled = db.Column(db.Boolean, default=False)
+
+    # Dashboard card settings. Only classes with dashboard_enabled participate in the
+    # client dashboard tab. Width is stored as "100", "50" or "25".
+    dashboard_enabled = db.Column(db.Boolean, default=False)
+    dashboard_width = db.Column(db.String(10), default="100")
+    dashboard_top = db.Column(db.Boolean, default=False)
 
     # PlugIn UI (mobile/web)
     plug_in = db.Column(db.Text, default="")
@@ -449,6 +671,8 @@ class ConfigClass(db.Model):
     migration_default_room_alias = db.Column(db.String(100), default="")
     # How the class should be shared by link: share_link / package_class
     link_share_mode = db.Column(db.String(30), default="")
+    # Classes selected here are assembled automatically into the configuration contract.
+    include_in_contract = db.Column(db.Boolean, default=False, index=True)
     indexes_json = db.Column(db.JSON, default=list)
 
 class ClassMethod(db.Model):
@@ -699,6 +923,9 @@ __all__ = [
     'User',
     'UserConfigAccess',
     'UserDevice',
+    'UserProfile',
+    'UserProfileRole',
+    'UserProfileClassAccess',
     'ConfigEvent',
     'ConfigEventAction',
     'ConfigTimer',
@@ -720,4 +947,5 @@ __all__ = [
     'Server',
     'ApiToken',
     'ensure_node_discussion_message_table_runtime',
+    'ensure_user_profile_tables_runtime',
 ]
