@@ -46,6 +46,24 @@
       <input class="form-control" id="scanner_ws_url" name="scanner_ws_url" value="{{ scanner_ws_url }}" placeholder="ws://127.0.0.1:8765">
       <div class="form-text">{{_('Example')}}: <code>ws://127.0.0.1:8765</code></div>
 
+      <hr>
+      <h5 class="card-title">nGenie</h5>
+      <div class="form-check form-switch mb-3">
+        <input class="form-check-input" type="checkbox" role="switch" id="ngenie_enabled" name="ngenie_enabled" value="1" {% if ngenie_enabled %}checked{% endif %}>
+        <label class="form-check-label" for="ngenie_enabled">{{_('Enable nGenie in web client')}}</label>
+        <div class="form-text">{{_('Shows nGenie in sections and node forms. Enabled by default. Runtime ngenie() calls in handlers and timers are not disabled.')}}</div>
+      </div>
+
+      {% if is_admin %}
+      <hr>
+      <h5 class="card-title">{{_('Admin')}}</h5>
+      <div class="form-check form-switch mb-3">
+        <input class="form-check-input" type="checkbox" role="switch" id="show_node_json" name="show_node_json" value="1" {% if show_node_json %}checked{% endif %}>
+        <label class="form-check-label" for="show_node_json">{{_('Show node JSON editor')}}</label>
+        <div class="form-text">{{_('Adds a JSON tab to node forms. CodeFrame is also visible only to admins.')}}</div>
+      </div>
+      {% endif %}
+
       <div class="d-flex gap-2 mt-3">
         <button type="submit" class="btn btn-primary">{{_('Save')}}</button>
         <button type="button" class="btn btn-outline-secondary" id="btn-test-scanner">{{_('Check connection')}}</button>

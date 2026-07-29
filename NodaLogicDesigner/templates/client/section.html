@@ -12,7 +12,20 @@
   <div class="col-12 col-xl-3 mb-3">
     <div class="list-group">
       <div class="list-group-item text-muted small">{{_('Sections')}}</div>
-      {% for s in sections %}
+      {% for s in sections if s.code == '__dashboard__' %}
+        <a class="list-group-item list-group-item-action {% if s.code == section_code %}active{% endif %}"
+           href="{{ url_for('client.section_view', section_code=s.code) }}">
+          <div class="text-center" title="{{ _('Home') }}" aria-label="{{ _('Home') }}"><i class="bi bi-house-fill fs-4"></i></div>
+        </a>
+      {% endfor %}
+      {% if ngenie_enabled %}
+      <a class="list-group-item list-group-item-action ngenie-section-link"
+         href="{{ url_for('client.ngenie_page') }}">
+        <div class="fw-semibold">nGenie</div>
+        <div class="small opacity-75">{{ _('AI data assistant') }}</div>
+      </a>
+      {% endif %}
+      {% for s in sections if s.code != '__dashboard__' %}
         {% set scode = s.code if s.code != '' else '__empty__' %}
         {% set active = (s.code == section_code) %}
         <a class="list-group-item list-group-item-action {% if active %}active{% endif %}"
@@ -25,6 +38,20 @@
   </div>
 
   <div class="col-12 col-xl-9">
+    {% if section_code == '__dashboard__' %}
+    <div class="d-flex gap-2 flex-wrap align-items-center mb-3 section-toolbar dashboard-toolbar">
+      <button id="btnRefresh" class="btn btn-primary btn-sm" type="button">{{_('Refresh')}}</button>
+      <button id="btnDashboardEdit" class="btn btn-outline-secondary btn-sm" type="button" title="{{ _('Edit layout') }}" aria-label="{{ _('Edit layout') }}"><i class="bi bi-gear-fill"></i></button>
+      <button id="btnDashboardSave" class="btn btn-success btn-sm" type="button" style="display:none;">{{ _('Save layout') }}</button>
+      <span id="status" class="text-muted small"></span>
+      <input id="q" type="hidden" value="">
+      <input id="autoToggle" type="checkbox" checked style="display:none;">
+      <button id="btnSaveSoloSel" type="button" style="display:none;"></button>
+      <button id="btnTable" type="button" style="display:none;"></button>
+      <button id="btnGrid" type="button" style="display:none;"></button>
+    </div>
+    <div id="dashboardHint" class="alert alert-info py-2 small" style="display:none;">{{ _('Drag cards to reorder them, then save the layout.') }}</div>
+    {% else %}
     <div class="d-flex gap-2 flex-nowrap align-items-center mb-3 section-toolbar">
       <button id="btnRefresh" class="btn btn-primary btn-sm" type="button">{{_('Refresh')}}</button>
       <button id="btnSaveSoloSel" class="btn btn-outline-primary btn-sm" type="button">{{_('Save to Solo')}}</button>
@@ -39,8 +66,11 @@
       <button id="btnTable" class="btn btn-outline-secondary btn-sm" type="button">{{_('Table')}}</button>
       <button id="btnGrid" class="btn btn-outline-secondary btn-sm" type="button">{{_('Grid')}}</button>
 
+      <button id="classVisibilityLink" class="btn btn-link btn-sm text-nowrap p-0" type="button" data-bs-toggle="modal" data-bs-target="#classVisibilityModal"></button>
+
       <span id="status" class="text-muted small"></span>
     </div>
+    {% endif %}
 
     <div id="classCmds" class="d-flex gap-2 flex-wrap mb-3"></div>
 
@@ -52,7 +82,7 @@
 
     <div id="viewTable" style="display:none;">
       <div class="table-responsive">
-        <table class="table table-sm table-bordered align-middle">
+        <table class="table table-sm table-striped table-hover align-middle nl-section-table">
           <thead id="thead"></thead>
           <tbody id="tbody"></tbody>
         </table>
@@ -60,6 +90,25 @@
     </div>
 
     <div id="viewGrid" class="row g-2"></div>
+  </div>
+</div>
+
+
+<div class="modal fade" id="classVisibilityModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">{{ _('Classes shown in section') }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('Close') }}"></button>
+      </div>
+      <div class="modal-body">
+        <div id="classVisibilityList" class="d-grid gap-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="classVisibilitySelectAll" type="button" class="btn btn-outline-secondary">{{ _('Select all') }}</button>
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">{{ _('Done') }}</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -72,10 +121,83 @@
   .section-toolbar #status { min-width: 0; white-space: nowrap; }
   #filtersPanel .card-body { background: #fff; }
   .tag-filter-btn.active { outline: 2px solid #212529; outline-offset: 1px; }
+  .nl-section-table tbody tr.nl-table-node-row { cursor:pointer; }
+  .nl-section-table tbody tr.nl-table-node-row:focus { outline:2px solid rgba(13,110,253,.35); outline-offset:-2px; }
+  .nl-section-table td, .nl-section-table th { vertical-align:middle; }
+  .ngenie-section-link { background:#6f42c1; border-color:#6f42c1; color:#fff; }
+  .ngenie-section-link:hover, .ngenie-section-link:focus { background:#633bb0; border-color:#633bb0; color:#fff; }
+  .dashboard-card-wrap { min-height:96px; display:flex; align-items:stretch; }
+  /* Home page only. Bootstrap stretches all columns in a row to the height of
+     the tallest card; make the cover itself use that height and centre its
+     rendered content vertically. Nothing outside __dashboard__ is affected. */
+  .dashboard-card-wrap > .node-card {
+    width:100%;
+    min-height:96px;
+    align-self:stretch;
+  }
+  .dashboard-card-wrap > .node-card > .card-body {
+    min-height:96px;
+    display:flex !important;
+    flex-direction:column;
+    justify-content:center !important;
+    align-items:stretch;
+  }
+  .dashboard-card-wrap .nodalayout-cover {
+    width:100%;
+    display:flex;
+    flex-direction:column;
+    justify-content:center !important;
+  }
+  .dashboard-card-wrap .nodalayout-cover > .nl-screen {
+    width:100%;
+    height:auto !important;
+    min-height:0 !important;
+    justify-content:center !important;
+  }
+  /* Banners keep their background stretched to every card edge, while their
+     actual text/HTML/layout is centred on the vertical axis. */
+  .dashboard-card-wrap > .virtual-banner-card > .card-body,
+  .dashboard-card-wrap > .virtual-banner-card .nodalayout-cover {
+    width:100%;
+    height:100%;
+    min-height:96px;
+  }
+  .dashboard-card-wrap > .virtual-banner-card .nodalayout-cover {
+    align-items:stretch;
+    justify-content:center !important;
+  }
+  .dashboard-card-wrap > .virtual-banner-card .nl-screen {
+    height:100% !important;
+    min-height:96px !important;
+    justify-content:center !important;
+  }
+  /* banner() only: center the Text in both axes without changing custom
+     banner_layout()/banner_html() alignment. */
+  .virtual-banner-text .card-body {
+    min-height:96px; display:flex; align-items:stretch; justify-content:stretch;
+  }
+  .virtual-banner-text .nodalayout-cover,
+  .virtual-banner-text .nl-screen,
+  .virtual-banner-text .nl-row,
+  .virtual-banner-text .nl-cell {
+    flex:1 1 auto; width:100%; min-height:100%;
+  }
+  .virtual-banner-text .nl-row,
+  .virtual-banner-text .nl-cell {
+    display:flex; align-items:stretch; justify-content:stretch;
+  }
+  .virtual-banner-text .nl-text {
+    flex:1 1 auto; width:100%; min-height:92px; height:auto !important;
+    display:flex !important; align-items:center !important; justify-content:center !important;
+    text-align:center !important; margin:0;
+  }
+  .dashboard-editing .node-card { cursor: move; outline: 1px dashed #6c757d; outline-offset: 2px; }
+  .dashboard-drag-over .node-card { box-shadow: 0 0 0 .25rem rgba(13,110,253,.15); }
 </style>
 
 <script>
 const sectionCode = {{ section_code | tojson }};
+const isDashboard = sectionCode === "__dashboard__";
 const autoSeconds = {{ auto_refresh | tojson }};
 
 const apiSection    = {{ url_for('client.api_section_data')|tojson }};
@@ -85,7 +207,9 @@ const apiBulkDelete = {{ url_for('client.api_node_bulk_delete')|tojson }};
 const apiEventWeb   = {{ url_for('client.api_node_event_web')|tojson }};
 const apiCommonEventWeb = {{ url_for('client.api_common_event_web')|tojson }};
 const apiTimerEventWeb  = {{ url_for('client.api_timer_event_web')|tojson }};
+const apiDashboardLayout = {{ url_for('client.api_dashboard_layout')|tojson }};
 const apiClassEventWeb  = {{ url_for('client.api_class_event_web')|tojson }};
+const apiClassMetadata = {{ url_for('client.api_class_metadata')|tojson }};
 
 const clientBase = {{ url_for('client.home')|tojson }}; // обычно "/client/"
 
@@ -93,9 +217,14 @@ let mode = "grid";
 let autoTimer = null;
 let searchTimer = null;
 let inFlight = false;
+let reloadQueued = false;
+let sectionRequestSerial = 0;
+let sectionInputTimer = null;
 
 let selected = new Set();
-let lastItems = []; // key = `${repo_id}:${class}:${id}`
+let lastItems = []; // currently visible items
+let lastRawItems = []; // unfiltered payload from /api/section_data
+let lastRawMeta = {};
 let stdMap = new Map();   // key `${repo_id}:${class}` -> true/false
 let repoIdToUid = new Map();
 let filterIndexes = [];
@@ -105,6 +234,49 @@ let tagFilterState = '';
 let pickerRepoIds = [];
 let sectionTimerHandles = [];
 let sectionTimerSignature = '';
+let dashboardLayoutOrder = null;
+let dashboardEditMode = false;
+let dashboardDragKey = null;
+let allSectionClasses = [];
+const classVisibilityStorageKey = `noda.section.classes.${sectionCode}`;
+const shownLabel = {{ _('Shown')|tojson }};
+const ofLabel = {{ _('of')|tojson }};
+
+function classVisibilityId(c){ return `${Number(c.repo_id || 0)}:${String(c.class || '')}`; }
+function readHiddenSectionClasses(){
+  try { return new Set(JSON.parse(localStorage.getItem(classVisibilityStorageKey) || '[]')); }
+  catch(e) { return new Set(); }
+}
+function writeHiddenSectionClasses(hidden){
+  localStorage.setItem(classVisibilityStorageKey, JSON.stringify(Array.from(hidden)));
+}
+function updateClassVisibilityUi(classes){
+  allSectionClasses = Array.isArray(classes) ? classes : [];
+  const hidden = readHiddenSectionClasses();
+  const total = allSectionClasses.length;
+  const shown = allSectionClasses.filter(c => !hidden.has(classVisibilityId(c))).length;
+  const link = document.getElementById('classVisibilityLink');
+  if (link) {
+    link.textContent = `${shownLabel} ${shown} ${ofLabel} ${total}`;
+    link.style.display = total ? '' : 'none';
+  }
+  const list = document.getElementById('classVisibilityList');
+  if (!list) return;
+  list.innerHTML = allSectionClasses.map(c => {
+    const id = classVisibilityId(c);
+    const checked = !hidden.has(id) ? 'checked' : '';
+    return `<label class="form-check border rounded p-2 ps-5 mb-0">
+      <input class="form-check-input class-visibility-check" type="checkbox" data-class-id="${escapeHtml(id)}" ${checked}>
+      <span class="form-check-label">${escapeHtml(c.display_name || c.class)}</span>
+    </label>`;
+  }).join('');
+  list.querySelectorAll('.class-visibility-check').forEach(ch => ch.addEventListener('change', () => {
+    const current = readHiddenSectionClasses();
+    if (ch.checked) current.delete(ch.dataset.classId); else current.add(ch.dataset.classId);
+    writeHiddenSectionClasses(current);
+    render(lastRawItems, lastRawMeta, false);
+  }));
+}
 
 function ensurePickerModal(){
   let el = document.getElementById("sectionNodePickModal");
@@ -482,6 +654,101 @@ function itemKey(it) {
   if (it && it.is_raw_node) return `raw:${it.raw_node_id || it.id || ''}`;
   return `${it.repo_id}:${it.class}:${it.id}`;
 }
+function dashboardColClass(it) {
+  const w = String((it && it.dashboard_width) || '100').trim();
+  if (w === '25') return 'col-6 col-md-3';
+  if (w === '50') return 'col-12 col-md-6';
+  return 'col-12';
+}
+
+async function ensureDashboardLayout(){
+  if (!isDashboard || dashboardLayoutOrder !== null) return;
+  try {
+    const r = await fetch(apiDashboardLayout, {credentials:'same-origin'});
+    const j = await r.json();
+    dashboardLayoutOrder = (j && j.ok && Array.isArray(j.order)) ? j.order.map(String) : [];
+  } catch(e) {
+    dashboardLayoutOrder = [];
+  }
+}
+
+function orderDashboardItems(items){
+  if (!isDashboard) return items || [];
+  const order = Array.isArray(dashboardLayoutOrder) ? dashboardLayoutOrder : [];
+  const pos = new Map(order.map((k, i) => [String(k), i]));
+  return [...(items || [])].sort((a, b) => {
+    // "Move to top" is a class-level invariant. Saved manual order applies
+    // only inside the top/non-top groups, otherwise a newly pinned top card
+    // is appended after every previously saved card.
+    const ta = a && a.dashboard_top ? 0 : 1;
+    const tb = b && b.dashboard_top ? 0 : 1;
+    if (ta !== tb) return ta - tb;
+    const ka = itemKey(a), kb = itemKey(b);
+    const pa = pos.has(ka) ? pos.get(ka) : 1000000;
+    const pb = pos.has(kb) ? pos.get(kb) : 1000000;
+    if (pa !== pb) return pa - pb;
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  });
+}
+
+async function saveDashboardLayoutFromDom(){
+  if (!isDashboard) return;
+  const keys = Array.from(document.querySelectorAll('#viewGrid [data-dashboard-key]'))
+    .map(el => String(el.getAttribute('data-dashboard-key') || ''))
+    .filter(Boolean);
+  dashboardLayoutOrder = keys;
+  try {
+    await fetch(apiDashboardLayout, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      credentials:'same-origin',
+      body: JSON.stringify({order: keys})
+    });
+    setStatus('{{ _('Layout saved') }}');
+  } catch(e) {
+    console.error(e);
+    setStatus('{{ _('Layout save failed') }}');
+  }
+}
+
+function wireDashboardDrag(root){
+  if (!isDashboard || !root) return;
+  root.classList.toggle('dashboard-editing', dashboardEditMode);
+  root.querySelectorAll('[data-dashboard-key]').forEach(wrap => {
+    wrap.draggable = !!dashboardEditMode;
+    wrap.ondragstart = null;
+    wrap.ondragover = null;
+    wrap.ondragleave = null;
+    wrap.ondrop = null;
+    wrap.ondragend = null;
+    if (!dashboardEditMode) return;
+    wrap.ondragstart = (ev) => {
+      dashboardDragKey = wrap.getAttribute('data-dashboard-key');
+      ev.dataTransfer.effectAllowed = 'move';
+      ev.dataTransfer.setData('text/plain', dashboardDragKey || '');
+    };
+    wrap.ondragover = (ev) => {
+      ev.preventDefault();
+      wrap.classList.add('dashboard-drag-over');
+    };
+    wrap.ondragleave = () => wrap.classList.remove('dashboard-drag-over');
+    wrap.ondrop = (ev) => {
+      ev.preventDefault();
+      wrap.classList.remove('dashboard-drag-over');
+      const fromKey = dashboardDragKey || ev.dataTransfer.getData('text/plain');
+      const from = root.querySelector(`[data-dashboard-key="${CSS.escape(String(fromKey || ''))}"]`);
+      if (!from || from === wrap) return;
+      const box = wrap.getBoundingClientRect();
+      const before = ev.clientY < (box.top + box.height / 2);
+      root.insertBefore(from, before ? wrap : wrap.nextSibling);
+    };
+    wrap.ondragend = () => {
+      dashboardDragKey = null;
+      root.querySelectorAll('.dashboard-drag-over').forEach(el => el.classList.remove('dashboard-drag-over'));
+    };
+  });
+}
+
 
 function itemIsDeletable(it) {
   return !!(it && !it.is_custom_process && !it.is_raw_node);
@@ -794,7 +1061,17 @@ if (!arr.length) {
   document.getElementById("bulkStatus").textContent = `deleted=${deleted}, failed=${failed}`;
 }
 
-function render(items, meta) {
+function render(items, meta, rememberPayload = true) {
+  if (rememberPayload) {
+    lastRawItems = Array.isArray(items) ? items : [];
+    lastRawMeta = (meta && typeof meta === 'object') ? meta : {};
+  }
+  const rawClasses = (meta && meta.classes_ui) ? meta.classes_ui : [];
+  updateClassVisibilityUi(rawClasses);
+  const hiddenSectionClasses = readHiddenSectionClasses();
+  const classes = rawClasses.filter(c => !hiddenSectionClasses.has(classVisibilityId(c)));
+  items = (items || []).filter(it => !hiddenSectionClasses.has(`${Number(it.repo_id || 0)}:${String(it.class || '')}`));
+  meta = Object.assign({}, meta || {}, {classes_ui: classes});
   lastItems = items || [];
 
   
@@ -804,7 +1081,6 @@ function render(items, meta) {
   repoIdToUid = new Map();
   pickerRepoIds = [];
 
-  const classes = (meta && meta.classes_ui) ? meta.classes_ui : [];
   renderFilters(meta || {});
   classes.forEach(c => {
     stdMap.set(stdKey(c.repo_id, c.class), !!c.use_standard_commands);
@@ -863,6 +1139,9 @@ function render(items, meta) {
   // --- class commands bar ---
   const newText = "{{ _('New') }}";
   const cc = document.getElementById("classCmds");
+  if (isDashboard) {
+    cc.innerHTML = '';
+  } else {
   cc.innerHTML = classes.map(c => {
     const classType = String(c.class_type || 'data_node');
     const addBtn = (c.use_standard_commands && classType === 'data_node')
@@ -897,10 +1176,11 @@ function render(items, meta) {
               ${cmds}
             </div>`;
   }).join("");
+  }
 
   // --- start menu commands (section.commands) ---
   const startMenu = (meta && meta.start_menu_cmds_ui) ? meta.start_menu_cmds_ui : [];
-  if (startMenu.length) {
+  if (startMenu.length && !isDashboard) {
     const startWrap = document.createElement('div');
     
     startWrap.className = 'd-flex gap-1 align-items-center ms-auto';
@@ -936,6 +1216,7 @@ function render(items, meta) {
   }
 
   
+  if (!isDashboard) {
   const bulkWrap = document.createElement('div');
   
   bulkWrap.className = 'd-flex gap-2 align-items-center';
@@ -991,6 +1272,7 @@ if (bulkBtn) bulkBtn.onclick = async () => {
   try { await doBulkDelete(); await loadSection(); }
   catch(e){ alert(e.message || String(e)); }
 };
+  }
 
   cc.querySelectorAll("button[data-act='add']").forEach(b => {
     b.addEventListener("click", async () => {
@@ -1045,31 +1327,45 @@ if (bulkBtn) bulkBtn.onclick = async () => {
 
     const headers = (meta && meta.table_headers) ? meta.table_headers : [];
 
+    const effectiveHeaders = headers.length ? headers : [{{ _('Object')|tojson }}];
     document.getElementById("thead").innerHTML = `
       <tr>
         <th style="width:32px;"><input id="chkAll" type="checkbox"></th>
-        <th>Repo</th><th>Class</th><th>Id</th>
-        ${headers.map(h => `<th>${escapeHtml(h)}</th>`).join("")}
-            <!-- per-node delete removed (bulk delete only) -->
+        ${effectiveHeaders.map(h => `<th>${escapeHtml(h)}</th>`).join("")}
+        <th style="min-width:150px;">${escapeHtml({{ _('Tags')|tojson }})}</th>
       </tr>
     `;
+
+    const renderTableTags = (tags) => {
+      const rows = Array.isArray(tags) ? tags : [];
+      if (!rows.length) return '';
+      return `<div class="d-flex flex-wrap gap-1">${rows.map(t => {
+        const id = String((t && t.id) || '');
+        const bg = String((t && t.color) || '#e9ecef');
+        const fg = String((t && t.text_color) || '#212529');
+        return `<span class="nl-tag-badge" style="display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:12px;line-height:1.4;background:${escapeHtml(bg)};color:${escapeHtml(fg)};">${escapeHtml(id)}</span>`;
+      }).join('')}</div>`;
+    };
 
     const tbody = document.getElementById("tbody");
     tbody.innerHTML = items.map(it => {
       const key = itemKey(it);
       const checked = selected.has(key) ? "checked" : "";
-      const cols = headers.map(h => escapeHtml((it.table_values && it.table_values[h]) ? String(it.table_values[h]) : ""));
+      const cols = headers.length
+        ? headers.map(h => escapeHtml((it.table_values && it.table_values[h] !== undefined && it.table_values[h] !== null) ? String(it.table_values[h]) : ""))
+        : [escapeHtml(String(it.id || ''))];
 
       const bg = getBg(it);
-      const rowStyle = bg ? ` style="background:${escapeHtml(bg)}"` : "";
+      const rowStyle = bg ? ` style="--bs-table-bg:${escapeHtml(bg)};--bs-table-striped-bg:${escapeHtml(bg)}"` : "";
+      const openUrl = itemFormUrl(it);
+      const openTarget = itemWinName(it);
 
       return `
-        <tr class="${it.is_custom_process ? 'table-warning' : ''}"${rowStyle}>
+        <tr class="nl-table-node-row ${it.is_custom_process ? 'table-warning' : ''}"${rowStyle}
+            data-open-url="${escapeHtml(openUrl)}" data-open-target="${escapeHtml(openTarget)}" tabindex="0">
           <td><input class="chkRow" type="checkbox" data-key="${escapeHtml(key)}" ${checked}></td>
-          <td>${escapeHtml(it.repo || "")}</td>
-          <td>${escapeHtml(it.class || "")}</td>
-          <td><a href="${escapeHtml(itemFormUrl(it))}" target="${escapeHtml(itemWinName(it))}" rel="noopener">${escapeHtml(it.id || "")}</a></td>
-          ${cols.map(c => `<td>${c}</td>`).join("")}
+          ${cols.map((c, idx) => `<td>${idx === 0 ? `<a href="${escapeHtml(openUrl)}" target="${escapeHtml(openTarget)}" rel="noopener">${c}</a>` : c}</td>`).join("")}
+          <td>${renderTableTags(it.tags)}</td>
         </tr>
       `;
     }).join("");
@@ -1087,10 +1383,28 @@ if (bulkBtn) bulkBtn.onclick = async () => {
     });
 
     tbody.querySelectorAll("input.chkRow").forEach(ch => {
+      ch.addEventListener("click", (e) => e.stopPropagation());
       ch.addEventListener("change", () => {
         if (ch.checked) selected.add(ch.dataset.key);
         else selected.delete(ch.dataset.key);
         updateBulkBar(items);
+      });
+    });
+
+    tbody.querySelectorAll("tr.nl-table-node-row").forEach(row => {
+      const open = () => {
+        const url = row.getAttribute("data-open-url") || "";
+        const target = row.getAttribute("data-open-target") || "_blank";
+        if (!url) return;
+        const w = window.open(url, target);
+        if (w) { try { w.focus(); } catch(_){} }
+      };
+      row.addEventListener("click", (e) => {
+        if (e.target && e.target.closest("a,input,button,label,select,textarea")) return;
+        open();
+      });
+      row.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") open();
       });
     });
 
@@ -1102,15 +1416,22 @@ if (bulkBtn) bulkBtn.onclick = async () => {
     const grid = document.getElementById("viewGrid");
 
     grid.innerHTML = items.map(it => {
-      const extra = it.is_custom_process ? "border border-3 border-dark" : "";
+      const isVirtualBanner = Boolean(it.virtual_banner || (it.data && it.data._virtual_banner));
+      const bannerKind = String(it.virtual_banner_kind || (it.data && it.data._virtual_banner_kind) || "");
+      const extra = (it.is_custom_process ? "border border-3 border-dark" : "")
+        + (isVirtualBanner ? " virtual-banner-card" : "")
+        + (isVirtualBanner && bannerKind === "text" ? " virtual-banner-text" : "");
       const cover = (it.display_image_html || "").trim();
       const key = itemKey(it);
       const checked = selected.has(key) ? "checked" : "";
       const bg = getBg(it);
       const cardStyle = bg ? ` style="background:${escapeHtml(bg)}"` : "";
+      const colClass = isDashboard ? dashboardColClass(it) : 'col-md-6 col-xl-4';
+      const dashKey = itemKey(it);
+      const dashAttrs = isDashboard ? ` data-dashboard-key="${escapeHtml(dashKey)}"` : '';
       // per-node delete removed (bulk delete only)
 
-      const top = `
+      const top = isDashboard ? '' : `
         <div class="d-flex justify-content-between align-items-start">
           <div class="d-flex gap-1 flex-wrap mb-2">
             <span class="badge text-bg-light border">${escapeHtml(it.repo || "")}</span>
@@ -1124,11 +1445,11 @@ if (bulkBtn) bulkBtn.onclick = async () => {
 
       if (cover) {
         return `
-          <div class="col-md-6 col-xl-4">
+          <div class="${colClass} ${isDashboard ? 'dashboard-card-wrap' : ''}"${dashAttrs}>
             <div class="card h-100 overflow-hidden ${extra} node-card"${cardStyle}
                  data-url="${escapeHtml(itemFormUrl(it))}" data-win="${escapeHtml(itemWinName(it))}"
                  data-repo="${it.repo_id}" data-class="${escapeHtml(it.class)}" data-node="${escapeHtml(it.id)}" data-raw-node="${escapeHtml(it.raw_node_id || '')}">
-              <div class="card-body p-2">
+              <div class="card-body ${isVirtualBanner ? 'p-0' : 'p-2'}">
                 ${top}
                 <div class="nodalayout-cover">${cover}</div>
                 
@@ -1139,7 +1460,7 @@ if (bulkBtn) bulkBtn.onclick = async () => {
       }
 
       return `
-        <div class="col-md-6 col-xl-4">
+        <div class="${colClass} ${isDashboard ? 'dashboard-card-wrap' : ''}"${dashAttrs}>
           <div class="card h-100 ${extra} node-card"${cardStyle}
                data-url="${escapeHtml(itemFormUrl(it))}" data-win="${escapeHtml(itemWinName(it))}"
                data-repo="${it.repo_id}" data-class="${escapeHtml(it.class)}" data-node="${escapeHtml(it.id)}" data-raw-node="${escapeHtml(it.raw_node_id || '')}">
@@ -1169,9 +1490,11 @@ if (bulkBtn) bulkBtn.onclick = async () => {
     applyCoverTemplates(grid);
     wireCardClicks();
     wireCoverInteractions(grid);
+    wireDashboardDrag(grid);
   }
 
-  setStatus(`Shown: ${items.length}`);
+  if (isDashboard) setStatus('');
+  else setStatus(`Shown: ${items.length}`);
 }
 
 async function fireTimerEvent(repo_id, timer_id){
@@ -1240,74 +1563,173 @@ function setupSectionTimers(timers){
 }
 
 async function loadSection() {
-  if (inFlight) return;
-  inFlight = true;
-  setStatus("Loading...");
+  // Semantic search can be slow on a small VPS. Never silently discard a
+  // newer query while an older request is running: queue one reload with the
+  // latest controls instead.
+  if (inFlight) {
+    reloadQueued = true;
+    return;
+  }
 
+  inFlight = true;
+  reloadQueued = false;
+  const requestSerial = ++sectionRequestSerial;
   const q = (document.getElementById("q").value || "").trim();
+  const f = buildFilterParams();
+  setStatus(q ? `Loading: ${q}` : "Loading...");
 
   try {
     const url = new URL(apiSection, window.location.origin);
     url.searchParams.set("section_code", sectionCode === "__empty__" ? "" : sectionCode);
     if (q) url.searchParams.set("q", q);
-    const f = buildFilterParams();
     if (f.index_name) url.searchParams.set("index_name", f.index_name);
     if (f.index_value) url.searchParams.set("index_value", f.index_value);
     if (f.tag) url.searchParams.set("tag", f.tag);
 
-    window.__lastAppliedSearch = q;
     const r = await fetch(url.toString(), {method:"GET"});
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || "load failed");
+    if (j.redirect_url) {
+      window.location.href = j.redirect_url;
+      return;
+    }
+
+    // The user may have changed the query or index controls while the model
+    // was calculating embeddings. In that case this response is stale and
+    // must never be rendered under the new input value.
+    const currentQ = (document.getElementById("q").value || "").trim();
+    const currentF = buildFilterParams();
+    const controlsChanged = (
+      currentQ !== q ||
+      String(currentF.index_name || "") !== String(f.index_name || "") ||
+      String(currentF.index_value || "") !== String(f.index_value || "") ||
+      String(currentF.tag || "") !== String(f.tag || "")
+    );
+    if (controlsChanged || requestSerial !== sectionRequestSerial) {
+      reloadQueued = true;
+      return;
+    }
 
     document.getElementById("nlCss").textContent = (j.nl_css || "");
+    if (isDashboard) {
+      await ensureDashboardLayout();
+      j.items = orderDashboardItems(j.items || []);
+    }
     render(j.items || [], j.meta || {});
+    window.__lastAppliedSearch = q;
   } catch(e) {
     console.error(e);
     setStatus("Error");
   } finally {
     inFlight = false;
+    if (reloadQueued) {
+      reloadQueued = false;
+      window.setTimeout(loadSection, 0);
+    }
   }
 }
 
 // --- UI wiring ---
 document.getElementById("btnRefresh").addEventListener("click", loadSection);
+const classVisibilitySelectAll = document.getElementById('classVisibilitySelectAll');
+if (classVisibilitySelectAll) classVisibilitySelectAll.addEventListener('click', () => {
+  writeHiddenSectionClasses(new Set());
+  render(lastRawItems, lastRawMeta, false);
+});
 
-document.getElementById("btnSaveSoloSel").addEventListener("click", () => {
+if (isDashboard) {
+  const editBtn = document.getElementById('btnDashboardEdit');
+  const saveBtn = document.getElementById('btnDashboardSave');
+  const hint = document.getElementById('dashboardHint');
+  if (editBtn) editBtn.addEventListener('click', () => {
+    dashboardEditMode = !dashboardEditMode;
+    if (saveBtn) saveBtn.style.display = dashboardEditMode ? '' : 'none';
+    if (hint) hint.style.display = dashboardEditMode ? '' : 'none';
+    const grid = document.getElementById('viewGrid');
+    wireDashboardDrag(grid);
+    editBtn.classList.toggle('active', dashboardEditMode);
+    editBtn.title = dashboardEditMode ? '{{ _('Stop editing') }}' : '{{ _('Edit layout') }}';
+    editBtn.setAttribute('aria-label', editBtn.title);
+  });
+  if (saveBtn) saveBtn.addEventListener('click', async () => {
+    await saveDashboardLayoutFromDom();
+    dashboardEditMode = false;
+    saveBtn.style.display = 'none';
+    if (hint) hint.style.display = 'none';
+    if (editBtn) {
+      editBtn.classList.remove('active');
+      editBtn.title = '{{ _('Edit layout') }}';
+      editBtn.setAttribute('aria-label', editBtn.title);
+    }
+    wireDashboardDrag(document.getElementById('viewGrid'));
+  });
+}
+
+document.getElementById("btnSaveSoloSel").addEventListener("click", async () => {
   const itemByKey = new Map((lastItems||[]).map(it => [itemKey(it), it]));
-  const keys = Array.from(selected.values());
-  if (!keys.length) {
+  const itemsToSave = Array.from(selected.values()).map(k => itemByKey.get(k)).filter(Boolean);
+  if (!itemsToSave.length) {
     alert("No items selected");
     return;
   }
-  const out = [];
-  for (const k of keys) {
-    const it = itemByKey.get(k);
-    if (!it) continue;
-    out.push({
+
+  const classByKey = new Map();
+  const uniqueClasses = new Map();
+  itemsToSave.forEach(it => uniqueClasses.set(
+    `${Number(it.repo_id || 0)}:${String(it.class || "")}`,
+    {repo_id: Number(it.repo_id || 0), class_name: String(it.class || "")}
+  ));
+
+  try {
+    await Promise.all(Array.from(uniqueClasses.entries()).map(async ([key, ref]) => {
+      const url = new URL(apiClassMetadata, window.location.origin);
+      url.searchParams.set('repo_id', String(ref.repo_id));
+      url.searchParams.set('class_name', ref.class_name);
+      const response = await fetch(url.toString(), {credentials: 'same-origin'});
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.error || 'Class metadata load failed');
+      classByKey.set(key, payload.class_obj || {});
+    }));
+
+    const out = itemsToSave.map(it => ({
       _id: it.id,
       _data: it.data,
-      _class: it.class_obj || {},
-    });
+      _class: classByKey.get(`${Number(it.repo_id || 0)}:${String(it.class || "")}`) || {},
+    }));
+    const fn = `section_${String(sectionCode || 'all')}_solo.json`;
+    downloadJson(fn, out);
+  } catch (e) {
+    alert(e.message || String(e));
   }
-  const fn = `section_${String(sectionCode || 'all')}_solo.json`;
-  downloadJson(fn, out);
 });
 
 document.getElementById("btnTable").addEventListener("click", () => {
   mode = "table";
-  loadSection();
+  render(lastRawItems, lastRawMeta, false);
 });
 document.getElementById("btnGrid").addEventListener("click", () => {
   mode = "grid";
-  loadSection();
+  render(lastRawItems, lastRawMeta, false);
 });
 
 document.getElementById("q").addEventListener("keydown", (ev) => {
   if (ev.key === 'Enter') {
     ev.preventDefault();
+    if (sectionInputTimer) {
+      clearTimeout(sectionInputTimer);
+      sectionInputTimer = null;
+    }
     loadSection();
   }
+});
+document.getElementById("q").addEventListener("input", () => {
+  // A single delayed request after typing; loadSection itself queues the
+  // newest value when an older semantic request is still in flight.
+  if (sectionInputTimer) clearTimeout(sectionInputTimer);
+  sectionInputTimer = setTimeout(() => {
+    sectionInputTimer = null;
+    loadSection();
+  }, 450);
 });
 document.getElementById("q").addEventListener("blur", () => {
   const current = (document.getElementById("q").value || "").trim();

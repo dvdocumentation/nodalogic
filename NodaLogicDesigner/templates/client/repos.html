@@ -2,9 +2,15 @@
 {% block content %}
 <h2 class="mb-3">{{_('User configurations (Repo)')}}</h2>
 
-<form method="post" action="{{ url_for('client.repos_refresh_all') }}" class="mb-3">
-  <button class="btn btn-outline-primary btn-sm" type="submit">{{_('Update configurations')}}</button>
-</form>
+<div class="d-flex gap-2 flex-wrap mb-3">
+  <form method="post" action="{{ url_for('client.repos_refresh_all') }}">
+    <button class="btn btn-outline-primary btn-sm" type="submit">{{_('Update configurations')}}</button>
+  </form>
+  <form method="post" action="{{ url_for('client.repos_import_enod') }}" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+    <input class="form-control form-control-sm" type="file" name="enod_file" accept=".enod,application/json" required style="max-width:260px;">
+    <button class="btn btn-outline-secondary btn-sm" type="submit">{{_('Import ENOD')}}</button>
+  </form>
+</div>
 
 
 <ul class="nav nav-tabs mb-3" role="tablist">
@@ -143,7 +149,13 @@
     render();
   }
 
-  filterEl.addEventListener('input', render);
+  filterEl.addEventListener('input', () => {
+    // A selection made before filtering may no longer be visible.  Do not keep
+    // submitting its hidden UID under another configuration name.
+    pickedUid.value = '';
+    addBtn.disabled = true;
+    render();
+  });
   reloadBtn.addEventListener('click', load);
 
   await load();
@@ -180,9 +192,12 @@
           </div>
         </div>
 
-        <form method="post" action="{{ url_for('client.repos_remove', repo_id=r.id) }}">
-          <button class="btn btn-sm btn-outline-danger" type="submit">{{_('Delete')}}</button>
-        </form>
+        <div class="d-flex gap-2">
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('client.repo_export_enod', repo_id=r.id) }}">{{_('Export ENOD')}}</a>
+          <form method="post" action="{{ url_for('client.repos_remove', repo_id=r.id) }}">
+            <button class="btn btn-sm btn-outline-danger" type="submit">{{_('Delete')}}</button>
+          </form>
+        </div>
       </div>
 
       {% if not is_server_config %}

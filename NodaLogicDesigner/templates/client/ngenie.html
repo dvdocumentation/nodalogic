@@ -1,0 +1,687 @@
+{% extends "client/base.html" %}
+{% block content %}
+<div class="ngenie-shell">
+  <div class="d-flex align-items-center justify-content-between gap-3 mb-3 flex-wrap">
+    <div>
+      <h4 class="mb-1"><span class="ngenie-badge">nGenie</span> {{ _('AI data assistant') }}</h4>
+      <div class="text-muted small">{{ _('Create/change nodes, analyze data, and save generated HTML projections.') }}</div>
+    </div>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <label class="small text-muted mb-0" for="ngenieConfig">{{ _('Configuration') }}</label>
+      <select id="ngenieConfig" class="form-select form-select-sm" style="min-width:260px;">
+        <option value="">{{ _('All configurations') }}</option>
+        {% for r in repos %}
+          <option value="{{ r.config_uid }}" data-repo-id="{{ r.id }}">{{ r.display_name or r.name or r.config_uid }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-12 col-xl-8">
+      <div class="card ngenie-main-card">
+        <div class="card-header d-flex align-items-center justify-content-between gap-2">
+          <div class="fw-semibold">{{ _('Current projection') }}</div>
+          <div id="ngenieProjectionStatus" class="text-muted small"></div>
+        </div>
+        <div class="card-body">
+          <div id="ngenieProjectionRoot" class="ngenie-empty">
+            {{ _('Ask nGenie to create nodes or analyze data. Created nodes will appear here as a node-list projection; analysis appears as HTML.') }}
+          </div>
+        </div>
+        <div id="ngenieSavePanel" class="card-footer" style="display:none;">
+          <div class="row g-2 align-items-center">
+            <div class="col-12 col-md">
+              <input id="ngenieProjectionName" class="form-control form-control-sm" placeholder="{{ _('Projection name') }}">
+            </div>
+            <div class="col-12 col-md-auto">
+              <button id="ngenieSaveProjection" class="btn btn-sm btn-outline-primary" type="button">{{ _('Save HTML projection to configuration') }}</button>
+            </div>
+            <div class="col-12">
+              <div id="ngenieSaveStatus" class="small text-muted"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-xl-4">
+      <div class="ngenie-side-stack">
+        <div id="ngenieProjectionParamsCard" class="card mb-3 ngenie-projection-params" style="display:none;">
+          <div class="card-header d-flex align-items-center justify-content-between gap-2 py-2">
+            <div class="fw-semibold">{{ _('Report parameters') }}</div>
+            <div id="ngenieProjectionParamsStatus" class="small text-muted"></div>
+          </div>
+          <div id="ngenieProjectionParamsRoot" class="card-body p-2"></div>
+          <div class="card-footer p-2">
+            <button id="ngenieRefreshProjection" class="btn btn-sm btn-primary w-100" type="button">{{ _('Refresh projection') }}</button>
+          </div>
+        </div>
+
+      <div class="card ngenie-chat-card">
+        <div class="card-header d-flex align-items-center justify-content-between gap-2">
+          <div class="fw-semibold">nGenie</div>
+          <div class="d-flex align-items-center gap-2">
+            <button id="ngenieNewChat" class="btn btn-sm btn-light py-0" type="button">{{ _('New chat') }}</button>
+            <div id="ngenieChatStatus" class="small opacity-75"></div>
+          </div>
+        </div>
+        <div id="ngenieMessages" class="card-body ngenie-messages"></div>
+        <div class="card-footer">
+          <textarea id="ngeniePrompt" class="form-control form-control-sm" rows="4" placeholder="{{ _('Example: create a task to wash windows / analyze overdue orders') }}"></textarea>
+          <div class="mt-2">
+            <input id="ngenieFiles" class="form-control form-control-sm" type="file" multiple>
+            <div id="ngenieFilesLabel" class="form-text">{{ _('Attach files after selecting a configuration.') }}</div>
+          </div>
+          <div class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" value="1" id="ngenieAllowCatalogCreate">
+            <label class="form-check-label small" for="ngenieAllowCatalogCreate">{{ _('Create directories/catalogs') }}</label>
+          </div>
+          <div class="d-flex justify-content-between align-items-center mt-2 gap-2">
+            <div class="form-text">Ctrl+Enter</div>
+            <button id="ngenieSend" class="btn btn-sm ngenie-send" type="button">{{ _('Send') }}</button>
+          </div>
+        </div>
+      </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .ngenie-badge{display:inline-flex;align-items:center;border-radius:999px;background:#6f42c1;color:white;padding:4px 12px;font-size:.9rem;}
+  .ngenie-main-card{min-height:calc(100vh - 190px);}
+  .ngenie-empty{min-height:360px;display:flex;align-items:center;justify-content:center;text-align:center;color:#6c757d;border:1px dashed rgba(0,0,0,.18);border-radius:12px;padding:24px;}
+  .ngenie-side-stack{position:sticky;top:12px;}
+  .ngenie-chat-card{min-height:calc(100vh - 150px);}
+  .ngenie-chat-card .card-header,.ngenie-send{background:#6f42c1;border-color:#6f42c1;color:#fff;}
+  .ngenie-send:hover{background:#633bb0;border-color:#633bb0;color:#fff;}
+  .ngenie-messages{height:calc(100vh - 335px);min-height:360px;overflow:auto;background:#fbfbfd;}
+  .ngenie-msg{border-radius:12px;padding:9px 11px;margin-bottom:9px;white-space:pre-wrap;line-height:1.35;}
+  .ngenie-msg-user{background:#eef1ff;margin-left:28px;}
+  .ngenie-msg-assistant{background:white;border:1px solid rgba(0,0,0,.1);margin-right:28px;}
+  .ngenie-node-card .card-body{font-size:.92rem;}
+  .ngenie-node-open{cursor:pointer;transition:box-shadow .12s ease, transform .12s ease;}
+  .ngenie-node-open:hover,.ngenie-node-open:focus{box-shadow:0 .25rem .8rem rgba(0,0,0,.12);transform:translateY(-1px);outline:none;}
+  .ngenie-html-result{overflow:auto;}
+  .ngenie-clarify-group{border:1px solid rgba(111,66,193,.25);border-radius:12px;padding:12px;margin-bottom:14px;background:#fcfbff;}
+  .ngenie-candidate{cursor:pointer;border:2px solid transparent;border-radius:12px;transition:border-color .12s ease, box-shadow .12s ease;}
+  .ngenie-candidate:hover{border-color:rgba(111,66,193,.35);}
+.ngenie-candidate.display-only{cursor:pointer;}
+.ngenie-candidate.display-only:hover{border-color:rgba(111,66,193,.35);}
+  .ngenie-candidate.selected{border-color:#6f42c1;box-shadow:0 0 0 .18rem rgba(111,66,193,.12);}
+  .ngenie-candidate-note{min-height:1.3rem;color:#6c757d;font-size:.85rem;margin-top:.35rem;}
+  .ngenie-projection-params #ngenieProjectionParamsRoot{max-height:42vh;overflow:auto;}
+  .ngenie-projection-params .nl-field{margin-bottom:.5rem;}
+</style>
+
+<script>
+const NGENIE_CHAT_API = {{ api_chat|tojson }};
+const NGENIE_SAVE_API = {{ api_save_projection|tojson }};
+const NGENIE_PREVIEW_API = {{ api_preview_projection|tojson }};
+const ngenieState = {
+  busy:false,
+  projectionMethodCode:'',
+  projectionHtml:'',
+  projectionTitle:'',
+  projectionParametersLayout:null,
+  projectionParametersLayoutHtml:'',
+  projectionParametersData:{},
+  projectionParametersDataStructure:'',
+  messages:[],
+  pendingClarifications:null,
+  lastUserMessage:'',
+  lastAttachments:[],
+  activeConfig:''
+};
+
+function ngenieEscape(s){return String(s ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');}
+function ngenieConfigValue(){ return document.getElementById('ngenieConfig')?.value || ''; }
+function ngenieConfigToken(value){ return value || 'all'; }
+function ngenieChatKey(value){ return 'ngenie_chat_' + ngenieConfigToken(value === undefined ? ngenieConfigValue() : value); }
+function ngenieWorkspaceKey(value){ return 'ngenie_workspace_' + ngenieConfigToken(value === undefined ? ngenieConfigValue() : value); }
+function ngenieRememberSelectedConfig(){ try { sessionStorage.setItem('ngenie_selected_config', ngenieConfigValue()); } catch(_){} }
+function ngenieRestoreSelectedConfig(){
+  const sel = document.getElementById('ngenieConfig');
+  if (!sel) return;
+  try {
+    const saved = sessionStorage.getItem('ngenie_selected_config') || '';
+    if (Array.from(sel.options || []).some(o => o.value === saved)) sel.value = saved;
+  } catch(_) {}
+  ngenieState.activeConfig = sel.value || '';
+}
+function ngenieSaveWorkspace(configValue){
+  const root = document.getElementById('ngenieProjectionRoot');
+  if (!root) return;
+  const payload = {
+    rootHtml: root.innerHTML || '',
+    rootClass: root.className || '',
+    status: document.getElementById('ngenieProjectionStatus')?.textContent || '',
+    savePanelDisplay: document.getElementById('ngenieSavePanel')?.style.display || '',
+    saveStatusHtml: document.getElementById('ngenieSaveStatus')?.innerHTML || '',
+    projectionName: document.getElementById('ngenieProjectionName')?.value || '',
+    projectionMethodCode: ngenieState.projectionMethodCode || '',
+    projectionHtml: ngenieState.projectionHtml || '',
+    projectionTitle: ngenieState.projectionTitle || '',
+    projectionParametersLayout: ngenieState.projectionParametersLayout,
+    projectionParametersLayoutHtml: ngenieState.projectionParametersLayoutHtml || '',
+    projectionParametersData: ngenieCollectProjectionParameterData(),
+    projectionParametersDataStructure: ngenieState.projectionParametersDataStructure || '',
+    pendingClarifications: ngenieState.pendingClarifications || null
+  };
+  try { sessionStorage.setItem(ngenieWorkspaceKey(configValue), JSON.stringify(payload)); } catch(_){}
+}
+function ngenieRestoreWorkspace(){
+  let saved = null;
+  try { saved = JSON.parse(sessionStorage.getItem(ngenieWorkspaceKey()) || 'null'); } catch(_) { saved = null; }
+  if (!saved) { ngenieResetProjection(false); return; }
+  const root = document.getElementById('ngenieProjectionRoot');
+  root.className = saved.rootClass || '';
+  root.innerHTML = saved.rootHtml || '';
+  document.getElementById('ngenieProjectionStatus').textContent = saved.status || '';
+  document.getElementById('ngenieSavePanel').style.display = saved.savePanelDisplay || 'none';
+  document.getElementById('ngenieSaveStatus').innerHTML = saved.saveStatusHtml || '';
+  document.getElementById('ngenieProjectionName').value = saved.projectionName || '';
+  ngenieState.projectionMethodCode = saved.projectionMethodCode || '';
+  ngenieState.projectionHtml = saved.projectionHtml || '';
+  ngenieState.projectionTitle = saved.projectionTitle || '';
+  ngenieState.pendingClarifications = saved.pendingClarifications || null;
+  ngenieSetProjectionParameters(
+    saved.projectionParametersLayout ?? null,
+    saved.projectionParametersLayoutHtml || '',
+    saved.projectionParametersData || {},
+    saved.projectionParametersDataStructure || '',
+    false
+  );
+}
+function ngenieNavigateToNode(url){
+  const target = String(url || '').trim();
+  if (!target || target === '#') return;
+  ngenieRememberSelectedConfig();
+  ngenieSaveWorkspace();
+  window.location.assign(target);
+}
+function ngenieSaveChat(){ try { sessionStorage.setItem(ngenieChatKey(), JSON.stringify(ngenieState.messages || [])); } catch(_){} }
+function ngenieRenderChat(){
+  const box = document.getElementById('ngenieMessages');
+  if (!box) return;
+  box.innerHTML = '';
+  (ngenieState.messages || []).forEach((m)=>{
+    const div = document.createElement('div');
+    div.className = 'ngenie-msg ' + (m.role === 'user' ? 'ngenie-msg-user' : 'ngenie-msg-assistant');
+    div.textContent = m.text || '';
+    box.appendChild(div);
+  });
+  box.scrollTop = box.scrollHeight;
+}
+function ngenieLoadChat(){
+  try { ngenieState.messages = JSON.parse(sessionStorage.getItem(ngenieChatKey()) || '[]') || []; } catch(_) { ngenieState.messages = []; }
+  if (!ngenieState.messages.length) ngenieState.messages = [{role:'assistant', text:'{{ _('Hi. I can create/change nodes and analyze data across your configurations.') }}'}];
+  ngenieRenderChat();
+}
+function ngenieMsg(role, text, meta){
+  const item = Object.assign({role:role, text:text || ''}, meta && typeof meta === 'object' ? meta : {});
+  ngenieState.messages.push(item);
+  ngenieSaveChat();
+  ngenieRenderChat();
+}
+function ngenieHistoryForRequest(currentMessage){
+  const rows = (ngenieState.messages || []).slice(-24).map((m)=>({
+    role:m.role || '',
+    text:m.text || '',
+    projection_title:m.projection_title || '',
+    projection_method_code:m.projection_method_code || '',
+    analysis_html:m.analysis_html || '',
+    projection_parameters_layout:m.projection_parameters_layout ?? null,
+    projection_parameters_data:m.projection_parameters_data || {},
+    projection_parameters_data_structure:m.projection_parameters_data_structure || '',
+    projection_closed:!!m.projection_closed
+  }));
+  const current = String(currentMessage || '').trim();
+  const last = rows.length ? rows[rows.length - 1] : null;
+  if (last && last.role === 'user' && current) {
+    const text = String(last.text || '').trim();
+    if (text === current || text.startsWith(current + '\n')) rows.pop();
+  }
+  return rows;
+}
+function ngenieConversationArtifact(){
+  return {
+    projection_title: ngenieState.projectionTitle || document.getElementById('ngenieProjectionName')?.value || '',
+    projection_method_code: ngenieState.projectionMethodCode || '',
+    analysis_html: ngenieState.projectionHtml || '',
+    projection_parameters_layout: ngenieState.projectionParametersLayout,
+    projection_parameters_data: ngenieCollectProjectionParameterData(),
+    projection_parameters_data_structure: ngenieState.projectionParametersDataStructure || ''
+  };
+}
+function ngenieSetByPath(obj, path, value){
+  const parts = String(path || '').split('.').map(x=>x.trim()).filter(Boolean);
+  if (!parts.length) return;
+  let cur = obj;
+  for (let i=0; i<parts.length-1; i++) {
+    const key = parts[i];
+    if (!cur[key] || typeof cur[key] !== 'object' || Array.isArray(cur[key])) cur[key] = {};
+    cur = cur[key];
+  }
+  cur[parts[parts.length-1]] = value;
+}
+function ngenieCollectProjectionParameterData(){
+  const out = Object.assign({}, ngenieState.projectionParametersData || {});
+  const root = document.getElementById('ngenieProjectionParamsRoot');
+  if (!root) return out;
+  root.querySelectorAll('input[data-path],textarea[data-path],select[data-path]').forEach((el)=>{
+    const path = String(el.getAttribute('data-path') || '').trim();
+    if (!path) return;
+    // NodeInput/DatasetInput display the human-readable view in a readonly input.
+    // Keep the canonical UID already held in state instead of replacing it with that view.
+    if (el.matches('[data-nl-nodeinput="1"],[data-nl-datasetinput="1"]')) return;
+    let value;
+    if (el.type === 'checkbox') value = !!el.checked;
+    else if (el.type === 'number') {
+      const raw = String(el.value || '').trim().replace(',', '.');
+      value = raw === '' ? '' : (Number.isNaN(Number(raw)) ? el.value : Number(raw));
+    } else value = el.value;
+    ngenieSetByPath(out, path, value);
+  });
+  ngenieState.projectionParametersData = out;
+  return out;
+}
+function ngenieSetProjectionParameters(layout, layoutHtml, data, dataStructure, persist=true){
+  const card = document.getElementById('ngenieProjectionParamsCard');
+  const root = document.getElementById('ngenieProjectionParamsRoot');
+  const status = document.getElementById('ngenieProjectionParamsStatus');
+  const hasLayout = layout !== null && layout !== undefined && layout !== '' && !(Array.isArray(layout) && layout.length === 0);
+  ngenieState.projectionParametersLayout = hasLayout ? layout : null;
+  ngenieState.projectionParametersLayoutHtml = hasLayout ? String(layoutHtml || '') : '';
+  ngenieState.projectionParametersData = hasLayout && data && typeof data === 'object' ? Object.assign({}, data) : {};
+  ngenieState.projectionParametersDataStructure = hasLayout ? String(dataStructure || '') : '';
+  if (card) card.style.display = hasLayout ? '' : 'none';
+  if (root) root.innerHTML = hasLayout ? ngenieState.projectionParametersLayoutHtml : '';
+  if (status) status.textContent = '';
+  if (persist) ngenieSaveWorkspace();
+}
+function ngenieClearProjectionParameters(persist=false){
+  ngenieSetProjectionParameters(null, '', {}, '', persist);
+}
+function ngenieClearProjectionArtifact(persist=false){
+  ngenieState.projectionMethodCode = '';
+  ngenieState.projectionHtml = '';
+  ngenieState.projectionTitle = '';
+  ngenieClearProjectionParameters(false);
+  document.getElementById('ngenieSavePanel').style.display = 'none';
+  document.getElementById('ngenieSaveStatus').textContent = '';
+  if (persist) ngenieSaveWorkspace();
+}
+async function ngenieRefreshProjection(){
+  if (ngenieState.busy) return;
+  const cfg = ngenieConfigValue();
+  const status = document.getElementById('ngenieProjectionParamsStatus');
+  if (!cfg || !ngenieState.projectionMethodCode) {
+    if (status) status.textContent = '{{ _('The report is not ready.') }}';
+    return;
+  }
+  const data = ngenieCollectProjectionParameterData();
+  ngenieSetBusy(true);
+  if (status) status.textContent = '{{ _('updating...') }}';
+  try {
+    const r = await fetch(NGENIE_PREVIEW_API, {
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+      body:JSON.stringify({
+        config_uid:cfg,
+        projection_title:ngenieState.projectionTitle || document.getElementById('ngenieProjectionName')?.value || '',
+        projection_method_code:ngenieState.projectionMethodCode,
+        projection_parameters_data:data
+      })
+    });
+    const j = await r.json();
+    if (!j || !j.ok) throw new Error((j && j.error) || 'preview failed');
+    ngenieState.projectionParametersData = j.projection_parameters_data || data;
+    ngenieRenderHtml(j.analysis_html || '', j.projection_title || ngenieState.projectionTitle || '');
+    if (status) status.textContent = '{{ _('ready') }}';
+    ngenieSaveWorkspace();
+  } catch(e) {
+    if (status) status.textContent = String(e && e.message ? e.message : e);
+  } finally {
+    ngenieSetBusy(false);
+  }
+}
+function ngenieSetBusy(v){
+  ngenieState.busy = !!v;
+  document.getElementById('ngenieSend').disabled = !!v;
+  const files = document.getElementById('ngenieFiles');
+  if (files) files.disabled = !!v;
+  document.getElementById('ngenieChatStatus').textContent = v ? '{{ _('thinking...') }}' : '';
+  const cont = document.getElementById('ngenieClarifyContinue');
+  if (cont) cont.disabled = !!v;
+}
+function ngenieSelectedRepoId(){
+  const sel = document.getElementById('ngenieConfig');
+  const opt = sel && sel.selectedOptions && sel.selectedOptions.length ? sel.selectedOptions[0] : null;
+  return opt ? String(opt.getAttribute('data-repo-id') || '') : '';
+}
+function ngenieUpdateFilesLabel(){
+  const inp = document.getElementById('ngenieFiles');
+  const label = document.getElementById('ngenieFilesLabel');
+  if (!inp || !label) return;
+  const files = Array.from(inp.files || []);
+  label.textContent = files.length ? files.map(f => f.name || 'file').join(', ') : '{{ _('Attach files after selecting a configuration.') }}';
+}
+async function ngenieUploadAttachments(){
+  const inp = document.getElementById('ngenieFiles');
+  const files = inp ? Array.from(inp.files || []) : [];
+  if (!files.length) return [];
+  const repoId = ngenieSelectedRepoId();
+  if (!repoId) throw new Error('{{ _('Select one configuration before attaching files.') }}');
+  const out = [];
+  for (const file of files) {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await fetch(`/client/api/userfiles/${encodeURIComponent(repoId)}/upload`, {method:'POST', body:fd, credentials:'same-origin'});
+    const j = await r.json();
+    if (!j || !j.ok) throw new Error((j && j.error) || 'upload failed');
+    out.push({filename:String(j.filename || j.url || ''), url:String(j.url || j.filename || ''), original_name:file.name || '', content_type:file.type || '', size:file.size || 0, s3:!!j.s3});
+  }
+  if (inp) inp.value = '';
+  ngenieUpdateFilesLabel();
+  return out;
+}
+function ngenieRenderObjects(items){
+  const root = document.getElementById('ngenieProjectionRoot');
+  if (!items || !items.length) return false;
+  ngenieState.pendingClarifications = null;
+  ngenieClearProjectionArtifact(false);
+  root.className = '';
+  document.getElementById('ngenieSavePanel').style.display = 'none';
+  root.innerHTML = `<div class="row g-2">${items.map((it)=>{
+    const title = (it.view && (it.view.title || it.view.caption)) || it.id || it.uid || '';
+    const sub = [it.class, it.repo_uid].filter(Boolean).join(' · ');
+    const cover = it.cover_html || `<div class="fw-semibold">${ngenieEscape(title)}</div><div class="text-muted small">${ngenieEscape(sub)}</div>`;
+    const url = it.open_url || '#';
+    return `<div class="col-12 col-md-6"><div class="card ngenie-node-card ngenie-node-open h-100" role="link" tabindex="0" data-open-url="${ngenieEscape(url)}"><div class="card-body">${cover}</div></div></div>`;
+  }).join('')}</div>`;
+  document.getElementById('ngenieProjectionStatus').textContent = `${items.length} {{ _('nodes') }}`;
+  ngenieSaveWorkspace();
+  return true;
+}
+function ngenieFlattenDisplayObjects(groups){
+  const out = [];
+  const seen = new Set();
+  (Array.isArray(groups) ? groups : []).forEach((g)=>{
+    (g.candidates || []).forEach((c)=>{
+      const key = c.uid || c.open_url || c.id || JSON.stringify(c);
+      if (!seen.has(key)) { seen.add(key); out.push(c); }
+    });
+  });
+  return out;
+}
+function ngenieResetProjection(persist=true){
+  const root = document.getElementById('ngenieProjectionRoot');
+  root.className = 'ngenie-empty';
+  root.innerHTML = `{{ _('Ask nGenie to create nodes or analyze data. Created nodes will appear here as a node-list projection; analysis appears as HTML.') }}`;
+  document.getElementById('ngenieProjectionStatus').textContent = '';
+  document.getElementById('ngenieSavePanel').style.display = 'none';
+  document.getElementById('ngenieSaveStatus').textContent = '';
+  ngenieState.pendingClarifications = null;
+  ngenieState.projectionMethodCode = '';
+  ngenieState.projectionHtml = '';
+  ngenieState.projectionTitle = '';
+  ngenieClearProjectionParameters(false);
+  if (persist) ngenieSaveWorkspace();
+}
+function ngenieRenderHtml(html, title){
+  if (!html) return false;
+  ngenieState.pendingClarifications = null;
+  const root = document.getElementById('ngenieProjectionRoot');
+  root.className = 'ngenie-html-result';
+  root.innerHTML = html;
+  ngenieState.projectionHtml = html;
+  ngenieState.projectionTitle = title || '{{ _('nGenie analysis') }}';
+  document.getElementById('ngenieProjectionName').value = ngenieState.projectionTitle;
+  document.getElementById('ngenieSavePanel').style.display = '';
+  document.getElementById('ngenieProjectionStatus').textContent = '{{ _('HTML result') }}';
+  ngenieSaveWorkspace();
+  return true;
+}
+function ngenieCandidateTitle(c){
+  return (c.view && (c.view.title || c.view.caption)) || (c.data && (c.data.name || c.data.title || c.data.article || c.data.code)) || c.id || c.uid || '';
+}
+function ngenieRenderClarifications(groups, preserveProjection=false){
+  const list = Array.isArray(groups) ? groups : [];
+  if (!list.length) return false;
+  const root = document.getElementById('ngenieProjectionRoot');
+  const selections = {};
+  const selectableGroups = list.filter(g => !g.display_only);
+  selectableGroups.forEach(g => { if ((g.candidates || []).length === 1) selections[g.id] = g.candidates[0].uid; });
+  ngenieState.pendingClarifications = {originalMessage: ngenieState.lastUserMessage || '', groups:list, selections:selections, displayOnly: selectableGroups.length === 0};
+  if (!preserveProjection) ngenieClearProjectionArtifact(false);
+  root.className = '';
+  root.innerHTML = `
+    <div class="ngenie-clarifications">
+      ${list.map((g)=>`
+        <div class="ngenie-clarify-group" data-group-id="${ngenieEscape(g.id)}">
+          <div class="fw-semibold mb-1">${ngenieEscape(g.question || '{{ _('Clarify selection') }}')}</div>
+          ${g.reason ? `<div class="text-muted small mb-2">${ngenieEscape(g.reason)}</div>` : ''}
+          <div class="row g-2">
+            ${(g.candidates || []).map((c)=>{
+              const selected = !g.display_only && selections[g.id] === c.uid;
+              const title = ngenieCandidateTitle(c);
+              const sub = [c.class, c.repo_uid || c.config_uid].filter(Boolean).join(' · ');
+              const cover = c.cover_html || `<div class="fw-semibold">${ngenieEscape(title)}</div><div class="text-muted small">${ngenieEscape(sub)}</div>`;
+              return `<div class="col-12 col-md-6 col-xl-4">
+                <div class="card ngenie-node-card ngenie-candidate h-100 ${selected ? 'selected' : ''} ${g.display_only ? 'display-only' : ''}" role="${g.display_only && c.open_url ? 'link' : 'button'}" tabindex="0" data-display-only="${g.display_only ? '1' : '0'}" data-open-url="${ngenieEscape(c.open_url || '')}" data-group-id="${ngenieEscape(g.id)}" data-uid="${ngenieEscape(c.uid)}">
+                  <div class="card-body">${cover}<div class="ngenie-candidate-note">${ngenieEscape(c.note || '')}</div></div>
+                </div>
+              </div>`;
+            }).join('') || `<div class="col-12"><div class="text-muted small">{{ _('No candidates found.') }}</div></div>`}
+          </div>
+        </div>`).join('')}
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        ${selectableGroups.length ? `<button id="ngenieClarifyContinue" class="btn btn-sm ngenie-send" type="button">{{ _('Continue') }}</button>` : ''}
+        <div id="ngenieClarifyStatus" class="small text-muted">${selectableGroups.length ? '' : '{{ _('Found candidates are shown above.') }}'}</div>
+      </div>
+    </div>`;
+  document.getElementById('ngenieProjectionStatus').textContent = selectableGroups.length ? '{{ _('Clarification needed') }}' : '{{ _('Candidates') }}';
+  document.getElementById('ngenieSavePanel').style.display = 'none';
+  ngenieSaveWorkspace();
+  return true;
+}
+function ngenieSelectCandidate(groupId, uid){
+  if (!ngenieState.pendingClarifications) return;
+  const group = (ngenieState.pendingClarifications.groups || []).find(g => g.id === groupId);
+  if (group && group.display_only) return;
+  ngenieState.pendingClarifications.selections[groupId] = uid;
+  document.querySelectorAll('.ngenie-candidate').forEach(el=>{
+    if (el.getAttribute('data-group-id') === groupId) el.classList.toggle('selected', el.getAttribute('data-uid') === uid);
+  });
+  ngenieSaveWorkspace();
+}
+function ngenieCompactCandidate(c){
+  if (!c) return null;
+  return {uid:c.uid || '', class:c.class || '', repo_uid:c.repo_uid || c.config_uid || '', id:c.id || '', title:ngenieCandidateTitle(c), note:c.note || ''};
+}
+function ngenieClarificationPayload(){
+  const pending = ngenieState.pendingClarifications;
+  if (!pending) return null;
+  const requests = (pending.groups || []).filter(g => !g.display_only).map((g)=>{
+    const selectedUid = pending.selections[g.id] || '';
+    const selectedCandidate = (g.candidates || []).find(c => c.uid === selectedUid) || null;
+    return {id:g.id, question:g.question || '', class_name:g.class_name || '', config_uid:g.config_uid || '', query:g.query || '', context:g.context || {}, selected_uid:selectedUid, selected_candidate:ngenieCompactCandidate(selectedCandidate)};
+  });
+  return {original_message: pending.originalMessage || '', requests:requests, selections:pending.selections || {}};
+}
+async function ngeniePost(payload){
+  const previousArtifact = ngenieConversationArtifact();
+  const r = await fetch(NGENIE_CHAT_API, {method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body:JSON.stringify(payload)});
+  const j = await r.json();
+  if (!j || !j.ok) throw new Error((j && j.error) || 'nGenie error');
+
+  const closesProjection = !!j.close_projection;
+  const responseArtifact = closesProjection ? {projection_closed:true} : {
+    projection_title:j.projection_title || previousArtifact.projection_title || '',
+    projection_method_code:j.projection_method_code || previousArtifact.projection_method_code || '',
+    analysis_html:j.analysis_html || previousArtifact.analysis_html || '',
+    projection_parameters_layout:j.projection_parameters_layout !== undefined ? j.projection_parameters_layout : previousArtifact.projection_parameters_layout,
+    projection_parameters_data:j.projection_parameters_data || previousArtifact.projection_parameters_data || {},
+    projection_parameters_data_structure:j.projection_parameters_data_structure || previousArtifact.projection_parameters_data_structure || ''
+  };
+  ngenieMsg('assistant', j.reply || '{{ _('Done') }}', responseArtifact);
+
+  if (closesProjection) ngenieClearProjectionArtifact(false);
+  const hasClarifications = Array.isArray(j.clarifications) && j.clarifications.length;
+  const hasObjects = Array.isArray(j.created_objects) && j.created_objects.length;
+  if (hasClarifications) {
+    const allDisplayOnly = j.clarifications.every(g => g && g.display_only);
+    const displayObjects = allDisplayOnly ? ngenieFlattenDisplayObjects(j.clarifications) : [];
+    if (allDisplayOnly && displayObjects.length) ngenieRenderObjects(displayObjects);
+    else ngenieRenderClarifications(j.clarifications, !!previousArtifact.projection_method_code && !closesProjection);
+  }
+  if (hasObjects) ngenieRenderObjects(j.created_objects);
+
+  const hasReport = !!(j.analysis_html || j.projection_method_code || j.projection_parameters_layout);
+  if (hasReport && !hasClarifications && !hasObjects) {
+    if (j.projection_method_code) ngenieState.projectionMethodCode = j.projection_method_code;
+    if (j.projection_title) {
+      ngenieState.projectionTitle = j.projection_title;
+      document.getElementById('ngenieProjectionName').value = j.projection_title;
+    }
+    if (j.analysis_html) ngenieRenderHtml(j.analysis_html, j.projection_title || previousArtifact.projection_title || '');
+    ngenieSetProjectionParameters(
+      j.projection_parameters_layout !== undefined ? j.projection_parameters_layout : previousArtifact.projection_parameters_layout,
+      j.projection_parameters_layout_html !== undefined ? j.projection_parameters_layout_html : ngenieState.projectionParametersLayoutHtml,
+      j.projection_parameters_data || previousArtifact.projection_parameters_data || {},
+      j.projection_parameters_data_structure || previousArtifact.projection_parameters_data_structure || '',
+      false
+    );
+  }
+  ngenieSaveWorkspace();
+}
+async function ngenieSend(){
+  if (ngenieState.busy) return;
+  const prompt = document.getElementById('ngeniePrompt');
+  const text = (prompt.value || '').trim();
+    const hasFiles = !!(document.getElementById('ngenieFiles') && document.getElementById('ngenieFiles').files && document.getElementById('ngenieFiles').files.length);
+  if (!text && !hasFiles) return;
+  const effectiveText = text || {{ _('Add the attached files.')|tojson }};
+  ngenieState.lastUserMessage = effectiveText;
+  ngenieSetBusy(true);
+  try{
+    const attachments = await ngenieUploadAttachments();
+    ngenieState.lastAttachments = attachments;
+    prompt.value = '';
+    ngenieMsg('user', effectiveText + (attachments.length ? '\n' + {{ _('Files')|tojson }} + ': ' + attachments.map(a => a.original_name || a.filename).join(', ') : ''));
+    await ngeniePost({
+      message:effectiveText,
+      config_uid:document.getElementById('ngenieConfig').value || '',
+      scope:'section',
+      allow_catalog_create: !!document.getElementById('ngenieAllowCatalogCreate')?.checked,
+      attachments: attachments,
+      chat_history: ngenieHistoryForRequest(effectiveText),
+      conversation_artifact: ngenieConversationArtifact()
+    });
+  }catch(e){
+    ngenieMsg('assistant', String(e && e.message ? e.message : e));
+  }finally{
+    ngenieSetBusy(false);
+  }
+}
+async function ngenieContinueClarifications(){
+  if (ngenieState.busy || !ngenieState.pendingClarifications) return;
+  const payload = ngenieClarificationPayload();
+  const missing = (payload.requests || []).filter(r => !r.selected_uid);
+  const st = document.getElementById('ngenieClarifyStatus');
+  if (missing.length) { if (st) st.textContent = '{{ _('Select an option in each group.') }}'; return; }
+  const selectedText = (payload.requests || []).map(r => `${r.question}: ${(r.selected_candidate && r.selected_candidate.title) || r.selected_uid}`).join('\n');
+  ngenieMsg('user', '{{ _('Selected') }}:\n' + selectedText);
+  ngenieSetBusy(true);
+  try{
+    await ngeniePost({
+      message:'Продолжить после выбора пользователя',
+      config_uid:document.getElementById('ngenieConfig').value || '',
+      scope:'section',
+      allow_catalog_create: !!document.getElementById('ngenieAllowCatalogCreate')?.checked,
+      clarification_response: payload,
+      attachments: ngenieState.lastAttachments || [],
+      chat_history: ngenieHistoryForRequest(''),
+      conversation_artifact: ngenieConversationArtifact()
+    });
+  }catch(e){
+    ngenieMsg('assistant', String(e && e.message ? e.message : e));
+  }finally{
+    ngenieSetBusy(false);
+  }
+}
+async function ngenieSaveProjection(){
+  const cfg = document.getElementById('ngenieConfig').value || '';
+  const status = document.getElementById('ngenieSaveStatus');
+  if (!cfg) { status.textContent = '{{ _('Select one configuration first.') }}'; status.className='small text-danger'; return; }
+  const title = (document.getElementById('ngenieProjectionName').value || '').trim() || ngenieState.projectionTitle || '{{ _('nGenie HTML') }}';
+  status.textContent = '{{ _('saving...') }}'; status.className='small text-muted';
+  try{
+    const r = await fetch(NGENIE_SAVE_API, {method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body:JSON.stringify({
+      config_uid:cfg,
+      title:title,
+      method_code:ngenieState.projectionMethodCode,
+      html:ngenieState.projectionHtml,
+      projection_parameters_layout:ngenieState.projectionParametersLayout,
+      projection_parameters_data:ngenieCollectProjectionParameterData(),
+      projection_parameters_data_structure:ngenieState.projectionParametersDataStructure
+    })});
+    const j = await r.json();
+    if (!j || !j.ok) throw new Error((j && j.error) || 'save failed');
+    status.className='small text-success';
+    status.innerHTML = `{{ _('Saved') }}: <a href="${ngenieEscape(j.open_url || '#')}">${ngenieEscape(j.display_name || j.class_name || title)}</a>`;
+  }catch(e){
+    status.className='small text-danger';
+    status.textContent = String(e && e.message ? e.message : e);
+  }
+}
+function ngenieNewChat(){
+  ngenieState.messages = [{role:'assistant', text:'{{ _('Hi. I can create/change nodes and analyze data across your configurations.') }}'}];
+  ngenieState.lastUserMessage = '';
+  ngenieState.lastAttachments = [];
+  ngenieSaveChat();
+  ngenieRenderChat();
+  ngenieResetProjection();
+  const prompt = document.getElementById('ngeniePrompt');
+  if (prompt) prompt.value = '';
+}
+document.getElementById('ngenieSend').addEventListener('click', ngenieSend);
+document.getElementById('ngenieNewChat').addEventListener('click', ngenieNewChat);
+document.getElementById('ngenieFiles').addEventListener('change', ngenieUpdateFilesLabel);
+document.getElementById('ngenieSaveProjection').addEventListener('click', ngenieSaveProjection);
+document.getElementById('ngenieRefreshProjection').addEventListener('click', ngenieRefreshProjection);
+document.getElementById('ngeniePrompt').addEventListener('keydown', (e)=>{ if(e.key==='Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); ngenieSend(); }});
+document.getElementById('ngenieConfig').addEventListener('change', ()=>{
+  ngenieSaveWorkspace(ngenieState.activeConfig);
+  ngenieRememberSelectedConfig();
+  ngenieState.activeConfig = ngenieConfigValue();
+  ngenieState.pendingClarifications = null;
+  ngenieLoadChat();
+  ngenieRestoreWorkspace();
+});
+document.getElementById('ngenieProjectionRoot').addEventListener('click', (e)=>{
+  const openCard = e.target.closest('.ngenie-node-open');
+  if (openCard) { e.preventDefault(); ngenieNavigateToNode(openCard.getAttribute('data-open-url')); return; }
+  const cand = e.target.closest('.ngenie-candidate');
+  if (cand) {
+    if (cand.getAttribute('data-display-only') === '1' && cand.getAttribute('data-open-url')) {
+      e.preventDefault(); ngenieNavigateToNode(cand.getAttribute('data-open-url')); return;
+    }
+    ngenieSelectCandidate(cand.getAttribute('data-group-id'), cand.getAttribute('data-uid')); return;
+  }
+  if (e.target.closest('#ngenieClarifyContinue')) ngenieContinueClarifications();
+});
+document.getElementById('ngenieProjectionRoot').addEventListener('keydown', (e)=>{
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const el = e.target.closest('.ngenie-node-open, .ngenie-candidate');
+  if (!el) return;
+  e.preventDefault();
+  if (el.classList.contains('ngenie-node-open') || el.getAttribute('data-display-only') === '1') ngenieNavigateToNode(el.getAttribute('data-open-url'));
+  else ngenieSelectCandidate(el.getAttribute('data-group-id'), el.getAttribute('data-uid'));
+});
+ngenieRestoreSelectedConfig();
+ngenieLoadChat();
+ngenieRestoreWorkspace();
+</script>
+{% endblock %}

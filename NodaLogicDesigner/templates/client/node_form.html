@@ -1,6 +1,13 @@
 {% extends "client/base.html" %}
 {% block content %}
 
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css">
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/code-input.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/code-input.min.css">
+<script src="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/plugins/indent.min.js"></script>
+
 <style>
   /* Dark green button for "Save and close" */
   .btn-save-close{
@@ -66,6 +73,22 @@
     white-space:nowrap;
   }
 
+  .nl-ngenie-chat .card-header{background:#6f42c1;color:#fff;}
+  .nl-ngenie-messages{max-height:285px;min-height:170px;overflow:auto;background:#fbfbfd;}
+  .nl-ngenie-msg{border-radius:10px;padding:7px 9px;margin-bottom:7px;white-space:pre-wrap;line-height:1.3;font-size:.86rem;}
+  .nl-ngenie-msg-user{background:#eef1ff;margin-left:18px;}
+  .nl-ngenie-msg-assistant{background:#fff;border:1px solid rgba(0,0,0,.1);margin-right:18px;}
+  .nl-ngenie-send{background:#6f42c1;border-color:#6f42c1;color:#fff;}
+  .nl-ngenie-send:hover{background:#633bb0;border-color:#633bb0;color:#fff;}
+  .nl-ngenie-clarifications{border-top:1px solid rgba(0,0,0,.08);background:#fcfbff;padding:8px;}
+  .nl-ngenie-clarify-group{border:1px solid rgba(111,66,193,.25);border-radius:10px;padding:8px;margin-bottom:8px;background:#fff;}
+  .nl-ngenie-candidate{cursor:pointer;border:2px solid transparent;border-radius:10px;margin-bottom:7px;transition:border-color .12s ease, box-shadow .12s ease;}
+  .nl-ngenie-candidate:hover{border-color:rgba(111,66,193,.35);}
+  .nl-ngenie-candidate.display-only{cursor:default;}
+  .nl-ngenie-candidate.display-only:hover{border-color:transparent;}
+  .nl-ngenie-candidate.selected{border-color:#6f42c1;box-shadow:0 0 0 .16rem rgba(111,66,193,.12);}
+  .nl-ngenie-candidate .card-body{padding:.55rem;font-size:.84rem;}
+  .nl-ngenie-candidate-note{min-height:1.15rem;color:#6c757d;font-size:.78rem;margin-top:.25rem;}
 
   .nl-projection-shell{
     min-height:70vh;
@@ -120,6 +143,103 @@
     padding:.75rem;
     text-align:center;
   }
+  .nl-node-list-wrap{
+    min-height:65vh;
+    overflow:auto;
+    background:#fff;
+    border-radius:.5rem;
+  }
+  .nl-node-list-header,.nl-html-projection-header{
+    padding:.5rem .75rem;
+    border-bottom:1px solid rgba(0,0,0,.1);
+    background:#fff;
+    position:sticky;
+    top:0;
+    z-index:3;
+  }
+  .nl-node-list-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+    gap:.75rem;
+    padding:.75rem;
+  }
+  .nl-node-list-card{cursor:pointer;background:#fff;}
+  .nl-html-projection-wrap{
+    min-height:65vh;
+    overflow:auto;
+    background:#fff;
+    border-radius:.5rem;
+  }
+  .nl-html-projection-body{padding:1rem;}
+  .nl-codeframe{border:1px solid rgba(0,0,0,.125);border-radius:.5rem;padding:.5rem;background:#fff;width:100%;min-width:0;box-sizing:border-box;}
+  .nl-codeframe-head{display:flex;justify-content:space-between;align-items:center;gap:.75rem;margin-bottom:.5rem;flex-wrap:wrap;}
+  .nl-codeframe-editor-wrap{
+    position:relative;
+    display:block;
+    width:100%;
+    min-width:0;
+    min-height:220px;
+    box-sizing:border-box;
+    overflow:hidden;
+    border:1px solid #dee2e6;
+    border-radius:4px;
+    background:#f8f9fa;
+  }
+  .nl-codeframe-editor,
+  .nl-codeframe-highlight{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    box-sizing:border-box;
+    margin:0!important;
+    padding:12px!important;
+    border:0;
+    border-radius:0;
+    font-family:Consolas,Monaco,'Courier New',monospace!important;
+    font-size:14px!important;
+    font-weight:400!important;
+    line-height:1.5!important;
+    letter-spacing:normal!important;
+    tab-size:4;
+    white-space:pre!important;
+    overflow:auto;
+    text-align:left;
+  }
+  .nl-codeframe-highlight{
+    z-index:1;
+    pointer-events:none;
+    background:#f8f9fa!important;
+    text-shadow:none!important;
+    scrollbar-width:none;
+  }
+  .nl-codeframe-highlight::-webkit-scrollbar{display:none;}
+  .nl-codeframe-highlight code{
+    display:block;
+    min-width:max-content;
+    padding:0!important;
+    margin:0!important;
+    background:transparent!important;
+    font:inherit!important;
+    line-height:inherit!important;
+    text-shadow:none!important;
+  }
+  .nl-codeframe-editor{
+    z-index:2;
+    resize:none;
+    background:transparent;
+    color:transparent;
+    -webkit-text-fill-color:transparent;
+    caret-color:#212529;
+    outline:0;
+  }
+  .nl-codeframe-editor::selection{
+    background:rgba(13,110,253,.25);
+    color:transparent;
+    -webkit-text-fill-color:transparent;
+  }
+  .nl-codeframe-editor:focus + *{outline:0;}
+  .nl-codeframe-editor-wrap:focus-within{border-color:#86b7fe;box-shadow:0 0 0 .2rem rgba(13,110,253,.15);}
   .nl-diagram-wrap{
     min-height:65vh;
     overflow:auto;
@@ -136,6 +256,10 @@
     top:0;
     z-index:3;
   }
+  .nl-diagram-meta{padding:.45rem .75rem;border-bottom:1px solid rgba(0,0,0,.08);background:#fff;position:sticky;top:41px;z-index:3;}
+  .nl-diagram-legend{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;}
+  .nl-diagram-legend-item{display:inline-flex;align-items:center;gap:.3rem;font-size:.8rem;color:#495057;}
+  .nl-diagram-legend-swatch{width:28px;height:14px;border:1px solid rgba(0,0,0,.2);border-radius:2px;display:inline-block;}
   .nl-diagram-board{
     position:relative;
     min-width:100%;
@@ -303,8 +427,36 @@
     #printFormPreview{ position:absolute; left:0; top:0; width:100%; border:0; padding:0; }
   }
 
+  .nl-runprogress-overlay{
+    position:fixed;
+    inset:0;
+    z-index:20050;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    background:rgba(255,255,255,.72);
+    backdrop-filter:blur(1px);
+  }
+  .nl-runprogress-overlay.is-visible{display:flex;}
+  .nl-runprogress-card{
+    min-width:220px;
+    max-width:min(420px,90vw);
+    padding:1rem 1.25rem;
+    border:1px solid rgba(0,0,0,.15);
+    border-radius:.75rem;
+    background:#fff;
+    box-shadow:0 .5rem 1.5rem rgba(0,0,0,.15);
+    text-align:center;
+  }
 
 </style>
+
+<div class="nl-runprogress-overlay" id="nlRunProgressOverlay" role="status" aria-live="polite" aria-hidden="true">
+  <div class="nl-runprogress-card">
+    <div class="spinner-border text-primary mb-3" aria-hidden="true"></div>
+    <div class="fw-semibold" id="nlRunProgressText">{{ _('Operation is running...') }}</div>
+  </div>
+</div>
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
   <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -368,6 +520,14 @@
             <div id="ganttProjectionRoot" class="nl-gantt-wrap">
               <div class="text-muted small p-3">{{ _('Projection is not generated yet.') }}</div>
             </div>
+          {% elif projection_type in ['node_list_projection', 'nodes_list_projection', 'node_list', 'list_projection'] %}
+            <div id="nodeListProjectionRoot" class="nl-node-list-wrap">
+              <div class="text-muted small p-3">{{ _('Projection is not generated yet.') }}</div>
+            </div>
+          {% elif projection_type in ['html_projection', 'html', 'HTML'] %}
+            <div id="htmlProjectionRoot" class="nl-html-projection-wrap">
+              <div class="text-muted small p-3">{{ _('Projection is not generated yet.') }}</div>
+            </div>
           {% else %}
             <div class="alert alert-info mb-0">{{ _('This projection type is stored, but the web renderer is not implemented yet.') }}</div>
           {% endif %}
@@ -399,6 +559,11 @@
         <button class="nav-link" id="tab-media" data-bs-toggle="tab" data-bs-target="#pane-media" type="button" role="tab">{{ _('Media') }}</button>
       </li>
       {% endif %}
+      {% if show_node_json %}
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-json" data-bs-toggle="tab" data-bs-target="#pane-json" type="button" role="tab">JSON</button>
+      </li>
+      {% endif %}
     </ul>
 
     <div class="tab-content">
@@ -419,6 +584,14 @@
           </div>
         {% endif %}
       </div>
+
+      {% if show_node_json %}
+      <div class="tab-pane fade" id="pane-json" role="tabpanel">
+        <div class="mb-2 text-muted small">_data (JSON)</div>
+        <textarea id="adminDataJson" class="form-control font-monospace" rows="22" spellcheck="false">{{ data_json | e }}</textarea>
+        <div class="text-muted small mt-2">{{ _('Admin JSON editor. Ctrl+S saves this JSON to the node.') }}</div>
+      </div>
+      {% endif %}
 
       <div class="tab-pane fade" id="pane-chat" role="tabpanel">
         <div class="card nl-chat-panel">
@@ -463,7 +636,7 @@
 
   </div>
 
-  {% if use_standard_commands or is_projection or is_print_form or print_forms_for_class %}
+  {% if true %}
   {% set projection_timer = 0 %}
   {% if node_data is mapping %}{% set projection_timer = (node_data.get('_projection_timer') or 0)|float %}{% endif %}
   <div style="width:300px; flex:0 0 300px; flex-shrink:0; position:sticky; top:12px; align-self:flex-start;">
@@ -474,6 +647,29 @@
             <div id="webRoot">{{ layout_html | safe }}</div>
           </div>
         </div>
+      {% endif %}
+
+      {% if ngenie_enabled %}
+      <div class="card mb-3 nl-ngenie-chat">
+        <div class="card-header py-2 d-flex align-items-center justify-content-between">
+          <div class="fw-semibold">nGenie</div>
+          <div id="nlNGenieStatus" class="small opacity-75"></div>
+        </div>
+        <div id="nlNGenieMessages" class="card-body nl-ngenie-messages"></div>
+        <div id="nlNGenieClarifications" class="nl-ngenie-clarifications" style="display:none;"></div>
+        <div class="card-footer p-2">
+          <textarea id="nlNGeniePrompt" class="form-control form-control-sm" rows="3" placeholder="{{ _('Example: add two tractor rows to this order') }}"></textarea>
+          <div class="mt-2">
+            <input id="nlNGenieFiles" class="form-control form-control-sm" type="file" multiple>
+            <div id="nlNGenieFilesLabel" class="form-text">{{ _('Attach files to this node through nGenie.') }}</div>
+          </div>
+          <div class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" value="1" id="nlNGenieAllowCatalogCreate">
+            <label class="form-check-label small" for="nlNGenieAllowCatalogCreate">{{ _('Create directories/catalogs') }}</label>
+          </div>
+          <button id="nlNGenieSend" class="btn btn-sm nl-ngenie-send w-100 mt-2" type="button">{{ _('Send') }}</button>
+        </div>
+      </div>
       {% endif %}
 
       <div class="d-grid gap-2">
@@ -567,10 +763,54 @@ const API_PROJECTION_SCHEDULE_DATA = {{ (api_projection_schedule_data|default(''
 const API_PROJECTION_SCHEDULE_MOVE = {{ (api_projection_schedule_move|default(''))|tojson }};
 const API_PROJECTION_GANTT_DATA = {{ (api_projection_gantt_data|default(''))|tojson }};
 const API_PROJECTION_GANTT_MOVE = {{ (api_projection_gantt_move|default(''))|tojson }};
+const API_PROJECTION_NODE_LIST_DATA = {{ (api_projection_node_list_data|default(''))|tojson }};
+const API_PROJECTION_HTML_DATA = {{ (api_projection_html_data|default(''))|tojson }};
+const API_CODEFRAME_READ = {{ (api_codeframe_read|default(''))|tojson }};
+const API_CODEFRAME_SAVE = {{ (api_codeframe_save|default(''))|tojson }};
+const CURRENT_USER_IS_ADMIN = {{ (current_user_is_admin|default(false))|tojson }};
+const SHOW_NODE_JSON = {{ (show_node_json|default(false))|tojson }};
 const API_NODE_CREATE = "/client/api/node/create";
 const API_EVENT_WEB = {{ api_event_web|tojson }};
 const API_SAVE = {{ api_save_url|tojson }};
 const API_DISCUSSION_MESSAGES = `/client/api/node-discussion/by-node/${encodeURIComponent(DISCUSSION_NODE_ID)}/messages`;
+
+let nlRunProgressDepth = 0;
+function nlActionsForEvent(eventName, payload){
+  const listener = String((payload && (payload.listener || payload.id)) || "").trim();
+  const out = [];
+  const events = Array.isArray(CLASS_OBJ && CLASS_OBJ.events) ? CLASS_OBJ.events : [];
+  for (const ev of events){
+    if (!ev || String(ev.event || "") !== String(eventName || "")) continue;
+    const evListener = String(ev.listener || "").trim();
+    if (listener){
+      if (evListener && evListener !== listener) continue;
+    } else if (evListener){
+      continue;
+    }
+    if (Array.isArray(ev.actions)) out.push(...ev.actions);
+  }
+  return out;
+}
+function nlUsesRunProgress(eventName, payload){
+  return nlActionsForEvent(eventName, payload).some((a) =>
+    String((a && a.action) || "run").trim().toLowerCase() === "runprogress"
+  );
+}
+function nlRunProgressStart(){
+  nlRunProgressDepth += 1;
+  const overlay = document.getElementById("nlRunProgressOverlay");
+  if (!overlay) return;
+  overlay.classList.add("is-visible");
+  overlay.setAttribute("aria-hidden", "false");
+}
+function nlRunProgressStop(){
+  nlRunProgressDepth = Math.max(0, nlRunProgressDepth - 1);
+  if (nlRunProgressDepth > 0) return;
+  const overlay = document.getElementById("nlRunProgressOverlay");
+  if (!overlay) return;
+  overlay.classList.remove("is-visible");
+  overlay.setAttribute("aria-hidden", "true");
+}
 
 // Scanner WS context (used by base.html)
 window.NL = window.NL || {};
@@ -599,9 +839,30 @@ const API_DELETE = {{ api_delete_url|tojson }};
 const API_REGISTER = {{ api_register_url|tojson }};
 const DEFAULT_ROOM_UID = {{ (default_room_uid or "") | tojson }};
 const SECTIONS_HOME = {{ url_for('client.sections_home')|tojson }};
+const NGENIE_HOME = {{ url_for('client.ngenie_page')|tojson }};
+function nlReturnToReferrer(refresh=true){
+  try {
+    const ref = (document.referrer || '').trim();
+    if (!ref) return false;
+    const u = new URL(ref, window.location.origin);
+    const ng = new URL(NGENIE_HOME, window.location.origin);
+    // nGenie cards open in the same tab. Going back preserves the exact chat,
+    // selected configuration and rendered result instead of creating/reloading a
+    // blank assistant page.
+    if (u.origin === window.location.origin && u.pathname === ng.pathname && window.history.length > 1) {
+      window.history.back();
+      return true;
+    }
+    if (refresh) u.searchParams.set('refresh', '1');
+    window.location.href = u.toString();
+    return true;
+  } catch(_) { return false; }
+}
 const API_CLASS_NODES = "/client/api/class_nodes";
 const API_DATASET_ITEMS = "/client/api/dataset_items";
 const API_NODALAYOUT_RENDER = "/client/api/nodalayout/render";
+const API_NODE_VIEWS_BATCH = "/client/api/node_views/batch";
+const API_NGENIE_CHAT = "/client/api/ngenie/chat";
 
 // UserFiles API (FileGallery / MediaGallery)
 const API_USERFILES_LIST   = `/client/api/userfiles/${REPO_ID}/list`;
@@ -627,6 +888,187 @@ function userfilesImageUrl(filename){
 function shouldUploadUserfilesToS3(){
   return !!(_data && (_data._upload_s3 === true || _data._upload_s3 === 1 || String(_data._upload_s3 || '').toLowerCase() === 'true' || String(_data._upload_s3 || '').toLowerCase() === 'yes' || String(_data._upload_s3 || '').toLowerCase() === 'on'));
 }
+
+function nlB64DecodeUtf8(value){
+  try {
+    const bin = atob(String(value || '').replace(/-/g, '+').replace(/_/g, '/'));
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch(_) { return ''; }
+}
+function nlCodeFrameRef(frame){ return nlB64DecodeUtf8(frame.getAttribute('data-code-ref-b64') || ''); }
+function nlCodeFrameStatus(frame, text, level){
+  const st = frame.querySelector('[data-codeframe-status]');
+  if (!st) return;
+  st.textContent = text || '';
+  st.className = 'small mt-1 ' + (level === 'danger' ? 'text-danger' : (level === 'success' ? 'text-success' : 'text-muted'));
+}
+function nlEnsureCodeInputTemplate(){
+  if (!window.codeInput || !window.Prism) return false;
+  if (!window.__nlCodeInputTemplateRegistered) {
+    try {
+      codeInput.registerTemplate('syntax-highlighted', codeInput.templates.prism(Prism, [new codeInput.plugins.Indent(true, 4)]));
+    } catch(e) {}
+    window.__nlCodeInputTemplateRegistered = true;
+  }
+  return true;
+}
+function nlCodeFrameEditor(frame){
+  return frame ? frame.querySelector('textarea.nl-codeframe-editor') : null;
+}
+function nlCodeFrameHighlight(frame){
+  return frame ? frame.querySelector('.nl-codeframe-highlight code') : null;
+}
+function nlCodeFrameWrap(frame){
+  return frame ? frame.querySelector('.nl-codeframe-editor-wrap') : null;
+}
+function nlCodeFrameSyncScroll(frame){
+  const editor = nlCodeFrameEditor(frame);
+  const highlight = frame ? frame.querySelector('.nl-codeframe-highlight') : null;
+  if (!editor || !highlight) return;
+  highlight.scrollTop = editor.scrollTop;
+  highlight.scrollLeft = editor.scrollLeft;
+}
+function nlCodeFrameRenderHighlight(frame){
+  const editor = nlCodeFrameEditor(frame);
+  const code = nlCodeFrameHighlight(frame);
+  if (!editor || !code) return;
+  code.textContent = String(editor.value || '') + '\n';
+  if (window.Prism) {
+    try { Prism.highlightElement(code); } catch(_) {}
+  }
+  nlCodeFrameSyncScroll(frame);
+}
+function nlCodeFrameResize(frame, value){
+  const wrap = nlCodeFrameWrap(frame);
+  if (!wrap) return;
+  const configured = parseInt(wrap.getAttribute('data-codeframe-min-height') || '160', 10) || 160;
+  const lineCount = Math.max(6, String(value || '').split('\n').length);
+  const height = Math.max(configured, Math.min(760, lineCount * 21 + 28));
+  wrap.style.height = height + 'px';
+}
+function nlCodeFrameGetValue(editor){
+  return editor ? String(editor.value || '') : '';
+}
+function nlCodeFrameSetValue(frame, value){
+  const editor = nlCodeFrameEditor(frame);
+  if (!editor) return;
+  editor.readOnly = false;
+  editor.disabled = false;
+  editor.value = String(value || '').replace(/^\n+/, '');
+  nlCodeFrameResize(frame, editor.value);
+  nlCodeFrameRenderHighlight(frame);
+  try {
+    editor.selectionStart = 0;
+    editor.selectionEnd = 0;
+  } catch(_) {}
+  editor.scrollTop = 0;
+  editor.scrollLeft = 0;
+  nlCodeFrameSyncScroll(frame);
+}
+async function nlLoadCodeFrame(frame){
+  if (!frame || !CURRENT_USER_IS_ADMIN || !API_CODEFRAME_READ) return;
+  const editor = nlCodeFrameEditor(frame);
+  if (!editor) return;
+  nlCodeFrameStatus(frame, 'loading...', 'muted');
+  const r = await fetch(API_CODEFRAME_READ, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    credentials:'same-origin',
+    body:JSON.stringify({
+      repo_id:REPO_ID,
+      class_name:CLASS_NAME,
+      ref:nlCodeFrameRef(frame)
+    })
+  });
+  const j = await r.json();
+  if (!j || !j.ok) {
+    nlCodeFrameStatus(frame, (j && j.error) || 'load failed', 'danger');
+    return;
+  }
+  nlCodeFrameSetValue(frame, j.code || '');
+  frame.__nl_loaded = true;
+  const scope = j.class_name ? j.class_name : 'module';
+  nlCodeFrameStatus(frame, `${scope}.${j.method_name || ''}`, 'success');
+}
+async function nlSaveCodeFrame(frame){
+  if (!frame || !CURRENT_USER_IS_ADMIN || !API_CODEFRAME_SAVE) return;
+  const editor = nlCodeFrameEditor(frame);
+  if (!editor) return;
+  nlCodeFrameStatus(frame, 'saving...', 'muted');
+  const r = await fetch(API_CODEFRAME_SAVE, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    credentials:'same-origin',
+    body:JSON.stringify({
+      repo_id:REPO_ID,
+      class_name:CLASS_NAME,
+      ref:nlCodeFrameRef(frame),
+      code:nlCodeFrameGetValue(editor)
+    })
+  });
+  const j = await r.json();
+  if (!j || !j.ok) {
+    nlCodeFrameStatus(frame, (j && j.error) || 'save failed', 'danger');
+    if (window.message) window.message((j && j.error) || 'save failed', 'danger');
+    return;
+  }
+  nlCodeFrameStatus(frame, 'saved', 'success');
+  if (window.message) window.message('CodeFrame saved', 'success');
+}
+function nlCodeFrameInsertTab(editor){
+  const start = editor.selectionStart || 0;
+  const end = editor.selectionEnd || start;
+  const value = editor.value || '';
+  editor.value = value.slice(0, start) + '    ' + value.slice(end);
+  editor.selectionStart = start + 4;
+  editor.selectionEnd = start + 4;
+}
+function bindCodeFrames(root){
+  if (!CURRENT_USER_IS_ADMIN) return;
+  (root || document).querySelectorAll('[data-nl-codeframe="1"]').forEach(frame => {
+    if (frame.__nl_bound) return;
+    frame.__nl_bound = true;
+    const loadBtn = frame.querySelector('[data-codeframe-action="load"]');
+    const saveBtn = frame.querySelector('[data-codeframe-action="save"]');
+    const editor = nlCodeFrameEditor(frame);
+    if (loadBtn) loadBtn.addEventListener('click', () => nlLoadCodeFrame(frame));
+    if (saveBtn) saveBtn.addEventListener('click', () => nlSaveCodeFrame(frame));
+    if (editor) {
+      editor.readOnly = false;
+      editor.disabled = false;
+      editor.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          nlCodeFrameInsertTab(editor);
+          nlCodeFrameResize(frame, editor.value);
+          nlCodeFrameRenderHighlight(frame);
+          return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+          e.preventDefault();
+          nlSaveCodeFrame(frame);
+        }
+      });
+      editor.addEventListener('input', () => {
+        nlCodeFrameResize(frame, editor.value);
+        nlCodeFrameRenderHighlight(frame);
+      });
+      editor.addEventListener('scroll', () => nlCodeFrameSyncScroll(frame));
+    }
+    const activate = () => {
+      if (frame.offsetParent === null) return;
+      if (!frame.__nl_loaded) nlLoadCodeFrame(frame);
+    };
+    frame.__nl_activate = activate;
+    activate();
+  });
+}
+document.addEventListener('shown.bs.tab', () => {
+  document.querySelectorAll('[data-nl-codeframe="1"]').forEach(frame => {
+    if (frame.__nl_activate) frame.__nl_activate();
+  });
+});
 
 // ---------------- Node discussion chat ----------------
 const nlChatState = {
@@ -1264,11 +1706,11 @@ const __nlScript = {
 
   run(code, ctx){
     const eng = this.ensureEngine();
-    return eng.execute(String(code ?? ""), _data, ctx || {});
+    return eng.execute(String(code ?? ""), nlGetDataCtx(), ctx || {});
   },
   get(code, ctx){
     const eng = this.ensureEngine();
-    return eng.get(String(code ?? ""), _data, ctx || {});
+    return eng.get(String(code ?? ""), nlGetDataCtx(), ctx || {});
   }
 };
 
@@ -1309,10 +1751,12 @@ function nlResolveTemplateString(tpl){
     }
   }
 
-  // @var or text with @var inside
+  // @var or text with @var inside. In a virtual-node editor the active
+  // context is the embedded row; outside it this resolves to the parent node.
   if (s.includes('@')) {
+    const dataCtx = nlGetDataCtx();
     return s.replace(/@([^\s@{}\[\](),;:<>"'/]+)/g, (_, key) => {
-      const v = nlGetByPath(_data, key);
+      const v = nlGetByPath(dataCtx, key);
       return (v == null) ? "" : String(v);
     });
   }
@@ -1334,10 +1778,11 @@ function nlResolveLinkTextTemplate(el, tpl){
   if (!m) return null;
 
   const key = m[1];
-  const view = nlGetByPath(_data, `${key}_view`);
+  const dataCtx = nlGetDataCtx();
+  const view = nlGetByPath(dataCtx, `${key}_view`);
   if (view != null && String(view).trim() !== '') return String(view);
 
-  const raw = nlGetByPath(_data, key);
+  const raw = nlGetByPath(dataCtx, key);
   if (raw == null) return '';
 
   // Не деградируем начальный серверный текст во время DOMContentLoaded,
@@ -1505,54 +1950,110 @@ function nlGetEventActions(eventName, listener){
 async function nlRunLocalNodaScriptFirst(eventName, payload){
   const listener = String(payload?.listener || payload?.id || '').trim();
   const actions = nlGetEventActions(eventName, listener);
-  if (!actions.length) return { ran: false, hasRemote: false };
+  if (!actions.length) return { ran: false, hasRemote: false, failed: false };
 
   let ran = false;
   let hasRemote = false;
+  let failed = false;
   for (const a of actions){
     const m = String(a?.method || '').trim().toLowerCase();
     if (!m) continue;
     if (m === 'nodascript') {
-      const code = a.methodText ?? a.method_text ?? a.text ?? a.code ?? '';
+      const code = String(a.methodText ?? a.method_text ?? a.text ?? a.code ?? '');
+      if (!code.trim()) {
+        failed = true;
+        continue;
+      }
+      // These commands require server configuration/storage context. Do not run
+      // them in the browser interpreter; send this action to the backend fallback.
+      if (/\b(?:banner|banner_html|banner_layout|close_banner|ngenie)\s*\(/i.test(code)) {
+        failed = true;
+        continue;
+      }
       try {
-        __nlScript.run(String(code || ''), { payload });
+        __nlScript.run(code, { payload });
+        ran = true;
       } catch(e) {
+        failed = true;
         try { window.message && window.message(String(e?.message || e), 'danger'); } catch(_) {}
       }
-      ran = true;
     } else {
       hasRemote = true;
     }
   }
 
+  // If the browser engine is absent or rejected the script, let the web backend
+  // execute the same NodaScript action instead of silently treating it as done.
+  if (failed && payload && typeof payload === 'object') {
+    payload.__nodascript_fallback = true;
+    hasRemote = true;
+  }
   if (ran) {
     try { nlRefreshUI(); } catch(_) {}
   }
-  return { ran, hasRemote };
+  return { ran, hasRemote, failed };
 }
 
 async function nlRunLocalPostNodaScript(eventName, payload){
   const listener = String(payload?.listener || payload?.id || '').trim();
   const actions = nlGetEventActions(eventName, listener);
-  if (!actions.length) return { ran: false };
+  if (!actions.length) return { ran: false, failed: false };
 
   let ran = false;
+  let failed = false;
   for (const a of actions){
     const m = String(a?.postExecuteMethod || a?.post_execute_method || '').trim().toLowerCase();
     if (m !== 'nodascript') continue;
-    const code = a.postExecuteMethodText ?? a.post_execute_method_text ?? a.postText ?? a.post_text ?? '';
+    const code = String(a.postExecuteMethodText ?? a.post_execute_method_text ?? a.postText ?? a.post_text ?? '');
+    if (!code.trim()) { failed = true; continue; }
+    if (/\b(?:banner|banner_html|banner_layout|close_banner|ngenie)\s*\(/i.test(code)) {
+      failed = true;
+      continue;
+    }
     try {
-      __nlScript.run(String(code || ''), { payload });
+      __nlScript.run(code, { payload });
+      ran = true;
+    } catch(e) {
+      failed = true;
+      try { window.message && window.message(String(e?.message || e), 'danger'); } catch(_) {}
+    }
+  }
+
+  if (failed) {
+    try {
+      const fallbackPayload = Object.assign({}, payload || {}, {
+        __nodascript_post_fallback: true,
+        __nodascript_only: true
+      });
+      const r = await fetch(API_EVENT_WEB, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          repo_id: REPO_ID,
+          class_name: CLASS_NAME,
+          node_id: NODE_ID,
+          event: eventName,
+          payload: fallbackPayload
+        })
+      });
+      const j = await r.json();
+      if (j && j.message && window.message) {
+        const showOne = (m) => window.message(m && typeof m === 'object' ? (m.text || JSON.stringify(m)) : String(m), (m && m.level) || 'info');
+        if (Array.isArray(j.message)) j.message.forEach(showOne); else showOne(j.message);
+      }
+      if (j && j.node_data && typeof j.node_data === 'object') {
+        _data = deepMerge(_data || {}, j.node_data || {});
+        ran = true;
+      }
     } catch(e) {
       try { window.message && window.message(String(e?.message || e), 'danger'); } catch(_) {}
     }
-    ran = true;
   }
 
   if (ran) {
     try { nlRefreshUI(); } catch(_) {}
   }
-  return { ran };
+  return { ran, failed };
 }
 
 
@@ -1816,6 +2317,8 @@ async function fireOnInputWeb(payload){
     }
   } catch(_){ }
 
+  const nlShowProgress = nlUsesRunProgress("onInputWeb", payload || {});
+  if (nlShowProgress) nlRunProgressStart();
   try{
     const r = await fetch(API_EVENT_WEB, {
       method: "POST",
@@ -1934,16 +2437,8 @@ async function fireOnInputWeb(payload){
           }
         } catch(_) {}
 
-        // 2) Иначе навигация назад
-        try {
-          const ref = (document.referrer || "").trim();
-          if (ref) {
-            const u = new URL(ref, window.location.origin);
-            u.searchParams.set("refresh", "1");
-            window.location.href = u.toString();
-            return;
-          }
-        } catch(_) {}
+        // 2) Иначе вернуться туда, откуда открыли форму.
+        if (nlReturnToReferrer(true)) return;
 
         // 3) Fallback
         window.location.href = SECTIONS_HOME;
@@ -1963,6 +2458,8 @@ async function fireOnInputWeb(payload){
     } catch(_){}
   } catch(e){
     console.warn("event_web failed", e);
+  } finally {
+    if (nlShowProgress) nlRunProgressStop();
   }
 
   try { await nlRunLocalPostNodaScript("onInputWeb", payload || {}); } catch(_){}
@@ -2029,6 +2526,8 @@ async function fireOnClickWeb(payload, target_class = "", target_node = "", opti
     payload: payload || {},
   };
 
+  const nlShowProgress = nlUsesRunProgress("onInputWeb", payload || {});
+  if (nlShowProgress) nlRunProgressStart();
   let r, j;
   try {
     
@@ -2041,6 +2540,13 @@ async function fireOnClickWeb(payload, target_class = "", target_node = "", opti
     j = await r.json();
   } catch (e) {
     console.error("fireOnClickWeb fetch/json error", e);
+    return;
+  } finally {
+    if (nlShowProgress) nlRunProgressStop();
+  }
+
+  if (j && j.break_view) {
+    try { openDebugBreakModal(j.break_view); } catch(e) { console.warn(e); }
     return;
   }
 
@@ -2107,15 +2613,7 @@ async function fireOnClickWeb(payload, target_class = "", target_node = "", opti
     }
   } catch(_) {}
 
-  try {
-    const ref = (document.referrer || "").trim();
-    if (ref) {
-      const u = new URL(ref, window.location.origin);
-      u.searchParams.set("refresh", "1");
-      window.location.href = u.toString();
-      return;
-    }
-  } catch(_) {}
+  if (nlReturnToReferrer(true)) return;
 
   try { window.history.back(); } catch(_){}
   return;
@@ -2148,6 +2646,7 @@ async function fireOnClickWeb(payload, target_class = "", target_node = "", opti
   
       bindClicks();
       bindInputs();
+      bindCodeFrames(root);
       initDatasetTables();
       initVirtualTables();
           try { nlRefreshUI(); } catch(_) {}
@@ -2290,6 +2789,84 @@ function bindKanbanProjection(root){
     });
   });
 }
+function nodeProjectionCardHtml(obj, extraClass){
+  const html = obj.cover_html || kanbanObjectFallbackHtml(obj);
+  return `<div class="card nl-node-list-card ${escapeHtml(extraClass || '')}"
+       data-object-uid="${escapeHtml(obj.uid || '')}"
+       data-open-url="${escapeHtml(obj.open_url || '')}"
+       data-repo-uid="${escapeHtml(obj.repo_uid || '')}"
+       data-class="${escapeHtml(obj.class || '')}"
+       data-id="${escapeHtml(obj.id || '')}">${html}</div>`;
+}
+function renderNodeListProjection(payload){
+  const root = document.getElementById('nodeListProjectionRoot');
+  if (!root) return;
+  const objects = Array.isArray(payload.objects) ? payload.objects : [];
+  const header = String(payload.header || '').trim() || 'Node list';
+  const cards = objects.length ? objects.map(obj => nodeProjectionCardHtml(obj, '')).join('') : `<div class="text-muted small p-3">${escapeHtml('No projection objects')}</div>`;
+  root.innerHTML = `<div class="nl-node-list-header d-flex justify-content-between align-items-center"><div class="fw-semibold">${escapeHtml(header)}</div><span class="badge text-bg-light border">${objects.length}</span></div><div class="nl-node-list-grid">${cards}</div>`;
+  root.querySelectorAll('.nl-node-list-card').forEach(card => card.addEventListener('click', () => openProjectionObject(card)));
+}
+async function loadNodeListProjection(options){
+  if (!IS_PROJECTION || !['node_list_projection','nodes_list_projection','node_list','list_projection'].includes(PROJECTION_TYPE)) return;
+  const opts = options || {};
+  if (projectionState.loading && !opts.forceReload) return;
+  projectionState.loading = true;
+  try {
+    if (!opts.skipRun) await runProjectionHandler();
+    projectionStatus('loading...');
+    const r = await fetch(API_PROJECTION_NODE_LIST_DATA, {method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body:JSON.stringify({repo_id:REPO_ID, class_name:CLASS_NAME, node_id:NODE_ID, is_raw_node:IS_RAW_NODE, raw_node_id: IS_RAW_NODE ? DISCUSSION_NODE_ID : '', node_data:_data || {}})});
+    const j = await r.json();
+    if (!j || !j.ok) throw new Error((j && (j.error || (j.message && j.message.text))) || 'node-list load failed');
+    projectionState.projectionUid = j.projection_uid || '';
+    if (j.timer !== undefined) projectionState.intervalMs = normalizeProjectionTimer(j.timer);
+    if (j.node_data && typeof j.node_data === 'object') { try { _data = JSON.parse(JSON.stringify(j.node_data)); } catch(_){ _data = j.node_data || {}; } }
+    renderNodeListProjection(j);
+    projectionStatus('ready');
+  } catch(e) { projectionStatus(''); if (window.message) window.message(String(e), 'error'); else alert(String(e)); }
+  finally { projectionState.loading = false; }
+}
+function renderHtmlProjection(payload){
+  const root = document.getElementById('htmlProjectionRoot');
+  if (!root) return;
+  const header = String(payload.header || '').trim();
+  root.innerHTML = `${header ? `<div class="nl-html-projection-header fw-semibold">${escapeHtml(header)}</div>` : ''}<div class="nl-html-projection-body">${payload.html || ''}</div>`;
+}
+async function loadHtmlProjection(options){
+  if (!IS_PROJECTION || !['html_projection','html','HTML'].includes(PROJECTION_TYPE)) return;
+  const opts = options || {};
+  if (projectionState.loading && !opts.forceReload) return;
+  projectionState.loading = true;
+  try {
+    if (!opts.skipRun) await runProjectionHandler();
+    projectionStatus('loading...');
+    const r = await fetch(API_PROJECTION_HTML_DATA, {method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body:JSON.stringify({repo_id:REPO_ID, class_name:CLASS_NAME, node_id:NODE_ID, is_raw_node:IS_RAW_NODE, raw_node_id: IS_RAW_NODE ? DISCUSSION_NODE_ID : '', node_data:_data || {}})});
+    const j = await r.json();
+    if (!j || !j.ok) throw new Error((j && (j.error || (j.message && j.message.text))) || 'html load failed');
+    projectionState.projectionUid = j.projection_uid || '';
+    if (j.timer !== undefined) projectionState.intervalMs = normalizeProjectionTimer(j.timer);
+    if (j.node_data && typeof j.node_data === 'object') { try { _data = JSON.parse(JSON.stringify(j.node_data)); } catch(_){ _data = j.node_data || {}; } }
+    renderHtmlProjection(j);
+    projectionStatus('ready');
+  } catch(e) { projectionStatus(''); if (window.message) window.message(String(e), 'error'); else alert(String(e)); }
+  finally { projectionState.loading = false; }
+}
+function openDebugBreakModal(payload){
+  payload = payload || {};
+  const id = 'nlDebugBreakModal';
+  let el = document.getElementById(id);
+  if (!el) {
+    document.body.insertAdjacentHTML('beforeend', `<div class="modal fade" id="${id}" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title"></h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body"><div class="nl-node-list-grid" data-debug-break-list></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div></div></div></div>`);
+    el = document.getElementById(id);
+  }
+  const objects = Array.isArray(payload.objects) ? payload.objects : [];
+  el.querySelector('.modal-title').textContent = payload.title || 'Debug nodes';
+  const list = el.querySelector('[data-debug-break-list]');
+  list.innerHTML = objects.length ? objects.map(obj => nodeProjectionCardHtml(obj, '')).join('') : `<div class="text-muted small p-3">${escapeHtml('No nodes')}</div>`;
+  list.querySelectorAll('.nl-node-list-card').forEach(card => card.addEventListener('click', () => openProjectionObject(card)));
+  bootstrap.Modal.getOrCreateInstance(el).show();
+}
+
 function renderKanbanProjection(payload){
   const root = document.getElementById("kanbanProjectionRoot");
   if (!root) return;
@@ -2406,6 +2983,8 @@ function renderDiagramProjection(payload){
   projectionState.editor = !!payload.editor;
   projectionState.diagramObjects = {};
   const header = String(payload.header || "").trim();
+  const note = String(payload.note || "").trim();
+  const legend = Array.isArray(payload.legend) ? payload.legend : [];
   let maxX = 900, maxY = 600;
   const items = objects.map((obj, idx) => {
     const d = obj.diagram || {};
@@ -2421,10 +3000,14 @@ function renderDiagramProjection(payload){
     const cls = figure === "circle" ? " circle" : (figure === "svg" ? " svg" : "");
     const editorCls = payload.editor ? " editor" : "";
     const bg = /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(String(d.background || "")) ? String(d.background) : "#ffffff";
+    const textColor = /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(String(d.text_color || "")) ? String(d.text_color) : "#212529";
+    const borderColor = String(d.border_color || "rgba(0,0,0,.25)").replace(/[<>"']/g, "");
+    const tooltip = String(d.tooltip || "");
     const uid = String(obj.uid || "");
     if (uid) projectionState.diagramObjects[uid] = obj;
     return `<div class="nl-diagram-object${cls}${editorCls}"
-        style="left:${x1}px; top:${y1}px; width:${w}px; height:${h}px; background:${escapeHtml(bg)};"
+        style="left:${x1}px; top:${y1}px; width:${w}px; height:${h}px; background:${escapeHtml(bg)}; color:${escapeHtml(textColor)}; border-color:${escapeHtml(borderColor)};"
+        title="${escapeHtml(tooltip)}"
         data-x1="${x1}" data-y1="${y1}" data-x2="${x2}" data-y2="${y2}"
         data-object-uid="${escapeHtml(uid)}"
         data-open-url="${escapeHtml(obj.open_url || "")}"
@@ -2433,7 +3016,13 @@ function renderDiagramProjection(payload){
         data-id="${escapeHtml(obj.id || "")}">${diagramShapeHtml(obj)}</div>`;
   }).join("");
   const boardClass = payload.editor ? "nl-diagram-board editor" : "nl-diagram-board";
-  root.innerHTML = `${header ? `<div class="nl-diagram-header">${escapeHtml(header)}</div>` : ""}<div id="diagramProjectionBoard" class="${boardClass}" style="width:${maxX}px; height:${maxY}px;">${items || `<div class="text-muted small p-3">${escapeHtml("No projection objects")}</div>`}</div>`;
+  const legendHtml = legend.length ? `<div class="nl-diagram-legend">${legend.map(it => {
+    const color = /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(String((it && it.color) || '')) ? String(it.color) : '#ffffff';
+    const label = String((it && (it.label || it.caption || it.value)) || '');
+    return `<span class="nl-diagram-legend-item"><span class="nl-diagram-legend-swatch" style="background:${escapeHtml(color)}"></span>${escapeHtml(label)}</span>`;
+  }).join('')}</div>` : '';
+  const metaHtml = (note || legendHtml) ? `<div class="nl-diagram-meta">${note ? `<div class="small text-muted mb-1">${escapeHtml(note)}</div>` : ''}${legendHtml}</div>` : '';
+  root.innerHTML = `${header ? `<div class="nl-diagram-header">${escapeHtml(header)}</div>` : ""}${metaHtml}<div id="diagramProjectionBoard" class="${boardClass}" style="width:${maxX}px; height:${maxY}px;">${items || `<div class="text-muted small p-3">${escapeHtml("No projection objects")}</div>`}</div>`;
   bindDiagramProjection(root, !!payload.editor);
 }
 function ensureDiagramProjectionModal(){
@@ -3102,6 +3691,8 @@ function loadProjection(options){
   if (PROJECTION_TYPE === "diagram_projection") return loadDiagramProjection(options || {});
   if (PROJECTION_TYPE === "schedule_projection") return loadScheduleProjection(options || {});
   if (PROJECTION_TYPE === "gantt_projection") return loadGanttProjection(options || {});
+  if (["node_list_projection", "nodes_list_projection", "node_list", "list_projection"].includes(PROJECTION_TYPE)) return loadNodeListProjection(options || {});
+  if (["html_projection", "html", "HTML"].includes(PROJECTION_TYPE)) return loadHtmlProjection(options || {});
   return Promise.resolve();
 }
 function handleProjectionCommandResponse(j, payload){
@@ -3520,6 +4111,16 @@ function initGalleries(){
 
 initGalleries();
 initProjection();
+bindCodeFrames(document);
+(function(){
+  const ta = document.getElementById('adminDataJson');
+  if (!ta) return;
+  ta.__nl_dirty = false;
+  ta.addEventListener('input', () => { ta.__nl_dirty = true; });
+  ta.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); doSave(); } });
+  const tab = document.getElementById('tab-json');
+  if (tab) tab.addEventListener('shown.bs.tab', () => { if (!ta.__nl_dirty) ta.value = JSON.stringify(_data || {}, null, 2); });
+})();
 
 if (!IS_PRINT_FORM) nlInitChat();
 
@@ -3541,9 +4142,18 @@ async function doSave(){
   let data = {};
   try{
     const ta = document.getElementById("dataJson");
-    // If there is a textarea (raw JSON editor), save its JSON.
-    // Otherwise save the local in-memory _data that is kept in sync with the web form.
-    data = ta ? getDataFromTextarea() : (_data || {});
+    const adminTa = document.getElementById("adminDataJson");
+    const jsonPaneActive = !!document.getElementById("pane-json")?.classList.contains("active");
+    // Fallback raw editor has priority. Admin JSON saves only when edited or active.
+    if (ta) {
+      data = getDataFromTextarea();
+    } else if (adminTa && (adminTa.__nl_dirty || jsonPaneActive)) {
+      const s = (adminTa.value || '').trim();
+      data = s ? JSON.parse(s) : {};
+    } else {
+      snapshotWebFormIntoData();
+      data = (_data || {});
+    }
   }catch(e){
     setSideStatus("");
     alert("JSON error: " + e);
@@ -3564,6 +4174,9 @@ async function doSave(){
       return false;
     }
     setSideStatus("saved");
+    try { _data = JSON.parse(JSON.stringify(data || {})); } catch(_) { _data = data || {}; }
+    const adminTa = document.getElementById("adminDataJson");
+    if (adminTa) adminTa.__nl_dirty = false;
 
     if(j.message && window.message) window.message(j.message.text || "saved", j.message.level || "success");
 
@@ -3658,18 +4271,11 @@ function doClose(){
   // 2) If this form is inside a projection modal iframe, ask the parent to close the modal and refresh.
   if (nlNotifyParentNodeForm("close")) return;
 
-  // 3) Otherwise navigate back to the previous page; add a hint to refresh.
-  try {
-    const ref = (document.referrer || "").trim();
-    if (ref) {
-      const u = new URL(ref, window.location.origin);
-      u.searchParams.set("refresh", "1");
-      window.location.href = u.toString();
-      return;
-    }
-  } catch(_) {}
+  // 3) Otherwise return to the exact previous page. nGenie uses history.back
+  // so the already open chat/result remains intact.
+  if (nlReturnToReferrer(true)) return;
 
-  // 3) Final fallback
+  // 4) Final fallback
   window.location.href = SECTIONS_HOME;
 }
 
@@ -4048,6 +4654,17 @@ function collectChangedForObject(dst, el){
   return p;
 }
 
+function refreshVirtualEditorTemplates(bodyEl){
+  if (!bodyEl) return;
+  bodyEl.querySelectorAll('*').forEach((el) => {
+    Array.from(el.attributes || []).forEach((attr) => {
+      const name = attr && attr.name ? String(attr.name) : '';
+      if (!name.startsWith('data-nl-tpl-')) return;
+      nlApplyTemplateAttr(el, name.slice('data-nl-tpl-'.length), attr.value);
+    });
+  });
+}
+
 function bindVirtualEditorInputs(bodyEl, state){
   if (!bodyEl) return;
   bodyEl.__nlVirtualState = state;
@@ -4058,9 +4675,133 @@ function bindVirtualEditorInputs(bodyEl, state){
     const curState = bodyEl.__nlVirtualState;
     if (!el || !curState || !(el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT")) return;
     collectChangedForObject(curState.data, el);
+    try { refreshVirtualEditorTemplates(bodyEl); } catch(_) {}
   };
   bodyEl.addEventListener("input", handle);
   bodyEl.addEventListener("change", handle);
+}
+
+const nlVirtualNodeViewCache = new Map();
+
+function nlVirtualSiblingViewPath(path){
+  const tokens = parsePathTokens(String(path || ""));
+  if (!tokens.length) return "";
+  const leaf = tokens[tokens.length - 1];
+  if (typeof leaf !== "string" || !leaf || leaf.endsWith("_view")) return "";
+  tokens[tokens.length - 1] = `${leaf}_view`;
+  let out = "";
+  tokens.forEach((token, idx) => {
+    if (typeof token === "number") out += `[${token}]`;
+    else out += (idx ? "." : "") + token;
+  });
+  return out;
+}
+
+function nlCollectVirtualNodeLinkPaths(spec, out){
+  if (Array.isArray(spec)) {
+    spec.forEach((item) => nlCollectVirtualNodeLinkPaths(item, out));
+    return;
+  }
+  if (!spec || typeof spec !== "object") return;
+  const type = String(spec.type || spec.t || "").toLowerCase();
+  if (type === "nodelink" || type === "nodeinput") {
+    const rawValue = spec.value;
+    let path = "";
+    if (typeof rawValue === "string" && rawValue.startsWith("@")) path = rawValue.slice(1).trim();
+    if (!path) path = String(spec.id || "").trim();
+    if (path && !path.endsWith("_view")) out.add(path);
+  }
+  Object.values(spec).forEach((value) => nlCollectVirtualNodeLinkPaths(value, out));
+}
+
+function nlVirtualReferenceUid(value){
+  if (typeof value === "string") return value.trim();
+  if (value && typeof value === "object") {
+    return String(value.uid || value._uid || value._id || value.id || "").trim();
+  }
+  return "";
+}
+
+async function nlPrepareVirtualTableNodeViews(roots){
+  const bindings = new Map();
+
+  for (const root of roots) {
+    const tableId = String(root.getAttribute("data-nl-table-id") || "").trim();
+    if (!tableId) continue;
+    const rows = getVirtualTableRows(tableId);
+    if (!rows.length) continue;
+
+    const paths = new Set();
+    nlCollectVirtualNodeLinkPaths(parseJsonAttr(root, "data-nl-vt-layout", []), paths);
+    nlCollectVirtualNodeLinkPaths(parseJsonAttr(root, "data-nl-vt-cover", []), paths);
+    const headers = parseJsonAttr(root, "data-nl-vt-header", []);
+    (Array.isArray(headers) ? headers : []).forEach((col) => {
+      const key = String(col && col.key || "").trim();
+      if (key && !key.endsWith("_view")) paths.add(key);
+    });
+
+    for (const row of rows) {
+      if (!row || typeof row !== "object") continue;
+      for (const path of paths) {
+        const viewPath = nlVirtualSiblingViewPath(path);
+        if (!viewPath) continue;
+        const rawValue = getByPath(row, path);
+        const uid = nlVirtualReferenceUid(rawValue);
+        if (!uid || !uid.includes("$")) continue;
+
+        const preparedView = getByPath(row, viewPath);
+        if (preparedView !== undefined && preparedView !== null && String(preparedView).trim() !== "") {
+          nlVirtualNodeViewCache.set(uid, String(preparedView));
+          continue;
+        }
+
+        if (rawValue && typeof rawValue === "object") {
+          const objectView = rawValue._view ?? rawValue.view ?? rawValue.name;
+          if (objectView !== undefined && objectView !== null && String(objectView).trim() !== "") {
+            const text = String(objectView);
+            nlVirtualNodeViewCache.set(uid, text);
+            setByPath(row, viewPath, text);
+            continue;
+          }
+        }
+
+        if (nlVirtualNodeViewCache.has(uid)) {
+          setByPath(row, viewPath, nlVirtualNodeViewCache.get(uid));
+          continue;
+        }
+        if (!bindings.has(uid)) bindings.set(uid, []);
+        bindings.get(uid).push({row, viewPath});
+      }
+    }
+  }
+
+  const missing = Array.from(bindings.keys());
+  if (missing.length) {
+    try {
+      const response = await fetch(API_NODE_VIEWS_BATCH, {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        credentials: "same-origin",
+        body: JSON.stringify({repo_id: REPO_ID, uids: missing})
+      });
+      const payload = await response.json();
+      const views = payload && payload.ok && payload.views && typeof payload.views === "object"
+        ? payload.views : {};
+      Object.entries(views).forEach(([uid, view]) => {
+        if (view !== undefined && view !== null && String(view).trim() !== "") {
+          nlVirtualNodeViewCache.set(String(uid), String(view));
+        }
+      });
+    } catch(err) {
+      console.warn("virtual NodeLink batch view resolve failed", err);
+    }
+  }
+
+  bindings.forEach((places, uid) => {
+    if (!nlVirtualNodeViewCache.has(uid)) return;
+    const view = nlVirtualNodeViewCache.get(uid);
+    places.forEach(({row, viewPath}) => setByPath(row, viewPath, view));
+  });
 }
 
 async function renderVirtualTableRoot(root){
@@ -4077,10 +4818,15 @@ async function renderVirtualTableRoot(root){
   //  return;
   //}
 
-  const coverHtmlList = await Promise.all(rows.map(async (row) => {
-    try { return await renderArbitraryNodalayout(coverSpec, row || {}); }
-    catch(_) { return '<div class="nl-text text-danger">cover render error</div>'; }
-  }));
+  let coverHtmlList = [];
+  // A table with explicit table_header never uses row cover HTML.  Do not send
+  // one NodaLayout render request per row before drawing simple cells.
+  if (!asTable || !(Array.isArray(headerCols) && headerCols.length)) {
+    coverHtmlList = await Promise.all(rows.map(async (row) => {
+      try { return await renderArbitraryNodalayout(coverSpec, row || {}); }
+      catch(_) { return '<div class="nl-text text-danger">cover render error</div>'; }
+    }));
+  }
 
   if (!asTable) {
     bodyEl.innerHTML =
@@ -4100,12 +4846,38 @@ async function renderVirtualTableRoot(root){
     const thead = headerCols.map((c) => `<th scope="col">${escapeHtml(c && c.title || "")}</th>`).join("");
     const tbody = rows.map((row, idx) => {
       const tds = headerCols.map((c) => {
-        const v = getByPath(row || {}, String(c && c.key || ""));
+        const rowObj = row || {};
+        const key = String(c && c.key || "").trim();
+        const v = getByPath(rowObj, key);
+
+        // Link widgets keep the stable UID in <field>, while the readable
+        // value is stored next to it in <field>_view.  A virtual table header
+        // normally points to the actual field (for example "item"), so prefer
+        // its view automatically instead of printing the raw UID.
+        let displayValue = v;
+        if (key && !key.endsWith("_view")) {
+          const parts = key.split(".");
+          const leaf = parts.pop() || "";
+          const viewPath = parts.concat(`${leaf}_view`).join(".");
+          const siblingView = getByPath(rowObj, viewPath);
+          if (siblingView !== undefined && siblingView !== null && String(siblingView).trim() !== "") {
+            displayValue = siblingView;
+          } else if (v && typeof v === "object") {
+            const objectView = v._view ?? v.view ?? v.name;
+            if (objectView !== undefined && objectView !== null && String(objectView).trim() !== "") {
+              displayValue = objectView;
+            }
+          } else {
+            const uid = nlVirtualReferenceUid(v);
+            if (uid && nlVirtualNodeViewCache.has(uid)) displayValue = nlVirtualNodeViewCache.get(uid);
+          }
+        }
+
         let txt = "";
-        if (v == null) txt = "";
-        else if (typeof v === "object") {
-          try { txt = JSON.stringify(v); } catch(_) { txt = String(v); }
-        } else txt = String(v);
+        if (displayValue == null) txt = "";
+        else if (typeof displayValue === "object") {
+          try { txt = JSON.stringify(displayValue); } catch(_) { txt = String(displayValue); }
+        } else txt = String(displayValue);
         return `<td>${escapeHtml(txt)}</td>`;
       }).join("");
       return `<tr class="nl-tr nl-clickable" data-nl-vt-row="1" data-nl-vt-index="${idx}">${tds}</tr>`;
@@ -4123,6 +4895,8 @@ async function renderVirtualTableRoot(root){
 
 async function refreshVirtualTables(){
   const roots = Array.from(document.querySelectorAll('[data-nl-virtual-table="1"]'));
+  try { await nlPrepareVirtualTableNodeViews(roots); }
+  catch(err) { console.error('virtual table NodeLink preparation failed', err); }
   for (const root of roots) {
     try { await renderVirtualTableRoot(root); } catch(err) { console.error('virtual table render failed', err); }
   }
@@ -4155,6 +4929,7 @@ async function openVirtualNodeEditor(root, rowIndex){
     bodyEl.innerHTML = `<div class="alert alert-danger">${escapeHtml(String(err))}</div>`;
   }
   bindVirtualEditorInputs(bodyEl, state);
+  try { refreshVirtualEditorTemplates(bodyEl); } catch(_) {}
 
   const bs = bootstrap.Offcanvas.getOrCreateInstance(editorEl);
   editorEl.addEventListener('hidden.bs.offcanvas', () => {
@@ -4328,6 +5103,251 @@ document.addEventListener("DOMContentLoaded", function () {
   if (window.initDatasetTables) window.initDatasetTables();
   if (window.initVirtualTables) window.initVirtualTables();
 });
+
+
+// ---------- nGenie node-form assistant ----------
+(function(){
+  const state = {busy:false, messages:[], pendingClarifications:null, lastUserMessage:'', lastAttachments:[]};
+  function esc(s){return String(s ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');}
+  function chatKey(){ return 'nl_ngenie_chat_' + [CONFIG_UID, CLASS_NAME, NODE_ID].join('_'); }
+  function saveChat(){ try { sessionStorage.setItem(chatKey(), JSON.stringify(state.messages || [])); } catch(_){} }
+  function renderChat(){
+    const box = document.getElementById('nlNGenieMessages');
+    if (!box) return;
+    box.innerHTML = '';
+    (state.messages || []).forEach((m)=>{
+      const div = document.createElement('div');
+      div.className = 'nl-ngenie-msg ' + (m.role === 'user' ? 'nl-ngenie-msg-user' : 'nl-ngenie-msg-assistant');
+      div.textContent = m.text || '';
+      box.appendChild(div);
+    });
+    box.scrollTop = box.scrollHeight;
+  }
+  function loadChat(){
+    try { state.messages = JSON.parse(sessionStorage.getItem(chatKey()) || '[]') || []; } catch(_) { state.messages = []; }
+    if (!state.messages.length) state.messages = [{role:'assistant', text:'Напиши, что изменить в этом узле. Например: «добавь 2 трактора в заказ».'}];
+    renderChat();
+  }
+  function add(role, text, meta){
+    state.messages.push(Object.assign({role:role, text:text || ''}, meta && typeof meta === 'object' ? meta : {}));
+    saveChat();
+    renderChat();
+  }
+  function historyForRequest(currentMessage){
+    const rows = (state.messages || []).slice(-24).map((m)=>({role:m.role || '', text:m.text || ''}));
+    const current = String(currentMessage || '').trim();
+    const last = rows.length ? rows[rows.length - 1] : null;
+    if (last && last.role === 'user' && current) {
+      const text = String(last.text || '').trim();
+      if (text === current || text.startsWith(current + '\n')) rows.pop();
+    }
+    return rows;
+  }
+  function busy(v){
+    state.busy = !!v;
+    const btn = document.getElementById('nlNGenieSend');
+    if (btn) btn.disabled = !!v;
+    const files = document.getElementById('nlNGenieFiles');
+    if (files) files.disabled = !!v;
+    const st = document.getElementById('nlNGenieStatus');
+    if (st) st.textContent = v ? 'thinking...' : '';
+    const cont = document.getElementById('nlNGenieClarifyContinue');
+    if (cont) cont.disabled = !!v;
+  }
+  function refreshAdminJson(){
+    try {
+      const adminTa = document.getElementById('adminDataJson');
+      if (adminTa && !adminTa.__nl_dirty) adminTa.value = JSON.stringify(_data || {}, null, 2);
+      const dataTa = document.getElementById('dataJson');
+      if (dataTa) dataTa.value = JSON.stringify(_data || {}, null, 2);
+    } catch(_) {}
+  }
+  function candidateTitle(c){
+    return (c.view && (c.view.title || c.view.caption)) || (c.data && (c.data.name || c.data.title || c.data.article || c.data.code)) || c.id || c.uid || '';
+  }
+  function renderClarifications(groups){
+    const box = document.getElementById('nlNGenieClarifications');
+    const list = Array.isArray(groups) ? groups : [];
+    if (!box || !list.length) return false;
+    const selections = {};
+    const selectableGroups = list.filter(g => !g.display_only);
+    selectableGroups.forEach(g => { if ((g.candidates || []).length === 1) selections[g.id] = g.candidates[0].uid; });
+    state.pendingClarifications = {originalMessage: state.lastUserMessage || '', groups:list, selections:selections, displayOnly: selectableGroups.length === 0};
+    box.style.display = '';
+    box.innerHTML = `
+      ${list.map((g)=>`
+        <div class="nl-ngenie-clarify-group" data-group-id="${esc(g.id)}">
+          <div class="fw-semibold small mb-1">${esc(g.question || 'Уточните вариант')}</div>
+          ${g.reason ? `<div class="text-muted small mb-2">${esc(g.reason)}</div>` : ''}
+          ${(g.candidates || []).map((c)=>{
+            const selected = !g.display_only && selections[g.id] === c.uid;
+            const title = candidateTitle(c);
+            const sub = [c.class, c.repo_uid || c.config_uid].filter(Boolean).join(' · ');
+            const cover = c.cover_html || `<div class="fw-semibold">${esc(title)}</div><div class="text-muted small">${esc(sub)}</div>`;
+            return `<div class="card nl-ngenie-candidate ${selected ? 'selected' : ''} ${g.display_only ? 'display-only' : ''}" data-display-only="${g.display_only ? '1' : '0'}" data-group-id="${esc(g.id)}" data-uid="${esc(c.uid)}"><div class="card-body">${cover}<div class="nl-ngenie-candidate-note">${esc(c.note || '')}</div></div></div>`;
+          }).join('') || `<div class="text-muted small">Кандидаты не найдены.</div>`}
+        </div>`).join('')}
+      ${selectableGroups.length ? `<button id="nlNGenieClarifyContinue" class="btn btn-sm nl-ngenie-send w-100" type="button">Продолжить</button>` : ''}
+      <div id="nlNGenieClarifyStatus" class="small text-muted mt-1">${selectableGroups.length ? '' : 'Показаны найденные варианты.'}</div>`;
+    return true;
+  }
+  function selectCandidate(groupId, uid){
+    if (!state.pendingClarifications) return;
+    const group = (state.pendingClarifications.groups || []).find(g => g.id === groupId);
+    if (group && group.display_only) return;
+    state.pendingClarifications.selections[groupId] = uid;
+    document.querySelectorAll('.nl-ngenie-candidate').forEach(el=>{
+      if (el.getAttribute('data-group-id') === groupId) el.classList.toggle('selected', el.getAttribute('data-uid') === uid);
+    });
+  }
+  function compactCandidate(c){
+    if (!c) return null;
+    return {uid:c.uid || '', class:c.class || '', repo_uid:c.repo_uid || c.config_uid || '', id:c.id || '', title:candidateTitle(c), note:c.note || ''};
+  }
+  function clarificationPayload(){
+    const pending = state.pendingClarifications;
+    if (!pending) return null;
+    const requests = (pending.groups || []).filter(g => !g.display_only).map((g)=>{
+      const selectedUid = pending.selections[g.id] || '';
+      const selectedCandidate = (g.candidates || []).find(c => c.uid === selectedUid) || null;
+      return {id:g.id, question:g.question || '', class_name:g.class_name || '', config_uid:g.config_uid || '', query:g.query || '', context:g.context || {}, selected_uid:selectedUid, selected_candidate:compactCandidate(selectedCandidate)};
+    });
+    return {original_message: pending.originalMessage || '', requests:requests, selections:pending.selections || {}};
+  }
+  function clearClarifications(){
+    state.pendingClarifications = null;
+    const box = document.getElementById('nlNGenieClarifications');
+    if (box) { box.innerHTML = ''; box.style.display = 'none'; }
+  }
+  function applyResponse(j){
+    add('assistant', j.reply || 'Готово.');
+    if (Array.isArray(j.clarifications) && j.clarifications.length) renderClarifications(j.clarifications);
+    else if (!j.clarifications || !j.clarifications.length) clearClarifications();
+    if (j.node_data && typeof j.node_data === 'object') {
+      _data = j.node_data;
+      if (typeof j.layout_html === 'string' && j.layout_html.trim()) {
+        const root = document.getElementById('webRoot');
+        if (root) {
+          root.innerHTML = j.layout_html;
+          try { bindClicks(); } catch(_) {}
+          try { bindInputs(); } catch(_) {}
+          try { bindCodeFrames(root); } catch(_) {}
+          try { initDatasetTables(); } catch(_) {}
+          try { initVirtualTables(); } catch(_) {}
+        }
+      }
+      try { nlRefreshUI(); } catch(_) {}
+      refreshAdminJson();
+    }
+    if (Array.isArray(j.created_objects) && j.created_objects.length) {
+      add('assistant', 'Создано/изменено узлов: ' + j.created_objects.length);
+    }
+    if (j.analysis_html) {
+      add('assistant', 'Сформирован HTML-анализ. Для сохранения как проекцию открой nGenie из разделов.');
+    }
+  }
+  function updateFilesLabel(){
+    const inp = document.getElementById('nlNGenieFiles');
+    const label = document.getElementById('nlNGenieFilesLabel');
+    if (!inp || !label) return;
+    const files = Array.from(inp.files || []);
+    label.textContent = files.length ? files.map(f => f.name || 'file').join(', ') : '{{ _('Attach files to this node through nGenie.') }}';
+  }
+  async function uploadAttachments(){
+    const inp = document.getElementById('nlNGenieFiles');
+    const files = inp ? Array.from(inp.files || []) : [];
+    if (!files.length) return [];
+    const out = [];
+    for (const file of files) {
+      const saved = await apiUserfilesUpload(file);
+      out.push({filename:String(saved || ''), url:String(saved || ''), original_name:file.name || '', content_type:file.type || '', size:file.size || 0, s3:String(saved || '').startsWith('http://') || String(saved || '').startsWith('https://')});
+    }
+    if (inp) inp.value = '';
+    updateFilesLabel();
+    return out;
+  }
+  async function post(payload){
+    const r = await fetch(API_NGENIE_CHAT, {method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body: JSON.stringify(payload)});
+    const j = await r.json();
+    if (!j || !j.ok) throw new Error((j && j.error) || 'nGenie error');
+    applyResponse(j);
+  }
+  async function send(){
+    if (state.busy) return;
+    const ta = document.getElementById('nlNGeniePrompt');
+    const text = (ta && ta.value || '').trim();
+    const hasFiles = !!(document.getElementById('nlNGenieFiles') && document.getElementById('nlNGenieFiles').files && document.getElementById('nlNGenieFiles').files.length);
+    if (!text && !hasFiles) return;
+    const effectiveText = text || {{ _('Add the attached files to the current node.')|tojson }};
+    state.lastUserMessage = effectiveText;
+    busy(true);
+    try {
+      try { snapshotWebFormIntoData(); } catch(_) {}
+      const attachments = await uploadAttachments();
+      state.lastAttachments = attachments;
+      if (ta) ta.value = '';
+      add('user', effectiveText + (attachments.length ? '\n' + {{ _('Files')|tojson }} + ': ' + attachments.map(a => a.original_name || a.filename).join(', ') : ''));
+      await post({
+        message: effectiveText,
+        config_uid: CONFIG_UID,
+        scope: 'node_form',
+        allow_catalog_create: !!document.getElementById('nlNGenieAllowCatalogCreate')?.checked,
+        node_context: {config_uid: CONFIG_UID, repo_id: REPO_ID, class_name: CLASS_NAME, node_id: NODE_ID, data: _data || {}},
+        attachments: attachments,
+        chat_history: historyForRequest(effectiveText)
+      });
+    } catch(e) {
+      add('assistant', String(e && e.message ? e.message : e));
+    } finally {
+      busy(false);
+    }
+  }
+  async function continueClarification(){
+    if (state.busy || !state.pendingClarifications) return;
+    const payload = clarificationPayload();
+    const missing = (payload.requests || []).filter(r => !r.selected_uid);
+    const st = document.getElementById('nlNGenieClarifyStatus');
+    if (missing.length) { if (st) st.textContent = 'Выберите вариант в каждой группе.'; return; }
+    const selectedText = (payload.requests || []).map(r => `${r.question}: ${(r.selected_candidate && r.selected_candidate.title) || r.selected_uid}`).join('\n');
+    add('user', 'Выбрано:\n' + selectedText);
+    busy(true);
+    try {
+      try { snapshotWebFormIntoData(); } catch(_) {}
+      await post({
+        message: 'Продолжить после выбора пользователя',
+        config_uid: CONFIG_UID,
+        scope: 'node_form',
+        allow_catalog_create: !!document.getElementById('nlNGenieAllowCatalogCreate')?.checked,
+        clarification_response: payload,
+        node_context: {config_uid: CONFIG_UID, repo_id: REPO_ID, class_name: CLASS_NAME, node_id: NODE_ID, data: _data || {}},
+        attachments: state.lastAttachments || [],
+        chat_history: historyForRequest('')
+      });
+    } catch(e) {
+      add('assistant', String(e && e.message ? e.message : e));
+    } finally {
+      busy(false);
+    }
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    const btn = document.getElementById('nlNGenieSend');
+    const ta = document.getElementById('nlNGeniePrompt');
+    const clarifyBox = document.getElementById('nlNGenieClarifications');
+    if (!btn || !ta) return;
+    btn.addEventListener('click', send);
+    ta.addEventListener('keydown', function(e){ if(e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); send(); }});
+    const files = document.getElementById('nlNGenieFiles');
+    if (files) files.addEventListener('change', updateFilesLabel);
+    if (clarifyBox) {
+      clarifyBox.addEventListener('click', function(e){
+        const cand = e.target.closest('.nl-ngenie-candidate');
+        if (cand) { selectCandidate(cand.getAttribute('data-group-id'), cand.getAttribute('data-uid')); return; }
+        if (e.target.closest('#nlNGenieClarifyContinue')) continueClarification();
+      });
+    }
+    loadChat();
+  });
+})();
 </script>
 
 {% endblock %}
