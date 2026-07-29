@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('Contract is ready') }} · NodaLogic{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="row justify-content-center">
+    <div class="col-xl-9">
+      <div class="card shadow-sm">
+        <div class="card-body p-4">
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+            <div>
+              <h2 class="mb-1">{{ _('Contract is ready') }}</h2>
+              <div class="text-muted">{{ config.name }}</div>
+            </div>
+            <a class="btn btn-outline-secondary" href="{{ url_for('client.sections_home') }}">{{ _('Open client') }}</a>
+          </div>
+
+          <div class="row g-4 align-items-start">
+            <div class="col-md-4 text-center">
+              <img class="img-fluid border rounded p-2 bg-white" style="max-width:260px" src="{{ url_for('contracts_qr', contract_uid=contract.uid) }}" alt="QR">
+              <div class="small text-muted mt-2">{{ _('Scan this QR code on the mobile device.') }}</div>
+            </div>
+            <div class="col-md-8">
+              <h5>{{ contract.display_name or contract.name }}</h5>
+              <div class="small mb-3"><code>{{ contract.uid }}</code></div>
+              <div class="alert alert-success">
+                {{ _('%(count)s classes are included in the contract', count=selected|length) }}.
+                {{ _('Nodes were recreated from contract objects where available.') }}
+              </div>
+              <div class="small mb-2"><strong>{{ _('Classes') }}:</strong></div>
+              <div class="d-flex flex-wrap gap-2 mb-3">
+                {% for ref in selected %}<span class="badge text-bg-light border"><code>{{ ref.class_name }}</code></span>{% endfor %}
+              </div>
+              <div class="small text-muted mb-2">
+                {{ _('Recreated') }}: {{ stats.created or 0 }},
+                {{ _('updated') }}: {{ stats.updated or 0 }},
+                {{ _('skipped') }}: {{ stats.skipped or 0 }}.
+              </div>
+              <label class="form-label small">{{ _('Connection payload') }}</label>
+              <textarea class="form-control font-monospace" rows="7" readonly>{{ payload }}</textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

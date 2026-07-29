@@ -36,6 +36,12 @@
                         <a href="{{ url_for('users_manage') }}" class="btn btn-outline-secondary me-2">
                             <i class="bi bi-people"></i> {{ _('Users') }}
                         </a>
+
+                        {% if solutions_available is defined and solutions_available %}
+                        <a href="{{ url_for('solutions_page') }}" class="btn btn-outline-primary me-2">
+                            <i class="bi bi-stars"></i> {{ _('Solutions') }}
+                        </a>
+                        {% endif %}
                         
                         
                         <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#importConfigModal">

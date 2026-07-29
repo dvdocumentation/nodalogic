@@ -59,13 +59,20 @@
           <i class="bi bi-filter-square"></i> {{ _('Indexes') }}
         </button>
       </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="ngenie-tab" data-bs-toggle="tab" data-bs-target="#ngenie"
+                type="button" role="tab">
+          <i class="bi bi-magic"></i> nGenie
+        </button>
+      </li>
     </ul>
   </div>
 
   <div class="card-body">
  
-    <form method="POST">
+    <form method="POST" id="classSettingsForm">
       <input type="hidden" name="active_tab" value="{{ request.args.get('tab', 'classes') }}">
+      <input type="hidden" id="classNGenieSaveUrl" value="{{ url_for('ngenie_class_settings_save', class_id=class_obj.id) }}">
 
       <input type="hidden" id="indexesJson" name="indexes_json" value='{{ (class_obj.indexes_json or []) | tojson | forceescape }}'>
       <div class="tab-content">
@@ -107,6 +114,7 @@
             <select class="form-select" id="classType" name="class_type">
               <option value="">{{ _('-- Not specified --') }}</option>
               <option value="custom_process" {% if class_obj.class_type == 'custom_process' %}selected{% endif %}>{{ _('Custom process') }}</option>
+              <option value="projection" {% if class_obj.class_type == 'projection' %}selected{% endif %}>{{ _('Projection') }}</option>
               <option value="print_form" {% if class_obj.class_type == 'print_form' %}selected{% endif %}>{{ _('PrintForm') }}</option>
               <option value="data_node" {% if class_obj.class_type == 'data_node' %}selected{% endif %}>{{ _('Data node') }}</option>
               <option value="custom_task" {% if class_obj.class_type == 'custom_task' %}selected{% endif %}>{{ _('User task') }}</option>
@@ -125,7 +133,6 @@
           </div>
 
 
-
           <div id="projectionFields" class="border rounded p-3 mb-3 bg-light" style="display:none;">
             <div class="mb-3">
               <label for="projectionType" class="form-label">{{ _('Projection type') }}</label>
@@ -134,6 +141,8 @@
                 <option value="schedule_projection" {% if class_obj.projection_type == 'schedule_projection' %}selected{% endif %}>{{ _('Schedule projection') }}</option>
                 <option value="diagram_projection" {% if class_obj.projection_type == 'diagram_projection' %}selected{% endif %}>{{ _('Diagram projection') }}</option>
                 <option value="gantt_projection" {% if class_obj.projection_type == 'gantt_projection' %}selected{% endif %}>{{ _('Gantt projection') }}</option>
+                <option value="node_list_projection" {% if class_obj.projection_type == 'node_list_projection' %}selected{% endif %}>{{ _('Node list projection') }}</option>
+                <option value="html_projection" {% if class_obj.projection_type == 'html_projection' %}selected{% endif %}>{{ _('HTML projection') }}</option>
               </select>
             </div>
             <div id="kanbanProjectionFields" class="mb-0">
@@ -272,6 +281,17 @@
             <small class="text-muted">{{ _('Record display template: use {field}. If the template fails, _view will be used, then id.') }}</small>
           </div>
 
+          <div class="row g-3 mb-3">
+            <div class="col-12 col-md-6 form-check ps-5">
+              <input type="checkbox" class="form-check-input" id="hideMobileClient" name="hide_mobile_client" {% if class_obj.hide_mobile_client %}checked{% endif %}>
+              <label class="form-check-label" for="hideMobileClient">{{ _('Hide mobile client') }}</label>
+            </div>
+            <div class="col-12 col-md-6 form-check ps-5">
+              <input type="checkbox" class="form-check-input" id="hideWebClient" name="hide_web_client" {% if class_obj.hide_web_client %}checked{% endif %}>
+              <label class="form-check-label" for="hideWebClient">{{ _('Hide web client') }}</label>
+            </div>
+          </div>
+
           <div class="mb-3 form-check">
             <input type="checkbox" class="form-check-input" id="showTagCloud" name="show_tag_cloud"
                    {% if class_obj.show_tag_cloud %}checked{% endif %}>
@@ -291,6 +311,32 @@
                   {% if class_obj.use_standard_commands %}checked{% endif %}>
             <label class="form-check-label" for="useStandardCommands">{{ _('Use standard commands') }}</label>
           </div>
+
+          <div class="form-check mb-3">
+              <input type="checkbox" class="form-check-input" id="dashboardEnabled" name="dashboard_enabled"
+                     {% if class_obj.dashboard_enabled %}checked{% endif %}>
+              <label class="form-check-label fw-semibold" for="dashboardEnabled">{{ _('Pin to home page') }}</label>
+            <small class="text-muted d-block">{{ _('Shows nodes of this class on the Dashboard tab in web and mobile clients.') }}</small>
+          </div>
+          <div id="dashboardOptions" class="row g-3 align-items-end mb-3">
+              <div class="col-12 col-md-6">
+                <label for="dashboardWidth" class="form-label">{{ _('Tile width') }}</label>
+                <select class="form-select" id="dashboardWidth" name="dashboard_width">
+                  {% set dw = class_obj.dashboard_width or '100' %}
+                  <option value="100" {% if dw == '100' %}selected{% endif %}>100%</option>
+                  <option value="50" {% if dw == '50' %}selected{% endif %}>50%</option>
+                  <option value="25" {% if dw == '25' %}selected{% endif %}>25%</option>
+                </select>
+              </div>
+              <div class="col-12 col-md-6">
+                <div class="form-check">
+                  <input type="checkbox" class="form-check-input" id="dashboardTop" name="dashboard_top"
+                         {% if class_obj.dashboard_top %}checked{% endif %}>
+                  <label class="form-check-label" for="dashboardTop">{{ _('Move to top') }}</label>
+                  <small class="text-muted d-block">{{ _('Top tiles are shown before other dashboard tiles.') }}</small>
+                </div>
+              </div>
+            </div>
 
           <input type="hidden" id="commands" name="commands" value="{{ class_obj.commands }}">
           <input type="hidden" id="svgCommands" name="svg_commands" value="{{ class_obj.svg_commands }}">
@@ -334,6 +380,7 @@
                   <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('coverImage')">{{ _('Format') }}</button>
                   <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('coverImage')">{{ _('Check') }}</button>
                   <button type="button" class="btn btn-sm btn-purple text-white" onclick="openMarkupWizard('coverImage', 'cover')">{{ _('Wizard') }}</button>
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="generateCoverFromStructure('coverImage')">{{ _('Generate by data structure') }}</button>
                   {% for t in (ui_tpl_buttons or []) %}
                     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('coverImage', '{{ t.key }}')">{{ t.label }}</button>
                   {% endfor %}
@@ -391,6 +438,7 @@
                   <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('displayImageWeb')">{{ _('Format') }}</button>
                   <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('displayImageWeb')">{{ _('Check') }}</button>
                   <button type="button" class="btn btn-sm btn-purple text-white" onclick="openMarkupWizard('displayImageWeb', 'cover')">{{ _('Wizard') }}</button>
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="generateCoverFromStructure('displayImageWeb')">{{ _('Generate by data structure') }}</button>
                   {% for t in (ui_tpl_buttons or []) %}
                     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('displayImageWeb', '{{ t.key }}')">{{ t.label }}</button>
                   {% endfor %}
@@ -468,6 +516,13 @@
         <div class="tab-pane fade" id="migration" role="tabpanel">
 
           <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="includeInContract" name="include_in_contract"
+                   {% if class_obj.include_in_contract %}checked{% endif %}>
+            <label class="form-check-label" for="includeInContract">{{ _('Include in contract') }}</label>
+            <small class="text-muted d-block">{{ _('Automatically include this class in the configuration contract used by mobile devices and integrations.') }}</small>
+          </div>
+
+          <div class="mb-3 form-check">
             <input type="checkbox" class="form-check-input" id="migrationRegisterCommand" name="migration_register_command"
                    {% if class_obj.migration_register_command %}checked{% endif %}>
             <label class="form-check-label" for="migrationRegisterCommand">{{ _('Registration command') }} </label>
@@ -524,12 +579,18 @@
           <div class="d-flex justify-content-between align-items-center mb-3">
             <div>
               <div class="fw-semibold">{{ _('Class indexes') }}</div>
-              <div class="text-muted small">{{ _('Hash indexes by _data fields. Use | to combine multiple keys.') }}</div>
+              <div class="text-muted small">{{ _('Class indexes by _data fields. Use | to combine multiple keys.') }}</div>
             </div>
-            <button type="button" class="btn btn-sm btn-success" id="btnAddIndex">
-              <i class="bi bi-plus-circle"></i> {{ _('Add index') }}
-            </button>
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="btnRebuildAllIndexes">
+                <i class="bi bi-arrow-repeat"></i> {{ _('Rebuild indexes') }}
+              </button>
+              <button type="button" class="btn btn-sm btn-success" id="btnAddIndex">
+                <i class="bi bi-plus-circle"></i> {{ _('Add index') }}
+              </button>
+            </div>
           </div>
+          <div id="indexRebuildStatus" class="alert alert-info py-2 small d-none"></div>
           <div class="table-responsive">
             <table class="table table-sm table-bordered align-middle">
               <thead class="table-light">
@@ -538,11 +599,49 @@
                   <th>{{ _('Kind') }}</th>
                   <th>{{ _('Keys') }}</th>
                   <th>{{ _('Filter') }}</th>
-                  <th style="width: 140px;">{{ _('Actions') }}</th>
+                  <th>{{ _('Options') }}</th>
+                  <th style="width: 230px;">{{ _('Actions') }}</th>
                 </tr>
               </thead>
               <tbody id="indexesTableBody"></tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- NGENIE -->
+        <div class="tab-pane fade" id="ngenie" role="tabpanel" aria-labelledby="ngenie-tab">
+          <div class="alert alert-light border small mb-3">
+            {{ _('These settings are used only by nGenie. They define the semantic role of the class and extra class-specific instructions for search, selection, stock display, and method usage.') }}
+          </div>
+
+          <div class="mb-3">
+            <label for="classNGenieRole" class="form-label">nGenie role</label>
+            <select class="form-select" id="classNGenieRole" name="ngenie_role">
+              <option value="" {% if not class_obj.ngenie_role %}selected{% endif %}>{{ _('Auto / not specified') }}</option>
+              <option value="catalog" {% if class_obj.ngenie_role == 'catalog' %}selected{% endif %}>{{ _('Catalog / reference') }}</option>
+              <option value="document" {% if class_obj.ngenie_role == 'document' %}selected{% endif %}>{{ _('Document') }}</option>
+              <option value="document_line" {% if class_obj.ngenie_role == 'document_line' %}selected{% endif %}>{{ _('Document line') }}</option>
+              <option value="register" {% if class_obj.ngenie_role == 'register' %}selected{% endif %}>{{ _('Register / movement') }}</option>
+              <option value="report" {% if class_obj.ngenie_role == 'report' %}selected{% endif %}>{{ _('Report / projection') }}</option>
+              <option value="service" {% if class_obj.ngenie_role == 'service' %}selected{% endif %}>{{ _('Service / technical') }}</option>
+            </select>
+            <div class="form-text">{{ _('Used by nGenie to decide what can be created automatically. Catalog/reference nodes are not auto-created unless the user enables catalog creation.') }}</div>
+          </div>
+
+          <div class="mb-3">
+            <label for="classNGenieDescription" class="form-label">nGenie description</label>
+            <textarea class="form-control" id="classNGenieDescription" name="ngenie_description" rows="3" placeholder="{{ _('Short business meaning of this class') }}">{{ class_obj.ngenie_description or '' }}</textarea>
+            <div class="form-text">{{ _('Used to generate user documentation and to explain why this class exists.') }}</div>
+          </div>
+
+          <div class="mb-3">
+            <label for="classNGeniePrompt" class="form-label">nGenie prompt</label>
+            <textarea class="form-control font-monospace" id="classNGeniePrompt" name="ngenie_prompt" rows="10" placeholder="{{ _('Additional nGenie skills/instructions for this class') }}">{{ class_obj.ngenie_prompt or '' }}</textarea>
+            <div class="form-text">{{ _('Example: stock can be calculated with Goods.getStock(); parent link field is parent_doc; preferred search fields and business rules.') }}</div>
+          </div>
+
+          <div class="small text-muted">
+            {{ _('Tip: for catalog classes such as Goods, describe strong fields like barcode/article/code/name and tell nGenie when to ask the user to choose between similar candidates.') }}
           </div>
         </div>
 
@@ -575,12 +674,65 @@
             <option value="text_index">text_index</option>
             <option value="text_index_full">text_index_full</option>
             <option value="trigram_index">trigram_index</option>
+            <option value="semantic_index">semantic_index</option>
           </select>
         </div>
         <div class="mb-3">
           <label class="form-label" for="idxKeys">{{ _('Keys') }}</label>
           <input type="text" class="form-control" id="idxKeys" placeholder="field_a|field_b">
           <small class="text-muted">{{ _('One or many _data fields separated by |') }}</small>
+        </div>
+        <div class="border rounded p-3 bg-light mb-3" id="idxSemanticBlock" style="display:none;">
+          <div class="fw-semibold mb-2">{{ _('Semantic index') }}</div>
+          <div class="mb-2">
+            <label class="form-label" for="idxModel">{{ _('Embedding model') }}</label>
+            <input type="text" class="form-control" id="idxModel" placeholder="intfloat/multilingual-e5-small">
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-md-7">
+              <label class="form-label" for="idxThreshold">{{ _('Similarity threshold') }}</label>
+              <input type="number" min="0" max="1" step="0.01" class="form-control" id="idxThreshold" placeholder="0.8">
+              <small class="text-muted" id="idxThresholdHint">{{ _('Default is 0.8 for multilingual-e5-small') }}</small>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label" for="idxResultLimit">{{ _('Maximum results') }}</label>
+              <input type="number" min="1" max="1000" step="1" class="form-control" id="idxResultLimit" placeholder="10">
+              <small class="text-muted" id="idxResultLimitHint">{{ _('Default is 10 for multilingual-e5-small') }}</small>
+            </div>
+            <div class="col-12">
+              <div class="small text-danger d-none" id="idxThresholdWarning">
+                {{ _('For multilingual-e5-small a low threshold usually accepts almost every item. Use about 0.8 and rebuild the index.') }}
+              </div>
+            </div>
+          </div>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label" for="idxEmbeddingWeight">{{ _('Embedding weight') }}</label>
+              <input type="number" min="0" max="1" step="0.05" class="form-control" id="idxEmbeddingWeight" placeholder="1">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="idxTokenWeight">{{ _('Technical token weight') }}</label>
+              <input type="number" min="0" max="1" step="0.05" class="form-control" id="idxTokenWeight" placeholder="0">
+            </div>
+            <div class="col-12">
+              <small class="text-muted">{{ _('Semantic score = weighted embedding similarity + weighted technical-token match. Use token weight 0 for pure embeddings.') }}</small>
+            </div>
+          </div>
+        </div>
+        <div class="border rounded p-3 bg-light mb-3">
+          <div class="form-check">
+            <input type="checkbox" class="form-check-input" id="idxServerOnly">
+            <label class="form-check-label" for="idxServerOnly">{{ _('Server only') }}</label>
+          </div>
+          <div class="form-check mt-2">
+            <input type="checkbox" class="form-check-input" id="idxNGenieServerSearch">
+            <label class="form-check-label" for="idxNGenieServerSearch">{{ _('nGenie searches this index on the server for client') }}</label>
+          </div>
+          <div class="form-check mt-2">
+            <input type="checkbox" class="form-check-input" id="idxAsyncWrite">
+            <label class="form-check-label" for="idxAsyncWrite">{{ _('Asynchronous write') }}</label>
+          </div>
+          <div class="form-text">{{ _('When enabled, node saving does not wait for this index. Index-based search may briefly return the previous state. After an abnormal server stop, rebuild the index; rebuilding always runs synchronously.') }}</div>
         </div>
         <div class="border rounded p-3 bg-light">
           <div class="mb-2 form-check">
@@ -619,6 +771,42 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+  const form = document.getElementById('classSettingsForm');
+  if (!form) return;
+  form.addEventListener('submit', async function (e) {
+    if (form.__ngenieSavingDone) return;
+    const saveUrl = document.getElementById('classNGenieSaveUrl')?.value || '';
+    if (!saveUrl) return;
+    e.preventDefault();
+    try {
+      const fd = new FormData();
+      fd.append('ngenie_role', document.getElementById('classNGenieRole')?.value || '');
+      fd.append('ngenie_prompt', document.getElementById('classNGeniePrompt')?.value || '');
+      fd.append('ngenie_description', document.getElementById('classNGenieDescription')?.value || '');
+      const resp = await fetch(saveUrl, {
+        method: 'POST',
+        body: fd,
+        credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      });
+      if (!resp.ok) {
+        let msg = 'nGenie settings were not saved';
+        try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch(_) {}
+        throw new Error(msg);
+      }
+    } catch (err) {
+      alert(String(err && err.message ? err.message : err));
+      return;
+    }
+    form.__ngenieSavingDone = true;
+    if (typeof form.submit === 'function') form.submit();
+    else HTMLFormElement.prototype.submit.call(form);
+  });
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
   const hidden = document.getElementById('indexesJson');
   const tbody = document.getElementById('indexesTableBody');
   const modalEl = document.getElementById('indexModal');
@@ -630,9 +818,126 @@ document.addEventListener('DOMContentLoaded', function () {
   let quietSaveTimer = null;
   let quietSaveInFlight = false;
   let quietSaveQueued = false;
-  try { items = JSON.parse(hidden.value || '[]'); if (!Array.isArray(items)) items = []; } catch(_) { items = []; }
+  const DEFAULT_SEMANTIC_MODEL = 'intfloat/multilingual-e5-small';
+  let editorModelFamily = '';
+
+  function semanticModelFamily(modelValue){
+    const model = String(modelValue || DEFAULT_SEMANTIC_MODEL).trim().toLowerCase().replace(/\/+$/, '');
+    return model === DEFAULT_SEMANTIC_MODEL ? 'multilingual-e5-small' : 'other';
+  }
+
+  function semanticDefaults(modelValue){
+    const model = String(modelValue || DEFAULT_SEMANTIC_MODEL).trim() || DEFAULT_SEMANTIC_MODEL;
+    const isE5 = semanticModelFamily(model) === 'multilingual-e5-small';
+    return {
+      model,
+      threshold: isE5 ? 0.8 : 0.5,
+      embeddingWeight: isE5 ? 1.0 : 0.5,
+      tokenWeight: isE5 ? 0.0 : 0.5,
+      resultLimit: isE5 ? 10 : 50,
+    };
+  }
+
+  function refreshSemanticThresholdHint(){
+    const modelEl = document.getElementById('idxModel');
+    const thresholdEl = document.getElementById('idxThreshold');
+    const hintEl = document.getElementById('idxThresholdHint');
+    const warningEl = document.getElementById('idxThresholdWarning');
+    const limitHintEl = document.getElementById('idxResultLimitHint');
+    const family = semanticModelFamily(modelEl?.value || '');
+    const threshold = Number(String(thresholdEl?.value ?? '').replace(',', '.'));
+    const isE5 = family === 'multilingual-e5-small';
+    if (hintEl) hintEl.textContent = isE5
+      ? '{{ _('Default is 0.8 for multilingual-e5-small') }}'
+      : '{{ _('Default is 0.5 for other models') }}';
+    if (limitHintEl) limitHintEl.textContent = isE5
+      ? '{{ _('Default is 10 for multilingual-e5-small') }}'
+      : '{{ _('Default is 50 for other models') }}';
+    if (warningEl) warningEl.classList.toggle('d-none', !(isE5 && Number.isFinite(threshold) && threshold < 0.7));
+  }
+
+  function normalizeIndexItem(raw){
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const item = {...raw};
+    const name = String(item.name || item.index || item.id || '').trim();
+    if (!name) return null;
+    const kind = String(item.kind || item.type || 'hash_index').trim().toLowerCase() || 'hash_index';
+    let keys = item.keys;
+    if (keys === undefined || keys === null || keys === '' || (Array.isArray(keys) && !keys.length)) keys = item.field;
+    if (keys === undefined || keys === null || keys === '' || (Array.isArray(keys) && !keys.length)) keys = item.key;
+    if (keys === undefined || keys === null || keys === '' || (Array.isArray(keys) && !keys.length)) keys = item.fields;
+    if (Array.isArray(keys)) keys = keys.map(v => String(v || '').trim()).filter(Boolean).join('|');
+    else keys = String(keys || '').trim();
+    item.name = name;
+    item.kind = kind;
+    item.keys = keys;
+    if (!item.type) item.type = kind;
+    if (keys && !item.field && !keys.includes('|')) item.field = keys;
+    return item;
+  }
+
+  try {
+    items = JSON.parse(hidden.value || '[]');
+    if (!Array.isArray(items)) items = [];
+    items = items.map(normalizeIndexItem).filter(Boolean);
+  } catch(_) { items = []; }
+  const rebuildUrl = {{ (request.script_root ~ '/edit-class/' ~ class_obj.id ~ '/rebuild-indexes') | tojson }};
+  const rebuildStatus = document.getElementById('indexRebuildStatus');
 
   function sync(){ hidden.value = JSON.stringify(items); }
+  function showRebuildStatus(message, kind){
+    if (!rebuildStatus) return;
+    rebuildStatus.className = 'alert py-2 small alert-' + (kind || 'info');
+    rebuildStatus.textContent = message || '';
+    rebuildStatus.classList.remove('d-none');
+  }
+  async function saveIndexesNow(){
+    if (!form) return;
+    sync();
+    const activeTabEl = form.querySelector('input[name="active_tab"]');
+    if (activeTabEl) activeTabEl.value = 'classes';
+    const resp = await fetch(form.action || window.location.href, {
+      method: 'POST',
+      body: new FormData(form),
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    });
+    if (!resp.ok) throw new Error('{{ _('Class was not saved') }}');
+  }
+  async function rebuildIndexes(indexName){
+    const buttons = Array.from(document.querySelectorAll('#btnRebuildAllIndexes, [data-act="rebuild"]'));
+    buttons.forEach(b => b.disabled = true);
+    try {
+      await saveIndexesNow();
+      showRebuildStatus(indexName
+        ? '{{ _('Preparing model if needed and rebuilding index...') }}'
+        : '{{ _('Preparing models if needed and rebuilding indexes...') }}', 'info');
+      const resp = await fetch(rebuildUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        body: JSON.stringify(indexName ? {index_name: indexName} : {})
+      });
+      const rawText = await resp.text();
+      let data = {};
+      try { data = rawText ? JSON.parse(rawText) : {}; } catch(_) { data = {}; }
+      if (!resp.ok || !data.ok) {
+        const detail = data.error || (Array.isArray(data.errors) ? data.errors.join('; ') : '') || rawText || '{{ _('Index rebuild failed') }}';
+        console.error('Index rebuild failed', {status: resp.status, statusText: resp.statusText, data, rawText});
+        throw new Error('HTTP ' + resp.status + ' ' + resp.statusText + ': ' + detail);
+      }
+      const models = Array.isArray(data.semantic_models) && data.semantic_models.length ? (' {{ _('Models') }}: ' + data.semantic_models.join(', ') + '.') : '';
+      const indexCounts = (data.index_nodes && typeof data.index_nodes === 'object')
+        ? Object.entries(data.index_nodes).map(([name, count]) => name + ': ' + count).join(', ')
+        : '';
+      const indexCountsText = indexCounts ? (' [' + indexCounts + ']') : '';
+      showRebuildStatus('{{ _('Indexes rebuilt') }}: ' + (data.indexes || 0) + ', {{ _('nodes') }}: ' + (data.nodes || 0) + '.' + indexCountsText + models, 'success');
+    } catch (err) {
+      showRebuildStatus(String(err && err.message ? err.message : err), 'danger');
+    } finally {
+      buttons.forEach(b => b.disabled = false);
+    }
+  }
   async function saveQuietly(){
     if (!form) return;
     if (quietSaveInFlight) { quietSaveQueued = true; return; }
@@ -663,7 +968,7 @@ document.addEventListener('DOMContentLoaded', function () {
   function render(){
     tbody.innerHTML = '';
     if (!items.length){
-      tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">{{ _('No indexes') }}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">{{ _('No indexes') }}</td></tr>`;
       sync();
       return;
     }
@@ -674,14 +979,28 @@ document.addEventListener('DOMContentLoaded', function () {
       else filterParts.push(badge('{{ _('Disabled') }}', 'bg-secondary'));
       if (it.filter_label) filterParts.push(badge(it.filter_label, 'bg-light text-dark border'));
       if (it.filter_list_enabled) filterParts.push(badge('{{ _('List') }}', 'bg-info text-dark'));
+      const optionParts = [];
+      if (it.server_only) optionParts.push(badge('{{ _('Server only') }}', 'bg-warning text-dark'));
+      if (it.ngenie_server_search) optionParts.push(badge('{{ _('nGenie server') }}', 'bg-success'));
+      if (it.async_write) optionParts.push(badge('{{ _('Async write') }}', 'bg-info text-dark'));
+      if ((it.kind || '').toLowerCase() === 'semantic_index' || (it.kind || '').toLowerCase() === 'semanic_index' || (it.kind || '').toLowerCase() === 'semantic') {
+        const defaults = semanticDefaults(it.model);
+        optionParts.push(badge(it.model || defaults.model, 'bg-light text-dark border'));
+        optionParts.push(badge('≥ ' + (it.threshold ?? defaults.threshold), 'bg-dark'));
+        optionParts.push(badge('emb ' + (it.embedding_weight ?? it.semantic_weight ?? defaults.embeddingWeight), 'bg-light text-dark border'));
+        optionParts.push(badge('tok ' + (it.technical_token_weight ?? it.token_weight ?? defaults.tokenWeight), 'bg-light text-dark border'));
+        optionParts.push(badge('top ' + (it.limit ?? it.candidate_limit ?? it.max_candidates ?? defaults.resultLimit), 'bg-light text-dark border'));
+      }
       tr.innerHTML = `
         <td><strong>${it.name || ''}</strong></td>
         <td>${it.kind || 'hash_index'}</td>
         <td><code>${it.keys || ''}</code></td>
         <td>${filterParts.join(' ')}</td>
+        <td>${optionParts.join(' ')}</td>
         <td class="text-nowrap">
           <div class="d-inline-flex gap-1">
             <button type="button" class="btn btn-sm btn-outline-primary" data-act="edit" data-idx="${idx}">{{ _('Edit') }}</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-act="rebuild" data-idx="${idx}">{{ _('Rebuild') }}</button>
             <button type="button" class="btn btn-sm btn-outline-danger" data-act="del" data-idx="${idx}">{{ _('Delete') }}</button>
           </div>
         </td>`;
@@ -699,16 +1018,68 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('idxFilterLabel').value = it.filter_label || '';
     document.getElementById('idxFilterType').value = it.filter_type || 'string';
     document.getElementById('idxFilterListEnabled').checked = !!it.filter_list_enabled;
+    document.getElementById('idxServerOnly').checked = !!it.server_only;
+    document.getElementById('idxNGenieServerSearch').checked = !!it.ngenie_server_search;
+    document.getElementById('idxAsyncWrite').checked = !!it.async_write;
+    const defaults = semanticDefaults(it.model);
+    document.getElementById('idxModel').value = it.model || defaults.model;
+    document.getElementById('idxThreshold').value = (it.threshold ?? defaults.threshold);
+    document.getElementById('idxEmbeddingWeight').value = (it.embedding_weight ?? it.semantic_weight ?? defaults.embeddingWeight);
+    document.getElementById('idxTokenWeight').value = (it.technical_token_weight ?? it.token_weight ?? defaults.tokenWeight);
+    document.getElementById('idxResultLimit').value = (it.limit ?? it.candidate_limit ?? it.max_candidates ?? defaults.resultLimit);
+    editorModelFamily = semanticModelFamily(document.getElementById('idxModel').value);
+    refreshSemanticThresholdHint();
+    toggleSemanticOptions();
     modal.show();
   }
+  function isSemanticKind(){
+    const k = (document.getElementById('idxKind')?.value || '').toLowerCase();
+    return k === 'semantic_index' || k === 'semanic_index' || k === 'semantic';
+  }
+  function toggleSemanticOptions(){
+    const block = document.getElementById('idxSemanticBlock');
+    if (block) block.style.display = isSemanticKind() ? '' : 'none';
+  }
+  document.getElementById('idxKind')?.addEventListener('change', toggleSemanticOptions);
+  document.getElementById('idxModel')?.addEventListener('change', () => {
+    const modelEl = document.getElementById('idxModel');
+    const nextFamily = semanticModelFamily(modelEl?.value || '');
+    if (editorModelFamily && nextFamily !== editorModelFamily) {
+      const defaults = semanticDefaults(modelEl?.value || '');
+      document.getElementById('idxThreshold').value = defaults.threshold;
+      document.getElementById('idxEmbeddingWeight').value = defaults.embeddingWeight;
+      document.getElementById('idxTokenWeight').value = defaults.tokenWeight;
+      document.getElementById('idxResultLimit').value = defaults.resultLimit;
+    }
+    editorModelFamily = nextFamily;
+    refreshSemanticThresholdHint();
+  });
+  document.getElementById('idxThreshold')?.addEventListener('input', refreshSemanticThresholdHint);
   document.getElementById('btnAddIndex')?.addEventListener('click', () => openEditor(-1));
+  document.getElementById('btnRebuildAllIndexes')?.addEventListener('click', () => rebuildIndexes(''));
   tbody.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-act]');
     if (!btn) return;
     const idx = parseInt(btn.getAttribute('data-idx') || '-1', 10);
     if (btn.getAttribute('data-act') === 'edit') openEditor(idx);
+    if (btn.getAttribute('data-act') === 'rebuild' && idx >= 0){ rebuildIndexes(items[idx]?.name || ''); }
     if (btn.getAttribute('data-act') === 'del' && idx >= 0){ items.splice(idx, 1); render(); queueQuietSave(); }
   });
+  function parseIndexFloat01(value, defValue){
+    const raw = String(value ?? '').trim().replace(',', '.');
+    if (!raw) return defValue;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return defValue;
+    return Math.max(0, Math.min(1, n));
+  }
+  function parseIndexInt(value, defValue, minValue=1, maxValue=1000){
+    const raw = String(value ?? '').trim();
+    if (!raw) return defValue;
+    const n = Number.parseInt(raw, 10);
+    if (!Number.isFinite(n)) return defValue;
+    return Math.max(minValue, Math.min(maxValue, n));
+  }
+
   document.getElementById('btnSaveIndex')?.addEventListener('click', () => {
     const item = {
       name: document.getElementById('idxName').value.trim(),
@@ -718,7 +1089,18 @@ document.addEventListener('DOMContentLoaded', function () {
       filter_label: document.getElementById('idxFilterLabel').value.trim(),
       filter_type: document.getElementById('idxFilterType').value || 'string',
       filter_list_enabled: document.getElementById('idxFilterListEnabled').checked,
+      server_only: document.getElementById('idxServerOnly').checked,
+      ngenie_server_search: document.getElementById('idxNGenieServerSearch').checked,
+      async_write: document.getElementById('idxAsyncWrite').checked,
     };
+    if (isSemanticKind()) {
+      item.model = document.getElementById('idxModel').value.trim() || DEFAULT_SEMANTIC_MODEL;
+      const defaults = semanticDefaults(item.model);
+      item.threshold = parseIndexFloat01(document.getElementById('idxThreshold').value, defaults.threshold);
+      item.embedding_weight = parseIndexFloat01(document.getElementById('idxEmbeddingWeight').value, defaults.embeddingWeight);
+      item.technical_token_weight = parseIndexFloat01(document.getElementById('idxTokenWeight').value, defaults.tokenWeight);
+      item.limit = parseIndexInt(document.getElementById('idxResultLimit').value, defaults.resultLimit);
+    }
     if (!item.name) return;
     const pos = document.getElementById('indexEditPos').value;
     if (pos === '') items.push(item);
@@ -982,7 +1364,7 @@ return True,{}
 
         <div class="alert alert-info mb-3">
           <div class="fw-semibold mb-1">{{ _('Example') }}</div>
-          <pre class="mb-0" id="markupWizardExample">{{ _('Date|date: date\nNumber|num: number\nPartner|partner: Node("Partner")\nClosed|closed: boolean\n[Product|product: DataSet("goods"), Quantity|qty: number]\n_children: ChildNode("OrderPosition")|ChildNode("OrderPositionSpecial")\npositions:[ChildNode("OrderPosition")]\nlines:[Node("CommonLine")]') }}</pre>
+          <pre class="mb-0" id="markupWizardExample">{{ _('Date|date: date\nNumber|num: number\nPartner|partner: Node("Partner")\nClosed|closed: boolean\nlines:[Product|product: DataSet("goods"), Quantity|qty: number]\n_children: ChildNode("OrderPosition")|ChildNode("OrderPositionSpecial")\npositions:[ChildNode("OrderPosition")]\nlinked_lines:[Node("CommonLine")]') }}</pre>
         </div>
 
         <div class="mb-2 d-flex flex-wrap gap-1" id="wizardActiveHelpers">
@@ -1005,7 +1387,7 @@ return True,{}
                   id="markupWizardInput"
                   rows="14"
                   placeholder="{{ _('One line = one row') }}"></textarea>
-        <small class="text-muted">{{ _('One line = one row. Square brackets define a table. Keywords are case-insensitive.') }}</small>
+        <small class="text-muted">{{ _('One line = one row. Named tabular parts use lines:[...]. Keywords are case-insensitive.') }}</small>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
@@ -2491,10 +2873,10 @@ async function openMarkupWizard(textareaId, mode) {
 Number|num: number
 Partner|partner: Node("Partner")
 Closed|closed: boolean
-[Product|product: DataSet("goods"), Quantity|qty: number]
+lines:[Product|product: DataSet("goods"), Quantity|qty: number]
 _children: ChildNode("OrderPosition")|ChildNode("OrderPositionSpecial")
 positions:[ChildNode("OrderPosition")]
-lines:[Node("CommonLine")]`;
+linked_lines:[Node("CommonLine")]`;
     } else {
       example.textContent =
 `Date|@date
@@ -2590,6 +2972,25 @@ async function applyMarkupWizard() {
 }
 }
 
+async function generateCoverFromStructure(targetId) {
+  try {
+    const source = document.getElementById('dataStructure');
+    const target = document.getElementById(targetId || 'coverImage');
+    if (!source || !target) throw new Error({{ _('Data structure or target textarea not found')|tojson }});
+    const resp = await fetch('{{ url_for("layout_wizard") }}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ direction: 'to_json', text: source.value || '', mode: 'cover_structure' })
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) throw new Error(data.error || {{ _('Wizard conversion error')|tojson }});
+    target.value = JSON.stringify(data.layout, null, 2);
+    target.focus();
+  } catch(e) {
+    alert(String(e && e.message ? e.message : e));
+  }
+}
+
 async function generateInitLayoutFromStructure(targetId) {
   try {
     const source = document.getElementById('dataStructure');
@@ -2613,4 +3014,22 @@ async function generateInitLayoutFromStructure(targetId) {
 </script>
 
 </div>
+
+<script>
+(function(){
+  function syncDashboardOptions(){
+    const enabled = document.getElementById('dashboardEnabled');
+    const opts = document.getElementById('dashboardOptions');
+    if (!enabled || !opts) return;
+    opts.style.opacity = enabled.checked ? '1' : '.45';
+    opts.querySelectorAll('select,input').forEach(el => { if (el.id !== 'dashboardEnabled') el.disabled = !enabled.checked; });
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    const enabled = document.getElementById('dashboardEnabled');
+    if (enabled) enabled.addEventListener('change', syncDashboardOptions);
+    syncDashboardOptions();
+  });
+})();
+</script>
+
 {% endblock %}

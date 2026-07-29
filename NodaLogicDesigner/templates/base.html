@@ -25,12 +25,14 @@
 <body>
      <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
         <div class="container">
-            <a class="navbar-brand" href="{{ url_for('dashboard') }}">{{ _('Home') }}</a>
+            {% set home_url = url_for('dashboard') if current_user.is_authenticated and current_user.can_designer else (url_for('mobile_setup') if current_user.is_authenticated and (current_user.can_manage_users or current_user.can_manage_rooms or current_user.can_manage_servers) else (url_for('client.sections_home') if current_user.is_authenticated and current_user.can_client else url_for('choose_mode'))) %}
+            <a class="navbar-brand" href="{{ home_url }}">{{ _('Home') }}</a>
             <div class="d-flex align-items-center">
                 {% if current_user.is_authenticated %}
 
                 <a href="{{ url_for('choose_mode') }}" class="btn btn-sm btn-outline-secondary me-2">{{ _('Mode') }}</a>
-                <a href="{{ url_for('client.sections_home') }}" class="btn btn-sm btn-outline-primary me-3">{{ _('Client') }}</a>
+                {% if current_user.can_client %}<a href="{{ url_for('client.sections_home') }}" class="btn btn-sm btn-outline-primary me-2">{{ _('Client') }}</a>{% endif %}
+                {% if current_user.can_designer or current_user.can_manage_users or current_user.can_manage_rooms or current_user.can_manage_servers %}<a href="{{ url_for('mobile_setup') }}" class="btn btn-sm btn-outline-success me-3">{{ _('Mobile setup') }}</a>{% endif %}
 
 
                 <a href="{{ url_for('edit_profile') }}" class="me-3">

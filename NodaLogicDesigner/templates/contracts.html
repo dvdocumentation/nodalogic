@@ -76,6 +76,14 @@
                 <i class="bi bi-pencil"></i> {{ _('Edit') }}
               </button>
 
+              {% if contract.source_type == 'class' %}
+              <form method="POST" action="{{ url_for('contracts_recreate_nodes', contract_uid=contract.uid) }}" class="d-inline" onsubmit="return confirm({{ _('Recreate nodes for this contract?') | tojson }});">
+                <button type="submit" class="btn btn-sm btn-outline-success">
+                  <i class="bi bi-arrow-repeat"></i> {{ _('Recreate nodes') }}
+                </button>
+              </form>
+              {% endif %}
+
               <button
                 type="button"
                 class="btn btn-sm btn-outline-secondary"

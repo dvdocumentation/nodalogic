@@ -16,13 +16,29 @@
       </a>
     {% endif %}
 
+    {% if current_user.can_designer or current_user.can_manage_users or current_user.can_manage_rooms or current_user.can_manage_servers %}
+      <a class="btn btn-lg btn-outline-success py-4" href="{{ url_for('mobile_setup') }}">
+        {{ _('Mobile setup') }}
+      </a>
+    {% endif %}
+
     {% if current_user.can_designer %}
+      <a class="btn btn-lg btn-outline-info py-4" href="{{ url_for('demo_products_page') }}">
+        {{ _('Demo products') }}
+      </a>
+
       <a class="btn btn-lg btn-outline-secondary py-4" href="{{ url_for('contracts_page') }}">
         {{ _('Contracts') }}
       </a>
     {% endif %}
 
-    {% if not current_user.can_designer and not current_user.can_client %}
+    {% if current_user.can_designer and solutions_available is defined and solutions_available %}
+      <a class="btn btn-lg btn-outline-secondary py-4" href="{{ url_for('solutions_page') }}">
+        {{ _('Solutions') }}
+      </a>
+    {% endif %}
+
+    {% if not current_user.can_designer and not current_user.can_client and not current_user.can_manage_users and not current_user.can_manage_rooms and not current_user.can_manage_servers %}
       <div class="alert alert-warning text-start">
         {{_('        Your account does not have access to web interfaces. 
         If you need access to Client or Designer, ask your administrator for permission.')}}

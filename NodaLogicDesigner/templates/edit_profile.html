@@ -24,6 +24,26 @@
                     <input type="password" class="form-control" id="password" name="password">
                     <small class="text-muted">{{ _('Leave blank if you do not want to change password') }}</small>
                 </div>
+
+                <div class="border rounded p-3 mb-3 bg-light">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="android_authorization" name="android_authorization"
+                               {% if current_user.android_authorization %}checked{% endif %}>
+                        <label class="form-check-label" for="android_authorization">
+                            {{ _('Authorization on Android') }}
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="offer_pin" name="offer_pin"
+                               {% if current_user.offer_pin %}checked{% endif %}>
+                        <label class="form-check-label" for="offer_pin">
+                            {{ _('Suggest PIN') }}
+                        </label>
+                    </div>
+                    <div class="small text-muted mt-2">
+                        {{ _('These settings apply to the main account user in the hidden _System/_User list. Users created in /users have their own Android authorization flags.') }}
+                    </div>
+                </div>
                 
                 <div class="d-flex justify-content-between">
                     <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">

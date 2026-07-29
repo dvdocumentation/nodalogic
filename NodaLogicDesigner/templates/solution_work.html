@@ -1,0 +1,558 @@
+{% extends "base.html" %}
+
+{% block title %}{{ solution.name or solution.template_name or _('Solution') }} · NodaLogic{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3 solution-work-page">
+  <style>
+    .solution-top-card { border: 1px solid rgba(111,66,193,.18); }
+    .solution-html-box { min-height: 110px; max-height: 300px; overflow:auto; border:1px solid #e7e1f7; border-radius:.75rem; background:#fff; padding:1rem; }
+    .solution-html-box:empty::before { content: attr(data-empty); color:#8a8597; font-size:.9rem; }
+    .solution-clarification-block { margin-bottom:.8rem; padding-bottom:.8rem; border-bottom:1px solid #eee; }
+    .solution-clarification-block:last-child { border-bottom:0; margin-bottom:0; padding-bottom:0; }
+    .solution-ngenie-card { border: 1px solid rgba(111,66,193,.35); min-height: 66vh; }
+    .solution-ngenie-header { background:#6f42c1; color:#fff; }
+    .ngenie-chat-box { min-height: 44vh; height: 54vh; overflow:auto; background:#fbfaff; border:1px solid #e5ddff; border-radius:.75rem; padding:1rem; }
+    .ngenie-msg { margin-bottom:.75rem; padding:.65rem .8rem; border-radius:.7rem; max-width: 94%; white-space: pre-wrap; }
+    .ngenie-msg-user { margin-left:auto; background:#ede7ff; }
+    .ngenie-msg-bot { margin-right:auto; background:#fff; border:1px solid #e6e1f5; }
+    .ngenie-msg-meta { display:block; margin-top:.25rem; color:#7a7485; font-size:.75rem; white-space:normal; }
+    .ngenie-question-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:.75rem; margin-top:.6rem; white-space:normal; }
+    .ngenie-question-card { border:1px solid #d8cdf8; border-radius:.75rem; padding:.75rem; background:#fff; }
+    .ngenie-question-card-wide { grid-column: 1 / -1; }
+    .ngenie-question-card h6 { margin:0 0 .35rem 0; }
+    .ngenie-question-field { margin-top:.55rem; }
+    .ngenie-choice-list { display:flex; flex-wrap:wrap; gap:.35rem; }
+    .ngenie-choice-list .btn { white-space:normal; text-align:left; }
+    .ngenie-working { border-left: 4px solid #6f42c1; box-shadow: 0 0 0 .15rem rgba(111,66,193,.08); padding:.35rem .5rem; border-radius:.45rem; }
+    .ngenie-pulse-dot { display:inline-block; width:.55rem; height:.55rem; border-radius:50%; background:#6f42c1; margin-right:.35rem; animation: ngeniePulse 1s infinite alternate; }
+    @keyframes ngeniePulse { from { opacity:.25; transform:scale(.9); } to { opacity:1; transform:scale(1.15); } }
+  </style>
+
+  <div class="card solution-top-card shadow-sm mb-3">
+    <div class="card-body">
+      <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+        <div>
+          <h2 class="mb-1">{{ solution.name or solution.template_name or solution.template_key }}</h2>
+          {% if solution.description %}<div class="text-muted">{{ solution.description }}</div>{% endif %}
+          <div class="small mt-1">
+            <span class="badge text-bg-light border">{{ solution.template_key }}</span>
+            <span class="badge text-bg-primary">{{ solution.status or 'draft' }}</span>
+            <span class="badge text-bg-secondary">{{ solution.stage or 'created' }}</span>
+          </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          <a class="btn btn-outline-secondary" href="{{ url_for('solutions_page') }}"><i class="bi bi-arrow-left"></i> {{ _('Solutions') }}</a>
+          <a class="btn btn-outline-primary" target="_blank" href="{{ url_for('edit_config', uid=config.uid) }}"><i class="bi bi-box-arrow-up-right"></i> {{ _('Configuration') }}</a>
+        </div>
+      </div>
+      <div class="row g-3">
+        <div class="col-lg-6">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <h5 class="mb-0">{{ _('Specification') }}</h5>
+            <span class="small text-muted">HTML</span>
+          </div>
+          <div id="solutionSpecificationHtml" class="solution-html-box" data-empty="{{ _('Specification is not prepared yet.') }}">{{ solution.specification_html|safe }}</div>
+        </div>
+        <div class="col-lg-6">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <h5 class="mb-0">{{ _('Clarifications') }}</h5>
+            <span class="small text-muted">HTML</span>
+          </div>
+          <div id="solutionClarificationsHtml" class="solution-html-box" data-empty="{{ _('No saved clarifications yet.') }}">{{ solution.clarifications_html|safe }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card solution-ngenie-card shadow-sm mb-4">
+    <div class="card-header solution-ngenie-header d-flex justify-content-between align-items-center">
+      <div>
+        <h5 class="mb-0">nGenie Code</h5>
+        <div class="small opacity-75">{{ _('Solution workspace') }}</div>
+      </div>
+      <button type="button" class="btn btn-sm btn-light" id="ngenieCodeNewChatBtn">{{ _('New chat') }}</button>
+    </div>
+    <div class="card-body d-flex flex-column">
+      <div id="ngenieCodeChat" class="ngenie-chat-box mb-3 flex-grow-1">
+        <div class="ngenie-msg ngenie-msg-bot">{{ _('Loading chat history...') }}</div>
+      </div>
+
+      <form id="aiGeneratorForm" enctype="multipart/form-data">
+        <input type="hidden" id="aiProvider" value="ngenie_code">
+        <div class="row g-2 align-items-end">
+          <div class="col-lg-8">
+            <label for="aiPrompt" class="form-label">{{ _('Prompt for nGenie Code') }}</label>
+            <textarea class="form-control" id="aiPrompt" rows="4" placeholder="{{ _('Describe what to change or clarify in this solution...') }}"></textarea>
+          </div>
+          <div class="col-lg-3">
+            <label for="ngenieCodeAttachments" class="form-label">{{ _('Attachments') }}</label>
+            <input type="file" class="form-control" id="ngenieCodeAttachments" name="attachments" multiple>
+          </div>
+          <div class="col-lg-1 d-grid">
+            <button type="submit" class="btn text-white" style="background:#6f42c1" id="aiGenerateBtn"><i class="bi bi-magic"></i></button>
+          </div>
+        </div>
+      </form>
+      <div class="mt-2">
+        <div id="aiGeneratorStatus" class="small text-muted"></div>
+        <pre id="aiGeneratorError" class="mt-2 text-danger" style="white-space: pre-wrap; display:none;"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const aiGenerateUrl = {{ url_for('ai_generate', uid=config.uid)|tojson }};
+  const ngenieChatUrl = {{ url_for('ngenie_code_chat', uid=config.uid)|tojson }};
+  const ngenieNewChatUrl = {{ url_for('ngenie_code_chat_new', uid=config.uid)|tojson }};
+  const ngenieQuestionAnswerUrl = {{ ('/config/%s/ngenie-code-question-answers' % config.uid)|tojson }};
+  const solutionSummaryUrl = {{ url_for('solutions_summary_api', solution_uid=solution.uid)|tojson }};
+
+  const form = document.getElementById('aiGeneratorForm');
+  const promptInput = document.getElementById('aiPrompt');
+  const statusEl = document.getElementById('aiGeneratorStatus');
+  const errorEl = document.getElementById('aiGeneratorError');
+  const chatBox = document.getElementById('ngenieCodeChat');
+  const generateBtn = document.getElementById('aiGenerateBtn');
+  const attachmentsInput = document.getElementById('ngenieCodeAttachments');
+  const newChatBtn = document.getElementById('ngenieCodeNewChatBtn');
+  const specEl = document.getElementById('solutionSpecificationHtml');
+  const clarEl = document.getElementById('solutionClarificationsHtml');
+  let aiRequestInProgress = false;
+  let progressTimer = null;
+  let progressStartedAt = 0;
+
+  function cssEscape(v) {
+    if (window.CSS && CSS.escape) return CSS.escape(String(v));
+    return String(v).replace(/[^A-Za-z0-9_-]/g, '\\$&');
+  }
+
+  function appendNGenieMessage(kind, text, metaText) {
+    const div = document.createElement('div');
+    div.className = 'ngenie-msg ' + (kind === 'user' ? 'ngenie-msg-user' : 'ngenie-msg-bot');
+    div.textContent = text || '';
+    if (metaText) {
+      const meta = document.createElement('span');
+      meta.className = 'ngenie-msg-meta';
+      meta.textContent = metaText;
+      div.appendChild(meta);
+    }
+    chatBox.appendChild(div);
+    chatBox.scrollTop = chatBox.scrollHeight;
+    return div;
+  }
+
+  function normalizeQuestionField(field, index) {
+    if (field && typeof field === 'object' && !Array.isArray(field)) {
+      return Object.assign({ id: field.id || ('field_' + (index + 1)), type: 'text' }, field);
+    }
+    const raw = String(field || '').trim();
+    let left = raw, type = 'text';
+    if (raw.includes(':')) {
+      const parts = raw.split(/:(.+)/);
+      left = (parts[0] || '').trim();
+      type = (parts[1] || 'text').trim().toLowerCase();
+    }
+    let caption = left || '';
+    let id = 'field_' + (index + 1);
+    if (left.includes('|')) {
+      const parts = left.split('|');
+      caption = (parts[0] || '').trim();
+      id = (parts[1] || id).trim();
+    }
+    id = id.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || ('field_' + (index + 1));
+    const aliases = { integet: 'integer', int: 'integer', string: 'text', bool: 'boolean', single: 'single_choice', multi: 'multi_choice' };
+    return { id, caption, type: aliases[type] || type || 'text' };
+  }
+
+  function getFieldValue(container, field) {
+    const id = field.id;
+    const type = String(field.type || 'text').toLowerCase();
+    if (type === 'boolean') {
+      const el = container.querySelector(`[data-q-field="${cssEscape(id)}"]`);
+      return !!(el && el.checked);
+    }
+    if (type === 'single_choice') {
+      const el = container.querySelector(`input[data-q-field="${cssEscape(id)}"]:checked`);
+      return el ? el.value : '';
+    }
+    if (type === 'multi_choice') {
+      return Array.from(container.querySelectorAll(`input[data-q-field="${cssEscape(id)}"]:checked`)).map(x => x.value);
+    }
+    const el = container.querySelector(`[data-q-field="${cssEscape(id)}"]`);
+    return el ? el.value : '';
+  }
+
+  function isAnswered(value, field) {
+    if (field.required === false) return true;
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === 'boolean') return true;
+    return String(value ?? '').trim() !== '';
+  }
+
+  function collectQuestionAnswers(root, questions) {
+    const answers = {};
+    let allDone = true;
+    (questions || []).forEach((q, qi) => {
+      const qid = q.id || ('q_' + (qi + 1));
+      const card = root.querySelector(`[data-q-id="${cssEscape(qid)}"]`);
+      const qAnswers = {};
+      (q.fields || []).forEach((rawField, fi) => {
+        const field = normalizeQuestionField(rawField, fi);
+        const value = card ? getFieldValue(card, field) : '';
+        qAnswers[field.id] = value;
+        if (!isAnswered(value, field)) allDone = false;
+      });
+      answers[qid] = qAnswers;
+    });
+    return { answers, allDone };
+  }
+
+  function renderQuestionField(card, qid, rawField, index, onChange, savedValue) {
+    const field = normalizeQuestionField(rawField, index);
+    const type = String(field.type || 'text').toLowerCase();
+    const initialValue = savedValue !== undefined && savedValue !== null ? savedValue : field.default;
+    const wrap = document.createElement('div');
+    wrap.className = 'ngenie-question-field';
+    if (field.caption) {
+      const label = document.createElement('label');
+      label.className = 'form-label small mb-1';
+      label.textContent = field.caption;
+      wrap.appendChild(label);
+    }
+    const options = Array.isArray(field.options) ? field.options : [];
+    if (type === 'single_choice' || type === 'multi_choice') {
+      const list = document.createElement('div');
+      list.className = 'ngenie-choice-list';
+      options.forEach((opt, oi) => {
+        const val = String((opt && typeof opt === 'object') ? (opt.value ?? opt.id ?? opt.text ?? oi) : opt);
+        const text = String((opt && typeof opt === 'object') ? (opt.text ?? opt.caption ?? opt.value ?? oi) : opt);
+        const inputId = 'ngq_' + qid + '_' + field.id + '_' + oi + '_' + Math.random().toString(36).slice(2);
+        const inp = document.createElement('input');
+        inp.type = type === 'single_choice' ? 'radio' : 'checkbox';
+        inp.className = 'btn-check';
+        inp.name = 'ngq_' + qid + '_' + field.id;
+        inp.id = inputId;
+        inp.value = val;
+        inp.dataset.qField = field.id;
+        if (initialValue !== undefined) {
+          if (Array.isArray(initialValue)) inp.checked = initialValue.map(String).includes(val);
+          else inp.checked = String(initialValue) === val;
+        }
+        inp.addEventListener('change', onChange);
+        const btn = document.createElement('label');
+        btn.className = 'btn btn-sm btn-outline-primary';
+        btn.setAttribute('for', inputId);
+        btn.textContent = text;
+        if (opt && typeof opt === 'object' && opt.description) btn.title = opt.description;
+        list.appendChild(inp);
+        list.appendChild(btn);
+      });
+      wrap.appendChild(list);
+    } else if (type === 'select') {
+      const sel = document.createElement('select');
+      sel.className = 'form-select form-select-sm';
+      sel.dataset.qField = field.id;
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = field.placeholder || 'Выберите...';
+      sel.appendChild(empty);
+      options.forEach((opt, oi) => {
+        const o = document.createElement('option');
+        o.value = String((opt && typeof opt === 'object') ? (opt.value ?? opt.id ?? opt.text ?? oi) : opt);
+        o.textContent = String((opt && typeof opt === 'object') ? (opt.text ?? opt.caption ?? opt.value ?? oi) : opt);
+        if (initialValue !== undefined && String(initialValue) === o.value) o.selected = true;
+        sel.appendChild(o);
+      });
+      sel.addEventListener('change', onChange);
+      wrap.appendChild(sel);
+    } else if (type === 'boolean') {
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.className = 'form-check-input ms-1';
+      box.dataset.qField = field.id;
+      box.checked = initialValue !== undefined ? !!initialValue : false;
+      box.addEventListener('change', onChange);
+      wrap.appendChild(box);
+    } else {
+      const inp = document.createElement('input');
+      inp.className = 'form-control form-control-sm';
+      inp.dataset.qField = field.id;
+      inp.type = (type === 'integer' || type === 'number') ? 'number' : 'text';
+      if (type === 'integer') inp.step = '1';
+      if (field.placeholder) inp.placeholder = field.placeholder;
+      if (initialValue !== undefined && initialValue !== null) inp.value = initialValue;
+      if (field.min !== undefined) inp.min = field.min;
+      if (field.max !== undefined) inp.max = field.max;
+      inp.addEventListener('input', onChange);
+      inp.addEventListener('change', onChange);
+      inp.addEventListener('blur', onChange);
+      wrap.appendChild(inp);
+    }
+    card.appendChild(wrap);
+  }
+
+  function questionAnswersToText(questions, answers) {
+    const lines = ['Ответы на уточняющие вопросы:'];
+    (questions || []).forEach((q, qi) => {
+      const qid = q.id || ('q_' + (qi + 1));
+      const qTitle = q.text || q.question || qid;
+      if (qTitle) lines.push('- ' + qTitle);
+      const ans = (answers || {})[qid] || {};
+      (q.fields || []).forEach((rawField, fi) => {
+        const field = normalizeQuestionField(rawField, fi);
+        if (field.do_not_save === true || String(field.do_not_save || '').toLowerCase() === 'true') return;
+        const val = ans[field.id];
+        const caption = field.caption || field.id;
+        if (!caption) return;
+        lines.push('  - ' + caption + ': ' + (Array.isArray(val) ? val.join(', ') : val));
+      });
+    });
+    return lines.join('\n');
+  }
+
+  function scheduleQuestionAnswersSave(container, questions, answers, action, resume) {
+    const payloadHash = JSON.stringify({ answers, action, resume });
+    if (container.__ngenieLastSaveHash === payloadHash) return;
+    container.__ngenieLastSaveHash = payloadHash;
+    clearTimeout(container.__ngenieSaveTimer);
+    container.__ngenieSaveTimer = setTimeout(() => sendQuestionAnswers(questions, answers, action, resume), resume ? 20 : 350);
+  }
+
+  function appendNGenieQuestions(text, questions, metaText, savedAnswers) {
+    const div = appendNGenieMessage('bot', text || '', metaText || '');
+    const qs = Array.isArray(questions) ? questions : [];
+    const grid = document.createElement('div');
+    grid.className = 'ngenie-question-grid';
+    div.appendChild(grid);
+    const answers = savedAnswers || {};
+    function onChange() {
+      const state = collectQuestionAnswers(div, qs);
+      const action = String((qs[0] && qs[0].action) || 'nothing').toLowerCase();
+      const normalizedAction = action === 'none' ? 'nothing' : action;
+      const resume = (normalizedAction === 'straight' && state.allDone) || (normalizedAction === 'if_all' && state.allDone);
+      scheduleQuestionAnswersSave(div, qs, state.answers, normalizedAction, resume);
+    }
+    qs.forEach((q, qi) => {
+      const qid = q.id || ('q_' + (qi + 1));
+      const card = document.createElement('div');
+      card.className = 'ngenie-question-card' + (String(q.layout || 'card').toLowerCase() === 'wide' ? ' ngenie-question-card-wide' : '');
+      card.dataset.qId = qid;
+      const titleText = q.text || q.question || '';
+      if (q.text_html) {
+        const h = document.createElement('div');
+        h.innerHTML = q.text_html;
+        card.appendChild(h);
+      } else if (titleText) {
+        const h = document.createElement('h6');
+        h.textContent = titleText;
+        card.appendChild(h);
+      }
+      if (q.description_html) {
+        const d = document.createElement('div');
+        d.className = 'small text-muted mb-2';
+        d.innerHTML = q.description_html;
+        card.appendChild(d);
+      } else if (q.description) {
+        const d = document.createElement('div');
+        d.className = 'small text-muted mb-2';
+        d.textContent = q.description;
+        card.appendChild(d);
+      }
+      (q.fields || []).forEach((field, fi) => {
+        const f = normalizeQuestionField(field, fi);
+        const saved = answers && answers[qid] ? answers[qid][f.id] : undefined;
+        renderQuestionField(card, qid, field, fi, onChange, saved);
+      });
+      grid.appendChild(card);
+    });
+    chatBox.scrollTop = chatBox.scrollHeight;
+    return div;
+  }
+
+  async function readJsonResponse(res) {
+    const text = await res.text();
+    if (!text) return {};
+    try { return JSON.parse(text); } catch (e) { return { status:'error', message:text.slice(0, 4000) || ('HTTP ' + res.status) }; }
+  }
+
+  function renderNGenieHistory(messages) {
+    chatBox.innerHTML = '';
+    const seenQuestionKeys = new Set();
+    (messages || []).forEach(row => {
+      const role = row.role === 'user' ? 'user' : 'bot';
+      const meta = row.meta || {};
+      if (meta.kind === 'questions' && Array.isArray(meta.questions)) {
+        const qKey = meta.question_key || JSON.stringify((meta.questions || []).map(q => q.id || q.key || ''));
+        if (seenQuestionKeys.has(qKey)) return;
+        seenQuestionKeys.add(qKey);
+        appendNGenieQuestions(row.content || '', meta.questions, row.created_at || '', meta.answers || {});
+      } else {
+        appendNGenieMessage(role, row.content || '', row.created_at || '');
+      }
+    });
+    if (!messages || !messages.length) appendNGenieMessage('bot', 'nGenie Code готов к работе с решением.');
+  }
+
+  function loadNGenieHistory() {
+    fetch(ngenieChatUrl, { headers: { 'Accept': 'application/json' } })
+      .then(async res => ({ ok: res.ok, data: await readJsonResponse(res) }))
+      .then(({ ok, data }) => renderNGenieHistory(ok && data.status === 'ok' ? (data.messages || []) : []))
+      .catch(() => renderNGenieHistory([]));
+  }
+
+  function setBusy(busy, label) {
+    aiRequestInProgress = !!busy;
+    if (generateBtn) generateBtn.disabled = !!busy;
+    if (busy) {
+      generateBtn.dataset.originalHtml = generateBtn.dataset.originalHtml || generateBtn.innerHTML;
+      generateBtn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>';
+      startProgress(label || 'nGenie Code работает...');
+    } else {
+      if (generateBtn.dataset.originalHtml) generateBtn.innerHTML = generateBtn.dataset.originalHtml;
+      stopProgress();
+    }
+  }
+
+  function formatElapsed(ms) {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return m > 0 ? (m + ' мин ' + String(s).padStart(2, '0') + ' сек') : (s + ' сек');
+  }
+
+  function startProgress(text) {
+    stopProgress();
+    progressStartedAt = Date.now();
+    progressTimer = setInterval(() => {
+      statusEl.innerHTML = '<span class="ngenie-pulse-dot"></span>' + text + ' · ' + formatElapsed(Date.now() - progressStartedAt);
+      statusEl.classList.add('ngenie-working');
+    }, 1000);
+  }
+
+  function stopProgress() {
+    if (progressTimer) clearInterval(progressTimer);
+    progressTimer = null;
+    statusEl.classList.remove('ngenie-working');
+  }
+
+  function showError(text) {
+    errorEl.style.display = 'block';
+    errorEl.textContent = text || '';
+    appendNGenieMessage('bot', text || 'Ошибка запроса');
+  }
+
+  function refreshSolutionSummary() {
+    fetch(solutionSummaryUrl, { headers: { 'Accept': 'application/json' } })
+      .then(async res => ({ ok: res.ok, data: await readJsonResponse(res) }))
+      .then(({ ok, data }) => {
+        if (!ok || data.status !== 'ok' || !data.solution) return;
+        specEl.innerHTML = data.solution.specification_html || '';
+        clarEl.innerHTML = data.solution.clarifications_html || '';
+      })
+      .catch(() => {});
+  }
+
+  function handleQuestionAnswerResponse(data, pendingMsg, resume) {
+    if (Array.isArray(data.ngenie_code_questions) && data.ngenie_code_questions.length) {
+      if (pendingMsg) pendingMsg.textContent = data.message || 'Нужно уточнить еще несколько данных';
+      appendNGenieQuestions(data.message || 'Нужно уточнить еще несколько данных', data.ngenie_code_questions, '', data.answers || {});
+      refreshSolutionSummary();
+      return;
+    }
+    const ptype = String(data.plan_type || data.type || '').toLowerCase();
+    if (ptype === 'generate' && data.generate_prompt) {
+      if (pendingMsg) pendingMsg.textContent = data.message || 'Начинаю генерацию конфигурации по утвержденному решению.';
+      const fd = new FormData();
+      fd.append('prompt', data.generate_prompt);
+      fd.append('llm', 'ngenie_code');
+      fd.append('solution_plan_generate', '1');
+      fetch(aiGenerateUrl, { method: 'POST', body: fd, headers: { 'Accept': 'application/json' } })
+        .then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }))
+        .then(({ ok, status, data }) => {
+          if (!ok || data.status !== 'ok') { showError(data.message || ('HTTP ' + status)); return; }
+          appendNGenieMessage('bot', data.message || 'Configuration updated');
+          statusEl.textContent = data.message || 'Готово';
+          loadNGenieHistory();
+          refreshSolutionSummary();
+        })
+        .catch(err => showError(err.message))
+        .finally(() => setBusy(false));
+      return;
+    }
+    if (resume && pendingMsg) pendingMsg.textContent = data.message || 'План решения обновлен.';
+    refreshSolutionSummary();
+  }
+
+  function sendQuestionAnswers(questions, answers, action, resume) {
+    if (resume && aiRequestInProgress) return;
+    const prompt = questionAnswersToText(questions, answers);
+    let pendingMsg = null;
+    if (resume) {
+      appendNGenieMessage('user', prompt);
+      pendingMsg = appendNGenieMessage('bot', 'Ответы сохранены. Продолжаю план решения.');
+      errorEl.style.display = 'none';
+      setBusy(true, 'nGenie Code выполняет plan.py');
+    }
+    fetch(ngenieQuestionAnswerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ questions, answers, action, resume, content: prompt })
+    })
+    .then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }))
+    .then(({ ok, status, data }) => {
+      if (!ok || data.status !== 'ok') { if (resume) showError(data.message || ('HTTP ' + status)); return; }
+      handleQuestionAnswerResponse(data, pendingMsg, resume);
+    })
+    .catch(err => { if (resume) showError(err.message); })
+    .finally(() => { if (resume) setBusy(false); else refreshSolutionSummary(); });
+  }
+
+  if (newChatBtn) {
+    newChatBtn.addEventListener('click', function () {
+      if (aiRequestInProgress) return;
+      if (!confirm('{{ _('Clear nGenie Code chat for this configuration?') }}')) return;
+      fetch(ngenieNewChatUrl, { method: 'POST', headers: { 'Accept': 'application/json' } })
+        .then(async res => ({ ok: res.ok, data: await readJsonResponse(res) }))
+        .then(({ ok, data }) => { if (ok && data.status === 'ok') renderNGenieHistory(data.messages || []); else showError(data.message || 'Не удалось очистить чат'); })
+        .catch(err => showError(err.message));
+    });
+  }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (aiRequestInProgress) return;
+    const prompt = (promptInput.value || '').trim();
+    if (!prompt && (!attachmentsInput || !attachmentsInput.files.length)) {
+      promptInput.focus();
+      return;
+    }
+    appendNGenieMessage('user', prompt || 'Вложение');
+    const pending = appendNGenieMessage('bot', 'nGenie Code работает...');
+    const fd = new FormData(form);
+    fd.append('prompt', prompt);
+    fd.append('llm', 'ngenie_code');
+    setBusy(true, 'nGenie Code работает');
+    errorEl.style.display = 'none';
+    fetch(aiGenerateUrl, { method:'POST', body: fd, headers: { 'Accept':'application/json' } })
+      .then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }))
+      .then(({ ok, status, data }) => {
+        if (!ok || data.status !== 'ok') { pending.remove(); showError(data.message || ('HTTP ' + status)); return; }
+        pending.textContent = data.message || 'Готово';
+        if (Array.isArray(data.ngenie_code_questions) && data.ngenie_code_questions.length) appendNGenieQuestions(data.message || 'Нужно уточнить данные', data.ngenie_code_questions);
+        promptInput.value = '';
+        if (attachmentsInput) attachmentsInput.value = '';
+        loadNGenieHistory();
+        refreshSolutionSummary();
+      })
+      .catch(err => { pending.remove(); showError(err.message); })
+      .finally(() => setBusy(false));
+  });
+
+  loadNGenieHistory();
+  refreshSolutionSummary();
+})();
+</script>
+{% endblock %}

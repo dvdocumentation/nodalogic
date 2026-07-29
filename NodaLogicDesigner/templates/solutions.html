@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('Solutions') }} · NodaLogic{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+    <div>
+      <h2 class="mb-1">{{ _('Solutions') }}</h2>
+      <div class="text-muted small">{{ _('Business templates that create configurations through nGenie Code.') }}</div>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> {{ _('Back') }}
+      </a>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <h5 class="mb-0">{{ _('Create solution') }}</h5>
+      <span class="badge text-bg-light border">nGenie Code</span>
+    </div>
+    <div class="card-body">
+      <div class="row g-3">
+        {% for tpl in templates %}
+        <div class="col-md-6 col-xl-4">
+          <div class="card h-100 border-primary-subtle">
+            <div class="card-body d-flex flex-column">
+              <div class="d-flex align-items-center gap-2 mb-2">
+                <i class="bi {{ tpl.icon or 'bi-stars' }} text-primary fs-4"></i>
+                <h5 class="card-title mb-0">{{ tpl.name }}</h5>
+              </div>
+              <p class="card-text text-muted small flex-grow-1">{{ tpl.description or _('No description') }}</p>
+              <form method="POST" action="{{ url_for('solutions_create') }}" class="mt-2">
+                <input type="hidden" name="template_key" value="{{ tpl.key }}">
+                <div class="mb-2">
+                  <label class="form-label small">{{ _('Solution name') }}</label>
+                  <input class="form-control form-control-sm" name="name" placeholder="{{ tpl.name }}">
+                </div>
+                <button type="submit" class="btn btn-primary w-100">
+                  <i class="bi bi-plus-circle"></i> {{ _('Create solution') }}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-header">
+      <h5 class="mb-0">{{ _('My solutions') }}</h5>
+    </div>
+    <div class="card-body p-0">
+      {% if solutions %}
+      <div class="list-group list-group-flush">
+        {% for s in solutions %}
+        <div class="list-group-item py-3">
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div class="flex-grow-1" style="min-width: 260px;">
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                <h5 class="mb-0">{{ s.name or s.template_name or s.template_key }}</h5>
+                <span class="badge text-bg-light border">{{ s.template_key }}</span>
+                <span class="badge text-bg-primary">{{ s.status or 'draft' }}</span>
+                <span class="badge text-bg-secondary">{{ s.stage or 'created' }}</span>
+              </div>
+              <div class="text-muted small mb-1">{{ s.description or s.template_name }}</div>
+              {% if s.config_uid %}
+              <div class="small"><strong>{{ _('Configuration') }}:</strong> <code>{{ s.config_uid }}</code></div>
+              {% endif %}
+              {% if s.updated_at %}
+              <div class="small text-muted">{{ _('Updated') }}: {{ format_datetime(s.updated_at) }}</div>
+              {% endif %}
+            </div>
+            <div class="d-flex flex-wrap gap-2 justify-content-end">
+              <a class="btn btn-sm btn-outline-primary" href="{{ url_for('solutions_work', solution_uid=s.uid) }}">
+                <i class="bi bi-chat-dots"></i> {{ _('Open solution') }}
+              </a>
+              {% if s.config_uid %}
+              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('edit_config', uid=s.config_uid) }}" target="_blank">
+                <i class="bi bi-pencil"></i> {{ _('Configuration') }}
+              </a>
+              {% endif %}
+              <form method="POST" action="{{ url_for('solutions_delete', solution_uid=s.uid) }}" onsubmit="return confirm('{{ _('Delete solution?') }}');">
+                <button type="submit" class="btn btn-sm btn-outline-danger">
+                  <i class="bi bi-trash"></i> {{ _('Delete') }}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="alert alert-info m-3">
+        <i class="bi bi-info-circle"></i> {{ _('No solutions yet.') }}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

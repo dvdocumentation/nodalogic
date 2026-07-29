@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Mobile setup') }}{% endblock %}
+
+{% block content %}
+<div class="container py-3">
+  <div class="d-flex justify-content-between align-items-center gap-3 mb-4">
+    <div>
+      <h2 class="mb-1"><i class="bi bi-phone"></i> {{ _('Mobile setup') }}</h2>
+      <div class="text-muted">{{ _('Configurations, rooms, servers and mobile users without access to Configurator.') }}</div>
+    </div>
+    <div class="d-flex gap-2">
+      {% if can_manage_users %}
+      <a class="btn btn-outline-primary" href="{{ url_for('users_manage') }}"><i class="bi bi-people"></i> {{ _('Users') }}</a>
+      {% endif %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('choose_mode') }}">{{ _('Mode') }}</a>
+    </div>
+  </div>
+
+  <ul class="nav nav-tabs mb-3" role="tablist">
+    <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#configs" type="button">{{ _('Configurations') }}</button></li>
+    {% if can_manage_rooms %}<li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#rooms" type="button">{{ _('Rooms') }}</button></li>{% endif %}
+    {% if can_manage_servers %}<li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#servers" type="button">{{ _('Servers') }}</button></li>{% endif %}
+  </ul>
+
+  <div class="tab-content">
+    <div class="tab-pane fade show active" id="configs">
+      {% for row in config_rows %}
+      {% set cfg = row.config %}
+      <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center gap-3">
+          <div>
+            <strong>{{ cfg.name or cfg.uid }}</strong>
+            <div class="small text-muted">UID: <code>{{ cfg.uid }}</code></div>
+          </div>
+          {% if row.default_server %}
+          <span class="badge text-bg-success">{{ _('Default server') }}: {{ row.default_server.alias }}</span>
+          {% else %}
+          <span class="badge text-bg-warning">{{ _('Default server is not configured') }}</span>
+          {% endif %}
+        </div>
+        <div class="card-body">
+          <div class="row g-3 align-items-center">
+            <div class="col-lg-8">
+              <label class="form-label">{{ _('Configuration URL') }}</label>
+              <div class="input-group">
+                <input class="form-control font-monospace" id="cfgUrl{{ loop.index }}" value="{{ row.config_url }}" readonly>
+                <button class="btn btn-outline-secondary" type="button" data-copy-target="cfgUrl{{ loop.index }}"><i class="bi bi-clipboard"></i></button>
+              </div>
+              <div class="form-text">{{ _('Scan the QR code in the mobile application to add this configuration. The QR contains the ordinary configuration URL and does not expose the Configurator.') }}</div>
+
+              {% if row.room_aliases %}
+              <div class="mt-3">
+                <div class="small fw-semibold mb-1">{{ _('Configuration rooms') }}</div>
+                <div class="d-flex flex-wrap gap-2">
+                  {% for a in row.room_aliases %}
+                    {% set room = rooms_by_uid.get(a.room_uid|string) %}
+                    <span class="badge text-bg-light border">{{ a.alias }} → {{ room.name if room else a.room_uid }}</span>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endif %}
+            </div>
+            <div class="col-lg-4 text-center">
+              <img src="data:image/png;base64,{{ row.qr_img }}" alt="QR" class="img-fluid border rounded p-2 bg-white" style="max-width:220px">
+              <div class="small text-muted mt-2">{{ _('Configuration QR') }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% else %}
+      <div class="alert alert-info">{{ _('No business configurations yet.') }}</div>
+      {% endfor %}
+    </div>
+
+    {% if can_manage_rooms %}
+    <div class="tab-pane fade" id="rooms">
+      <div class="card mb-4">
+        <div class="card-header">{{ _('Create room') }}</div>
+        <div class="card-body">
+          <form class="row g-2" method="POST" action="{{ url_for('create_room') }}">
+            <input type="hidden" name="return_to" value="mobile_setup">
+            <div class="col-md-6"><input class="form-control" name="name" placeholder="{{ _('Room name') }}" required></div>
+            <div class="col-md-3">
+              <select class="form-select" name="transport">
+                <option value="websocket">WebSocket</option>
+                <option value="fcm">FCM</option>
+              </select>
+            </div>
+            <div class="col-md-3"><button class="btn btn-primary w-100" type="submit">{{ _('Create') }}</button></div>
+          </form>
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-header">{{ _('Rooms') }}</div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+              <thead><tr><th>{{ _('Name') }}</th><th>UID</th><th>{{ _('Transport') }}</th><th>QR</th><th class="text-end">{{ _('Actions') }}</th></tr></thead>
+              <tbody>
+              {% for room_row in room_rows %}
+                {% set room = room_row.room %}
+                {% set room_form_id = 'roomForm' ~ loop.index %}
+                <tr>
+                  <td>
+                    <form id="{{ room_form_id }}" method="POST" action="{{ url_for('update_room', room_uid=room.uid) }}"></form>
+                    <input type="hidden" name="return_to" value="mobile_setup" form="{{ room_form_id }}">
+                    <input class="form-control form-control-sm" name="name" value="{{ room.name }}" required form="{{ room_form_id }}">
+                  </td>
+                  <td><code>{{ room.uid }}</code></td>
+                  <td>
+                    <select class="form-select form-select-sm" name="transport" form="{{ room_form_id }}">
+                      <option value="websocket" {% if (room.transport or 'websocket') == 'websocket' %}selected{% endif %}>WebSocket</option>
+                      <option value="fcm" {% if room.transport == 'fcm' %}selected{% endif %}>FCM</option>
+                    </select>
+                  </td>
+                  <td>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#roomQr{{ loop.index }}"><i class="bi bi-qr-code"></i> QR</button>
+                  </td>
+                  <td class="text-end text-nowrap">
+                    <button class="btn btn-sm btn-outline-primary" type="submit" form="{{ room_form_id }}">{{ _('Save') }}</button>
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('room_detail', room_uid=room.uid) }}">{{ _('Details') }}</a>
+                    <a class="btn btn-sm btn-outline-danger" href="{{ url_for('delete_room', room_uid=room.uid, return_to='mobile_setup') }}" onclick="return confirm('{{ _('Delete room?') }}')">{{ _('Delete') }}</a>
+                  </td>
+                </tr>
+                <tr class="collapse" id="roomQr{{ loop.index }}">
+                  <td colspan="5">
+                    <div class="row g-3 align-items-center py-2">
+                      <div class="col-auto"><img src="data:image/png;base64,{{ room_row.qr_img }}" alt="QR" class="border rounded p-1 bg-white" style="width:150px;height:150px"></div>
+                      <div class="col">
+                        <label class="form-label small">{{ _('Room connection payload') }}</label>
+                        <div class="input-group">
+                          <textarea class="form-control form-control-sm font-monospace" id="roomPayload{{ loop.index }}" rows="4" readonly>{{ room_row.payload }}</textarea>
+                          <button class="btn btn-outline-secondary" type="button" data-copy-target="roomPayload{{ loop.index }}"><i class="bi bi-clipboard"></i></button>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              {% else %}
+                <tr><td colspan="5" class="text-center text-muted py-4">{{ _('No rooms yet') }}</td></tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">{{ _('Room aliases in configurations') }}</div>
+        <div class="card-body">
+          <div class="alert alert-light border small">{{ _('A strategy uses an alias, while the administrator maps that alias to a real room here. This keeps generated configuration code independent of concrete room UIDs.') }}</div>
+          {% for row in config_rows %}
+          <div class="border rounded p-3 mb-3">
+            <div class="fw-semibold mb-2">{{ row.config.name }}</div>
+            <form class="row g-2 mb-3" method="POST" action="{{ url_for('mobile_room_alias_save') }}">
+              <input type="hidden" name="config_uid" value="{{ row.config.uid }}">
+              <div class="col-md-4"><input class="form-control form-control-sm" name="alias" placeholder="tasks / reference / notifications" required></div>
+              <div class="col-md-5">
+                <select class="form-select form-select-sm" name="room_uid" required>
+                  <option value="">{{ _('Select room') }}</option>
+                  {% for room in rooms %}<option value="{{ room.uid }}">{{ room.name }} · {{ room.uid[:8] }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="col-md-3"><button class="btn btn-sm btn-primary w-100" type="submit">{{ _('Add mapping') }}</button></div>
+            </form>
+            {% for a in row.room_aliases %}
+              {% set room = rooms_by_uid.get(a.room_uid|string) %}
+              <div class="d-flex justify-content-between align-items-center border-top py-2 gap-2">
+                <div><code>{{ a.alias }}</code> → {{ room.name if room else a.room_uid }}</div>
+                <form method="POST" action="{{ url_for('mobile_room_alias_delete', alias_id=a.id) }}" onsubmit="return confirm('{{ _('Delete mapping?') }}')"><button class="btn btn-sm btn-outline-danger" type="submit">{{ _('Delete') }}</button></form>
+              </div>
+            {% else %}
+              <div class="text-muted small">{{ _('No mappings yet') }}</div>
+            {% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if can_manage_servers %}
+    <div class="tab-pane fade" id="servers">
+      <div class="alert alert-info">{{ _('The default server is used by RemoteClass when a method does not specify a server explicitly. Only one default server is allowed per configuration.') }}</div>
+      {% for row in config_rows %}
+      <div class="card mb-3">
+        <div class="card-header"><strong>{{ row.config.name }}</strong></div>
+        <div class="card-body">
+          <form class="row g-2 mb-3" method="POST" action="{{ url_for('mobile_server_save') }}">
+            <input type="hidden" name="config_uid" value="{{ row.config.uid }}">
+            <div class="col-md-3"><input class="form-control" name="alias" placeholder="main" required></div>
+            <div class="col-md-6"><input class="form-control" name="url" placeholder="https://server.example.com" required></div>
+            <div class="col-md-2 d-flex align-items-center"><label class="form-check"><input class="form-check-input" type="checkbox" name="is_default"> {{ _('Default') }}</label></div>
+            <div class="col-md-1"><button class="btn btn-primary w-100" type="submit"><i class="bi bi-plus"></i></button></div>
+          </form>
+          {% for server in row.servers %}
+          <div class="border rounded p-2 mb-2">
+            <form class="row g-2 align-items-center" method="POST" action="{{ url_for('mobile_server_save') }}">
+              <input type="hidden" name="config_uid" value="{{ row.config.uid }}">
+              <input type="hidden" name="server_id" value="{{ server.id }}">
+              <div class="col-md-3"><input class="form-control form-control-sm" name="alias" value="{{ server.alias }}" required></div>
+              <div class="col-md-6"><input class="form-control form-control-sm" name="url" value="{{ server.url }}" required></div>
+              <div class="col-md-2"><label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="is_default" {% if server.is_default %}checked{% endif %}> {{ _('Default') }}</label></div>
+              <div class="col-md-1 text-end"><button class="btn btn-sm btn-outline-primary" type="submit"><i class="bi bi-check"></i></button></div>
+            </form>
+            <form class="mt-2 text-end" method="POST" action="{{ url_for('mobile_server_delete', server_id=server.id) }}" onsubmit="return confirm('{{ _('Delete server?') }}')"><button class="btn btn-sm btn-outline-danger" type="submit">{{ _('Delete') }}</button></form>
+          </div>
+          {% else %}
+          <div class="text-muted">{{ _('No servers yet') }}</div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  document.querySelectorAll('[data-copy-target]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const el = document.getElementById(btn.dataset.copyTarget);
+      if (!el) return;
+      try { await navigator.clipboard.writeText(el.value || el.textContent || ''); }
+      catch (_) { el.select(); document.execCommand('copy'); }
+      const old = btn.innerHTML;
+      btn.innerHTML = '<i class="bi bi-check"></i>';
+      setTimeout(function(){ btn.innerHTML = old; }, 1200);
+    });
+  });
+  const hash = window.location.hash;
+  if (hash) {
+    const trigger = document.querySelector(`[data-bs-target="${hash}"]`);
+    if (trigger) bootstrap.Tab.getOrCreateInstance(trigger).show();
+  }
+})();
+</script>
+{% endblock %}

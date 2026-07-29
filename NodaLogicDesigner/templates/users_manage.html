@@ -1,103 +1,240 @@
 {% extends "base.html" %}
+{% block title %}{{ _('Users and access') }}{% endblock %}
 
 {% block content %}
-<div class="container">
+<div class="container mt-4">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h2 class="mb-0">{{_('Users')}}</h2>
-    <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">{{_('Back')}}</a>
+    <h2 class="mb-0"><i class="bi bi-people"></i> {{ _('Users and access') }}</h2>
+    <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') if current_user.can_designer else url_for('mobile_setup') }}">{{ _('Back') }}</a>
   </div>
 
   <div class="card mb-4">
-    <div class="card-header">{{_('Create user')}}</div>
+    <div class="card-header">{{ _('Create user') }}</div>
     <div class="card-body">
       <form method="POST" action="{{ url_for('users_create') }}">
-        <div class="row g-2">
+        <div class="row g-3">
           <div class="col-md-4">
-            <label class="form-label">Email</label>
-            <input class="form-control" name="email" required />
+            <label class="form-label">{{ _('Email / login') }}</label>
+            <input class="form-control" name="email" type="email" required>
           </div>
           <div class="col-md-4">
-            <label class="form-label">{{_('Password')}}</label>
-            <input class="form-control" name="password" type="password" required />
+            <label class="form-label">{{ _('Password') }}</label>
+            <input class="form-control" name="password" type="password" required>
           </div>
           <div class="col-md-4">
-            <label class="form-label">{{_('Access')}}</label>
-            <div class="d-flex gap-3 align-items-center" style="min-height: 38px;">
-              <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_designer"> Designer</label>
+            <label class="form-label">{{ _('Global access') }}</label>
+            <div class="d-flex flex-wrap gap-3 align-items-center" style="min-height:38px;">
+              {% if can_grant_admin %}
+              <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_designer"> Configurator</label>
+              <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_manage_users"> Users</label>
+              <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_manage_rooms"> Rooms</label>
+              <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_manage_servers"> Servers</label>
+              {% endif %}
               <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_client"> Client</label>
               <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_api"> API</label>
+              <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="android_authorization"> {{ _('Authorization on Android') }}</label>
+              <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="offer_pin"> {{ _('Suggest PIN') }}</label>
             </div>
           </div>
         </div>
 
-        <div class="mt-3">
-          <label class="form-label">{{_('Available configurations')}}</label>
-          <select class="form-select" name="config_ids" multiple size="6">
-            {% for c in configs %}
-              <option value="{{ c.id }}">{{ c.name or '—' }} · {{ c.uid[:8] }}</option>
-            {% endfor %}
-          </select>
-          <div class="form-text">{{_('Select the configurations you can use. The owner (you) always has access.')}}</div>
+        <div class="row g-3 mt-1">
+          <div class="col-md-6">
+            <label class="form-label">{{ _('Available configurations') }}</label>
+            <div class="border rounded p-2" style="max-height:220px;overflow:auto;">
+              {% for c in configs %}
+                <label class="form-check">
+                  <input class="form-check-input" type="checkbox" name="config_ids" value="{{ c.id }}">
+                  <span class="form-check-label">{{ c.name or '—' }} <span class="text-muted small">{{ c.uid[:8] }}</span></span>
+                </label>
+              {% else %}
+                <div class="text-muted small">{{ _('No configurations yet') }}</div>
+              {% endfor %}
+            </div>
+            <div class="form-text">{{ _('Configuration access is edited here. Profiles below restrict classes and RLS inside these configurations.') }}</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">{{ _('Profiles / roles') }}</label>
+            <div class="border rounded p-2" style="max-height:220px;overflow:auto;">
+              {% for p in profiles %}
+                <label class="form-check">
+                  <input class="form-check-input" type="checkbox" name="profile_ids" value="{{ p.id }}">
+                  <span class="form-check-label">{{ p.name }}</span>
+                </label>
+              {% else %}
+                <div class="text-muted small">{{ _('No profiles yet') }}</div>
+              {% endfor %}
+            </div>
+            <div class="form-text">{{ _('A user can have several profiles. Nothing is assigned automatically here.') }}</div>
+          </div>
         </div>
 
         <div class="mt-3">
-          <button class="btn btn-primary" type="submit">{{_('Create')}}</button>
+          <button class="btn btn-primary" type="submit">{{ _('Create') }}</button>
         </div>
       </form>
     </div>
   </div>
 
+  {% if can_grant_admin %}
+  <div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>{{ _('Profiles / roles') }}</span>
+      <span class="text-muted small">{{ _('Open a profile to select classes and configure RLS') }}</span>
+    </div>
+    <div class="card-body">
+      <form class="row g-2 mb-3 profile-create-form" method="POST" action="{{ url_for('profiles_create') }}">
+        <div class="col-md-8"><input class="form-control" name="name" placeholder="{{ _('New profile name') }}"></div>
+        <div class="col-md-4"><button class="btn btn-outline-primary w-100" type="submit" data-loading-text="{{ _('Opening profile...') }}">{{ _('Create profile') }}</button></div>
+      </form>
+      {% if profiles %}
+        <div class="list-group">
+          {% for p in profiles %}
+            <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center profile-open-link" href="{{ url_for('profile_edit', profile_uid=p.uid) }}">
+              <span>
+                <b>{{ p.name }}</b>
+                {% if p.is_template_generated %}<span class="badge text-bg-info ms-2">{{ _('template') }}</span>{% endif %}
+                <br><span class="text-muted small">{{ p.uid }}</span>
+              </span>
+              <span class="badge text-bg-secondary">{{ p.class_access|length }} {{ _('classes') }}</span>
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="text-muted">{{ _('No profiles yet') }}</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   <div class="card">
-    <div class="card-header">{{_('Your users')}}</div>
+    <div class="card-header">{{ _('Your users') }}</div>
     <div class="card-body">
       {% if not users %}
-        <div class="text-muted">{{_('No users yet')}}</div>
+        <div class="text-muted">{{ _('No users yet') }}</div>
       {% else %}
         {% for u in users %}
           <div class="border rounded p-3 mb-3">
-            <div class="d-flex justify-content-between align-items-start">
+            <div class="d-flex justify-content-between align-items-start gap-3">
               <div>
                 <div class="fw-semibold">{{ u.email }}</div>
                 <div class="text-muted small">id={{ u.id }}</div>
               </div>
-              <form method="POST" action="{{ url_for('users_delete', user_id=u.id) }}" onsubmit="return confirm('Delete user?');">
-                <button class="btn btn-sm btn-outline-danger" type="submit">{{_('Delete')}}</button>
+              {% if can_grant_admin or not (u.can_designer or u.can_manage_users or u.can_manage_rooms or u.can_manage_servers) %}
+              <form method="POST" action="{{ url_for('users_delete', user_id=u.id) }}" onsubmit="return confirm('{{ _('Delete user?') }}');">
+                <button class="btn btn-sm btn-outline-danger" type="submit">{{ _('Delete') }}</button>
               </form>
+              {% endif %}
             </div>
 
+            {% set protected_admin = (u.can_designer or u.can_manage_users or u.can_manage_rooms or u.can_manage_servers) and not can_grant_admin %}
+            {% if protected_admin %}
+              <div class="alert alert-light border mt-3 mb-0 small">{{ _('This administrative account can be changed only by a Configurator user.') }}</div>
+            {% else %}
             <form class="mt-3" method="POST" action="{{ url_for('users_update', user_id=u.id) }}">
-              <div class="row g-2">
+              <div class="row g-3">
                 <div class="col-md-4">
-                  <label class="form-label">{{_('New password(optional)')}}</label>
-                  <input class="form-control" name="password" type="password" />
-                </div>
-                <div class="col-md-4">
-                  <label class="form-label">{{_('Accesses')}}</label>
-                  <div class="d-flex gap-3 align-items-center" style="min-height: 38px;">
-                    <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_designer" {% if u.can_designer %}checked{% endif %}> Designer</label>
-                    <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_client" {% if u.can_client %}checked{% endif %}> Client</label>
-                    <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_api" {% if u.can_api %}checked{% endif %}> API</label>
+                  <label class="form-label">{{ _('New password(optional)') }}</label>
+                  <input class="form-control" name="password" type="password">
+                  <div class="mt-3">
+                    <label class="form-label">{{ _('Global access') }}</label>
+                    <div class="d-flex flex-wrap gap-3 align-items-center">
+                      {% if can_grant_admin %}
+                      <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_designer" {% if u.can_designer %}checked{% endif %}> Configurator</label>
+                      <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_manage_users" {% if u.can_manage_users %}checked{% endif %}> Users</label>
+                      <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_manage_rooms" {% if u.can_manage_rooms %}checked{% endif %}> Rooms</label>
+                      <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_manage_servers" {% if u.can_manage_servers %}checked{% endif %}> Servers</label>
+                      {% else %}
+                        {% if u.can_designer or u.can_manage_users or u.can_manage_rooms or u.can_manage_servers %}
+                        <span class="small text-muted">Administrative roles can be changed only by Configurator.</span>
+                        {% endif %}
+                      {% endif %}
+                      <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_client" {% if u.can_client %}checked{% endif %}> Client</label>
+                      <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="can_api" {% if u.can_api %}checked{% endif %}> API</label>
+                      <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="android_authorization" {% if u.android_authorization %}checked{% endif %}> {{ _('Authorization on Android') }}</label>
+                      <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="offer_pin" {% if u.offer_pin %}checked{% endif %}> {{ _('Suggest PIN') }}</label>
+                    </div>
                   </div>
                 </div>
                 <div class="col-md-4">
-                  <label class="form-label">{{_('Configurations')}}</label>
-                  <select class="form-select" name="config_ids" multiple size="6">
+                  <label class="form-label">{{ _('Configurations') }}</label>
+                  <div class="border rounded p-2" style="max-height:240px;overflow:auto;">
                     {% set selected = access_map.get(u.id) or [] %}
                     {% for c in configs %}
-                      <option value="{{ c.id }}" {% if c.id in selected %}selected{% endif %}>{{ c.name or '—' }} · {{ c.uid[:8] }}</option>
+                      <label class="form-check">
+                        <input class="form-check-input" type="checkbox" name="config_ids" value="{{ c.id }}" {% if c.id in selected %}checked{% endif %}>
+                        <span class="form-check-label">{{ c.name or '—' }} <span class="text-muted small">{{ c.uid[:8] }}</span></span>
+                      </label>
+                    {% else %}
+                      <div class="text-muted small">{{ _('No configurations yet') }}</div>
                     {% endfor %}
-                  </select>
+                  </div>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">{{ _('Profiles / roles') }}</label>
+                  <div class="border rounded p-2" style="max-height:240px;overflow:auto;">
+                    {% set selected_profiles = role_map.get(u.id) or [] %}
+                    {% for p in profiles %}
+                      <label class="form-check">
+                        <input class="form-check-input" type="checkbox" name="profile_ids" value="{{ p.id }}" {% if p.id in selected_profiles %}checked{% endif %}>
+                        <span class="form-check-label">{{ p.name }}</span>
+                      </label>
+                    {% else %}
+                      <div class="text-muted small">{{ _('No profiles yet') }}</div>
+                    {% endfor %}
+                  </div>
+                  <div class="form-text">{{ _('Check to add, uncheck to remove.') }}</div>
                 </div>
               </div>
-              <div class="mt-3">
-                <button class="btn btn-sm btn-primary" type="submit">{{_('Save')}}</button>
-              </div>
+              <div class="mt-3"><button class="btn btn-sm btn-primary" type="submit">{{ _('Save access') }}</button></div>
             </form>
+            {% endif %}
           </div>
         {% endfor %}
       {% endif %}
     </div>
   </div>
-
 </div>
+{% endblock %}
+{% block scripts %}
+<style>
+.profile-loading-overlay{position:fixed;inset:0;z-index:20000;background:rgba(255,255,255,.72);display:none;align-items:center;justify-content:center;backdrop-filter:blur(1px);}
+.profile-loading-box{background:#fff;border:1px solid #dee2e6;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.14);padding:22px 28px;min-width:260px;text-align:center;}
+</style>
+<div class="profile-loading-overlay" id="profileLoadingOverlay">
+  <div class="profile-loading-box">
+    <div class="spinner-border text-primary mb-3" role="status" aria-hidden="true"></div>
+    <div class="fw-semibold">{{ _('Opening profile...') }}</div>
+    <div class="text-muted small mt-1">{{ _('Please wait') }}</div>
+  </div>
+</div>
+<script>
+(function(){
+  const overlay = document.getElementById('profileLoadingOverlay');
+  function showProfileLoader(text){
+    if(!overlay) return;
+    const title = overlay.querySelector('.fw-semibold');
+    if(title && text) title.textContent = text;
+    overlay.style.display = 'flex';
+  }
+  document.querySelectorAll('.profile-open-link').forEach(a => {
+    a.addEventListener('click', function(){
+      showProfileLoader({{ _('Opening profile...')|tojson }});
+      this.classList.add('disabled');
+      this.style.pointerEvents = 'none';
+    });
+  });
+  document.querySelectorAll('.profile-create-form').forEach(form => {
+    form.addEventListener('submit', function(e){
+      if(form.dataset.submitting === '1'){ e.preventDefault(); return false; }
+      form.dataset.submitting = '1';
+      form.querySelectorAll('button[type="submit"]').forEach(btn => {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>' + (btn.getAttribute('data-loading-text') || {{ _('Opening profile...')|tojson }});
+      });
+      showProfileLoader({{ _('Opening profile...')|tojson }});
+    });
+  });
+})();
+</script>
 {% endblock %}

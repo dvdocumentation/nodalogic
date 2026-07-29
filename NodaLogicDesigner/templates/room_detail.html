@@ -8,7 +8,7 @@
             <small class="text-muted fs-6">{{ _('UID') }}: {{ room.uid }} · transport: {{ room.transport or 'websocket' }}</small>
         </h1>
         <div>
-            <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary me-2">
+            <a href="{{ url_for('dashboard') if current_user.can_designer else url_for('mobile_setup') }}" class="btn btn-outline-secondary me-2">
                 <i class="bi bi-house"></i> {{ _('To Main') }}
             </a>
         </div>
@@ -62,12 +62,24 @@
         <div class="card-body p-0">
             <div class="table-responsive">
                 <table class="table table-sm mb-0">
-                    <thead><tr><th>device_uid</th><th>channel</th><th>model</th><th>last_seen</th></tr></thead>
+                    <thead><tr><th>device_uid</th><th>channel</th><th>FCM token</th><th>model</th><th>last_seen</th></tr></thead>
                     <tbody>
                     {% for d in (room_devices or []) %}
-                        <tr><td>{{ d.device_uid }}</td><td>{{ d.push_channel }}</td><td>{{ d.device_model }}</td><td>{{ d.last_seen }}</td></tr>
+                        <tr>
+                            <td>{{ d.device_uid }}</td>
+                            <td>{{ d.push_channel }}</td>
+                            <td>
+                                {% if (d.fcm_token or '')|trim %}
+                                    <span class="badge bg-success">present · {{ (d.fcm_token or '')|length }} chars</span>
+                                {% else %}
+                                    <span class="badge bg-danger">MISSING</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ d.device_model }}</td>
+                            <td>{{ d.last_seen }}</td>
+                        </tr>
                     {% else %}
-                        <tr><td colspan="4" class="text-muted text-center">No registered devices</td></tr>
+                        <tr><td colspan="5" class="text-muted text-center">No registered devices</td></tr>
                     {% endfor %}
                     </tbody>
                 </table>

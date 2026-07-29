@@ -29,8 +29,8 @@
                 </button>
 
                 <button class="nav-link {% if active_tab == 'ai-generator' %}active{% endif %}" 
-                        id="v-pills-ai-generator-tab" data-bs-toggle="pill" data-bs-target="#v-pills-ai-generator" type="button" role="tab">
-                    {{ _('AI Generator') }}
+                        id="v-pills-ai-generator-tab" data-bs-toggle="pill" data-bs-target="#v-pills-ai-generator" type="button" role="tab"{% if ngenie_code_available %} style="background:{% if active_tab == 'ai-generator' %}#6f42c1{% else %}#f4efff{% endif %}; color:{% if active_tab == 'ai-generator' %}#fff{% else %}#4a267e{% endif %};"{% endif %}>
+                    {% if ngenie_code_available %}nGenie Code{% else %}{{ _('AI Generator') }}{% endif %}
                 </button>
 
                 <button class="nav-link {% if active_tab == 'classes' %}active{% endif %}" 
@@ -79,6 +79,14 @@
   {{ _('Common layouts') }}
 </button>
 
+<button class="nav-link {% if active_tab == 'profile-templates' %}active{% endif %}"
+        id="v-pills-profile-templates-tab"
+        data-bs-toggle="pill"
+        data-bs-target="#v-pills-profile-templates"
+        type="button" role="tab">
+  {{ _('Profile templates') }}
+</button>
+
 
             </div>
         </div>
@@ -90,6 +98,139 @@
                 <div class="tab-pane fade {% if active_tab == 'ai-generator' %}show active{% endif %}" 
                     id="v-pills-ai-generator" role="tabpanel">
 
+                    {% if ngenie_code_available %}
+                    <style>
+                      .ngenie-code-card { border: 1px solid rgba(111,66,193,.35); }
+                      .ngenie-code-header { background: #6f42c1; color: #fff; }
+                      .ngenie-chat-box { min-height: 260px; max-height: 480px; overflow:auto; background:#fbfaff; border:1px solid #e5ddff; border-radius:.75rem; padding:1rem; }
+                      .ngenie-msg { margin-bottom:.75rem; padding:.65rem .8rem; border-radius:.7rem; max-width: 92%; white-space: pre-wrap; }
+                      .ngenie-msg-user { margin-left:auto; background:#ede7ff; }
+                      .ngenie-msg-bot { margin-right:auto; background:#fff; border:1px solid #e6e1f5; }
+                      .ngenie-msg-meta { display:block; margin-top:.25rem; color:#7a7485; font-size:.75rem; white-space:normal; }
+                      .ngenie-question-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:.75rem; margin-top:.6rem; white-space:normal; }
+                      .ngenie-question-card { border:1px solid #d8cdf8; border-radius:.75rem; padding:.75rem; background:#fff; }
+                      .ngenie-question-card-wide { grid-column: 1 / -1; }
+                      .ngenie-question-card h6 { margin:0 0 .35rem 0; }
+                      .ngenie-question-field { margin-top:.55rem; }
+                      .ngenie-choice-list { display:flex; flex-wrap:wrap; gap:.35rem; }
+                      .ngenie-choice-list .btn { white-space:normal; text-align:left; }
+                      .ngenie-working { border-left: 4px solid #6f42c1; box-shadow: 0 0 0 .15rem rgba(111,66,193,.08); }
+                      .ngenie-pulse-dot { display:inline-block; width:.55rem; height:.55rem; border-radius:50%; background:#6f42c1; margin-right:.35rem; animation: ngeniePulse 1s infinite alternate; }
+                      @keyframes ngeniePulse { from { opacity:.25; transform:scale(.9); } to { opacity:1; transform:scale(1.15); } }
+                    </style>
+                    <div class="card mb-4 ngenie-code-card">
+                        <div class="card-header ngenie-code-header d-flex justify-content-between align-items-center">
+                            <div>
+                              <h5 class="mb-0">nGenie Code</h5>
+                              <div class="small opacity-75">{{ _('Configuration coding assistant') }}</div>
+                            </div>
+                            {% if ngenie_code_lock_enabled and config.ngenie_code_locked %}<span class="badge bg-warning text-dark">{{ _('Locked') }}</span>{% endif %}
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-light border small">
+                              nGenie Code работает только с текущей конфигурацией. Блокировка обычного редактирования/выгрузки управляется константой NGENIE_CODE_LOCK_ENABLED в editor_routes.py.
+                            </div>
+
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                              <div class="small text-muted">История чата хранится для этой конфигурации.</div>
+                              <button type="button" class="btn btn-sm btn-outline-secondary" id="ngenieCodeNewChatBtn">Новый чат</button>
+                            </div>
+                            <div id="ngenieCodeChat" class="ngenie-chat-box mb-3">
+                              <div class="ngenie-msg ngenie-msg-bot">Загружаю историю чата...</div>
+                            </div>
+
+                            <form id="aiGeneratorForm" enctype="multipart/form-data">
+                                <input type="hidden" id="aiProvider" value="ngenie_code">
+                                <div class="mb-3">
+                                    <label for="aiPrompt" class="form-label">Prompt for nGenie Code</label>
+                                    <textarea class="form-control" id="aiPrompt" rows="6"
+                                            placeholder="Например: добавь документ Заказ с табличной частью товаров, заполни nGenie role/prompt/description и сделай обработчики проведения"></textarea>
+                                </div>
+                                <div class="mb-3">
+                                  <label for="ngenieCodeAttachments" class="form-label">{{ _('Attachments') }}</label>
+                                  <input type="file" class="form-control" id="ngenieCodeAttachments" name="attachments" multiple>
+                                  <div class="form-text">{{ _('Text, JSON, Markdown, Python and other small documents are added to the prompt.') }}</div>
+                                </div>
+                                <div class="form-check mb-3">
+                                  <input class="form-check-input" type="checkbox" id="ngenieCodeWriteInstruction">
+                                  <label class="form-check-label" for="ngenieCodeWriteInstruction">Написать инструкцию по полученной/текущей конфигурации</label>
+                                </div>
+
+                                <div class="d-flex flex-wrap gap-2 align-items-center ngenie-code-actions">
+                                  <button type="submit" class="btn text-white" style="background:#6f42c1" id="aiGenerateBtn">
+                                      <i class="bi bi-magic"></i> Run nGenie Code
+                                  </button>
+                                  <button type="button" class="btn btn-outline-secondary" id="ngenieCodeInstructionBtn">
+                                      <i class="bi bi-journal-text"></i> Написать инструкцию
+                                  </button>
+                                  <button type="button" class="btn btn-outline-secondary" id="ngenieCodeExampleBtn">
+                                      <i class="bi bi-lightbulb"></i> Сгенерировать пример
+                                  </button>
+
+                                  <button type="button" class="btn btn-outline-secondary" id="aiGenerateLayoutBtn">
+                                  <i class="bi bi-braces"></i> {{ _('Generate laout only') }}
+                                  </button>
+                                </div>
+
+                                <div class="mt-3">
+                                <label for="aiLayoutOutput" class="form-label mb-1">JSON layout</label>
+                                <textarea class="form-control" id="aiLayoutOutput" rows="10" spellcheck="false"
+                                            placeholder='[[{"type":"Text","text":"..."}], [{"type":"Input","code":"field"}]]'></textarea>
+                                </div>
+                            </form>
+
+                            <div class="mt-3">
+                                <div id="aiGeneratorStatus" class="small text-muted"></div>
+                                <pre id="aiGeneratorError" class="mt-2 text-danger" style="white-space: pre-wrap; display:none;"></pre>
+                            </div>
+                            <div class="mt-3 d-flex flex-wrap gap-2">
+                              {% if config.ngenie_code_instruction %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('ngenie_code_document', uid=config.uid, kind='instruction') }}" target="_blank">Открыть инструкцию</a>{% endif %}
+                              {% if config.ngenie_code_example %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('ngenie_code_document', uid=config.uid, kind='example') }}" target="_blank">Открыть пример</a>{% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mb-4 border-secondary">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">AI configuration generator (old)</h5>
+                            <span class="badge bg-secondary">old</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted">
+                                Старый AI-generator оставлен ниже для сравнения и отладки. Он не использует папку ngenie_code/instructions и работает по прежней схеме.
+                            </p>
+
+                            <form id="oldAiGeneratorForm">
+                                <div class="mb-3">
+                                    <label for="oldAiProvider" class="form-label">LLM</label>
+                                    <select class="form-select" id="oldAiProvider">
+                                        <option value="deepseek">DeepSeek (cloud)</option>
+                                        <option value="lmstudio">LM Studio (local)</option>
+                                    </select>
+                                    <div class="form-text">
+                                        Этот блок принудительно отправляет old_ai=1 и не подменяется nGenie Code.
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="oldAiPrompt" class="form-label">Prompt for old AI-generator</label>
+                                    <textarea class="form-control" id="oldAiPrompt" rows="5"
+                                            placeholder="Например: добавь класс Order с полями..."></textarea>
+                                </div>
+
+                                <button type="submit" class="btn btn-outline-primary" id="oldAiGenerateBtn">
+                                    <i class="bi bi-magic"></i> Run AI generator (old)
+                                </button>
+                            </form>
+
+                            <div class="mt-3">
+                                <div id="oldAiGeneratorStatus" class="small text-muted"></div>
+                                <pre id="oldAiGeneratorError" class="mt-2 text-danger" style="white-space: pre-wrap; display:none;"></pre>
+                            </div>
+                        </div>
+                    </div>
+
+                    {% else %}
                     <div class="card mb-4">
                         <div class="card-header">
                             <h5 class="mb-0">AI configuration generator</h5>
@@ -140,6 +281,7 @@
                             </div>
                         </div>
                     </div>
+                    {% endif %}
                 </div>    
 
                 <!-- Tab "Configuration" -->
@@ -197,8 +339,42 @@
                                 <label class="form-label">{{ _('Last modified') }}</label>
                                 <input type="text" class="form-control" value="{{ format_datetime(config.last_modified, format='medium') }}" readonly>
                             </div>
+
+                            <div class="col-12">
+                                <input type="hidden" name="demo_product_present" value="1">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="demoProduct" name="demo_product" {% if config.demo_product %}checked{% endif %}>
+                                    <label class="form-check-label fw-semibold" for="demoProduct">{{ _('Demo product') }}</label>
+                                    <div class="form-text">{{ _('Publish this configuration on the Demo products page. Installed copies are not published again.') }}</div>
+                                </div>
+                            </div>
+
+                            <div class="col-12">
+                                <label for="ngeniePrompt" class="form-label">nGenie prompt</label>
+                                <textarea class="form-control font-monospace" id="ngeniePrompt" name="ngenie_prompt" rows="4" placeholder="{{ _('Additional nGenie skills/instructions for this configuration') }}">{{ config.ngenie_prompt or '' }}</textarea>
+                                <div class="form-text">{{ _('Example: how to calculate stock balances, which classes are documents/directories, project-specific search rules.') }}</div>
+                            </div>
+                            {% if ngenie_code_available %}
+                            <div class="col-12">
+                                {% if ngenie_code_lock_enabled and config.ngenie_code_locked %}
+                                <div class="alert alert-warning mb-2">
+                                    <strong>nGenie Code:</strong> конфигурация заблокирована для обычного редактирования, импорта/экспорта и сохранения из репозитория. Изменения нужно делать через вкладку nGenie Code.
+                                </div>
+                                {% endif %}
+                                {% if config.ngenie_code_instruction or config.ngenie_code_example %}
+                                <div class="d-flex flex-wrap gap-2">
+                                    {% if config.ngenie_code_instruction %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('ngenie_code_document', uid=config.uid, kind='instruction') }}" target="_blank">Открыть инструкцию nGenie Code</a>{% endif %}
+                                    {% if config.ngenie_code_example %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('ngenie_code_document', uid=config.uid, kind='example') }}" target="_blank">Открыть пример nGenie Code</a>{% endif %}
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% endif %}
                         </div>
+                        {% if ngenie_code_lock_enabled and config.ngenie_code_locked %}
+                        <button type="button" class="btn btn-secondary mt-3" disabled><i class="bi bi-lock"></i> {{ _('Save disabled') }}</button>
+                        {% else %}
                         <button type="submit" class="btn btn-primary mt-3">{{ _('Save') }}</button>
+                        {% endif %}
                     </form>
                 </div>
             </div>
@@ -215,13 +391,26 @@
                                 <div class="col-md-6">
                                     <h6>{{ _('Configuration download') }}</h6>
                                     <p>{{ _('Download the full configuration in NOD format') }}</p>
+                                    {% if ngenie_code_lock_enabled and config.ngenie_code_locked %}
+                                    <button type="button" class="btn btn-secondary" disabled>
+                                        <i class="bi bi-lock"></i> {{ _('Download disabled') }}
+                                    </button>
+                                    <div class="form-text">nGenie Code запрещает выгрузку конфигурации.</div>
+                                    {% else %}
                                     <a href="{{ url_for('export_config', uid=config.uid) }}" class="btn btn-primary">
                                         <i class="bi bi-download"></i> {{ _('Download configuration') }}
                                     </a>
+                                    {% endif %}
                                 </div>
                                 <div class="col-md-6">
                                     <h6>{{ _('Configuration uploading') }}</h6>
                                     <p>{{ _('Load configuration from NOD file (existing data will be overwritten)') }}</p>
+                                    {% if ngenie_code_lock_enabled and config.ngenie_code_locked %}
+                                    <button type="button" class="btn btn-secondary" disabled>
+                                        <i class="bi bi-lock"></i> {{ _('Upload disabled') }}
+                                    </button>
+                                    <div class="form-text">nGenie Code запрещает перезапись через импорт.</div>
+                                    {% else %}
                                     <form method="POST" action="{{ url_for('import_config', uid=config.uid) }}" enctype="multipart/form-data">
                                         <input type="hidden" name="active_tab" id="activeTabImport">
                                         <div class="mb-3">
@@ -231,6 +420,7 @@
                                             <i class="bi bi-upload"></i> {{ _('Upload configuration') }}
                                         </button>
                                     </form>
+                                    {% endif %}
                                 </div>
                             </div>
                         </div>
@@ -303,7 +493,8 @@
                                                 <label for="newClassType" class="form-label">{{ _('Class type') }}</label>
                                                 <select class="form-select" id="newClassType" name="class_type">
                                                     <option value="custom_process">{{ _('Custom process') }}</option>
-                                                      <option value="print_form">{{ _('PrintForm') }}</option>
+                                                    <option value="projection">{{ _('Projection') }}</option>
+                                                    <option value="print_form">{{ _('PrintForm') }}</option>
                                                     <option value="data_node">{{ _('Data node') }}</option>
                                                     <option value="custom_task">{{ _('User task') }}</option>
                                                     <option value="background_task">{{ _('Background task') }}</option>
@@ -314,9 +505,15 @@
                                         <div class="col-md-3">
                                             <div class="mb-3">
                                                 <label class="form-label">&nbsp;</label>
+                                                {% if ngenie_code_lock_enabled and config.ngenie_code_locked %}
+                                                <button type="button" class="btn btn-secondary w-100" disabled>
+                                                    <i class="bi bi-lock"></i> {{ _('Create disabled') }}
+                                                </button>
+                                                {% else %}
                                                 <button type="submit" class="btn btn-primary w-100">
                                                     <i class="bi bi-plus-circle"></i> {{ _('Create class') }}
                                                 </button>
+                                                {% endif %}
                                             </div>
                                         </div>
                                     </div>
@@ -766,6 +963,24 @@
     window._COMMON_LAYOUTS = {{ (config.common_layouts or []) | tojson }};
   </script>
 
+
+
+<div class="tab-pane fade {% if active_tab == 'profile-templates' %}show active{% endif %}" id="v-pills-profile-templates" role="tabpanel">
+  <h4>{{ _('Profile templates') }}</h4>
+  <p class="text-muted small">{{ _('These templates are stored inside the configuration JSON. On configuration import/load they are materialized into editable profiles.') }}</p>
+  <form method="POST" action="{{ url_for('update_config', uid=config.uid) }}">
+    <input type="hidden" name="active_tab" value="profile-templates">
+    <input type="hidden" name="name" value="{{ config.name }}">
+    <input type="hidden" name="version" value="{{ config.version }}">
+    <input type="hidden" name="server_name" value="{{ config.server_name }}">
+    <textarea class="form-control font-monospace" name="profile_templates_json" rows="18" spellcheck="false">{{ (config.profile_templates or []) | tojson(indent=2) }}</textarea>
+    <div class="form-text mt-2">
+      {{ _('Example') }}: [{"uid":"sales","name":"Sales","classes":[{"class_name":"Order","visible":true,"rls":{"enabled":true,"mode":"allow","rules":[{"field":"manager","op":"in","values":["ivan"]}]}}]}]
+    </div>
+    <button class="btn btn-primary mt-3" type="submit">{{ _('Save templates and create/update profiles') }}</button>
+  </form>
+</div>
+
 </div>
 
 
@@ -847,7 +1062,8 @@
         </div>
         <div class="card-body">
             {% if config.config_timers %}
-            <table class="table">
+            <div class="table-responsive">
+            <table class="table align-middle">
                 <thead>
                     <tr>
                         <th>{{ _('ID') }}</th>
@@ -893,8 +1109,9 @@
                                 </div>
                             {% endfor %}
                         </td>
-                        <td class="text-end">
-                            <button class="btn btn-sm btn-outline-primary me-2 edit-timer-btn"
+                        <td class="text-end text-nowrap">
+                          <div class="d-inline-flex flex-nowrap gap-1">
+                            <button class="btn btn-sm btn-outline-primary edit-timer-btn"
                                     data-bs-toggle="modal" data-bs-target="#timerModal"
                                     data-timer-id="{{ timer.timer_id }}"
                                     data-period-seconds="{{ timer.period_seconds }}"
@@ -908,11 +1125,13 @@
                                     data-timer-id="{{ timer.timer_id }}">
                                 <i class="bi bi-trash"></i> {{ _('Delete') }}
                             </button>
+                          </div>
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             {% else %}
             <div class="alert alert-info">
                 <i class="bi bi-info-circle"></i> {{ _('No timers added') }}
@@ -1132,6 +1351,16 @@
                     <div class="mb-3">
                         <label for="sectionName" class="form-label">{{ _('Name') }}</label>
                         <input type="text" class="form-control" id="sectionName" name="name" required>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-md-6 form-check ps-5">
+                            <input type="checkbox" class="form-check-input" id="sectionHideMobileClient" name="hide_mobile_client">
+                            <label class="form-check-label" for="sectionHideMobileClient">{{ _('Hide mobile client') }}</label>
+                        </div>
+                        <div class="col-12 col-md-6 form-check ps-5">
+                            <input type="checkbox" class="form-check-input" id="sectionHideWebClient" name="hide_web_client">
+                            <label class="form-check-label" for="sectionHideWebClient">{{ _('Hide web client') }}</label>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label for="sectionCommands" class="form-label">{{ _('Commands') }}</label>
@@ -1501,6 +1730,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('sectionCode').value = data.code || '';
                 document.getElementById('sectionName').value = data.name || '';
                 document.getElementById('sectionCommands').value = data.commands || '';
+                document.getElementById('sectionHideMobileClient').checked = !!data.hide_mobile_client;
+                document.getElementById('sectionHideWebClient').checked = !!data.hide_web_client;
                 
                 sectionForm.action = "{{ url_for('update_section', section_id='') }}" + sectionId;
                 sectionModal.show();
@@ -2276,64 +2507,786 @@ document.addEventListener('DOMContentLoaded', function () {
     const container = document.querySelector('[data-config-uid]');
     if (!container) return;
     const configUid = container.dataset.configUid;
+    const aiGenerateUrl = {{ url_for('ai_generate', uid=config.uid)|tojson }};
+    const ngenieInstructionUrl = {{ url_for('ngenie_code_write_instruction', uid=config.uid)|tojson }};
+    const ngenieExampleUrl = {{ url_for('ngenie_code_generate_example', uid=config.uid)|tojson }};
+    const ngenieChatUrl = {{ url_for('ngenie_code_chat', uid=config.uid)|tojson }};
+    const ngenieNewChatUrl = {{ url_for('ngenie_code_chat_new', uid=config.uid)|tojson }};
+    const ngenieChatAddUrl = {{ url_for('ngenie_code_chat', uid=config.uid)|tojson }};
+    const ngenieQuestionAnswerUrl = {{ ('/config/%s/ngenie-code-question-answers' % config.uid)|tojson }};
 
     const form = document.getElementById('aiGeneratorForm');
     if (!form) return;
 
+    const isNGenieCode = {{ 'true' if ngenie_code_available else 'false' }};
+
     try {
-    const saved = localStorage.getItem('nl_ai_provider');
-    const sel = document.getElementById('aiProvider');
-    if (sel && saved) sel.value = saved;
+        const saved = localStorage.getItem('nl_ai_provider');
+        const sel = document.getElementById('aiProvider');
+        if (sel && saved && !isNGenieCode) sel.value = saved;
     } catch (e) {}
     
     const promptInput = document.getElementById('aiPrompt');
     const statusEl = document.getElementById('aiGeneratorStatus');
     const errorEl = document.getElementById('aiGeneratorError');
+    const chatBox = document.getElementById('ngenieCodeChat');
+    const generateBtn = document.getElementById('aiGenerateBtn');
+    const layoutBtn = document.getElementById('aiGenerateLayoutBtn');
+    const instructionBtn = document.getElementById('ngenieCodeInstructionBtn');
+    const exampleBtn = document.getElementById('ngenieCodeExampleBtn');
+    const attachmentsInput = document.getElementById('ngenieCodeAttachments');
+    const newChatBtn = document.getElementById('ngenieCodeNewChatBtn');
+
+    let aiRequestInProgress = false;
+    let aiProgressTimer = null;
+    let aiProgressStartedAt = 0;
+
+    function appendNGenieMessage(kind, text, metaText) {
+        if (!chatBox) return null;
+        const div = document.createElement('div');
+        div.className = 'ngenie-msg ' + (kind === 'user' ? 'ngenie-msg-user' : 'ngenie-msg-bot');
+        div.textContent = text || '';
+        if (metaText) {
+            const meta = document.createElement('span');
+            meta.className = 'ngenie-msg-meta';
+            meta.textContent = metaText;
+            div.appendChild(meta);
+        }
+        chatBox.appendChild(div);
+        chatBox.scrollTop = chatBox.scrollHeight;
+        return div;
+    }
+
+    function normalizeQuestionField(field, index) {
+        if (field && typeof field === 'object' && !Array.isArray(field)) {
+            return Object.assign({ id: field.id || ('field_' + (index + 1)), type: 'text' }, field);
+        }
+        const raw = String(field || '').trim();
+        let left = raw, type = 'text';
+        if (raw.includes(':')) {
+            const parts = raw.split(/:(.+)/);
+            left = (parts[0] || '').trim();
+            type = (parts[1] || 'text').trim().toLowerCase();
+        }
+        let caption = left || ('Поле ' + (index + 1));
+        let id = 'field_' + (index + 1);
+        if (left.includes('|')) {
+            const parts = left.split('|');
+            caption = (parts[0] || caption).trim();
+            id = (parts[1] || id).trim();
+        }
+        id = id.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || ('field_' + (index + 1));
+        const aliases = { integet: 'integer', int: 'integer', string: 'text', bool: 'boolean', single: 'single_choice', multi: 'multi_choice' };
+        return { id, caption, type: aliases[type] || type || 'text' };
+    }
+
+    function getFieldValue(container, field) {
+        const id = field.id;
+        const type = String(field.type || 'text').toLowerCase();
+        if (type === 'boolean') {
+            const el = container.querySelector(`[data-q-field="${CSS.escape(id)}"]`);
+            return !!(el && el.checked);
+        }
+        if (type === 'single_choice') {
+            const el = container.querySelector(`input[data-q-field="${CSS.escape(id)}"]:checked`);
+            return el ? el.value : '';
+        }
+        if (type === 'multi_choice') {
+            return Array.from(container.querySelectorAll(`input[data-q-field="${CSS.escape(id)}"]:checked`)).map(x => x.value);
+        }
+        const el = container.querySelector(`[data-q-field="${CSS.escape(id)}"]`);
+        return el ? el.value : '';
+    }
+
+    function isAnswered(value, field) {
+        const required = field.required !== false;
+        if (!required) return true;
+        if (Array.isArray(value)) return value.length > 0;
+        if (typeof value === 'boolean') return true;
+        return String(value ?? '').trim() !== '';
+    }
+
+    function collectQuestionAnswers(root, questions) {
+        const answers = {};
+        let allDone = true;
+        (questions || []).forEach((q, qi) => {
+            const qid = q.id || ('q_' + (qi + 1));
+            const card = root.querySelector(`[data-q-id="${CSS.escape(qid)}"]`);
+            const qAnswers = {};
+            (q.fields || []).forEach((rawField, fi) => {
+                const field = normalizeQuestionField(rawField, fi);
+                const value = card ? getFieldValue(card, field) : '';
+                qAnswers[field.id] = value;
+                if (!isAnswered(value, field)) allDone = false;
+            });
+            answers[qid] = qAnswers;
+        });
+        return { answers, allDone };
+    }
+
+    function renderQuestionField(card, qid, rawField, index, onChange, savedValue) {
+        const field = normalizeQuestionField(rawField, index);
+        const type = String(field.type || 'text').toLowerCase();
+        const hasSaved = savedValue !== undefined && savedValue !== null;
+        const initialValue = hasSaved ? savedValue : field.default;
+        const wrap = document.createElement('div');
+        wrap.className = 'ngenie-question-field';
+        if (field.caption) {
+            const label = document.createElement('label');
+            label.className = 'form-label small mb-1';
+            label.textContent = field.caption;
+            wrap.appendChild(label);
+        }
+
+        const options = Array.isArray(field.options) ? field.options : [];
+        if (type === 'single_choice' || type === 'multi_choice') {
+            const list = document.createElement('div');
+            list.className = 'ngenie-choice-list';
+            options.forEach((opt, oi) => {
+                const val = String((opt && typeof opt === 'object') ? (opt.value ?? opt.id ?? opt.text ?? oi) : opt);
+                const text = String((opt && typeof opt === 'object') ? (opt.text ?? opt.caption ?? opt.value ?? oi) : opt);
+                const inputId = 'ngq_' + qid + '_' + field.id + '_' + oi + '_' + Math.random().toString(36).slice(2);
+                const inp = document.createElement('input');
+                inp.type = type === 'single_choice' ? 'radio' : 'checkbox';
+                inp.className = 'btn-check';
+                inp.name = 'ngq_' + qid + '_' + field.id;
+                inp.id = inputId;
+                inp.value = val;
+                inp.dataset.qField = field.id;
+                if (initialValue !== undefined) {
+                    if (Array.isArray(initialValue)) inp.checked = initialValue.map(String).includes(val);
+                    else inp.checked = String(initialValue) === val;
+                }
+                inp.addEventListener('change', onChange);
+                const btn = document.createElement('label');
+                btn.className = 'btn btn-sm btn-outline-primary';
+                btn.setAttribute('for', inputId);
+                btn.textContent = text;
+                if (opt && typeof opt === 'object' && opt.description) btn.title = opt.description;
+                list.appendChild(inp);
+                list.appendChild(btn);
+            });
+            wrap.appendChild(list);
+        } else if (type === 'select') {
+            const sel = document.createElement('select');
+            sel.className = 'form-select form-select-sm';
+            sel.dataset.qField = field.id;
+            const empty = document.createElement('option');
+            empty.value = '';
+            empty.textContent = 'Выберите...';
+            sel.appendChild(empty);
+            options.forEach((opt, oi) => {
+                const o = document.createElement('option');
+                o.value = String((opt && typeof opt === 'object') ? (opt.value ?? opt.id ?? opt.text ?? oi) : opt);
+                o.textContent = String((opt && typeof opt === 'object') ? (opt.text ?? opt.caption ?? opt.value ?? oi) : opt);
+                if (initialValue !== undefined && String(initialValue) === o.value) o.selected = true;
+                sel.appendChild(o);
+            });
+            sel.addEventListener('change', onChange);
+            wrap.appendChild(sel);
+        } else if (type === 'boolean') {
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.className = 'form-check-input ms-1';
+            box.dataset.qField = field.id;
+            box.checked = initialValue !== undefined ? !!initialValue : false;
+            box.addEventListener('change', onChange);
+            wrap.appendChild(box);
+        } else {
+            const inp = document.createElement('input');
+            inp.className = 'form-control form-control-sm';
+            inp.dataset.qField = field.id;
+            inp.type = (type === 'integer' || type === 'number') ? 'number' : 'text';
+            if (type === 'integer') inp.step = '1';
+            if (field.placeholder) inp.placeholder = field.placeholder;
+            if (initialValue !== undefined && initialValue !== null) inp.value = initialValue;
+            if (field.min !== undefined) inp.min = field.min;
+            if (field.max !== undefined) inp.max = field.max;
+            inp.addEventListener('input', onChange);
+            inp.addEventListener('change', onChange);
+            inp.addEventListener('blur', onChange);
+            wrap.appendChild(inp);
+        }
+        card.appendChild(wrap);
+    }
+
+    function appendNGenieQuestions(text, questions, metaText, savedAnswers) {
+        const div = appendNGenieMessage('bot', text || '', metaText);
+        if (!div) return null;
+        const qs = Array.isArray(questions) ? questions : [];
+        const answerState = (savedAnswers && typeof savedAnswers === 'object') ? savedAnswers : {};
+        const grid = document.createElement('div');
+        grid.className = 'ngenie-question-grid';
+        div.appendChild(grid);
+
+        const questionAction = () => {
+            const actions = qs.map(q => { const a = String((q && q.action) || 'if_all').toLowerCase(); return (a === 'none' || a === 'silent' || a === 'save_only') ? 'nothing' : a; });
+            if (actions.includes('straight')) return 'straight';
+            if (actions.includes('if_all')) return 'if_all';
+            return 'nothing';
+        };
+        const action = questionAction();
+
+        const onQuestionChange = () => {
+            const state = collectQuestionAnswers(div, qs);
+            const shouldResume = (action === 'straight' && state.allDone) || (action === 'if_all' && state.allDone);
+            if (shouldResume) {
+                if (div.__ngenieResumeSent) return;
+                div.__ngenieResumeSent = true;
+                sendQuestionAnswers(qs, state.answers, action, true);
+            } else {
+                scheduleQuestionAnswersSave(div, qs, state.answers, action);
+            }
+        };
+
+        qs.forEach((q, qi) => {
+            const qid = q.id || ('q_' + (qi + 1));
+            const card = document.createElement('div');
+            card.className = 'ngenie-question-card' + (String(q.layout || '').toLowerCase() === 'wide' ? ' ngenie-question-card-wide' : '');
+            card.dataset.qId = qid;
+            if (q.text_html) {
+                const titleHtml = document.createElement('div');
+                titleHtml.innerHTML = q.text_html;
+                card.appendChild(titleHtml);
+            } else if (q.text || q.question) {
+                const title = document.createElement('h6');
+                title.textContent = q.text || q.question;
+                card.appendChild(title);
+            }
+            if (q.description_html) {
+                const desc = document.createElement('div');
+                desc.className = 'small text-muted';
+                desc.innerHTML = q.description_html;
+                card.appendChild(desc);
+            } else if (q.description) {
+                const desc = document.createElement('div');
+                desc.className = 'small text-muted';
+                desc.textContent = q.description;
+                card.appendChild(desc);
+            }
+            const qSaved = (answerState && typeof answerState === 'object') ? (answerState[qid] || {}) : {};
+            (q.fields || ['Ответ|answer: text']).forEach((field, fi) => {
+                const nf = normalizeQuestionField(field, fi);
+                renderQuestionField(card, qid, field, fi, onQuestionChange, qSaved[nf.id]);
+            });
+            grid.appendChild(card);
+        });
+
+        // No generic submit button here. Question action is controlled only by
+        // the question schema: nothing saves silently, straight resumes on answer,
+        // if_all resumes when the whole question array is complete. If a template
+        // needs a visible submit, it should define it as a single_choice button.
+        setTimeout(() => {
+            const state = collectQuestionAnswers(div, qs);
+            if (state.allDone && (action === 'straight' || action === 'if_all')) {
+                // Do not auto-resume merely because historical answers were prefilled;
+                // resume is triggered by a real user change on the current card.
+                return;
+            }
+            if (Object.keys(state.answers || {}).length) {
+                scheduleQuestionAnswersSave(div, qs, state.answers, action);
+            }
+        }, 0);
+        chatBox.scrollTop = chatBox.scrollHeight;
+        return div;
+    }
+
+    function renderNGenieHistory(messages) {
+        if (!chatBox) return;
+        chatBox.innerHTML = '';
+        const rawRows = Array.isArray(messages) ? messages : [];
+        const seenQuestionKeys = new Set();
+        const rows = [];
+        for (let i = rawRows.length - 1; i >= 0; i--) {
+            const m = rawRows[i] || {};
+            const meta = m.meta || {};
+            if ((m.role !== 'user') && meta.kind === 'questions' && Array.isArray(meta.questions)) {
+                const ids = meta.questions.map((q, qi) => String((q && q.id) || ('q_' + (qi + 1)))).join('|');
+                const qKey = String(meta.question_key || ids);
+                if (seenQuestionKeys.has(qKey)) continue;
+                seenQuestionKeys.add(qKey);
+            }
+            rows.push(m);
+        }
+        rows.reverse();
+        if (!rows.length) {
+            appendNGenieMessage('bot', 'Опишите, что нужно изменить в текущей конфигурации. Можно приложить документы с требованиями.');
+            return;
+        }
+        rows.forEach(m => {
+            const role = (m.role === 'user') ? 'user' : 'bot';
+            let metaText = '';
+            if (m.created_at) {
+                try { metaText = new Date(m.created_at).toLocaleString(); } catch (e) { metaText = m.created_at; }
+            }
+            const meta = m.meta || {};
+            if (role === 'bot' && meta.kind === 'questions' && Array.isArray(meta.questions)) {
+                appendNGenieQuestions(m.content || '', meta.questions, metaText, meta.answers || {});
+            } else {
+                appendNGenieMessage(role, m.content || '', metaText);
+            }
+        });
+    }
+
+    function loadNGenieHistory() {
+        if (!isNGenieCode || !chatBox) return;
+        fetch(ngenieChatUrl, { headers: { 'Accept': 'application/json' } })
+            .then(async res => ({ ok: res.ok, data: await readJsonResponse(res) }))
+            .then(({ ok, data }) => {
+                if (ok && data.status === 'ok') renderNGenieHistory(data.messages || []);
+                else renderNGenieHistory([]);
+            })
+            .catch(() => renderNGenieHistory([]));
+    }
+
+    function formatElapsed(ms) {
+        const total = Math.max(0, Math.floor(ms / 1000));
+        const m = Math.floor(total / 60);
+        const s = total % 60;
+        return m > 0 ? (m + ' мин ' + String(s).padStart(2, '0') + ' сек') : (s + ' сек');
+    }
+
+    function stopProgress() {
+        if (aiProgressTimer) {
+            clearInterval(aiProgressTimer);
+            aiProgressTimer = null;
+        }
+        if (statusEl) statusEl.classList.remove('ngenie-working');
+    }
+
+    function startProgress(messageEl, baseText, statusText) {
+        stopProgress();
+        aiProgressStartedAt = Date.now();
+        if (statusEl) {
+            statusEl.classList.add('ngenie-working');
+            statusEl.innerHTML = '<span class="ngenie-pulse-dot"></span>' + (statusText || baseText || 'nGenie Code работает...');
+        }
+        const update = () => {
+            const elapsed = formatElapsed(Date.now() - aiProgressStartedAt);
+            const text = (baseText || 'nGenie Code работает...') + '\nПрошло: ' + elapsed + '. Окно можно не трогать, запрос еще выполняется.';
+            if (messageEl) messageEl.textContent = text;
+            if (statusEl) statusEl.innerHTML = '<span class="ngenie-pulse-dot"></span>' + (statusText || 'nGenie Code работает...') + ' · ' + elapsed;
+        };
+        update();
+        aiProgressTimer = setInterval(update, 10000);
+    }
+
+    function setBusy(isBusy, label) {
+        aiRequestInProgress = !!isBusy;
+        [generateBtn, layoutBtn, instructionBtn, exampleBtn].forEach(btn => {
+            if (btn) btn.disabled = !!isBusy;
+        });
+        if (generateBtn) {
+            if (isBusy) {
+                generateBtn.dataset.originalHtml = generateBtn.dataset.originalHtml || generateBtn.innerHTML;
+                if (!generateBtn.dataset.originalWidth) {
+                    generateBtn.dataset.originalWidth = String(Math.ceil(generateBtn.getBoundingClientRect().width));
+                }
+                generateBtn.style.width = generateBtn.dataset.originalWidth + 'px';
+                generateBtn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span><span class="visually-hidden">' + (label || 'Выполняется...') + '</span>';
+            } else if (generateBtn.dataset.originalHtml) {
+                generateBtn.innerHTML = generateBtn.dataset.originalHtml;
+                generateBtn.style.width = '';
+                delete generateBtn.dataset.originalWidth;
+            }
+        }
+        if (!isBusy) stopProgress();
+    }
+
+    async function readJsonResponse(res) {
+        const text = await res.text();
+        if (!text) return {};
+        try {
+            return JSON.parse(text);
+        } catch (e) {
+            return {
+                status: 'error',
+                message: text.slice(0, 4000) || ('HTTP ' + res.status)
+            };
+        }
+    }
+
+    function showError(text, prefix) {
+        stopProgress();
+        statusEl.textContent = prefix || 'Request error';
+        errorEl.style.display = 'block';
+        errorEl.textContent = text || '';
+        appendNGenieMessage('bot', text || 'Ошибка запроса');
+    }
+
+    function questionAnswersToText(questions, answers) {
+        const lines = ['Ответы на уточняющие вопросы:'];
+        (questions || []).forEach((q, qi) => {
+            const qid = q.id || ('q_' + (qi + 1));
+            lines.push('- ' + (q.text || q.question || qid));
+            const ans = (answers || {})[qid] || {};
+            (q.fields || []).forEach((rawField, fi) => {
+                const field = normalizeQuestionField(rawField, fi);
+                const val = ans[field.id];
+                lines.push('  - ' + (field.caption || field.id) + ': ' + (Array.isArray(val) ? val.join(', ') : val));
+            });
+        });
+        return lines.join('\n');
+    }
+
+    function scheduleQuestionAnswersSave(container, questions, answers, action) {
+        if (!container) return;
+        const payloadHash = JSON.stringify({ answers, action });
+        if (container.__ngenieLastSaveHash === payloadHash) return;
+        container.__ngenieLastSaveHash = payloadHash;
+        clearTimeout(container.__ngenieSaveTimer);
+        container.__ngenieSaveTimer = setTimeout(() => {
+            sendQuestionAnswers(questions, answers, action, false);
+        }, 350);
+    }
+
+    function handleQuestionAnswerResponse(data, pendingMsg, resume) {
+        if (Array.isArray(data.ngenie_code_questions) && data.ngenie_code_questions.length) {
+            if (pendingMsg) pendingMsg.textContent = data.message || 'Нужно уточнить еще несколько данных';
+            appendNGenieQuestions(data.message || 'Нужно уточнить еще несколько данных', data.ngenie_code_questions, '', data.answers || {});
+            return;
+        }
+        const ptype = String(data.plan_type || data.type || '').toLowerCase();
+        if (ptype === 'generate' && data.generate_prompt) {
+            if (pendingMsg) {
+                pendingMsg.__ngenieGenerationStarted = true;
+                pendingMsg.textContent = data.message || 'Начинаю генерацию конфигурации по утвержденному решению.';
+            }
+            fetch(aiGenerateUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({
+                    prompt: data.generate_prompt,
+                    llm: 'ngenie_code',
+                    solution_plan_generate: true
+                })
+            })
+            .then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }))
+            .then(({ ok, status, data }) => {
+                if (!ok || data.status !== 'ok') {
+                    if (pendingMsg) pendingMsg.remove();
+                    showError(data.message || `HTTP ${status}`, 'nGenie Code error');
+                    return;
+                }
+                stopProgress();
+                const msg = data.message || 'Configuration updated';
+                statusEl.textContent = msg;
+                if (pendingMsg) pendingMsg.textContent = msg;
+                if (Array.isArray(data.ngenie_code_questions) && data.ngenie_code_questions.length) {
+                    appendNGenieQuestions(msg, data.ngenie_code_questions);
+                    return;
+                }
+                setTimeout(() => {
+                    const url = new URL(window.location);
+                    url.searchParams.set('tab', 'ai-generator');
+                    window.location.href = url.toString();
+                }, 2200);
+            })
+            .catch(err => {
+                if (pendingMsg) pendingMsg.remove();
+                showError(err.message, 'Request error');
+            })
+            .finally(() => setBusy(false));
+            return;
+        }
+        if (resume) {
+            stopProgress();
+            const msg = data.message || 'План решения обновлен.';
+            statusEl.textContent = msg;
+            if (pendingMsg) pendingMsg.textContent = msg;
+        }
+    }
+
+    function sendQuestionAnswers(questions, answers, action, resume) {
+        resume = !!resume;
+        if (resume && aiRequestInProgress) return;
+        const prompt = questionAnswersToText(questions, answers);
+        let pendingMsg = null;
+        if (resume) {
+            appendNGenieMessage('user', prompt);
+            errorEl.style.display = 'none';
+            errorEl.textContent = '';
+            pendingMsg = appendNGenieMessage('bot', 'Ответы сохранены. Продолжаю план решения.');
+            setBusy(true, 'nGenie Code работает...');
+            startProgress(pendingMsg, 'Ответы сохранены. Выполняю следующую строку plan.py.', 'nGenie Code работает');
+        }
+        function postQuestionAnswersTo(url, asChatFallback) {
+            const body = asChatFallback ? {
+                role: 'user',
+                content: prompt,
+                meta: {
+                    kind: 'question_answers',
+                    question_answers: { questions, answers, action },
+                    resume_plan: resume
+                }
+            } : {
+                questions,
+                answers,
+                action,
+                resume,
+                content: prompt
+            };
+            return fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify(body)
+            }).then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }));
+        }
+
+        postQuestionAnswersTo(ngenieQuestionAnswerUrl, false)
+        .then(result => {
+            if ((result.status === 404 || result.status === 405) && resume) {
+                return postQuestionAnswersTo(ngenieChatAddUrl, true);
+            }
+            return result;
+        })
+        .then(({ ok, status, data }) => {
+            if (!ok || data.status !== 'ok') {
+                if (pendingMsg) pendingMsg.remove();
+                if (resume) showError(data.message || `HTTP ${status}`, 'nGenie Code error');
+                return;
+            }
+            handleQuestionAnswerResponse(data, pendingMsg, resume);
+        })
+        .catch(err => {
+            if (pendingMsg) pendingMsg.remove();
+            if (resume) showError(err.message, 'Request error');
+        })
+        .finally(() => {
+            if (resume && !(pendingMsg && pendingMsg.__ngenieGenerationStarted)) {
+                setBusy(false);
+            }
+        });
+    }
+
+    loadNGenieHistory();
+
+    if (newChatBtn) {
+        newChatBtn.addEventListener('click', function () {
+            if (aiRequestInProgress) return;
+            if (!confirm('Очистить историю nGenie Code для этой конфигурации?')) return;
+            fetch(ngenieNewChatUrl, { method: 'POST', headers: { 'Accept': 'application/json' } })
+                .then(async res => ({ ok: res.ok, data: await readJsonResponse(res) }))
+                .then(({ ok, data }) => {
+                    if (ok && data.status === 'ok') renderNGenieHistory(data.messages || []);
+                    else showError(data.message || 'Не удалось очистить чат', 'nGenie Code error');
+                })
+                .catch(err => showError(err.message, 'Request error'));
+        });
+    }
 
     form.addEventListener('submit', function (e) {
         e.preventDefault();
+        if (aiRequestInProgress) return;
+
         const prompt = (promptInput.value || '').trim();
         if (!prompt) {
             alert('Enter prompt for LLM');
             return;
         }
 
-        statusEl.textContent = 'Submitting a request to LLM...';
+        statusEl.textContent = isNGenieCode ? 'nGenie Code выполняет запрос...' : 'Submitting a request to LLM...';
         errorEl.style.display = 'none';
         errorEl.textContent = '';
 
         const providerSelect = document.getElementById('aiProvider');
-        const llm = (providerSelect && providerSelect.value) ? providerSelect.value : 'deepseek';
+        const llm = isNGenieCode ? 'ngenie_code' : ((providerSelect && providerSelect.value) ? providerSelect.value : 'deepseek');
 
-        // remember the choice
-        try { localStorage.setItem('nl_ai_provider', llm); } catch (e) {}
+        try { if (!isNGenieCode) localStorage.setItem('nl_ai_provider', llm); } catch (e) {}
 
-        fetch(`/config/${configUid}/ai-generate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt, llm })
-        })
-        .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
+        appendNGenieMessage('user', prompt);
+        const pendingMsg = appendNGenieMessage('bot', isNGenieCode
+            ? 'Запрос отправлен. nGenie Code анализирует конфигурацию и инструкции. Это может занять некоторое время.'
+            : 'Запрос отправлен. Жду ответ LLM...');
+
+        // Очищаем поле сразу после переноса запроса в чат, чтобы было видно, что сообщение принято.
+        promptInput.value = '';
+        promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+        setBusy(true, isNGenieCode ? 'nGenie Code работает...' : 'Generating...');
+        startProgress(pendingMsg, isNGenieCode
+            ? 'Запрос отправлен. nGenie Code анализирует конфигурацию, инструкции, генерирует patch и валидирует результат.'
+            : 'Запрос отправлен. Жду ответ LLM...',
+            isNGenieCode ? 'nGenie Code работает' : 'AI generator работает');
+
+        let fetchOptions;
+        if (isNGenieCode) {
+            const fd = new FormData();
+            fd.append('prompt', prompt);
+            fd.append('llm', 'ngenie_code');
+            const writeInstruction = document.getElementById('ngenieCodeWriteInstruction');
+            if (writeInstruction && writeInstruction.checked) fd.append('write_instruction', '1');
+            if (attachmentsInput && attachmentsInput.files) {
+                Array.from(attachmentsInput.files).forEach(file => fd.append('attachments', file));
+            }
+            fetchOptions = { method: 'POST', body: fd, headers: { 'Accept': 'application/json' } };
+        } else {
+            fetchOptions = {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ prompt, llm })
+            };
+        }
+
+        fetch(aiGenerateUrl, fetchOptions)
+        .then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }))
         .then(({ ok, status, data }) => {
             if (!ok || data.status !== 'ok') {
-                statusEl.textContent = 'Error generating configuration';
-                errorEl.style.display = 'block';
-                errorEl.textContent = data.message || `HTTP ${status}`;
+                if (pendingMsg) pendingMsg.remove();
+                showError(data.message || `HTTP ${status}`, isNGenieCode ? 'nGenie Code error' : 'Error generating configuration');
                 return;
             }
 
-            statusEl.textContent = data.message || 'Configuration updated';
-            // Reread the page to see changes in classes/handlers, etc.
+            stopProgress();
+            const msg = data.message || 'Configuration updated';
+            statusEl.textContent = msg;
+            if (pendingMsg) {
+                pendingMsg.textContent = msg + (data.instruction_url ? '\nИнструкция создана и прикреплена к конфигурации.' : '');
+            } else {
+                appendNGenieMessage('bot', msg + (data.instruction_url ? '\nИнструкция создана и прикреплена к конфигурации.' : ''));
+            }
+            if (attachmentsInput) attachmentsInput.value = '';
+            if (Array.isArray(data.ngenie_code_questions) && data.ngenie_code_questions.length) {
+                appendNGenieQuestions(msg, data.ngenie_code_questions);
+                return;
+            }
+            if (data.ngenie_code_feature_request) {
+                // The configuration was intentionally not changed; keep the chat visible.
+                return;
+            }
+
             setTimeout(() => {
                 const url = new URL(window.location);
-                url.searchParams.set('tab', 'config');
+                url.searchParams.set('tab', isNGenieCode ? 'ai-generator' : 'config');
+                window.location.href = url.toString();
+            }, isNGenieCode ? 2200 : 1000);
+        })
+        .catch(err => {
+            if (pendingMsg) pendingMsg.remove();
+            showError(err.message, 'Request error');
+        })
+        .finally(() => {
+            setBusy(false);
+        });
+    });
+
+    function runNGenieDocEndpoint(kind) {
+        if (aiRequestInProgress) return;
+        const prompt = (promptInput.value || '').trim();
+        statusEl.textContent = kind === 'instruction' ? 'nGenie Code пишет инструкцию...' : 'nGenie Code генерирует пример...';
+        errorEl.style.display = 'none';
+        errorEl.textContent = '';
+        const url = kind === 'instruction' ? ngenieInstructionUrl : ngenieExampleUrl;
+        setBusy(true, kind === 'instruction' ? 'Пишу инструкцию...' : 'Генерирую пример...');
+        const pendingMsg = appendNGenieMessage('bot', kind === 'instruction'
+            ? 'Пишу инструкцию по текущей конфигурации...'
+            : 'Генерирую пример по текущей конфигурации...');
+        startProgress(pendingMsg, kind === 'instruction'
+            ? 'nGenie Code пишет инструкцию по текущей конфигурации.'
+            : 'nGenie Code генерирует пример по текущей конфигурации.',
+            kind === 'instruction' ? 'Пишу инструкцию' : 'Генерирую пример');
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ prompt })
+        })
+        .then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }))
+        .then(({ ok, status, data }) => {
+            if (!ok || data.status !== 'ok') {
+                if (pendingMsg) pendingMsg.remove();
+                showError(data.message || `HTTP ${status}`, 'nGenie Code error');
+                return;
+            }
+            stopProgress();
+            const msg = data.message || 'Done';
+            statusEl.textContent = msg;
+            if (pendingMsg) pendingMsg.textContent = msg;
+            else appendNGenieMessage('bot', msg);
+            setTimeout(() => {
+                const url = new URL(window.location);
+                url.searchParams.set('tab', 'ai-generator');
+                window.location.href = url.toString();
+            }, 700);
+        })
+        .catch(err => {
+            if (pendingMsg) pendingMsg.remove();
+            showError(err.message, 'Request error');
+        })
+        .finally(() => setBusy(false));
+    }
+
+    if (instructionBtn) instructionBtn.addEventListener('click', () => runNGenieDocEndpoint('instruction'));
+    if (exampleBtn) exampleBtn.addEventListener('click', () => runNGenieDocEndpoint('example'));
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const container = document.querySelector('[data-config-uid]');
+    if (!container) return;
+    const oldForm = document.getElementById('oldAiGeneratorForm');
+    if (!oldForm) return;
+
+    const aiGenerateUrl = {{ url_for('ai_generate', uid=config.uid)|tojson }};
+    const promptInput = document.getElementById('oldAiPrompt');
+    const providerSelect = document.getElementById('oldAiProvider');
+    const statusEl = document.getElementById('oldAiGeneratorStatus');
+    const errorEl = document.getElementById('oldAiGeneratorError');
+    const btn = document.getElementById('oldAiGenerateBtn');
+    let busy = false;
+
+    async function readJsonResponse(res) {
+        const text = await res.text();
+        if (!text) return {};
+        try { return JSON.parse(text); }
+        catch (e) { return { status: 'error', message: text.slice(0, 4000) || ('HTTP ' + res.status) }; }
+    }
+
+    oldForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (busy) return;
+        const prompt = (promptInput.value || '').trim();
+        if (!prompt) { alert('Enter prompt for LLM'); return; }
+        const llm = (providerSelect && providerSelect.value) ? providerSelect.value : 'deepseek';
+
+        busy = true;
+        if (btn) {
+            btn.dataset.originalHtml = btn.dataset.originalHtml || btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>AI generator (old) работает...';
+        }
+        if (statusEl) statusEl.textContent = 'Old AI-generator отправил запрос...';
+        if (errorEl) { errorEl.style.display = 'none'; errorEl.textContent = ''; }
+        promptInput.value = '';
+
+        fetch(aiGenerateUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ prompt, llm, old_ai: '1' })
+        })
+        .then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }))
+        .then(({ ok, status, data }) => {
+            if (!ok || data.status !== 'ok') {
+                if (statusEl) statusEl.textContent = 'Old AI-generator error';
+                if (errorEl) { errorEl.style.display = 'block'; errorEl.textContent = data.message || ('HTTP ' + status); }
+                return;
+            }
+            if (statusEl) statusEl.textContent = data.message || 'Configuration updated';
+            setTimeout(() => {
+                const url = new URL(window.location);
+                url.searchParams.set('tab', 'ai-generator');
                 window.location.href = url.toString();
             }, 1000);
         })
         .catch(err => {
-            statusEl.textContent = 'Request error';
-            errorEl.style.display = 'block';
-            errorEl.textContent = err.message;
+            if (statusEl) statusEl.textContent = 'Request error';
+            if (errorEl) { errorEl.style.display = 'block'; errorEl.textContent = err.message; }
+        })
+        .finally(() => {
+            busy = false;
+            if (btn) {
+                btn.disabled = false;
+                if (btn.dataset.originalHtml) btn.innerHTML = btn.dataset.originalHtml;
+            }
         });
     });
 });

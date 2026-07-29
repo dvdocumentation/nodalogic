@@ -40,6 +40,54 @@
         </div>
     </div>
 
+
+
+    <!-- nGenie Code missing feature requests -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">nGenie Code feature requests</h5>
+            <span class="badge bg-secondary">{{ ngenie_code_feature_requests|length }}</span>
+        </div>
+        <div class="card-body">
+            {% if ngenie_code_feature_requests %}
+            <div class="table-responsive">
+                <table class="table table-striped align-middle">
+                    <thead>
+                        <tr>
+                            <th>When</th>
+                            <th>User</th>
+                            <th>Configuration</th>
+                            <th>Requested / reason</th>
+                            <th>Prompt</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for req, req_user in ngenie_code_feature_requests %}
+                        <tr>
+                            <td style="min-width: 140px;">{{ req.created_at.strftime('%Y-%m-%d %H:%M:%S') if req.created_at else '' }}</td>
+                            <td>{{ req_user.email if req_user else req.user_id }}</td>
+                            <td>
+                                <div>{{ req.config_name or '' }}</div>
+                                <code class="small">{{ req.config_uid or '' }}</code>
+                            </td>
+                            <td style="max-width: 320px;">
+                                <strong>{{ req.requested_feature or '' }}</strong>
+                                {% if req.reason %}<div class="small text-muted mt-1">{{ req.reason or '' }}</div>{% endif %}
+                            </td>
+                            <td style="max-width: 360px; white-space: pre-wrap;">{{ (req.prompt or '')[:800] }}{% if (req.prompt or '')|length > 800 %}...{% endif %}</td>
+                            <td><span class="badge bg-warning text-dark">{{ req.status or 'new' }}</span></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted mb-0">No captured nGenie Code feature requests yet.</p>
+            {% endif %}
+        </div>
+    </div>
+
     <!-- User list -->
     <div class="card">
         <div class="card-header">
