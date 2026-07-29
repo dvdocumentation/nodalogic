@@ -133,6 +133,24 @@ def _picture_src_for_element(el: Dict[str, Any], raw: str, node_data: Dict[str, 
         return _s3_cached_picture_src(src)
     return src
 
+def _looks_like_node_uid(value: Any, expected_class: str = "") -> bool:
+    """True for ``Class$id`` / ``config$Class$id`` link placeholders."""
+    text = str(value or "").strip()
+    if "$" not in text:
+        return False
+    parts = text.split("$")
+    if len(parts) < 2:
+        return False
+    cls_name = str(parts[-2] or "").strip()
+    internal_id = str(parts[-1] or "").strip()
+    if not cls_name or not internal_id:
+        return False
+    if re.fullmatch(r"[\w.:-]+", cls_name, re.UNICODE) is None or re.search(r"\s", internal_id):
+        return False
+    expected = str(expected_class or "").strip()
+    return not expected or cls_name == expected
+
+
 def _resolve_link_value(raw_val: Any, node_data: Dict[str, Any]) -> str:
     """Resolve element value or @var into a raw UID/reference string."""
     if isinstance(raw_val, str) and raw_val.startswith("@"):
@@ -151,7 +169,7 @@ def _resolve_node_link_text(el: Dict[str, Any], node_data: Dict[str, Any], conte
     if lid:
         view_key = f"{lid}_view"
         v = node_data.get(view_key)
-        if v not in (None, ""):
+        if v not in (None, "") and not _looks_like_node_uid(v, str(el.get("dataset") or "")):
             return str(v)
 
     # 2) explicit <field>_view for @field values
@@ -159,7 +177,7 @@ def _resolve_node_link_text(el: Dict[str, Any], node_data: Dict[str, Any], conte
     if isinstance(raw_val, str) and raw_val.startswith("@"):
         field_name = raw_val[1:]
         v = node_data.get(f"{field_name}_view")
-        if v not in (None, ""):
+        if v not in (None, "") and not _looks_like_node_uid(v, str(el.get("dataset") or "")):
             return str(v)
 
     # 3) resolve on demand via context
@@ -357,6 +375,22 @@ def _style_attr(
     if el.get("bold") is True:
         css.append("font-weight:700")
 
+    # Android Text already supports gravity.  Mirror the same small contract on
+    # web so layouts produced for both clients render consistently.
+    gravity = str(el.get("gravity") or "").strip().lower()
+    if gravity:
+        css.append("display:flex")
+        css.append("align-items:center")
+        if gravity in {"right", "end"}:
+            css.append("justify-content:flex-end")
+            css.append("text-align:right")
+        elif gravity in {"left", "start"}:
+            css.append("justify-content:flex-start")
+            css.append("text-align:left")
+        else:
+            css.append("justify-content:center")
+            css.append("text-align:center")
+
     # width/height
     wv = el.get("width")
     if wv is None and default_full_width:
@@ -439,6 +473,479 @@ def _parse_table_header(cols: Any) -> List[Dict[str, Any]]:
     return out
 
 
+
+_CHART_PALETTE = [
+    "#55D956", "#FFC107", "#F05252", "#760000",
+    "#2F80ED", "#9B51E0", "#2D9CDB", "#F2994A",
+]
+
+
+def _layout_value(raw: Any, data: Dict[str, Any]) -> Any:
+    """Resolve a chart/gauge value while preserving arrays and objects."""
+    if isinstance(raw, str):
+        s = raw.strip()
+        if s.startswith("@") and re.fullmatch(r"@[\w.]+", s, re.UNICODE):
+            current: Any = data
+            for part in s[1:].split("."):
+                if isinstance(current, dict):
+                    current = current.get(part)
+                else:
+                    current = None
+                    break
+            return current
+        if s and s[0] in "[{":
+            try:
+                return json.loads(s)
+            except Exception:
+                pass
+        return _resolve_vars(raw, data)
+    return raw
+
+
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if isinstance(value, bool):
+            return 1.0 if value else 0.0
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _fmt_number(value: float, precision: Optional[int] = None) -> str:
+    if precision is not None:
+        try:
+            return f"{value:.{max(0, min(int(precision), 8))}f}"
+        except Exception:
+            pass
+    if abs(value - round(value)) < 1e-9:
+        return str(int(round(value)))
+    return (f"{value:.3f}").rstrip("0").rstrip(".")
+
+
+def _safe_color(value: Any, fallback: str) -> str:
+    s = str(value or "").strip()
+    return s if _HEX_COLOR_RE.fullmatch(s) else fallback
+
+
+def _svg_arc_path(cx: float, cy: float, radius: float, start_deg: float, end_deg: float) -> str:
+    import math
+    start = math.radians(start_deg)
+    end = math.radians(end_deg)
+    x1 = cx + radius * math.cos(start)
+    y1 = cy + radius * math.sin(start)
+    x2 = cx + radius * math.cos(end)
+    y2 = cy + radius * math.sin(end)
+    large = 1 if abs(end_deg - start_deg) > 180 else 0
+    sweep = 1 if end_deg >= start_deg else 0
+    return f"M {x1:.3f} {y1:.3f} A {radius:.3f} {radius:.3f} 0 {large} {sweep} {x2:.3f} {y2:.3f}"
+
+
+def _chart_point_rows(raw: Any, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    resolved = _layout_value(raw, data)
+    if isinstance(resolved, dict):
+        resolved = resolved.get("points") or resolved.get("series") or resolved.get("value") or []
+    if not isinstance(resolved, list):
+        return []
+
+    rows: List[Dict[str, Any]] = []
+    for idx, item in enumerate(resolved):
+        if isinstance(item, dict) and isinstance(item.get("points"), list):
+            series_name = str(item.get("legend") or item.get("series") or item.get("name") or item.get("label") or f"Series {idx + 1}")
+            series_color = item.get("color")
+            for p_idx, point in enumerate(item.get("points") or []):
+                if isinstance(point, dict):
+                    row = dict(point)
+                elif isinstance(point, (list, tuple)) and len(point) >= 2:
+                    row = {"x": point[0], "y": point[1]}
+                else:
+                    row = {"x": p_idx + 1, "y": point}
+                row.setdefault("legend", series_name)
+                if series_color and not row.get("color"):
+                    row["color"] = series_color
+                rows.append(row)
+            continue
+
+        if isinstance(item, dict):
+            rows.append(dict(item))
+        elif isinstance(item, (list, tuple)) and len(item) >= 2:
+            rows.append({"x": item[0], "y": item[1]})
+        elif isinstance(item, (int, float)):
+            rows.append({"x": idx + 1, "y": item})
+    return rows
+
+
+def _render_gauge_svg(el: Dict[str, Any], node_data: Dict[str, Any]) -> str:
+    import math
+
+    min_value = _as_float(_layout_value(el.get("min", 0), node_data), 0)
+    max_value = _as_float(_layout_value(el.get("max", 100), node_data), 100)
+    if max_value <= min_value:
+        max_value = min_value + 1
+    value = _as_float(_layout_value(el.get("value", min_value), node_data), min_value)
+    value_clamped = max(min_value, min(max_value, value))
+    precision = el.get("precision")
+    precision_value: Optional[int] = None
+    try:
+        if precision not in (None, ""):
+            precision_value = int(float(precision))
+    except Exception:
+        precision_value = None
+
+    scale_precision = el.get("scale_precision")
+    scale_precision_value: Optional[int] = None
+    try:
+        if scale_precision not in (None, ""):
+            scale_precision_value = int(float(scale_precision))
+    except Exception:
+        scale_precision_value = None
+
+    raw_ranges = _layout_value(el.get("ranges"), node_data)
+    ranges: List[Dict[str, Any]] = []
+    if isinstance(raw_ranges, list):
+        cursor = min_value
+        for idx, item in enumerate(raw_ranges):
+            if not isinstance(item, dict):
+                continue
+            range_start = _as_float(item.get("from", item.get("min", cursor)), cursor)
+            range_end = _as_float(item.get("to", item.get("max", item.get("value", range_start))), range_start)
+            range_start = max(min_value, min(max_value, range_start))
+            range_end = max(min_value, min(max_value, range_end))
+            if range_end <= range_start:
+                continue
+            ranges.append({
+                "from": range_start,
+                "to": range_end,
+                "color": _safe_color(_layout_value(item.get("color"), node_data), _CHART_PALETTE[idx % len(_CHART_PALETTE)]),
+            })
+            cursor = range_end
+    if len(ranges) < 2:
+        span = max_value - min_value
+        ranges = [
+            {"from": min_value, "to": min_value + span * .35, "color": _CHART_PALETTE[0]},
+            {"from": min_value + span * .35, "to": min_value + span * .60, "color": _CHART_PALETTE[1]},
+            {"from": min_value + span * .60, "to": min_value + span * .82, "color": _CHART_PALETTE[2]},
+            {"from": min_value + span * .82, "to": max_value, "color": _CHART_PALETTE[3]},
+        ]
+
+    start_angle = 140.0
+    sweep_angle = 260.0
+    # Additional outer space keeps every scale label away from the coloured arc.
+    cx, cy, radius = 300.0, 270.0, 178.0
+    label_radius = radius + 48.0
+    span = max_value - min_value
+    parts: List[str] = []
+    parts.append(f'<path d="{_svg_arc_path(cx, cy, radius, start_angle, start_angle + sweep_angle)}" fill="none" stroke="#ECECEC" stroke-width="42" stroke-linecap="butt"/>')
+    for r in ranges:
+        a1 = start_angle + ((r["from"] - min_value) / span) * sweep_angle
+        a2 = start_angle + ((r["to"] - min_value) / span) * sweep_angle
+        gap = min(1.5, max(0.0, (a2 - a1) * .08))
+        parts.append(
+            f'<path d="{_svg_arc_path(cx, cy, radius, a1 + gap, a2 - gap)}" fill="none" '
+            f'stroke="{escape(r["color"])}" stroke-width="42" stroke-linecap="butt"/>'
+        )
+
+    value_angle = start_angle + ((value_clamped - min_value) / span) * sweep_angle
+    rad = math.radians(value_angle)
+    needle_outer = radius + 10
+    needle_inner = radius - 56
+    x1 = cx + needle_outer * math.cos(rad)
+    y1 = cy + needle_outer * math.sin(rad)
+    x2 = cx + needle_inner * math.cos(rad)
+    y2 = cy + needle_inner * math.sin(rad)
+    parts.append(f'<line x1="{x1:.2f}" y1="{y1:.2f}" x2="{x2:.2f}" y2="{y2:.2f}" stroke="#111" stroke-width="9" stroke-linecap="round"/>')
+
+    caption = str(_layout_value(el.get("caption", ""), node_data) or "")
+    main_label = el.get("label")
+    if main_label is None:
+        main_label = el.get("value_label")
+    if main_label is None:
+        main_label = _fmt_number(value, precision_value)
+    else:
+        main_label = str(_layout_value(main_label, node_data) or "")
+    sub_label = str(_layout_value(el.get("sub_label", el.get("unit", "")), node_data) or "")
+    min_label = str(_layout_value(el.get("min_label", _fmt_number(min_value, scale_precision_value)), node_data) or "")
+    max_label = str(_layout_value(el.get("max_label", _fmt_number(max_value, scale_precision_value)), node_data) or "")
+
+    text_color = _safe_color(_layout_value(el.get("text_color"), node_data), "#111111")
+    # Scale captions must stay readable even when a theme supplies a muted
+    # text color. They are black by default and may be overridden explicitly.
+    scale_text_color = _safe_color(_layout_value(el.get("scale_text_color"), node_data), "#000000")
+    if caption:
+        parts.append(f'<text x="300" y="28" text-anchor="middle" font-size="24" font-weight="700" fill="{text_color}">{escape(caption)}</text>')
+    parts.append(f'<text x="300" y="239" text-anchor="middle" font-size="54" font-weight="700" fill="{text_color}">{escape(str(main_label))}</text>')
+    if sub_label:
+        parts.append(f'<text x="300" y="270" text-anchor="middle" font-size="20" fill="{text_color}">{escape(sub_label)}</text>')
+
+    # Min/max are black (or explicit text_color) and face outward. The left
+    # label's right edge ends before the figure; the right label begins after it.
+    start_rad = math.radians(start_angle)
+    end_rad = math.radians(start_angle + sweep_angle)
+    left_x = cx + label_radius * math.cos(start_rad) - 8
+    left_y = cy + label_radius * math.sin(start_rad)
+    right_x = cx + label_radius * math.cos(end_rad) + 8
+    right_y = cy + label_radius * math.sin(end_rad)
+    parts.append(
+        f'<text x="{left_x:.2f}" y="{left_y:.2f}" text-anchor="end" dominant-baseline="middle" '
+        f'font-size="18" font-weight="600" fill="{scale_text_color}">{escape(min_label)}</text>'
+    )
+    parts.append(
+        f'<text x="{right_x:.2f}" y="{right_y:.2f}" text-anchor="start" dominant-baseline="middle" '
+        f'font-size="18" font-weight="600" fill="{scale_text_color}">{escape(max_label)}</text>'
+    )
+
+    # Unique boundaries between ranges are placed on an outer ring above the arc.
+    if _truthy(el.get("show_range_labels", True)):
+        ticks: List[float] = []
+        for r in ranges:
+            for tick in (r["from"], r["to"]):
+                if tick <= min_value + 1e-9 or tick >= max_value - 1e-9:
+                    continue
+                if not any(abs(tick - existing) < 1e-9 for existing in ticks):
+                    ticks.append(tick)
+        ticks.sort()
+        tick_size = 16 if len(ticks) <= 5 else 14
+        for tick in ticks:
+            angle = start_angle + ((tick - min_value) / span) * sweep_angle
+            tick_rad = math.radians(angle)
+            cosine = math.cos(tick_rad)
+            tx = cx + label_radius * cosine
+            # Move the label a little farther above/outside its point on the
+            # scale so its baseline cannot touch the coloured stroke.
+            ty = cy + label_radius * math.sin(tick_rad) - 6.0
+            if cosine < -0.28:
+                anchor = "end"
+                tx -= 7
+            elif cosine > 0.28:
+                anchor = "start"
+                tx += 7
+            else:
+                anchor = "middle"
+                # A boundary directly above the centre remains below the caption
+                # but still outside the coloured figure.
+                ty = max(55.0, ty)
+            tick_label = _fmt_number(tick, scale_precision_value)
+            parts.append(
+                f'<text x="{tx:.2f}" y="{ty:.2f}" text-anchor="{anchor}" dominant-baseline="middle" '
+                f'font-size="{tick_size}" font-weight="600" fill="{scale_text_color}">{escape(tick_label)}</text>'
+            )
+
+    return '<svg class="nl-chart-svg" viewBox="0 0 600 450" role="img" aria-label="gauge">' + "".join(parts) + "</svg>"
+
+
+def _render_pie_svg(el: Dict[str, Any], node_data: Dict[str, Any]) -> str:
+    import math
+
+    rows = _chart_point_rows(el.get("value"), node_data)
+    points: List[Dict[str, Any]] = []
+    for idx, row in enumerate(rows):
+        val = _as_float(row.get("value", row.get("y", 0)), 0)
+        if val <= 0:
+            continue
+        label = str(row.get("label", row.get("x", row.get("name", row.get("legend", f"{idx + 1}")))) or "")
+        legend = str(row.get("legend", row.get("series", label)) or label)
+        points.append({"value": val, "label": label, "legend": legend, "color": _safe_color(_layout_value(row.get("color"), node_data), _CHART_PALETTE[idx % len(_CHART_PALETTE)])})
+
+    caption = str(_layout_value(el.get("caption", ""), node_data) or "")
+    text_color = _safe_color(_layout_value(el.get("text_color"), node_data), "#111111")
+    parts: List[str] = []
+    if caption:
+        parts.append(f'<text x="320" y="28" text-anchor="middle" font-size="22" font-weight="700" fill="{text_color}">{escape(caption)}</text>')
+    if not points:
+        parts.append('<text x="320" y="190" text-anchor="middle" font-size="18" fill="#888">No data</text>')
+        return '<svg class="nl-chart-svg" viewBox="0 0 640 360" role="img" aria-label="pie chart">' + "".join(parts) + "</svg>"
+
+    total = sum(p["value"] for p in points)
+    cx, cy, radius = 190.0, 190.0, 122.0
+    angle = -90.0
+    for p in points:
+        sweep = 360.0 * p["value"] / total
+        end = angle + sweep
+        if sweep >= 359.999:
+            parts.append(f'<circle cx="{cx}" cy="{cy}" r="{radius}" fill="{escape(p["color"])}"/>')
+        else:
+            a1 = math.radians(angle)
+            a2 = math.radians(end)
+            x1, y1 = cx + radius * math.cos(a1), cy + radius * math.sin(a1)
+            x2, y2 = cx + radius * math.cos(a2), cy + radius * math.sin(a2)
+            large = 1 if sweep > 180 else 0
+            d = f"M {cx} {cy} L {x1:.3f} {y1:.3f} A {radius} {radius} 0 {large} 1 {x2:.3f} {y2:.3f} Z"
+            parts.append(f'<path d="{d}" fill="{escape(p["color"])}" stroke="#fff" stroke-width="2"/>')
+        angle = end
+
+    show_legend = _truthy(el.get("show_legend", True))
+    if show_legend:
+        for idx, p in enumerate(points[:10]):
+            y = 78 + idx * 26
+            parts.append(f'<rect x="360" y="{y - 12}" width="14" height="14" rx="2" fill="{escape(p["color"])}"/>')
+            pct = p["value"] * 100.0 / total
+            label = f'{p["legend"]}: {_fmt_number(p["value"])} ({pct:.1f}%)'
+            parts.append(f'<text x="382" y="{y}" font-size="15" fill="{text_color}">{escape(label)}</text>')
+
+    return '<svg class="nl-chart-svg" viewBox="0 0 640 360" role="img" aria-label="pie chart">' + "".join(parts) + "</svg>"
+
+
+def _line_bar_model(el: Dict[str, Any], node_data: Dict[str, Any]) -> Dict[str, Any]:
+    rows = _chart_point_rows(el.get("value"), node_data)
+    categories: List[str] = []
+    series: List[str] = []
+    values: Dict[tuple, float] = {}
+    colors: Dict[str, str] = {}
+
+    for idx, row in enumerate(rows):
+        x = str(row.get("x", row.get("label", row.get("category", idx + 1))) or "")
+        s = str(row.get("legend", row.get("series", row.get("name", "Value"))) or "Value")
+        y = _as_float(row.get("y", row.get("value", 0)), 0)
+        if x not in categories:
+            categories.append(x)
+        if s not in series:
+            series.append(s)
+        values[(x, s)] = y
+        if row.get("color") and s not in colors:
+            colors[s] = _safe_color(_layout_value(row.get("color"), node_data), _CHART_PALETTE[len(series) % len(_CHART_PALETTE)])
+
+    for idx, s in enumerate(series):
+        colors.setdefault(s, _CHART_PALETTE[idx % len(_CHART_PALETTE)])
+    return {"categories": categories, "series": series, "values": values, "colors": colors}
+
+
+def _render_xy_svg(kind: str, el: Dict[str, Any], node_data: Dict[str, Any]) -> str:
+    model = _line_bar_model(el, node_data)
+    categories: List[str] = model["categories"]
+    series: List[str] = model["series"]
+    values: Dict[tuple, float] = model["values"]
+    colors: Dict[str, str] = model["colors"]
+    caption = str(_layout_value(el.get("caption", ""), node_data) or "")
+    text_color = _safe_color(_layout_value(el.get("text_color"), node_data), "#111111")
+    parts: List[str] = []
+    if caption:
+        parts.append(f'<text x="350" y="27" text-anchor="middle" font-size="22" font-weight="700" fill="{text_color}">{escape(caption)}</text>')
+    if not categories or not series:
+        parts.append('<text x="350" y="190" text-anchor="middle" font-size="18" fill="#888">No data</text>')
+        return f'<svg class="nl-chart-svg" viewBox="0 0 700 380" role="img" aria-label="{escape(kind)} chart">' + "".join(parts) + "</svg>"
+
+    all_values = [values.get((x, s), 0.0) for x in categories for s in series]
+    raw_min = min(all_values)
+    raw_max = max(all_values)
+    if kind == "bar":
+        # A positive-only bar chart must start exactly at zero.  Padding below
+        # zero creates a misleading negative baseline and differs from the
+        # Android chart, so pad only the side(s) that contain data.
+        y_min = min(raw_min, 0.0)
+        y_max = max(raw_max, 0.0)
+        if y_max <= y_min:
+            y_max = y_min + 1.0
+        pad = (y_max - y_min) * .08
+        if raw_min < 0:
+            y_min -= pad
+        if raw_max > 0:
+            y_max += pad
+        if raw_min >= 0:
+            y_min = 0.0
+        if raw_max <= 0:
+            y_max = 0.0
+        if y_max <= y_min:
+            y_max = y_min + 1.0
+    else:
+        y_min = raw_min
+        y_max = max(raw_max, 0.0)
+        if y_max <= y_min:
+            y_max = y_min + 1.0
+        pad = (y_max - y_min) * .08
+        y_min -= pad
+        y_max += pad
+
+    left, top, right, bottom = 68.0, 50.0, 675.0, 292.0
+    plot_w, plot_h = right - left, bottom - top
+
+    def y_coord(v: float) -> float:
+        return bottom - ((v - y_min) / (y_max - y_min)) * plot_h
+
+    for i in range(6):
+        v = y_min + (y_max - y_min) * i / 5.0
+        y = y_coord(v)
+        parts.append(f'<line x1="{left}" y1="{y:.2f}" x2="{right}" y2="{y:.2f}" stroke="#E3E3E3" stroke-width="1"/>')
+        parts.append(f'<text x="{left - 8}" y="{y + 5:.2f}" text-anchor="end" font-size="12" fill="#777">{escape(_fmt_number(v))}</text>')
+    parts.append(f'<line x1="{left}" y1="{top}" x2="{left}" y2="{bottom}" stroke="#777" stroke-width="1"/>')
+    parts.append(f'<line x1="{left}" y1="{bottom}" x2="{right}" y2="{bottom}" stroke="#777" stroke-width="1"/>')
+
+    n = len(categories)
+    step = plot_w / max(n, 1)
+    label_stride = max(1, (n + 7) // 8)
+    for i, category in enumerate(categories):
+        if i % label_stride == 0 or i == n - 1:
+            x = left + step * (i + .5)
+            shown = category if len(category) <= 14 else category[:13] + "…"
+            parts.append(f'<text x="{x:.2f}" y="312" text-anchor="middle" font-size="12" fill="#666">{escape(shown)}</text>')
+
+    if kind == "bar":
+        group_width = step * .72
+        bar_width = max(2.0, group_width / max(len(series), 1))
+        zero_y = y_coord(0.0)
+        for i, category in enumerate(categories):
+            group_left = left + step * i + (step - group_width) / 2.0
+            for s_idx, s in enumerate(series):
+                v = values.get((category, s), 0.0)
+                y = y_coord(v)
+                rect_y = min(y, zero_y)
+                rect_h = max(1.0, abs(zero_y - y))
+                x = group_left + s_idx * bar_width
+                parts.append(f'<rect x="{x:.2f}" y="{rect_y:.2f}" width="{max(1.0, bar_width - 2):.2f}" height="{rect_h:.2f}" rx="2" fill="{escape(colors[s])}"/>')
+    else:
+        smooth = _truthy(el.get("smooth", True))
+        for s in series:
+            pts = []
+            for i, category in enumerate(categories):
+                if (category, s) not in values:
+                    continue
+                x = left + step * (i + .5)
+                pts.append((x, y_coord(values[(category, s)])))
+            if not pts:
+                continue
+            if len(pts) == 1:
+                path = f"M {pts[0][0]:.2f} {pts[0][1]:.2f}"
+            elif not smooth:
+                path = "M " + " L ".join(f"{x:.2f} {y:.2f}" for x, y in pts)
+            else:
+                path = f"M {pts[0][0]:.2f} {pts[0][1]:.2f}"
+                for i in range(len(pts) - 1):
+                    p0 = pts[i - 1] if i > 0 else pts[i]
+                    p1 = pts[i]
+                    p2 = pts[i + 1]
+                    p3 = pts[i + 2] if i + 2 < len(pts) else p2
+                    c1x = p1[0] + (p2[0] - p0[0]) / 6.0
+                    c1y = p1[1] + (p2[1] - p0[1]) / 6.0
+                    c2x = p2[0] - (p3[0] - p1[0]) / 6.0
+                    c2y = p2[1] - (p3[1] - p1[1]) / 6.0
+                    path += f" C {c1x:.2f} {c1y:.2f}, {c2x:.2f} {c2y:.2f}, {p2[0]:.2f} {p2[1]:.2f}"
+            parts.append(f'<path d="{path}" fill="none" stroke="{escape(colors[s])}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>')
+            for x, y in pts:
+                parts.append(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="4" fill="{escape(colors[s])}" stroke="#fff" stroke-width="1.5"/>')
+
+    if _truthy(el.get("show_legend", True)):
+        x = left
+        y = 350.0
+        for s in series:
+            parts.append(f'<rect x="{x:.2f}" y="{y - 11:.2f}" width="13" height="13" rx="2" fill="{escape(colors[s])}"/>')
+            parts.append(f'<text x="{x + 19:.2f}" y="{y:.2f}" font-size="13" fill="{text_color}">{escape(s)}</text>')
+            x += min(180.0, 34.0 + len(s) * 8.0)
+            if x > 590:
+                x = left
+                y += 20
+
+    return f'<svg class="nl-chart-svg" viewBox="0 0 700 380" role="img" aria-label="{escape(kind)} chart">' + "".join(parts) + "</svg>"
+
+
+def _render_indicator_chart_html(kind: str, el: Dict[str, Any], node_data: Dict[str, Any], style_attr: str) -> str:
+    kind = kind.lower()
+    if kind == "gauge":
+        svg = _render_gauge_svg(el, node_data)
+    elif kind == "pie":
+        svg = _render_pie_svg(el, node_data)
+    else:
+        svg = _render_xy_svg(kind, el, node_data)
+    return f'<div class="nl-chart nl-chart-{escape(kind)}"{style_attr}>{svg}</div>'
+
+
 def render_nodalayout_html(
     layout: Layout,
     node_data: Dict[str, Any],
@@ -497,6 +1004,13 @@ def render_nodalayout_html(
         t = str(el.get("type") or "")
         extra_css = _weight_css(el, direction=parent_direction) if parent_direction in ("row", "column") else None
         style_attr = _style_attr(el, extra_css=extra_css)
+
+        # Dependency-free indicators/charts shared with Android.  The canonical
+        # JSON types are lower-case, but title-case aliases are accepted for
+        # compatibility with the existing NodaLayout naming style.
+        chart_type = t.lower()
+        if chart_type in ("gauge", "pie", "bar", "line"):
+            return _render_indicator_chart_html(chart_type, el, node_data, style_attr)
 
         # Container-based layout elements
         if t in ("HorizontalLayout", "VerticalLayout"):
@@ -625,6 +1139,39 @@ def render_nodalayout_html(
             html = _resolve_vars(str(raw_tpl or ""), node_data)
             tpl = _tpl_attr("html", raw_tpl)
             return f'<div class="nl-html"{style_attr}{tpl} data-nl-allow-html="1">{html}</div>'
+
+        if t == "CodeFrame":
+            # Web-client only: editable Python handler/function body.
+            # Server endpoints additionally enforce admin + local-repo access.
+            if not bool((context or {}).get("is_admin")):
+                return ''
+            ref = str(el.get("value") or el.get("method") or "").strip()
+            if not ref:
+                return '<div class="alert alert-warning small mb-0">CodeFrame: value is empty</div>'
+            caption = str(el.get("caption") or ref)
+            try:
+                ref_b64 = base64.urlsafe_b64encode(ref.encode("utf-8")).decode("ascii")
+            except Exception:
+                ref_b64 = ""
+            rows = int(el.get("rows") or 8) if str(el.get("rows") or "").strip().isdigit() else 8
+            # Code editor should normally occupy the whole available row.
+            style_attr = _style_attr(el, extra_css=extra_css, default_full_width=True)
+            min_height = max(160, min(max(6, min(rows, 32)) * 22, 720))
+            return (
+                f'<div class="nl-codeframe"{style_attr} data-nl-codeframe="1" data-code-ref-b64="{escape(ref_b64)}">'
+                f'<div class="nl-codeframe-head">'
+                f'<div><div class="fw-semibold">{escape(caption)}</div>'
+                f'<div class="text-muted small">Python handler: {escape(ref)}</div></div>'
+                f'<div class="d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-codeframe-action="load">Load</button>'
+                f'<button type="button" class="btn btn-sm btn-primary" data-codeframe-action="save">Save</button></div>'
+                f'</div>'
+                f'<div class="nl-codeframe-editor-wrap" data-codeframe-min-height="{min_height}">'
+                f'<pre class="nl-codeframe-highlight language-python" aria-hidden="true"><code class="language-python"></code></pre>'
+                f'<textarea class="nl-codeframe-editor" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>'
+                f'</div>'
+                f'<div class="text-muted small mt-1" data-codeframe-status></div>'
+                f'</div>'
+            )
 
         if t == "Picture":
             raw_tpl = el.get("value")
@@ -824,15 +1371,18 @@ def render_nodalayout_html(
             # what to show in the readonly field: prefer <id>_view, else value
             view_key = f"{nid}_view"
             display = node_data.get(view_key)
-            if display is None:
-                raw_val = el.get("value")
-                raw_ref = _resolve_link_value(raw_val, node_data).strip()
+            raw_val = el.get("value")
+            raw_ref = _resolve_link_value(raw_val, node_data).strip()
+            # A legacy companion view may itself contain Class$id while the
+            # value contains config$Class$id. Treat both as unresolved.
+            if display is None or _looks_like_node_uid(display, str(el.get("dataset") or "")):
+                display = None
                 if raw_ref:
                     get_node_view_fn = (context or {}).get("get_node_view")
                     if callable(get_node_view_fn):
                         try:
                             resolved = get_node_view_fn(raw_ref)
-                            if resolved not in (None, ""):
+                            if resolved not in (None, "") and not _looks_like_node_uid(resolved, str(el.get("dataset") or "")):
                                 display = resolved
                         except Exception:
                             display = None
@@ -907,13 +1457,20 @@ def render_nodalayout_html(
                 
                 raw_val_str = str(raw_val or "")
                 
-                # Если это UID формата "dataset$item_id"
+                # Если это UID формата "dataset$item_id", dataset уже есть в самом value.
+                # Поэтому НЕ требуем el["dataset"] для отображения: иначе DatasetInput
+                # в node_form показывает сырой "Catalog1$3".
                 if raw_val_str:
                     ds_name = str(el.get("dataset") or "").strip()
-                    
-                    # Пробуем получить представление через контекстную функцию
+
+                    # Если dataset в layout не задан, но value = "Dataset$Id",
+                    # вытащим имя dataset прямо из значения. Это также помогает
+                    # кнопке выбора/очистки сохранять корректный контекст.
+                    if not ds_name and "$" in raw_val_str:
+                        ds_name = raw_val_str.split("$", 1)[0].strip()
+
                     get_view_fn = (context or {}).get("get_dataset_item_view")
-                    if callable(get_view_fn) and ds_name:
+                    if callable(get_view_fn):
                         try:
                             display = get_view_fn(ds_name, raw_val_str)
                         except Exception:
@@ -926,6 +1483,13 @@ def render_nodalayout_html(
             display = "" if display is None else str(display)
             
             ds_name = str(el.get("dataset") or "").strip()
+            if not ds_name:
+                try:
+                    cur_uid = str(node_data.get(fid) or "").strip()
+                    if "$" in cur_uid:
+                        ds_name = cur_uid.split("$", 1)[0].strip()
+                except Exception:
+                    pass
             
             style_attr_input = _style_attr(el, extra_css=extra_css, default_full_width=True)
             btn_style = _style_attr({"width": -2, "height": -2}, extra_css=None)
@@ -1333,6 +1897,23 @@ def render_nodalayout_html(
                         if key:
                             v = _get_by_path(nd, key)
 
+                        # If a table asks for sku_view/product_view/etc. but the
+                        # programmatically created row only has sku=<Node UID>,
+                        # resolve the view lazily. This keeps parent tables correct
+                        # even before a user opens+saves the child row.
+                        if (v is None or str(v or "") == "") and key.endswith("_view"):
+                            base_key = key[:-5]
+                            raw_ref = _get_by_path(nd, base_key)
+                            if raw_ref:
+                                get_node_view_fn = (context or {}).get("get_node_view")
+                                if callable(get_node_view_fn):
+                                    try:
+                                        resolved = get_node_view_fn(str(raw_ref))
+                                        if resolved:
+                                            v = resolved
+                                    except Exception:
+                                        pass
+
                         if isinstance(v, (dict, list)):
                             try:
                                 v = json.dumps(v, ensure_ascii=False)
@@ -1649,7 +2230,7 @@ def render_nodalayout_html(
             
             if not isinstance(e, dict):
                 return False
-            if e.get("type") in ("Table", "NodeChildren", "Tabs"):
+            if e.get("type") in ("Table", "NodeChildren", "Tabs", "CodeFrame"):
                 return True
             if isinstance(e.get("width"), (int, float)) and int(e.get("width")) == -1:
                 return True
@@ -1699,7 +2280,7 @@ def render_nodalayout_html(
                 # Some elements are containers and should take full row width by default.
                 # Tabs in particular looked "shrunken" because their wrapper cell is a flex item
                 # with auto width; mark them as full-width like Table/NodeChildren.
-                if el.get("type") in ("Table", "NodeChildren", "Tabs"):
+                if el.get("type") in ("Table", "NodeChildren", "Tabs", "CodeFrame"):
                     cell_cls += " nl-cell-full"
                 elif isinstance(el.get("width"), (int, float)) and int(el.get("width")) == -1:
                     cell_cls += " nl-cell-full"
@@ -1968,4 +2549,10 @@ DEFAULT_NL_CSS = """
   outline: none;
   box-shadow: 0 0 0 2px rgba(25,135,84,.25);
 }
+
+
+/* Dependency-free gauges and charts */
+.nl-chart{box-sizing:border-box;width:100%;min-width:0;min-height:220px;display:flex;align-items:stretch;justify-content:center;overflow:hidden}
+.nl-chart-svg{display:block;width:100%;height:100%;max-width:100%;min-height:inherit;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+.nl-chart-gauge{min-height:250px}
 """
