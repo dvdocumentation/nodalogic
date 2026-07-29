@@ -214,7 +214,7 @@ DEEPSEEK_API_KEY = ''
 # Maximum number of technical candidates passed back to nGenie for one
 # semantic resolve step. Subject-specific rules stay in class ngenie_prompt.
 NGENIE_RESOLVE_CANDIDATE_LIMIT = 10
-ADMIN_LOGIN = 'dv1555@hotmail.com'
+ADMIN_LOGIN = ''
 FLASK_SECRET= ''
 
 S3_ENDPOINT = "https://s3.ru1.storage.beget.cloud"
