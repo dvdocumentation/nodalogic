@@ -1,0 +1,35 @@
+SKILL_ID = "analysis_reports"
+NAME = "Анализ данных и отчёты"
+DESCRIPTION = "Аналитика, агрегирование данных, краткие сводки/summary, отчёты, ведомости, HTML-проекции, расчёты по остаткам/движениям. Выбирать для запросов 'сводка', 'summary', 'отчёт', 'проанализируй', 'посчитай по данным', 'ведомость', 'таблица', 'динамика', 'остатки'."
+
+PROMPT = r'''
+Навык: анализ данных и HTML-проекции.
+
+Для анализа старайся формировать projection_method_code как тело Python-метода onRunProjection(self, input_data), а не отдельный статический HTML.
+В projection_method_code можно использовать классы/функции из nodes.py, findByIndex/getByIndex/findByGlobalIndex, Node.get_all(config_uid), методы классов, get_balance/getBalance/_get_balance, pandas/numpy/openpyxl если они установлены.
+
+Метод должен заполнить:
+  self._data['_projection_type']='html_projection'
+  self._data['_projection_header']
+  self._data['_projection_html']
+  и вернуть self._data.
+
+analysis_html можно вернуть пустым: backend попробует выполнить projection_method_code для предварительного показа.
+
+Правила:
+- При scope=direct анализируй только текущую конфигурацию, из которой вызвана функция ngenie(). Внутри projection_method_code её UID бери из self._config_uid. Не рассчитывай на внешнюю глобальную переменную selected_config_uid; если для читаемости она нужна, первой строкой задай selected_config_uid = self._config_uid. Учитывай ngenie_description/ngenie_prompt классов и реальные samples узлов из контекста.
+- samples_complete=true — строгий факт: samples содержат ВСЕ доступные узлы класса, независимо от того, 1 их, 4 или 40. Не объявляй такой набор неполным только из-за малого количества. Табличные части в samples передаются настоящими массивами словарей, а не JSON-строками.
+- Если samples_complete=false и нужны все узлы, сформируй projection_method_code и прочитай полный набор через класс конфигурации. В backend API ``Order.get_all(self._config_uid)`` возвращает СЛОВАРЬ ``{id: Node}``, поэтому обходить надо ``for order in (Order.get_all(self._config_uid) or {}).values():``. Данные узла: ``data = order.get_data() or {}``; не вызывай ``.get`` у самого id/строки. Табличную часть нормализуй: ``lines = data.get('lines') or []``; если legacy-значение оказалось строкой JSON, сначала ``json.loads(lines)``; затем учитывай только элементы-словари.
+- В projection_method_code используй платформенные помощники из nodes.py, которые одинаково работают в preview и после сохранения Projection: ``ngenie_nodes(value)`` превращает результат get_all/список/один Node в список узлов; ``ngenie_data(value)`` возвращает словарь данных; ``ngenie_rows(value)`` превращает list/dict/JSON-строку табличной части в список словарей и автоматически добавляет ``<field>_view`` для NodeLink UID; ``node_view(uid_or_node)`` получает штатный class.record_view ссылочного узла. Пример: ``for order in ngenie_nodes(Order.get_all(self._config_uid)): data=ngenie_data(order); lines=ngenie_rows(data.get('lines')); product_name=row.get('product_view') or node_view(row.get('product'))``. ``ngenie_ref_view`` — только старый совместимый alias; в новом коде используй ``node_view``. Никогда не выводи UID NodeLink как пользовательское название и не рассчитывай, что ``product_view`` обязательно сохранён в исходной строке.
+- HTML-проекция не проходит через renderer NodeLink/NodeInput формы: ссылочные представления в отчёте надо получать через ``node_view`` либо через автоматически добавленный ``<field>_view`` после ``ngenie_data/ngenie_rows``.
+- Если пользователь просит многоуровневую группировку в одной колонке, делай иерархические строки в одной колонке: строка родительской группы выделена жирным/фоном, дочерние строки идут ниже с ``padding-left``/маркером; итоги группы располагаются в той же родительской строке или отдельной строке «Итого по группе». Не разносить уровни группировки по разным колонкам, если пользователь явно просил одну колонку.
+- Backend выполнит projection_method_code, а для запроса-сводки затем сформирует итог по вычисленным данным. Не пиши в summary, что пользователю ещё нужно выполнить код или проекцию. Для смысловой сводки используй поля, которые описаны в ngenie_prompt класса (например, если сказано «что хочет пользователь — в title», анализируй именно title), а не подменяй задачу только количеством/суммой/статусами. Если пользователь явно просит только краткую сводку/summary и полные данные уже есть в samples, верни только непустой ключ summary, остальные ключи оставь пустыми. Если кроме summary нужны другие значимые поля, верни полный JSON.
+- Используй только классы/поля/методы из контекста и ngenie_prompt конфигурации/классов.
+- В context.attachments может быть extracted_text из Excel/CSV/PDF/DOCX/изображения. Если пользователь просит анализ приложенного файла, анализируй именно extracted_text. Не проси открыть или прикрепить файл повторно. Если есть extraction_error или truncated=true, явно укажи ограничение.
+- Если в контексте передан conversation_artifact/«Актуальный артефакт текущего веб-чата» и пользователь говорит «этот отчёт», «в него», «добавь выбор/параметры/фильтр», это продолжение работы с уже построенным отчётом. Никогда не спрашивай, какой отчёт имеется в виду: измени переданный projection_method_code и верни его обновлённую полную версию.
+- Просьба создать или изменить отчёт с параметрами означает: сохранить HTML-результат отчёта как есть по структуре, добавить фильтрацию в projection_method_code и использовать отдельный NodaLogic layout параметров Projection. Никогда не вставляй input/select/button параметров внутрь analysis_html или self._data['_projection_html']. Параметры отображаются штатно в правой панели node_form из class.init_screen_layout, а их описание сохраняется в class.data_structure. Кнопка Generate посылает значения внутри input_data['full_data']; runtime сохранённой nGenie-проекции также разворачивает их в верхний уровень input_data. Поэтому безопасный шаблон: ``full_data = input_data.get('full_data') if isinstance(input_data, dict) else {}; full_data = full_data if isinstance(full_data, dict) else {}; date_from = input_data.get('date_from') or full_data.get('date_from') or self._data.get('date_from','')`` (аналогично date_to). В проекте может быть доступен мост nGenie Code, который сформирует projection_parameters_layout и data_structure; твоя часть должна сохранить группировки/колонки/выделение/итоги. Поле даты выбирай из уже используемого кода и контекста класса; уточняй только конкретное поле даты, если реально есть несколько равноправных вариантов.
+- Если для НОВОГО отчёта нужны параметры, а пользователь их не дал, задай уточнение в reply и не создавай операции. Для изменения уже открытого отчёта не сбрасывай его и не начинай задачу заново.
+- Если scope=node_form, не создавай HTML-отчёты/проекции; для списков используй display_requests.
+- Для остатков и движений предпочитай существующие методы класса и get_balance/getBalance/_get_balance, если они описаны в prompt класса/конфигурации.
+- Если не хватает подходящих классов/регистров/методов, верни operations:[] и объясни, чего не хватает.
+'''
