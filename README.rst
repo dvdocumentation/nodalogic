@@ -92,7 +92,8 @@ In this repository, you can download either **Noda Configuration Designer + Noda
 
 Installation is the same in either case:
 
-1. download the folder (you can change the constants: DEEPSEEK_API_KEY, current_user.email)
+1. download the folder 
+2. Set the constans in app.py: DEEPSEEK_API_KEY,ADMIN_LOGIN,FLASK_SECRET,s3 and fill credentials.json
 2. pip install -r requirements.txt
 3. python3 app.py (appserver.py)
 
