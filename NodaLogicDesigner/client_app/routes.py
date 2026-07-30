@@ -51,6 +51,70 @@ try:
 except Exception:  # optional dependency
     qrcode = None
 
+_REPORTLAB_IMPORT_ERROR = None
+try:
+    from reportlab.graphics.barcode import createBarcodeDrawing, getCodes as _reportlab_barcode_codes
+    from reportlab.graphics.barcode.code128 import stop as _REPORTLAB_CODE128_STOP
+    from reportlab.graphics.shapes import Drawing as _ReportLabDrawing
+    _ReportLabCode128Widget = _reportlab_barcode_codes().get("Code128")
+except Exception as _reportlab_import_error:  # optional dependency
+    _REPORTLAB_IMPORT_ERROR = _reportlab_import_error
+    createBarcodeDrawing = None
+    _REPORTLAB_CODE128_STOP = None
+    _ReportLabDrawing = None
+    _ReportLabCode128Widget = None
+
+
+if _ReportLabCode128Widget is not None:
+    class _Utf8BarcodeCode128(_ReportLabCode128Widget):
+        """Code 128 widget that encodes Unicode as UTF-8 bytes via FNC4.
+
+        ReportLab's stock Code128 validator accepts only 7-bit ASCII. Code 128
+        itself can carry extended byte values with FNC4, so this widget keeps
+        the original text and encodes its UTF-8 byte sequence.
+        """
+
+        def validate(self):
+            self.valid = 1
+            self.validated = str(self.value or "")
+            self._utf8_bytes = self.validated.encode("utf-8")
+            return self.validated
+
+        def encode(self):
+            data = getattr(self, "_utf8_bytes", str(self.value or "").encode("utf-8"))
+            current_set = "B"
+            encoded = [104]  # START_B
+
+            for byte_value in data:
+                extended = byte_value >= 128
+                base_value = byte_value - 128 if extended else byte_value
+                target_set = "A" if base_value < 32 else "B"
+
+                if target_set != current_set:
+                    encoded.append(101 if current_set == "B" else 100)
+                    current_set = target_set
+
+                if extended:
+                    # FNC4 is code 101 in set A and code 100 in set B.
+                    encoded.append(101 if current_set == "A" else 100)
+
+                if current_set == "A" and base_value < 32:
+                    codeword = base_value + 64
+                else:
+                    codeword = base_value - 32
+
+                if codeword < 0 or codeword > 95:
+                    raise ValueError(f"Cannot encode byte {byte_value} in Code128")
+                encoded.append(codeword)
+
+            checksum = encoded[0]
+            for position, codeword in enumerate(encoded[1:], 1):
+                checksum += position * codeword
+            self.encoded = encoded + [checksum % 103, _REPORTLAB_CODE128_STOP]
+            return self.encoded
+else:
+    _Utf8BarcodeCode128 = None
+
 
 class _PrintAttrDict(dict):
     """Dictionary wrapper for PrintForm templates.
@@ -4773,7 +4837,7 @@ def _ngenie_skill_selector_prompt() -> str:
 
 Правила:
 - Выбери один или несколько skill_ids, достаточных для выполнения запроса.
-- Не выбирай навыки про программирование/nGenie code: это отдельный помощник, не этот чат.
+- Не выбирай общие навыки программирования/nGenie code: это отдельный помощник, не этот чат. Исключение — специализированный навык wms_strategy_code, который формирует только модульную функцию planning_handler для текущего узла WMSStrategy и не меняет структуру конфигурации.
 - Если пользователь просит создать/изменить данные и ещё подобрать ссылки, обычно нужен node_operations.
 - Если приложен Excel/CSV/PDF/другой файл и пользователь просит импортировать его строки в узлы, создать документ или справочники по содержимому, выбирай node_operations.
 - Если приложен файл и пользователь просит только анализ/сводку без изменения узлов, выбирай analysis_reports.
@@ -4824,7 +4888,7 @@ def _ngenie_system_prompt() -> str:
 - На первом внутреннем шаге backend отправляет маршрутизатору только DESCRIPTION всех навыков.
 - В этот рабочий запрос backend добавляет только PROMPT выбранных навыков и их подготовленный контекст.
 - Используй только выбранные навыки. Если selected_skills пустой, верни operations:[] и reply, что подходящего навыка для запроса нет.
-- Не используй nGenie code / навыки программирования конфигураций: это отдельный помощник, здесь он запрещён.
+- Не используй общие навыки nGenie code / программирования конфигураций: это отдельный помощник. Исключение — выбранный wms_strategy_code; он может вернуть в reply только готовую модульную функцию planning_handler для текущего WMSStrategy, без произвольного изменения классов и конфигурации.
 
 Всегда учитывай:
 - selected_config_uid задаёт единственную текущую конфигурацию; не смешивай её данные с другими конфигурациями;
@@ -10232,6 +10296,80 @@ def _print_qr_data_url(value: Any) -> str:
         return ""
 
 
+def _print_barcode_data_url(value: Any, bar_height: Any = 44, bar_width: Any = 1.15, human_readable: Any = False) -> str:
+    """Return a Code128 barcode as an SVG data URL for PrintForm templates.
+
+    SVG is used first because it does not depend on ReportLab's optional
+    renderPM/Cairo PNG backend. Unicode values are encoded as UTF-8 bytes via
+    Code128 FNC4; plain ASCII still uses ReportLab's standard compact encoder.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if createBarcodeDrawing is None:
+        print(
+            "PrintForm Code128 is unavailable: "
+            f"{type(_REPORTLAB_IMPORT_ERROR).__name__}: {_REPORTLAB_IMPORT_ERROR}",
+            file=sys.stderr,
+        )
+        return ""
+
+    height = max(8.0, min(float(bar_height or 44), 300.0))
+    width = max(0.2, min(float(bar_width or 1.15), 4.0))
+    drawing = None
+    try:
+        if all(ord(char) <= 127 for char in raw):
+            drawing = createBarcodeDrawing(
+                "Code128",
+                value=raw,
+                barHeight=height,
+                barWidth=width,
+                humanReadable=bool(human_readable),
+            )
+        elif _Utf8BarcodeCode128 is not None and _ReportLabDrawing is not None:
+            barcode_widget = _Utf8BarcodeCode128(
+                value=raw,
+                barHeight=height,
+                barWidth=width,
+                humanReadable=bool(human_readable),
+            )
+            barcode_widget.validate()
+            x1, y1, x2, y2 = barcode_widget.getBounds()
+            drawing = _ReportLabDrawing(
+                width=float(x2 - x1),
+                height=float(y2 - y1),
+                transform=[1, 0, 0, 1, -float(x1), -float(y1)],
+            )
+            drawing.add(barcode_widget, "_bc")
+        else:
+            return ""
+
+        svg = drawing.asString("svg")
+        if isinstance(svg, str):
+            svg = svg.encode("utf-8")
+        return "data:image/svg+xml;base64," + base64.b64encode(svg).decode("ascii")
+    except Exception as svg_error:
+        # Keep a PNG fallback for installations where SVG export is unavailable.
+        if drawing is not None:
+            try:
+                png = drawing.asString("png")
+                return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+            except Exception as png_error:
+                print(
+                    "PrintForm Code128 render failed: "
+                    f"value={raw[:120]!r}; SVG={type(svg_error).__name__}: {svg_error}; "
+                    f"PNG={type(png_error).__name__}: {png_error}",
+                    file=sys.stderr,
+                )
+                return ""
+        print(
+            f"PrintForm Code128 build failed: value={raw[:120]!r}; "
+            f"{type(svg_error).__name__}: {svg_error}",
+            file=sys.stderr,
+        )
+        return ""
+
+
 def _print_image_src(repo: models.Repo, value: Any) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -10256,6 +10394,7 @@ def _build_print_jinja_context(repo: models.Repo, data: Dict[str, Any]) -> Dict[
         "_data": wrapped_data,
         "data": wrapped_data,
         "qr": _print_qr_data_url,
+        "barcode": _print_barcode_data_url,
         "image_src": lambda value: _print_image_src(repo, value),
         "table_rows": _print_table_rows,
     }
@@ -10278,6 +10417,7 @@ def _render_print_html(repo: models.Repo, print_cls: Dict[str, Any], data: Dict[
         env = _PrintSandboxedEnvironment(autoescape=select_autoescape(["html", "xml"]))
         env.globals.update(
             qr=_print_qr_data_url,
+            barcode=_print_barcode_data_url,
             image_src=lambda value: _print_image_src(repo, value),
             table_rows=_print_table_rows,
         )
