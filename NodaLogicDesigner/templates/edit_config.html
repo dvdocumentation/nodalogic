@@ -340,6 +340,7 @@
                                 <input type="text" class="form-control" value="{{ format_datetime(config.last_modified, format='medium') }}" readonly>
                             </div>
 
+                            {% if can_publish_demo_product %}
                             <div class="col-12">
                                 <input type="hidden" name="demo_product_present" value="1">
                                 <div class="form-check">
@@ -348,6 +349,7 @@
                                     <div class="form-text">{{ _('Publish this configuration on the Demo products page. Installed copies are not published again.') }}</div>
                                 </div>
                             </div>
+                            {% endif %}
 
                             <div class="col-12">
                                 <label for="ngeniePrompt" class="form-label">nGenie prompt</label>
