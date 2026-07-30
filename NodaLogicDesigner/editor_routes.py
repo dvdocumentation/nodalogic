@@ -60,6 +60,11 @@ from jinja2 import select_autoescape
 from markupsafe import escape as html_escape
 from llm_credentials import chat_completion as _shared_chat_completion, message_content as _shared_message_content
 
+try:
+    from reportlab.graphics.barcode import createBarcodeDrawing
+except Exception:  # optional dependency
+    createBarcodeDrawing = None
+
 from extensions import db
 from models import (
     Dataset,
@@ -647,11 +652,31 @@ def _print_qr_data_url(value):
         return ''
 
 
+def _print_barcode_data_url(value, bar_height=44, bar_width=1.15, human_readable=False):
+    raw = str(value or '').strip()
+    if not raw or createBarcodeDrawing is None:
+        return ''
+    try:
+        height = max(8.0, min(float(bar_height or 44), 300.0))
+        width = max(0.2, min(float(bar_width or 1.15), 4.0))
+        drawing = createBarcodeDrawing(
+            'Code128',
+            value=raw,
+            barHeight=height,
+            barWidth=width,
+            humanReadable=bool(human_readable),
+        )
+        png = drawing.asString('png')
+        return 'data:image/png;base64,' + base64.b64encode(png).decode('ascii')
+    except Exception:
+        return ''
+
+
 def _render_print_html_template(template_text, data):
     template_text = _decode_print_html_template(template_text)
     data = data if isinstance(data, dict) else {}
     wrapped_data = _print_attr_tree(data)
-    ctx = {'_data': wrapped_data, 'data': wrapped_data, 'qr': _print_qr_data_url}
+    ctx = {'_data': wrapped_data, 'data': wrapped_data, 'qr': _print_qr_data_url, 'barcode': _print_barcode_data_url}
     for k, v in data.items():
         key = str(k)
         if key:
@@ -659,7 +684,7 @@ def _render_print_html_template(template_text, data):
             ctx[key] = wrapped_value
             ctx['_' + key.lstrip('_')] = wrapped_value
     env = _PrintSandboxedEnvironment(autoescape=select_autoescape(['html', 'xml']))
-    env.globals.update(qr=_print_qr_data_url)
+    env.globals.update(qr=_print_qr_data_url, barcode=_print_barcode_data_url)
     return env.from_string(template_text or '').render(**ctx)
 
 
@@ -744,6 +769,16 @@ if TYPE_CHECKING:
     _s3_key_from_public_url: Any
     get_config: Any
     get_ws_scheme: Any
+
+
+def _current_user_has_admin_login() -> bool:
+    """Return True only for the account configured as ADMIN_LOGIN."""
+    try:
+        current_email = str(getattr(current_user, 'email', '') or '').strip().casefold()
+        admin_email = str(ADMIN_LOGIN or '').strip().casefold()
+        return bool(admin_email) and current_email == admin_email
+    except Exception:
+        return False
 
 
 def bind_editor_context(context):
@@ -3460,7 +3495,8 @@ def edit_config(uid):
                            ui_tpl_map=ui_tpl_map,
                            ngenie_code_available=_ngenie_code_available(),
                            ngenie_code_lock_enabled=_ngenie_code_lock_enabled(),
-                           ngenie_code_locked=_config_is_ngenie_code_locked(config))
+                           ngenie_code_locked=_config_is_ngenie_code_locked(config),
+                           can_publish_demo_product=_current_user_has_admin_login())
 
 @_routes.route('/add-class/<config_uid>', methods=['POST'])
 @login_required
@@ -4594,7 +4630,10 @@ def import_config_new():
             existing_config.nodes_server_handlers_meta = data.get('nodes_server_handlers_meta', existing_config.nodes_server_handlers_meta)
             existing_config.ngenie_prompt = data.get('ngenie_prompt', getattr(existing_config, 'ngenie_prompt', '') or '')
             if hasattr(existing_config, 'demo_product'):
-                existing_config.demo_product = bool(data.get('demo_product', False))
+                existing_config.demo_product = (
+                    bool(data.get('demo_product', False))
+                    if _current_user_has_admin_login() else False
+                )
             if hasattr(existing_config, 'ngenie_code_locked'):
                 existing_config.ngenie_code_locked = _ngenie_code_bool(data.get('ngenie_code_locked'))
             if hasattr(existing_config, 'ngenie_code_instruction'):
@@ -4649,7 +4688,10 @@ def import_config_new():
                 ngenie_code_locked=_ngenie_code_bool(data.get('ngenie_code_locked')),
                 ngenie_code_instruction=data.get('ngenie_code_instruction', ''),
                 ngenie_code_example=data.get('ngenie_code_example', ''),
-                demo_product=bool(data.get('demo_product', False))
+                demo_product=(
+                    bool(data.get('demo_product', False))
+                    if _current_user_has_admin_login() else False
+                )
             )
             
             db.session.add(new_config)
@@ -4949,8 +4991,13 @@ def apply_full_config_from_json(config, data):
         config.ngenie_code_example = data.get('ngenie_code_example') or ''
     if 'ngenie_code_locked' in data and hasattr(config, 'ngenie_code_locked'):
         config.ngenie_code_locked = _ngenie_code_bool(data.get('ngenie_code_locked'))
-    if 'demo_product' in data and hasattr(config, 'demo_product'):
-        config.demo_product = bool(data.get('demo_product'))
+    if hasattr(config, 'demo_product'):
+        if _current_user_has_admin_login():
+            if 'demo_product' in data:
+                config.demo_product = bool(data.get('demo_product'))
+        else:
+            # A non-admin import/generation must never publish a configuration.
+            config.demo_product = False
     config.nodes_handlers = data.get('nodes_handlers', config.nodes_handlers)
     config.nodes_handlers = _rewrite_android_handlers_instance_refs_b64(
         config.nodes_handlers,
@@ -7126,7 +7173,11 @@ def update_config(uid):
         config.server_name = request.form['server_name']    
     if 'ngenie_prompt' in request.form:
         config.ngenie_prompt = request.form.get('ngenie_prompt') or ''
-    if 'demo_product_present' in request.form and hasattr(config, 'demo_product'):
+    if (
+        _current_user_has_admin_login()
+        and 'demo_product_present' in request.form
+        and hasattr(config, 'demo_product')
+    ):
         config.demo_product = 'demo_product' in request.form
     if 'profile_templates_json' in request.form and hasattr(config, 'profile_templates'):
         raw_profile_templates = request.form.get('profile_templates_json') or '[]'
