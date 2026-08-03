@@ -1,4 +1,4 @@
-from flask import Flask, url_for, request, jsonify, abort, after_this_request, send_from_directory, g
+from flask import Flask, url_for, request, jsonify, abort, after_this_request, send_from_directory, g, current_app
 from flask_login import login_required, current_user
 
 from werkzeug.utils import secure_filename
@@ -20,6 +20,7 @@ from geventwebsocket import WebSocketError
 from gevent.pywsgi import WSGIServer
 from sqlitedict import SqliteDict
 from collections import defaultdict
+import background_jobs as _background_jobs
 import pytz
 import ast
 import inspect
@@ -151,6 +152,8 @@ def _load_server_handlers_ns(config_uid, config):
     return isolated_globals
 
 import base64
+import sqlite3
+import pickle
 from flask.json.provider import DefaultJSONProvider
 import os
 import time
@@ -606,13 +609,35 @@ def _system_config_uid_for_owner(owner_id) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"nodalogic:system-config:{owner_id}"))
 
 
-def _system_user_local_id(user_or_id) -> str:
-    raw = getattr(user_or_id, 'id', user_or_id)
-    return f"user_{raw}"
+def _system_user_local_id(user_or_login) -> str:
+    """Stable hidden ``_User`` node id based on the user's login.
+
+    SQL ``User.id`` is an implementation detail and is not stable between
+    installations.  New system-user references therefore use the normalized
+    login itself, for example ``...$_User$dv1555@hotmail.com``.  Legacy
+    ``user_N`` values are still accepted by readers for backward compatibility.
+    """
+    if hasattr(user_or_login, 'email'):
+        login = str(getattr(user_or_login, 'email', '') or '').strip()
+        if login:
+            return login.casefold()
+        raw_id = getattr(user_or_login, 'id', '')
+        return f"user_{raw_id}" if raw_id not in (None, '') else ''
+
+    raw = str(user_or_login or '').strip()
+    if '$' in raw:
+        raw = raw.split('$')[-1].strip()
+    if not raw:
+        return ''
+    if raw.startswith('user_'):
+        return raw
+    if raw.isdigit():
+        return f"user_{raw}"
+    return raw.casefold()
 
 
-def _system_user_full_id(system_config_uid: str, user_or_id) -> str:
-    return f"{system_config_uid}${RESERVED_USER_CLASS_NAME}${_system_user_local_id(user_or_id)}"
+def _system_user_full_id(system_config_uid: str, user_or_login) -> str:
+    return f"{system_config_uid}${RESERVED_USER_CLASS_NAME}${_system_user_local_id(user_or_login)}"
 
 
 
@@ -640,8 +665,8 @@ def _system_user_layout_json() -> str:
 
 def _system_user_cover_json() -> str:
     return json.dumps([[
-        {"type": "Text", "value": "@name"},
         {"type": "Text", "value": "@login"},
+        {"type": "Text", "value": "@name"},
     ]], ensure_ascii=False)
 
 
@@ -665,7 +690,7 @@ def _ensure_system_user_class(system_config: Configuration):
             has_storage=True,
             class_type="data_node",
             display_name="System users",
-            record_view="{name} ({login})",
+            record_view="{login}",
             cover_image=_system_user_cover_json(),
             section="System",
             section_code="system",
@@ -682,7 +707,7 @@ def _ensure_system_user_class(system_config: Configuration):
         existing.has_storage = True
         existing.class_type = "data_node"
         existing.display_name = existing.display_name or "System users"
-        existing.record_view = existing.record_view or "{name} ({login})"
+        existing.record_view = "{login}"
         existing.cover_image = _system_user_cover_json()
         existing.section = "System"
         existing.section_code = "system"
@@ -872,11 +897,11 @@ def _sync_system_users_for_owner(owner_id, system_config=None):
                     data['android_login_enabled'] = login_enabled
                     data['android_auth_required'] = bool(android_required)
                 st[local_id] = payload
-            # Do not physically delete old local _User nodes here. Mark them inactive
-            # so devices that still have them cached can update the flags instead of
-            # keeping a stale login option or losing a local node abruptly.
+            # Do not physically delete old local _User nodes here. Mark legacy
+            # user_N keys and previous-login keys inactive so cached devices can
+            # stop offering them while old references remain readable.
             for key in list(st.keys()):
-                if str(key).startswith('user_') and str(key) not in wanted:
+                if str(key) not in wanted:
                     old_payload = st.get(key) or {}
                     old_data = old_payload.get('_data') if isinstance(old_payload, dict) else None
                     if not isinstance(old_data, dict):
@@ -895,20 +920,65 @@ def _sync_system_users_for_owner(owner_id, system_config=None):
 
 
 def _read_system_user_node(owner_id, user_or_local_id):
+    """Read a system user by current login id or legacy ``user_N`` id."""
     cfg = _ensure_system_config_for_owner(owner_id, sync_users=True)
     if not cfg:
         return None
+
     raw = str(user_or_local_id or '').strip()
     if '$' in raw:
-        raw = raw.split('$')[-1]
-    if raw.isdigit():
-        raw = _system_user_local_id(raw)
+        raw = raw.split('$')[-1].strip()
+    if not raw:
+        return None
+
+    candidates = []
+
+    def add_candidate(value):
+        value = str(value or '').strip()
+        if value and value not in candidates:
+            candidates.append(value)
+
+    # Exact value first, then normalized current login id.
+    add_candidate(raw)
+    add_candidate(_system_user_local_id(raw))
+
+    # Backward compatibility: resolve old user_N/numeric identifiers through
+    # the SQL user once, then read the new login-keyed hidden node.
+    legacy_num = ''
+    if raw.startswith('user_') and raw[5:].isdigit():
+        legacy_num = raw[5:]
+    elif raw.isdigit():
+        legacy_num = raw
+    if legacy_num:
+        try:
+            sql_user = db.session.get(User, int(legacy_num))
+        except Exception:
+            sql_user = None
+        if sql_user and _user_in_owner_scope(sql_user, owner_id):
+            add_candidate(_system_user_local_id(sql_user))
+            add_candidate(f"user_{legacy_num}")
+    else:
+        # Login lookup also canonicalizes case and supports a renamed/case-varied
+        # value sent by an older client.
+        try:
+            sql_user = db.session.execute(
+                _owner_scope_users_query(owner_id).where(
+                    sa.func.lower(User.email) == raw.casefold()
+                )
+            ).scalar_one_or_none()
+        except Exception:
+            sql_user = None
+        if sql_user:
+            add_candidate(_system_user_local_id(sql_user))
+            add_candidate(f"user_{getattr(sql_user, 'id', '')}")
+
     db_path = os.path.join('node_storage', f"{RESERVED_USER_CLASS_NAME}_{cfg.uid}.sqlite")
     try:
         with SqliteDict(db_path, autocommit=False) as st:
-            payload = st.get(raw)
-        if isinstance(payload, dict):
-            return payload.get('_data') if isinstance(payload.get('_data'), dict) else payload
+            for key in candidates:
+                payload = st.get(key)
+                if isinstance(payload, dict):
+                    return payload.get('_data') if isinstance(payload.get('_data'), dict) else payload
     except Exception:
         pass
     return None
@@ -916,7 +986,12 @@ def _read_system_user_node(owner_id, user_or_local_id):
 
 
 def _system_user_sql_from_header(auth_user=None):
-    """Return the SQL User selected by X-System-User-* inside auth_user owner scope."""
+    """Return the selected business user inside the transport user's owner scope.
+
+    ``X-System-User-Id`` is the hidden _User UID whose local id is the login.
+    ``X-System-User-Login`` remains an explicit fallback for old clients and
+    cross-installation calls. Legacy ``user_N`` UIDs are still readable.
+    """
     auth_user = auth_user or getattr(g, 'auth_user', None) or getattr(g, 'api_user', None)
     if not auth_user:
         return None
@@ -927,23 +1002,36 @@ def _system_user_sql_from_header(auth_user=None):
             or request.headers.get('X-Noda-System-User-Id')
             or ''
         ).strip()
+        login_value = (request.headers.get('X-System-User-Login') or '').strip().lower()
     except Exception:
         header_value = ''
-    if not header_value:
-        return None
+        login_value = ''
+
     owner_id = _system_owner_id_for_user(auth_user)
-    data = _read_system_user_node(owner_id, header_value)
-    if not isinstance(data, dict):
-        return None
-    user_id = data.get('user_id')
-    if not user_id:
-        return None
-    try:
-        selected = db.session.get(User, int(user_id))
-    except Exception:
-        selected = None
-    if not selected or not _user_in_owner_scope(selected, owner_id):
-        return None
+    selected = None
+    if header_value:
+        data = _read_system_user_node(owner_id, header_value)
+        user_id = data.get('user_id') if isinstance(data, dict) else None
+        if user_id:
+            try:
+                selected = db.session.get(User, int(user_id))
+            except Exception:
+                selected = None
+        if selected and not _user_in_owner_scope(selected, owner_id):
+            selected = None
+
+    # Prefer the explicit login when it disagrees with the identifier mapping.
+    # This also keeps old user_N clients compatible with login-keyed identities.
+    if login_value and (selected is None or str(getattr(selected, 'email', '') or '').strip().lower() != login_value):
+        try:
+            by_login = db.session.execute(
+                select(User).where(sa.func.lower(User.email) == login_value)
+            ).scalar_one_or_none()
+        except Exception:
+            by_login = None
+        if by_login and _user_in_owner_scope(by_login, owner_id):
+            selected = by_login
+
     return selected
 
 
@@ -955,27 +1043,32 @@ def _effective_request_user(auth_user=None):
 
 
 def _resolve_request_system_user_payload(auth_user=None):
-    auth_user = auth_user or _resolve_request_user_optional()
-    if not auth_user:
+    """Return the hidden ``_System/_User`` node of the actual business user.
+
+    An explicitly supplied ``auth_user`` is already the resolved interactive
+    actor and must never be replaced from request headers.  This is important
+    for the web client: Flask-Login's ``current_user`` is the source of truth,
+    while repository/basic-auth credentials are only transport credentials.
+
+    When no actor is supplied, ``_resolve_request_user_optional`` performs the
+    normal API/header resolution once and returns the effective SQL user.
+    """
+    actor = auth_user if auth_user is not None else _resolve_request_user_optional()
+    if not actor:
         return {"_id": "", "_class": RESERVED_USER_CLASS_NAME, "_data": {}}
-    owner_id = _system_owner_id_for_user(auth_user)
-    header_value = ''
-    try:
-        header_value = (
-            request.headers.get('X-System-User-Id')
-            or request.headers.get('X-Noda-System-User')
-            or request.headers.get('X-Noda-System-User-Id')
-            or ''
-        ).strip()
-    except Exception:
-        header_value = ''
-    if header_value:
-        data = _read_system_user_node(owner_id, header_value)
-        if data:
-            return {"_id": data.get('_id') or header_value, "_class": RESERVED_USER_CLASS_NAME, "_data": data, **data}
-    data = _read_system_user_node(owner_id, _system_user_local_id(auth_user))
+
+    owner_id = _system_owner_id_for_user(actor)
+    data = _read_system_user_node(owner_id, _system_user_local_id(actor))
     if data:
-        return {"_id": data.get('_id') or _system_user_full_id(_system_config_uid_for_owner(owner_id), auth_user), "_class": RESERVED_USER_CLASS_NAME, "_data": data, **data}
+        full_id = data.get('_id') or _system_user_full_id(
+            _system_config_uid_for_owner(owner_id), actor
+        )
+        return {
+            "_id": full_id,
+            "_class": RESERVED_USER_CLASS_NAME,
+            "_data": data,
+            **data,
+        }
     return {"_id": "", "_class": RESERVED_USER_CLASS_NAME, "_data": {}}
 
 def _resolve_request_user_optional():
@@ -1027,6 +1120,73 @@ def _system_user_payload(user=None):
 def current_system_user_payload_global():
     """Bridge used by nodes.py when no explicit runtime context was passed."""
     return _system_user_payload(_resolve_request_user_optional())
+
+
+def resolve_system_user_view_global(value, default=""):
+    """Resolve a hidden ``_System$_User`` UID to its normal display name.
+
+    Hidden system configurations intentionally have a different configuration
+    UID from business nodes.  This bridge lets generic NodeLink/NodeInput code
+    resolve those cross-configuration references without exposing _System as a
+    normal repository to the user.
+    """
+    raw = str(value or '').strip()
+    if not raw:
+        return str(default or '')
+
+    cfg_uid = ''
+    class_name = ''
+    internal_id = raw
+    try:
+        cfg_uid, class_name, internal_id = _nodes_mod.parse_uid_any(raw)
+        cfg_uid = str(cfg_uid or '').strip()
+        class_name = str(class_name or '').strip()
+        internal_id = str(internal_id or '').strip()
+    except Exception:
+        parts = raw.split('$')
+        if len(parts) >= 3:
+            cfg_uid, class_name, internal_id = parts[0], parts[1], parts[-1]
+
+    if class_name and class_name != RESERVED_USER_CLASS_NAME:
+        return str(default or '')
+
+    actor = _resolve_request_user_optional()
+    actor_owner_id = _system_owner_id_for_user(actor) if actor is not None else None
+
+    owner_id = None
+    if cfg_uid:
+        try:
+            system_cfg = db.session.execute(
+                select(Configuration).where(
+                    Configuration.uid == cfg_uid,
+                    Configuration.is_system == True,
+                )
+            ).scalar_one_or_none()
+            owner_id = getattr(system_cfg, 'user_id', None) if system_cfg else None
+            if actor_owner_id and owner_id and int(owner_id) != int(actor_owner_id):
+                return str(default or '')
+        except Exception:
+            owner_id = None
+
+    if not owner_id and actor_owner_id:
+        owner_id = actor_owner_id
+
+    data = _read_system_user_node(owner_id, internal_id) if owner_id else None
+    if isinstance(data, dict):
+        for key in ('login', 'email', 'name', 'config_display_name'):
+            text = str(data.get(key) or '').strip()
+            if text:
+                return text
+    return str(default or '')
+
+
+def _runtime_system_user_payload_for_request():
+    """Current effective business user for Node audit and handler runtime."""
+    try:
+        actor = getattr(g, 'api_user', None) or _resolve_request_user_optional()
+        return _system_user_payload(actor)
+    except Exception:
+        return {"_id": "", "_class": RESERVED_USER_CLASS_NAME, "_data": {}}
 
 
 def _reserved_user_fields():
@@ -1546,6 +1706,57 @@ def _eval_rls_handler(row: UserProfileClassAccess, config_uid: str, class_name: 
     if res is None:
         return None
     return bool(res)
+
+
+def update_nodes_rls_index_bulk_global(config_uid, class_name, items=None):
+    """Bulk RLS bridge: load profile rules once for the whole chunk."""
+    cfg = db.session.execute(
+        select(Configuration).where(Configuration.uid == str(config_uid))
+    ).scalar_one_or_none()
+    if not cfg:
+        return {"ok": False, "error": "config not found"}
+    rows = db.session.execute(
+        select(UserProfileClassAccess).where(
+            UserProfileClassAccess.config_id == cfg.id,
+            UserProfileClassAccess.class_name == str(class_name),
+            UserProfileClassAccess.rls_enabled == True,
+        )
+    ).scalars().all()
+    if not rows:
+        return {"ok": True, "count": 0, "profiles": 0}
+    import nodes as _nodes_mod_local
+    count = 0
+    for item in list(items or []):
+        if not isinstance(item, dict):
+            continue
+        node_id = str(item.get("node_id") or item.get("_id") or "").strip()
+        data = item.get("data") if isinstance(item.get("data"), dict) else {}
+        if not node_id:
+            continue
+        for row in rows:
+            profile_uid = getattr(row.profile, "uid", "") or str(row.profile_id)
+            try:
+                handler_decision = _eval_rls_handler(
+                    row, str(config_uid), str(class_name), node_id, data
+                )
+            except Exception as exc:
+                handler_decision = False
+                print("RLS handler error:", exc)
+            listed = (
+                handler_decision
+                if handler_decision is not None
+                else _eval_rls_rules(data, getattr(row, "rls_rules_json", None) or [])
+            )
+            mode = str(getattr(row, "rls_mode", "") or "allow").lower()
+            allowed = (not listed) if mode in ("deny", "forbid", "exclude") else bool(listed)
+            try:
+                _nodes_mod_local.set_rls_decision(
+                    str(config_uid), str(class_name), node_id, profile_uid, bool(allowed)
+                )
+                count += 1
+            except Exception as exc:
+                print("RLS index write error:", exc)
+    return {"ok": True, "count": count, "profiles": len(rows)}
 
 
 def update_node_rls_index_global(config_uid, class_name, node_id, data=None):
@@ -2089,9 +2300,21 @@ def _ensure_sqlite_schema():
         cfg_cols = _get_cols("configuration")
         if "demo_product" not in cfg_cols:
             _add_col("configuration", "demo_product BOOLEAN DEFAULT FALSE", "demo_product")
+        if "designer_hidden" not in cfg_cols:
+            _add_col("configuration", "designer_hidden BOOLEAN DEFAULT FALSE", "designer_hidden")
+        if "demo_source_uid" not in cfg_cols:
+            _add_col("configuration", 'demo_source_uid VARCHAR(36) DEFAULT ""', "demo_source_uid")
         _create_index(
             "CREATE INDEX IF NOT EXISTS ix_configuration_demo_product ON configuration (demo_product)",
             "configuration.demo_product",
+        )
+        _create_index(
+            "CREATE INDEX IF NOT EXISTS ix_configuration_designer_hidden ON configuration (designer_hidden)",
+            "configuration.designer_hidden",
+        )
+        _create_index(
+            "CREATE INDEX IF NOT EXISTS ix_configuration_demo_source_uid ON configuration (demo_source_uid)",
+            "configuration.demo_source_uid",
         )
     if _table_exists("config_class"):
         class_cols = _get_cols("config_class")
@@ -2207,6 +2430,10 @@ def _ensure_sqlite_schema():
             _add_col("configuration", 'ngenie_code_example TEXT DEFAULT ""', "ngenie_code_example")
         if "demo_product" not in ccols:
             _add_col("configuration", "demo_product BOOLEAN DEFAULT FALSE", "demo_product")
+        if "designer_hidden" not in ccols:
+            _add_col("configuration", "designer_hidden BOOLEAN DEFAULT FALSE", "designer_hidden")
+        if "demo_source_uid" not in ccols:
+            _add_col("configuration", 'demo_source_uid VARCHAR(36) DEFAULT ""', "demo_source_uid")
 
         if "user_id" not in ccols:
             _add_col("configuration", "user_id INTEGER", "user_id")
@@ -4975,18 +5202,57 @@ def clear_completed_tasks(room_uid):
 #Personal account
 
 
+def _contract_raw_storage_count(ref: dict) -> int:
+    """Count stored nodes without loading payloads or constructing Node objects."""
+    cfg_uid = str((ref or {}).get('config_uid') or '').strip()
+    class_name = str((ref or {}).get('class_name') or '').strip()
+    if not cfg_uid or not class_name:
+        return 0
+    base_path = str(getattr(_nodes_mod, 'STORAGE_BASE_PATH', 'node_storage') or 'node_storage')
+    db_path = os.path.join(base_path, f'{class_name}_{cfg_uid}.sqlite')
+    if not os.path.isfile(db_path):
+        return 0
+    conn = sqlite3.connect(db_path, timeout=2.0)
+    try:
+        conn.execute('PRAGMA busy_timeout=2000')
+        conn.execute('PRAGMA query_only=ON')
+        table = _nodes_mod.Node._atomic_sqlite_table(conn)
+        qtable = '"' + str(table).replace('"', '""') + '"'
+        row = conn.execute(f'SELECT COUNT(*) FROM {qtable}').fetchone()
+        return int((row or [0])[0] or 0)
+    finally:
+        conn.close()
+
+
 def _contract_total_object_count(contract: Contract):
+    """Fast count for the contracts list page.
+
+    Opening the page must never build a live snapshot. Class contracts are counted
+    directly in their SqliteDict tables; pushed rows are counted by SQL. Pushed
+    overrides can make the displayed number slightly higher than the delivered
+    unique-object count, but the operation stays bounded and does not block the server.
+    """
+    source_type = _normalize_contract_source_type(getattr(contract, 'source_type', 'class'))
     try:
-        live_items = _load_live_contract_snapshot(contract)[1] or {}
+        pushed_count = int(db.session.execute(
+            select(sa.func.count(ContractObject.id)).where(ContractObject.contract_id == contract.id)
+        ).scalar_one() or 0)
     except Exception:
-        live_items = {}
-    try:
-        pushed_items = _load_pushed_contract_snapshot(contract) or {}
-    except Exception:
-        pushed_items = {}
-    merged = dict(live_items)
-    merged.update(pushed_items)
-    return len(merged)
+        pushed_count = 0
+
+    if source_type == 'class':
+        live_count = 0
+        for ref in (_contract_class_refs(contract) or []):
+            try:
+                live_count += _contract_raw_storage_count(ref)
+            except Exception:
+                continue
+        return live_count + pushed_count
+    if source_type == 'external_only':
+        return pushed_count
+    # A global-index count requires executing the index query. Do it only when the
+    # contract is downloaded, not merely when the management page is opened.
+    return None
 
 
 
@@ -5940,43 +6206,60 @@ def _object_id_from_payload(payload: dict) -> str:
     return ''
 
 
-def _object_version_from_payload(payload: dict) -> str:
-    """Return an explicit external version if the payload contains one.
+_CONTRACT_VOLATILE_VERSION_KEYS = {
+    '_created_at', '_updated_at', 'created_at', 'updated_at',
+    '_created_date', '_last_change_date',
+    '_created_user', '_last_change_user',
+    '_user_modification',
+}
 
-    Important: this function intentionally does NOT generate a timestamp fallback.
-    Contract delivery uses object versions to decide what a device has already
-    received. A timestamp fallback would make unchanged objects look changed on
-    every request, and an unchanged external version would hide real content
-    edits. Use _contract_object_version() when a stable change token is needed.
+
+def _object_version_from_payload(payload: dict) -> str:
+    """Return a caller-managed explicit version, if one is present.
+
+    Server timestamps such as ``_updated_at`` are deliberately not treated as
+    contract versions. They are transport/audit metadata and can change without
+    any business data change. The stable payload hash below remains the source
+    of truth for ordinary node changes.
     """
     if not isinstance(payload, dict):
         return ''
-    for key in ('_updated_at', '_version', 'updated_at', 'version'):
+    for key in ('_version', 'version'):
         v = payload.get(key)
         if v:
             return str(v).strip()
     data = payload.get('_data')
     if isinstance(data, dict):
-        for key in ('_updated_at', '_version', 'updated_at', 'version'):
+        for key in ('_version', 'version'):
             v = data.get(key)
             if v:
                 return str(v).strip()
     return ''
 
 
-def _contract_payload_hash(payload: dict) -> str:
-    """Stable hash of the object payload for change detection.
+def _contract_payload_for_hash(payload: dict) -> dict:
+    """Return business content used for contract ACK/change detection."""
+    out = dict(payload or {})
+    for key in _CONTRACT_VOLATILE_VERSION_KEYS:
+        out.pop(key, None)
+    nested = out.get('_data')
+    if isinstance(nested, dict):
+        nested = dict(nested)
+        for key in _CONTRACT_VOLATILE_VERSION_KEYS:
+            nested.pop(key, None)
+        out['_data'] = nested
+    return out
 
-    The hash is used as the contract object version, so a changed field such as
-    name/title is delivered again even when the external system does not send
-    _version or updated_at.
-    """
+
+def _contract_payload_hash(payload: dict) -> str:
+    """Stable hash of business payload content for change detection."""
     if not isinstance(payload, dict):
         return ''
+    stable_payload = _contract_payload_for_hash(payload)
     try:
-        text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+        text = json.dumps(stable_payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
     except Exception:
-        text = str(payload)
+        text = str(stable_payload)
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
 
@@ -6021,7 +6304,10 @@ def _contract_accessible_configs(user):
     shared_cfg_ids = select(UserConfigAccess.config_id).where(UserConfigAccess.user_id == user.id)
     stmt = (
         select(Configuration)
-        .where(sa.or_(Configuration.user_id == user.id, Configuration.id.in_(shared_cfg_ids)))
+        .where(
+            sa.or_(Configuration.user_id == user.id, Configuration.id.in_(shared_cfg_ids)),
+            sa.or_(Configuration.designer_hidden == False, Configuration.designer_hidden.is_(None)),
+        )
         .order_by(Configuration.name)
     )
     return db.session.execute(stmt).scalars().all()
@@ -6255,6 +6541,8 @@ def _contract_update_from_data(contract: Contract, data: dict, actor) -> Contrac
     contract.source_classes_json = source_refs if source_type == 'class' else None
     contract.global_index_name = str((data or {}).get('global_index_name') or (data or {}).get('index_name') or '').strip()
     contract.global_index_value = str((data or {}).get('global_index_value') or (data or {}).get('index_value') or '').strip()
+    if source_type == 'global_index' and not contract.global_index_name:
+        raise ValueError('Global index name is required for source_type=global_index')
     # External class JSON belongs only to external/post-only contracts. Otherwise it can
     # shadow live class definitions and produce the "foreign _class" bug.
     if source_type != 'external_only':
@@ -6322,33 +6610,36 @@ def _load_live_contract_snapshot(contract: Contract):
             class_jsons.append(_contract_class_ref_json(ref))
 
         runtime_parsed = _build_runtime_parsed_config(config)
-        ctx_tokens = _nodes_mod.set_runtime_context(cfg_uid, runtime_parsed)
+        ctx_tokens = _nodes_mod.set_runtime_context(cfg_uid, runtime_parsed, system_user=_runtime_system_user_payload_for_request())
         try:
             isolated_globals = _load_server_handlers_ns(cfg_uid, config) or {}
             node_class = isolated_globals.get(class_name)
             if node_class is None:
                 continue
 
-            if source_type == 'global_index' and (str(getattr(contract, 'global_index_name', '') or '').strip()):
-                idx_name = str(contract.global_index_name or '').strip()
-                idx_value = str(contract.global_index_value or '').strip()
-                global_finder = getattr(_nodes_mod, 'findByGlobalIndex', None) or getattr(_nodes_mod, 'find_by_global_index', None)
-                global_getter = getattr(_nodes_mod, 'getByGlobalIndex', None) or getattr(_nodes_mod, 'get_by_global_index', None)
-                if callable(global_finder):
-                    raw_nodes = global_finder(idx_name, idx_value)
-                    if isinstance(raw_nodes, dict):
-                        iterable = list((raw_nodes or {}).values())
-                    elif isinstance(raw_nodes, (list, tuple, set)):
-                        iterable = list(raw_nodes)
-                    elif raw_nodes is None:
-                        iterable = []
-                    else:
-                        iterable = [raw_nodes]
-                elif callable(global_getter):
-                    one_node = global_getter(idx_name, idx_value)
-                    iterable = [one_node] if one_node is not None else []
-                else:
+            if source_type == 'global_index':
+                idx_name = str(getattr(contract, 'global_index_name', '') or '').strip()
+                idx_value = str(getattr(contract, 'global_index_value', '') or '').strip()
+                if not idx_name:
                     iterable = []
+                else:
+                    global_finder = getattr(_nodes_mod, 'findByGlobalIndex', None) or getattr(_nodes_mod, 'find_by_global_index', None)
+                    global_getter = getattr(_nodes_mod, 'getByGlobalIndex', None) or getattr(_nodes_mod, 'get_by_global_index', None)
+                    if callable(global_finder):
+                        raw_nodes = global_finder(idx_name, idx_value)
+                        if isinstance(raw_nodes, dict):
+                            iterable = list((raw_nodes or {}).values())
+                        elif isinstance(raw_nodes, (list, tuple, set)):
+                            iterable = list(raw_nodes)
+                        elif raw_nodes is None:
+                            iterable = []
+                        else:
+                            iterable = [raw_nodes]
+                    elif callable(global_getter):
+                        one_node = global_getter(idx_name, idx_value)
+                        iterable = [one_node] if one_node is not None else []
+                    else:
+                        iterable = []
             else:
                 raw_nodes = node_class.get_all(cfg_uid) or {}
                 iterable = list(raw_nodes.values())
@@ -6499,7 +6790,7 @@ def _contract_materialize_class_payloads(contract: Contract, payloads) -> dict:
             continue
 
         runtime_parsed = _build_runtime_parsed_config(config)
-        ctx_tokens = _nodes_mod.set_runtime_context(cfg_uid, runtime_parsed)
+        ctx_tokens = _nodes_mod.set_runtime_context(cfg_uid, runtime_parsed, system_user=_runtime_system_user_payload_for_request())
         try:
             isolated_globals = _load_server_handlers_ns(cfg_uid, config) or {}
             node_class = isolated_globals.get(class_name)
@@ -6533,13 +6824,30 @@ def _contract_materialize_class_payloads(contract: Contract, payloads) -> dict:
 
 
 def _contract_recreate_nodes_for_contract(contract: Contract) -> dict:
-    rows = db.session.execute(
-        select(ContractObject).where(ContractObject.contract_id == contract.id).order_by(ContractObject.id)
-    ).scalars().all()
-    payloads = [row.payload_json for row in rows if isinstance(row.payload_json, dict)]
-    stats = _contract_materialize_class_payloads(contract, payloads)
-    stats['total_contract_objects'] = len(payloads)
-    return stats
+    total = {'created': 0, 'updated': 0, 'skipped': 0, 'errors': [], 'total_contract_objects': 0}
+    last_id = 0
+    chunk_size = 500
+    while True:
+        rows = db.session.execute(
+            select(ContractObject).where(
+                ContractObject.contract_id == contract.id,
+                ContractObject.id > last_id,
+            ).order_by(ContractObject.id).limit(chunk_size)
+        ).scalars().all()
+        if not rows:
+            break
+        last_id = int(rows[-1].id)
+        payloads = [row.payload_json for row in rows if isinstance(row.payload_json, dict)]
+        part = _contract_materialize_class_payloads(contract, payloads)
+        total['created'] += int(part.get('created') or 0)
+        total['updated'] += int(part.get('updated') or 0)
+        total['skipped'] += int(part.get('skipped') or 0)
+        total['errors'].extend(list(part.get('errors') or []))
+        total['total_contract_objects'] += len(payloads)
+        db.session.flush()
+        if len(rows) < chunk_size:
+            break
+    return total
 
 
 def _build_contract_delivery(contract: Contract, device_id: str = ''):
@@ -6590,6 +6898,796 @@ def _build_contract_delivery(contract: Contract, device_id: str = ''):
         result['_classes'] = class_jsons
     return result
 
+
+
+def _contract_cursor_encode(state: dict) -> str:
+    """Encode a small, opaque paging cursor without keeping server-side session state."""
+    raw = json.dumps(state or {}, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    return base64.urlsafe_b64encode(raw).decode('ascii').rstrip('=')
+
+
+def _contract_cursor_decode(value: str, *, source_type: str = 'class') -> dict:
+    text = str(value or '').strip()
+    if not text:
+        return {'phase': 'live' if source_type == 'class' else 'push', 'ref': 0, 'key': '', 'push_id': 0}
+    try:
+        padded = text + ('=' * ((4 - len(text) % 4) % 4))
+        state = json.loads(base64.urlsafe_b64decode(padded.encode('ascii')).decode('utf-8'))
+        if not isinstance(state, dict):
+            raise ValueError('bad cursor')
+        phase = str(state.get('phase') or '').strip().lower()
+        if phase not in {'live', 'push', 'done'}:
+            phase = 'live' if source_type == 'class' else 'push'
+        return {
+            'phase': phase,
+            'ref': max(0, int(state.get('ref') or 0)),
+            'key': str(state.get('key') or ''),
+            'push_id': max(0, int(state.get('push_id') or 0)),
+        }
+    except Exception:
+        # An invalid/stale cursor is safe to restart: ACK filtering prevents duplicates.
+        return {'phase': 'live' if source_type == 'class' else 'push', 'ref': 0, 'key': '', 'push_id': 0}
+
+
+def _contract_chunked(values, size=700):
+    values = list(values or [])
+    for start in range(0, len(values), max(1, int(size or 700))):
+        yield values[start:start + max(1, int(size or 700))]
+
+
+def _contract_ack_map_for_ids(contract_id: int, device_id: str, object_ids) -> dict:
+    ids = [str(x).strip() for x in (object_ids or []) if str(x).strip()]
+    if not device_id or not ids:
+        return {}
+    result = {}
+    for part in _contract_chunked(list(dict.fromkeys(ids))):
+        rows = db.session.execute(
+            select(ContractAck).where(
+                ContractAck.contract_id == contract_id,
+                ContractAck.device_id == device_id,
+                ContractAck.object_id.in_(part),
+            )
+        ).scalars().all()
+        for row in rows:
+            result[str(row.object_id)] = str(row.object_version or '')
+    return result
+
+
+def _contract_pushed_override_ids(contract_id: int, object_ids) -> set:
+    ids = [str(x).strip() for x in (object_ids or []) if str(x).strip()]
+    if not ids:
+        return set()
+    result = set()
+    for part in _contract_chunked(list(dict.fromkeys(ids))):
+        rows = db.session.execute(
+            select(ContractObject.object_id).where(
+                ContractObject.contract_id == contract_id,
+                ContractObject.object_id.in_(part),
+            )
+        ).all()
+        for row in rows:
+            value = row[0] if isinstance(row, (tuple, list)) else getattr(row, 'object_id', None)
+            if value:
+                result.add(str(value))
+    return result
+
+
+def _contract_raw_storage_page(ref: dict, after_key: str, row_limit: int):
+    """Read a bounded raw SqliteDict page without constructing Node objects."""
+    cfg_uid = str((ref or {}).get('config_uid') or '').strip()
+    class_name = str((ref or {}).get('class_name') or '').strip()
+    if not cfg_uid or not class_name or row_limit <= 0:
+        return []
+    base_path = str(getattr(_nodes_mod, 'STORAGE_BASE_PATH', 'node_storage') or 'node_storage')
+    db_path = os.path.join(base_path, f'{class_name}_{cfg_uid}.sqlite')
+    if not os.path.isfile(db_path):
+        return []
+    conn = sqlite3.connect(db_path, timeout=15.0)
+    try:
+        conn.execute('PRAGMA busy_timeout=15000')
+        conn.execute('PRAGMA query_only=ON')
+        table = _nodes_mod.Node._atomic_sqlite_table(conn)
+        qtable = '"' + str(table).replace('"', '""') + '"'
+        rows = conn.execute(
+            f'SELECT key, value FROM {qtable} WHERE key > ? ORDER BY key LIMIT ?',
+            (str(after_key or ''), int(row_limit)),
+        ).fetchall()
+        out = []
+        for key, raw in rows:
+            if isinstance(raw, memoryview):
+                raw = raw.tobytes()
+            try:
+                record = pickle.loads(raw)
+            except Exception:
+                continue
+            if isinstance(record, dict):
+                out.append((str(key), record))
+        return out
+    finally:
+        conn.close()
+
+
+def _contract_live_candidates(contract: Contract, ref: dict, after_key: str, row_limit: int):
+    candidates = []
+    for storage_key, raw in _contract_raw_storage_page(ref, after_key, row_limit):
+        payload = _normalize_contract_object_for_class(raw, ref)
+        object_id = _object_id_from_payload(payload)
+        if not object_id:
+            continue
+        candidates.append({
+            'scan_key': storage_key,
+            'object_id': str(object_id),
+            'payload': payload,
+            'version': _contract_object_version(payload),
+        })
+    return candidates
+
+
+
+_CONTRACT_CHANGE_TRACKING_READY = set()
+_CONTRACT_CHANGE_TRACKING_LOCK = threading.RLock()
+
+def _contract_cooperate():
+    """Yield to gevent between bounded chunks of contract packing."""
+    try:
+        import gevent
+        gevent.sleep(0)
+    except Exception:
+        pass
+
+def _contract_live_object_version(payload: dict) -> str:
+    """Cheap version for live Node storage rows.
+
+    Normal Node writes maintain _last_change_date/_version. The SQLite change log
+    detects which rows changed, so hashing the complete JSON of every catalog row
+    on every page is unnecessary. Hashing remains a fallback for legacy rows.
+    """
+    explicit = _object_version_from_payload(payload)
+    if explicit:
+        return explicit
+    for source in (payload, payload.get('_data') if isinstance(payload, dict) else None):
+        if not isinstance(source, dict):
+            continue
+        for key in ('_last_change_date', '_updated_at', 'updated_at'):
+            value = source.get(key)
+            if value:
+                return str(value)
+    return _contract_payload_hash(payload)
+
+def _contract_ref_priority(ref: dict) -> tuple:
+    """Put operational WMS classes before large reference catalogs.
+
+    Contract semantics are unchanged; this only controls which changed objects are
+    returned first. A newly created batch/operation should reach a terminal before
+    a 100k-item catalog is considered.
+    """
+    name = str((ref or {}).get('class_name') or '').strip().lower()
+    priorities = {
+        'wmsoperationbatch': 0,
+        'wmsoperation': 1,
+        'wmsexternaldocument': 2,
+        'wmsoperationtype': 3,
+        'wmslocation': 10,
+        'wmslot': 11,
+        'wmswarehouse': 12,
+        'wmszone': 13,
+        'wmsitem': 50,
+    }
+    return (priorities.get(name, 20), name)
+
+
+def _contract_refs_signature(refs) -> str:
+    value = '|'.join(_contract_class_ref_string(ref) for ref in (refs or []))
+    return hashlib.sha256(value.encode('utf-8')).hexdigest()[:20]
+
+
+def _contract_delta_cursor_decode(value: str, refs) -> dict:
+    refs = list(refs or [])
+    signature = _contract_refs_signature(refs)
+    default = {
+        'v': 2,
+        'sig': signature,
+        'initialized': False,
+        'phase': 'unacked',
+        'ref': 0,
+        'key': '',
+        'seqs': [0 for _ in refs],
+        'page': 0,
+    }
+    text_value = str(value or '').strip()
+    if not text_value:
+        return default
+    try:
+        padded = text_value + ('=' * ((4 - len(text_value) % 4) % 4))
+        state = json.loads(base64.urlsafe_b64decode(padded.encode('ascii')).decode('utf-8'))
+        if not isinstance(state, dict) or int(state.get('v') or 0) != 2:
+            return default
+        if str(state.get('sig') or '') != signature:
+            return default
+        phase = str(state.get('phase') or '').strip().lower()
+        if phase not in {'unacked', 'changes', 'push', 'done'}:
+            phase = 'changes' if bool(state.get('initialized')) else 'unacked'
+        seqs = list(state.get('seqs') or [])
+        seqs = [max(0, int(seqs[i] or 0)) if i < len(seqs) else 0 for i in range(len(refs))]
+        return {
+            'v': 2,
+            'sig': signature,
+            'initialized': bool(state.get('initialized')),
+            'phase': phase,
+            'ref': max(0, int(state.get('ref') or 0)),
+            'key': str(state.get('key') or ''),
+            'seqs': seqs,
+            'page': max(0, int(state.get('page') or 0)),
+        }
+    except Exception:
+        return default
+
+
+def _contract_storage_info(ref: dict):
+    cfg_uid = str((ref or {}).get('config_uid') or '').strip()
+    class_name = str((ref or {}).get('class_name') or '').strip()
+    if not cfg_uid or not class_name:
+        return None
+    base_path = str(getattr(_nodes_mod, 'STORAGE_BASE_PATH', 'node_storage') or 'node_storage')
+    db_path = os.path.join(base_path, f'{class_name}_{cfg_uid}.sqlite')
+    if not os.path.isfile(db_path):
+        return None
+    conn = sqlite3.connect(db_path, timeout=15.0)
+    try:
+        table = _nodes_mod.Node._atomic_sqlite_table(conn)
+    finally:
+        conn.close()
+    return db_path, table
+
+
+def _contract_app_sqlite_path() -> str:
+    try:
+        database = str(getattr(db.engine.url, 'database', '') or '').strip()
+        if not database:
+            return ''
+        if not os.path.isabs(database):
+            database = os.path.abspath(database)
+        return database if os.path.isfile(database) else ''
+    except Exception:
+        return ''
+
+
+def _contract_ensure_change_tracking(ref: dict) -> int:
+    """Install storage-side change tracking once per process/ref.
+
+    The old implementation opened BEGIN IMMEDIATE and re-ran DDL on every GET,
+    briefly taking a writer lock in every class database. That was visible in the
+    web UI during continuous mobile downloads.
+    """
+    info = _contract_storage_info(ref)
+    if not info:
+        return 0
+    db_path, table = info
+    ready_key = (os.path.abspath(db_path), str(table))
+    if ready_key in _CONTRACT_CHANGE_TRACKING_READY:
+        return 0
+    with _CONTRACT_CHANGE_TRACKING_LOCK:
+        if ready_key in _CONTRACT_CHANGE_TRACKING_READY:
+            return 0
+        qtable = '"' + str(table).replace('"', '""') + '"'
+        change_table = '"__noda_contract_changes_v2"'
+        conn = sqlite3.connect(db_path, timeout=15.0, isolation_level=None)
+        try:
+            conn.execute('PRAGMA busy_timeout=15000')
+            conn.execute(
+                f'CREATE TABLE IF NOT EXISTS {change_table} ('
+                'seq INTEGER PRIMARY KEY AUTOINCREMENT,'
+                'node_key TEXT NOT NULL,'
+                "op TEXT NOT NULL DEFAULT 'upsert',"
+                'changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)'
+            )
+            conn.execute(
+                f'CREATE INDEX IF NOT EXISTS "idx_noda_contract_changes_v2_key" '
+                f'ON {change_table}(node_key)'
+            )
+            conn.execute(
+                f'CREATE TRIGGER IF NOT EXISTS "trg_noda_contract_changes_v2_insert" '
+                f'AFTER INSERT ON {qtable} BEGIN '
+                f"INSERT INTO {change_table}(node_key,op) VALUES(NEW.key,'upsert'); END"
+            )
+            conn.execute(
+                f'CREATE TRIGGER IF NOT EXISTS "trg_noda_contract_changes_v2_update" '
+                f'AFTER UPDATE ON {qtable} BEGIN '
+                f"INSERT INTO {change_table}(node_key,op) VALUES(NEW.key,'upsert'); END"
+            )
+            conn.execute(
+                f'CREATE TRIGGER IF NOT EXISTS "trg_noda_contract_changes_v2_delete" '
+                f'AFTER DELETE ON {qtable} BEGIN '
+                f"INSERT INTO {change_table}(node_key,op) VALUES(OLD.key,'delete'); END"
+            )
+            _CONTRACT_CHANGE_TRACKING_READY.add(ready_key)
+            return 0
+        except Exception:
+            current_app.logger.exception(
+                'Contract change tracking setup failed for %s',
+                _contract_class_ref_string(ref),
+            )
+            return 0
+        finally:
+            conn.close()
+
+def _contract_storage_row_count(ref: dict) -> int:
+    info = _contract_storage_info(ref)
+    if not info:
+        return 0
+    db_path, table = info
+    qtable = '"' + str(table).replace('"', '""') + '"'
+    conn = sqlite3.connect(db_path, timeout=15.0)
+    try:
+        conn.execute('PRAGMA query_only=ON')
+        return int(conn.execute(f'SELECT COUNT(*) FROM {qtable}').fetchone()[0] or 0)
+    finally:
+        conn.close()
+
+
+def _contract_ack_count_for_ref(contract_id: int, device_id: str, ref: dict) -> int:
+    if not device_id:
+        return 0
+    prefix = _contract_ref_prefix(ref)
+    return int(db.session.execute(
+        select(sa.func.count(ContractAck.id)).where(
+            ContractAck.contract_id == int(contract_id),
+            ContractAck.device_id == str(device_id),
+            ContractAck.object_id.like(prefix + '%'),
+        )
+    ).scalar() or 0)
+
+
+def _contract_unacked_storage_page(contract: Contract, device_id: str, ref: dict, after_key: str, row_limit: int):
+    """Return never-ACKed live rows with an indexed anti-join.
+
+    This avoids walking every acknowledged product just to discover one new batch.
+    Both databases are SQLite, so the ACK table is attached read-only to the class
+    storage connection and its unique composite index is used directly.
+    """
+    info = _contract_storage_info(ref)
+    app_db_path = _contract_app_sqlite_path()
+    if not info or not app_db_path or row_limit <= 0:
+        return []
+    db_path, table = info
+    qtable = '"' + str(table).replace('"', '""') + '"'
+    prefix = _contract_ref_prefix(ref)
+    conn = sqlite3.connect(db_path, timeout=15.0)
+    try:
+        conn.execute('PRAGMA busy_timeout=15000')
+        conn.execute('ATTACH DATABASE ? AS nodadb', (app_db_path,))
+        rows = conn.execute(
+            f'SELECT s.key, s.value FROM {qtable} AS s '
+            'WHERE s.key > ? '
+            'AND NOT EXISTS ('
+            ' SELECT 1 FROM nodadb.contract_ack AS a '
+            ' WHERE a.contract_id=? AND a.device_id=? AND a.object_id=(? || s.key)'
+            ') '
+            'AND NOT EXISTS ('
+            ' SELECT 1 FROM nodadb.contract_object AS o '
+            ' WHERE o.contract_id=? AND o.object_id=(? || s.key)'
+            ') '
+            'ORDER BY s.key LIMIT ?',
+            (str(after_key or ''), int(contract.id), str(device_id), prefix,
+             int(contract.id), prefix, int(row_limit)),
+        ).fetchall()
+        out = []
+        for key, raw in rows:
+            if isinstance(raw, memoryview):
+                raw = raw.tobytes()
+            try:
+                record = pickle.loads(raw)
+            except Exception:
+                continue
+            if not isinstance(record, dict):
+                continue
+            payload = _normalize_contract_object_for_class(record, ref)
+            object_id = _object_id_from_payload(payload)
+            if object_id:
+                out.append({
+                    'scan_key': str(key),
+                    'object_id': str(object_id),
+                    'payload': payload,
+                    'version': _contract_live_object_version(payload),
+                })
+                if len(out) % 100 == 0:
+                    _contract_cooperate()
+        return out
+    finally:
+        try:
+            conn.execute('DETACH DATABASE nodadb')
+        except Exception:
+            pass
+        conn.close()
+
+
+def _contract_changed_storage_page(ref: dict, after_seq: int, row_limit: int):
+    info = _contract_storage_info(ref)
+    if not info or row_limit <= 0:
+        return [], int(after_seq or 0), 0
+    db_path, table = info
+    qtable = '"' + str(table).replace('"', '""') + '"'
+    change_table = '"__noda_contract_changes_v2"'
+    conn = sqlite3.connect(db_path, timeout=15.0)
+    try:
+        conn.execute('PRAGMA busy_timeout=15000')
+        rows = conn.execute(
+            f'SELECT seq,node_key,op FROM {change_table} WHERE seq>? ORDER BY seq LIMIT ?',
+            (int(after_seq or 0), int(row_limit)),
+        ).fetchall()
+        if not rows:
+            max_seq = int(conn.execute(f'SELECT COALESCE(MAX(seq),0) FROM {change_table}').fetchone()[0] or 0)
+            return [], max(int(after_seq or 0), max_seq), 0
+
+        last_seq = int(rows[-1][0] or after_seq or 0)
+        # Keep the latest occurrence of a key in this bounded window.
+        latest = {}
+        order = []
+        for seq, key, op in rows:
+            key = str(key or '')
+            if not key:
+                continue
+            if key not in latest:
+                order.append(key)
+            latest[key] = (int(seq or 0), str(op or 'upsert'))
+        keys = [key for key in order if latest[key][1] != 'delete']
+        raw_map = {}
+        for part in _contract_chunked(keys, size=700):
+            if not part:
+                continue
+            marks = ','.join('?' for _ in part)
+            for key, raw in conn.execute(
+                f'SELECT key,value FROM {qtable} WHERE key IN ({marks})', part
+            ).fetchall():
+                if isinstance(raw, memoryview):
+                    raw = raw.tobytes()
+                try:
+                    record = pickle.loads(raw)
+                except Exception:
+                    continue
+                if isinstance(record, dict):
+                    raw_map[str(key)] = record
+
+        out = []
+        for key in order:
+            record = raw_map.get(key)
+            if not record:
+                continue
+            payload = _normalize_contract_object_for_class(record, ref)
+            object_id = _object_id_from_payload(payload)
+            if object_id:
+                out.append({
+                    'seq': latest[key][0],
+                    'object_id': str(object_id),
+                    'payload': payload,
+                    'version': _contract_live_object_version(payload),
+                })
+                if len(out) % 100 == 0:
+                    _contract_cooperate()
+        return out, last_seq, len(rows)
+    finally:
+        conn.close()
+
+
+def _contract_pushed_mismatch_page(contract: Contract, device_id: str, limit: int):
+    if limit <= 0:
+        return []
+    ids = [int(row[0]) for row in db.session.execute(text(
+        'SELECT co.id FROM contract_object AS co '
+        'LEFT JOIN contract_ack AS ca ON '
+        ' ca.contract_id=co.contract_id AND ca.device_id=:device_id AND ca.object_id=co.object_id '
+        'WHERE co.contract_id=:contract_id '
+        'AND (ca.id IS NULL OR COALESCE(ca.object_version,\'\') <> COALESCE(co.object_version,\'\')) '
+        'ORDER BY co.id LIMIT :row_limit'
+    ), {'device_id': str(device_id), 'contract_id': int(contract.id), 'row_limit': int(limit)}).all()]
+    if not ids:
+        return []
+    rows = db.session.execute(
+        select(ContractObject).where(ContractObject.id.in_(ids)).order_by(ContractObject.id)
+    ).scalars().all()
+    out = []
+    source_type = _normalize_contract_source_type(getattr(contract, 'source_type', 'class'))
+    for row in rows:
+        payload = row.payload_json if isinstance(row.payload_json, dict) else {}
+        if source_type == 'class':
+            ref = _contract_payload_target_ref(payload)
+            payload = _contract_ensure_full_refs(_contract_flatten_payload(payload), ref) if ref else _contract_flatten_payload(payload)
+        object_id = _object_id_from_payload(payload) or str(row.object_id or '').strip()
+        if not object_id:
+            continue
+        out.append({
+            'object_id': str(object_id),
+            'payload': payload,
+            'version': _contract_object_version(payload) or str(row.object_version or ''),
+        })
+    return out
+
+
+def _contract_build_delivery_page(contract: Contract, device_id: str = '', limit: int = 1000, cursor: str = ''):
+    """Build one bounded, index-driven delta page.
+
+    v2 first resolves never-ACKed IDs with an indexed anti-join, then consumes a
+    storage-side change log maintained by SQLite triggers. After the initial pass,
+    the client persists ``resume_cursor`` and later requests no longer rescan the
+    100k-item catalog.
+    """
+    started = time.perf_counter()
+    source_type = _normalize_contract_source_type(getattr(contract, 'source_type', 'class'))
+    limit = max(1, min(2000, int(limit or 1000)))
+
+    if source_type != 'class':
+        # Non-class contracts are normally small. Keep the legacy payload but page it.
+        legacy_state = _contract_cursor_decode(cursor, source_type=source_type)
+        legacy = _build_contract_delivery(contract, device_id=device_id)
+        all_objects = list(legacy.get('_data_objects') or [])
+        offset = max(0, int(legacy_state.get('push_id') or 0))
+        objects = all_objects[offset:offset + limit]
+        next_offset = offset + len(objects)
+        has_more = next_offset < len(all_objects)
+        next_cursor = _contract_cursor_encode({'phase': 'push', 'ref': 0, 'key': '', 'push_id': next_offset}) if has_more else ''
+        acks = [{'_id': _object_id_from_payload(x), 'version': _contract_object_version(x)} for x in objects if _object_id_from_payload(x)]
+        return dict(legacy, _data_objects=objects, _acks=acks, protocol='paged_ack_v1', returned=len(objects), page_size=limit, scanned=len(objects), has_more=has_more, next_cursor=next_cursor, server_ms=round((time.perf_counter()-started)*1000, 2))
+
+    refs = sorted(_contract_class_refs(contract), key=_contract_ref_priority)
+    class_refs = [_contract_class_ref_string(ref) for ref in refs if _contract_class_ref_string(ref)]
+    class_json = class_refs[0] if len(class_refs) == 1 else ''
+    state = _contract_delta_cursor_decode(cursor, refs)
+    out = []
+    ack_meta = []
+    scanned = 0
+
+    # Install triggers lazily. This is a tiny DDL operation and does not scan rows.
+    for ref in refs:
+        _contract_ensure_change_tracking(ref)
+
+    # Priority preflight: every page checks never-ACKed operational objects before
+    # continuing a large catalog cursor. This is intentionally independent from
+    # ``state['ref']``. While a terminal is receiving 100k products, a newly
+    # generated batch/operation must be delivered on the very next HTTP request,
+    # not after the product cursor reaches the end. The bulk cursor itself is kept
+    # unchanged and resumes immediately after this mini-page is ACKed.
+    priority_out = []
+    priority_ack = []
+    priority_scanned = 0
+    for priority_ref in refs:
+        if _contract_ref_priority(priority_ref)[0] >= 10:
+            break
+        remaining = limit - len(priority_out)
+        if remaining <= 0:
+            break
+        priority_rows = _contract_unacked_storage_page(
+            contract, device_id, priority_ref, '', min(remaining, 1000)
+        )
+        priority_scanned += len(priority_rows)
+        for row in priority_rows:
+            priority_out.append(row['payload'])
+            priority_ack.append({
+                '_id': row['object_id'],
+                'version': str(row.get('version') or ''),
+            })
+            if len(priority_out) >= limit:
+                break
+        _contract_cooperate()
+
+    if priority_out:
+        resume_state = {
+            'v': 2,
+            'sig': _contract_refs_signature(refs),
+            'initialized': True,
+            'phase': 'changes',
+            'ref': 0,
+            'key': '',
+            'seqs': list(state.get('seqs') or [0 for _ in refs]),
+        }
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+        current_app.logger.info(
+            'CONTRACT_DELTA_PRIORITY uid=%s device=%s returned=%s scanned=%s bulk_phase=%s bulk_ref=%s ms=%s',
+            contract.uid, device_id, len(priority_out), priority_scanned,
+            state.get('phase'), state.get('ref'), elapsed_ms,
+        )
+        next_state = dict(state)
+        next_state['page'] = max(0, int(state.get('page') or 0)) + 1
+        resume_state['page'] = next_state['page']
+        return {
+            '_class': class_json or {},
+            '_data_objects': priority_out,
+            '_acks': priority_ack,
+            'protocol': 'paged_ack_v2',
+            'returned': len(priority_out),
+            'page_size': limit,
+            'scanned': priority_scanned,
+            # The bulk position is unchanged, but page is incremented so even
+            # older clients that guard against repeated opaque cursors can
+            # continue after ACKing a priority mini-page.
+            'has_more': True,
+            'next_cursor': _contract_cursor_encode(next_state),
+            'resume_cursor': _contract_cursor_encode(resume_state),
+            'priority_page': True,
+            'page_seq': next_state['page'],
+            'server_ms': elapsed_ms,
+        }
+
+    while len(out) < limit and state.get('phase') != 'done':
+        phase = str(state.get('phase') or '')
+        ref_index = int(state.get('ref') or 0)
+
+        # Do not make a new WMS task wait while the same HTTP response is filled
+        # with hundreds of catalog rows. Return the operational mini-page first;
+        # the next cursor continues with catalogs immediately after its ACK.
+        if out and phase in ('unacked', 'changes') and ref_index < len(refs):
+            if _contract_ref_priority(refs[ref_index])[0] >= 10:
+                break
+
+        if phase == 'unacked':
+            if ref_index >= len(refs):
+                state.update({'initialized': True, 'phase': 'changes', 'ref': 0, 'key': ''})
+                continue
+            ref = refs[ref_index]
+            # A fully acknowledged class is skipped with two COUNTs; no 100k row walk.
+            if not state.get('key'):
+                storage_count = _contract_storage_row_count(ref)
+                ack_count = _contract_ack_count_for_ref(contract.id, device_id, ref)
+                if storage_count > 0 and ack_count >= storage_count:
+                    state.update({'ref': ref_index + 1, 'key': ''})
+                    continue
+            remaining = limit - len(out)
+            rows = _contract_unacked_storage_page(
+                contract, device_id, ref, str(state.get('key') or ''), min(remaining, 1000)
+            )
+            scanned += len(rows)
+            if not rows:
+                state.update({'ref': ref_index + 1, 'key': ''})
+                continue
+            for row in rows:
+                state['key'] = row['scan_key']
+                out.append(row['payload'])
+                ack_meta.append({'_id': row['object_id'], 'version': str(row.get('version') or '')})
+                if len(out) >= limit:
+                    break
+            if len(rows) < min(remaining, 1000) and len(out) < limit:
+                state.update({'ref': ref_index + 1, 'key': ''})
+            continue
+
+        if phase == 'changes':
+            if ref_index >= len(refs):
+                state.update({'phase': 'push', 'ref': 0, 'key': ''})
+                continue
+            ref = refs[ref_index]
+            current_seq = int((state.get('seqs') or [0 for _ in refs])[ref_index] or 0)
+            remaining = max(1, limit - len(out))
+            # Never read beyond the remaining output capacity: advancing past a
+            # larger change window could otherwise skip rows when the page fills.
+            query_limit = min(1000, remaining)
+            rows, last_seq, scanned_rows = _contract_changed_storage_page(
+                ref, current_seq, query_limit
+            )
+            state['seqs'][ref_index] = max(current_seq, int(last_seq or 0))
+            scanned += int(scanned_rows or 0)
+            if not rows:
+                if scanned_rows < query_limit:
+                    state.update({'ref': ref_index + 1})
+                _contract_cooperate()
+                continue
+            ids = [row['object_id'] for row in rows]
+            ack_map = _contract_ack_map_for_ids(contract.id, device_id, ids)
+            overrides = _contract_pushed_override_ids(contract.id, ids)
+            for row in rows:
+                object_id = row['object_id']
+                version = str(row.get('version') or '')
+                if object_id in overrides or ack_map.get(object_id) == version:
+                    continue
+                out.append(row['payload'])
+                ack_meta.append({'_id': object_id, 'version': version})
+            if scanned_rows < query_limit and len(out) < limit:
+                state.update({'ref': ref_index + 1})
+            _contract_cooperate()
+            continue
+
+        if phase == 'push':
+            pushed = _contract_pushed_mismatch_page(contract, device_id, limit - len(out))
+            scanned += len(pushed)
+            if not pushed:
+                state['phase'] = 'done'
+                continue
+            for row in pushed:
+                out.append(row['payload'])
+                ack_meta.append({'_id': row['object_id'], 'version': str(row.get('version') or '')})
+            # The same query will return the next mismatches after this page is ACKed.
+            break
+
+        state['phase'] = 'done'
+
+    has_more = state.get('phase') != 'done'
+    if has_more:
+        state['page'] = max(0, int(state.get('page') or 0)) + 1
+    next_cursor = _contract_cursor_encode(state) if has_more else ''
+    resume_state = {
+        'v': 2,
+        'sig': _contract_refs_signature(refs),
+        'initialized': True,
+        'phase': 'changes',
+        'ref': 0,
+        'key': '',
+        'seqs': list(state.get('seqs') or [0 for _ in refs]),
+        'page': max(0, int(state.get('page') or 0)),
+    }
+    resume_cursor = _contract_cursor_encode(resume_state)
+    elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+    current_app.logger.info(
+        'CONTRACT_DELTA uid=%s device=%s phase=%s returned=%s scanned=%s has_more=%s ms=%s',
+        contract.uid, device_id, state.get('phase'), len(out), scanned, has_more, elapsed_ms,
+    )
+    return {
+        '_class': class_json or {},
+        '_data_objects': out,
+        '_acks': ack_meta,
+        'protocol': 'paged_ack_v2',
+        'returned': len(out),
+        'page_size': limit,
+        'scanned': scanned,
+        'has_more': bool(has_more),
+        'next_cursor': next_cursor,
+        'resume_cursor': resume_cursor,
+        'page_seq': max(0, int(state.get('page') or 0)),
+        'server_ms': elapsed_ms,
+    }
+
+def _contract_target_versions(contract: Contract, object_ids) -> dict:
+    """Resolve versions only for the IDs in a legacy ACK, never for the whole contract."""
+    ids = list(dict.fromkeys(str(x).strip() for x in (object_ids or []) if str(x).strip()))
+    versions = {}
+    if not ids:
+        return versions
+
+    for part in _contract_chunked(ids):
+        rows = db.session.execute(
+            select(ContractObject).where(
+                ContractObject.contract_id == contract.id,
+                ContractObject.object_id.in_(part),
+            )
+        ).scalars().all()
+        for row in rows:
+            payload = row.payload_json if isinstance(row.payload_json, dict) else {}
+            if _normalize_contract_source_type(getattr(contract, 'source_type', 'class')) == 'class':
+                ref = _contract_payload_target_ref(payload)
+                payload = _contract_ensure_full_refs(_contract_flatten_payload(payload), ref) if ref else _contract_flatten_payload(payload)
+            versions[str(row.object_id)] = _contract_object_version(payload) or str(row.object_version or '')
+
+    remaining = [x for x in ids if x not in versions]
+    if remaining and _normalize_contract_source_type(getattr(contract, 'source_type', 'class')) == 'class':
+        refs = _contract_class_refs(contract)
+        for ref in refs:
+            prefix = _contract_ref_prefix(ref)
+            ref_ids = [x for x in remaining if x.startswith(prefix)]
+            if not ref_ids:
+                continue
+            internal_ids = [_raw_id_part_for_contract(x) for x in ref_ids]
+            cfg_uid = str(ref.get('config_uid') or '').strip()
+            class_name = str(ref.get('class_name') or '').strip()
+            base_path = str(getattr(_nodes_mod, 'STORAGE_BASE_PATH', 'node_storage') or 'node_storage')
+            db_path = os.path.join(base_path, f'{class_name}_{cfg_uid}.sqlite')
+            if not os.path.isfile(db_path):
+                continue
+            conn = sqlite3.connect(db_path, timeout=15.0)
+            try:
+                table = _nodes_mod.Node._atomic_sqlite_table(conn)
+                qtable = '"' + str(table).replace('"', '""') + '"'
+                for part in _contract_chunked(internal_ids):
+                    marks = ','.join('?' for _ in part)
+                    for key, raw in conn.execute(f'SELECT key, value FROM {qtable} WHERE key IN ({marks})', part).fetchall():
+                        if isinstance(raw, memoryview):
+                            raw = raw.tobytes()
+                        try:
+                            record = pickle.loads(raw)
+                        except Exception:
+                            continue
+                        payload = _normalize_contract_object_for_class(record, ref)
+                        oid = _object_id_from_payload(payload)
+                        if oid:
+                            versions[str(oid)] = _contract_live_object_version(payload)
+            finally:
+                conn.close()
+    return versions
 
 def _upsert_contract_pushed_objects(contract: Contract, payload, external_class_json=None):
     if isinstance(payload, dict) and '_data_objects' in payload:
@@ -6747,10 +7845,21 @@ def update_contract_api(contract_uid):
 @app.route('/api/contracts/<contract_uid>', methods=['GET'])
 @api_auth_required
 def contract_download(contract_uid):
+    request_started = time.perf_counter()
     contract = _get_owned_contract_or_404(contract_uid)
 
     device_id = str(request.args.get('device_id') or '').strip()
-    payload = _build_contract_delivery(contract, device_id=device_id)
+    try:
+        limit = int(request.args.get('limit') or 1000)
+    except Exception:
+        limit = 1000
+    cursor = str(request.args.get('cursor') or '').strip()
+    payload = _contract_build_delivery_page(contract, device_id=device_id, limit=limit, cursor=cursor)
+    current_app.logger.info(
+        'CONTRACT_HTTP uid=%s device=%s returned=%s has_more=%s total_ms=%.2f',
+        contract_uid, device_id, payload.get('returned', 0), payload.get('has_more', False),
+        (time.perf_counter() - request_started) * 1000.0,
+    )
     return jsonify(payload)
 
 
@@ -6772,36 +7881,58 @@ def contract_ack(contract_uid):
     if not device_id:
         return jsonify({'error': 'device_id is required'}), 400
 
+    supplied = {}
+    raw_acks = data.get('_acks', data.get('acks', []))
+    if isinstance(raw_acks, dict):
+        raw_acks = [raw_acks]
+    for item in (raw_acks or []):
+        if not isinstance(item, dict):
+            continue
+        object_id = str(item.get('_id') or item.get('id') or '').strip()
+        if object_id:
+            supplied[object_id] = str(item.get('version') or item.get('_version') or '')
+
     raw_ids = data.get('_ids', data.get('ids', []))
     if isinstance(raw_ids, str):
         object_ids = [raw_ids]
     else:
         object_ids = [str(x).strip() for x in (raw_ids or []) if str(x).strip()]
-
-    live_class_json, live_items = _load_live_contract_snapshot(contract)
-    pushed_items = _load_pushed_contract_snapshot(contract)
-    merged = dict(live_items or {})
-    merged.update(pushed_items or {})
-    version_map = {str(oid): str(item.get('version') or '') for oid, item in merged.items()}
-
-    acked = []
     for object_id in object_ids:
-        row = db.session.execute(
+        supplied.setdefault(object_id, None)
+
+    if not supplied:
+        return jsonify({'ok': True, 'device_id': device_id, 'acked_ids': [], 'count': 0})
+
+    unresolved = [object_id for object_id, version in supplied.items() if version is None]
+    if unresolved:
+        resolved = _contract_target_versions(contract, unresolved)
+        for object_id in unresolved:
+            supplied[object_id] = str(resolved.get(object_id) or '')
+
+    existing = {}
+    ids = list(supplied.keys())
+    for part in _contract_chunked(ids):
+        rows = db.session.execute(
             select(ContractAck).where(
                 ContractAck.contract_id == contract.id,
                 ContractAck.device_id == device_id,
-                ContractAck.object_id == object_id,
+                ContractAck.object_id.in_(part),
             )
-        ).scalar_one_or_none()
+        ).scalars().all()
+        for row in rows:
+            existing[str(row.object_id)] = row
+
+    now = datetime.now(timezone.utc)
+    for object_id, version in supplied.items():
+        row = existing.get(object_id)
         if row is None:
             row = ContractAck(contract_id=contract.id, device_id=device_id, object_id=object_id)
             db.session.add(row)
-        row.object_version = version_map.get(object_id, '')
-        row.acked_at = datetime.now(timezone.utc)
-        acked.append(object_id)
+        row.object_version = str(version or '')
+        row.acked_at = now
 
     db.session.commit()
-    return jsonify({'ok': True, 'device_id': device_id, 'acked_ids': acked})
+    return jsonify({'ok': True, 'device_id': device_id, 'acked_ids': ids, 'count': len(ids)})
 
 
 @app.route('/api/contracts/<contract_uid>/push', methods=['POST'])
@@ -6848,7 +7979,7 @@ def execute_node_method(config_uid, class_name, node_id, method_name):
     if not config:
         abort(404)
     runtime_parsed = _build_runtime_parsed_config(config)
-    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed)
+    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed, system_user=_runtime_system_user_payload_for_request())
 
     @after_this_request
     def _reset_ctx(resp):
@@ -7081,7 +8212,7 @@ def node_api(config_uid, class_name, node_id):
     if not config:
         abort(404)
     runtime_parsed = _build_runtime_parsed_config(config)
-    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed)
+    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed, system_user=_runtime_system_user_payload_for_request())
 
     @after_this_request
     def _reset_ctx(resp):
@@ -7234,7 +8365,7 @@ def execute_class_method(config_uid, class_name, method_name):
         abort(404)
 
     runtime_parsed = _build_runtime_parsed_config(config)
-    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed)
+    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed, system_user=_runtime_system_user_payload_for_request())
 
     @after_this_request
     def _reset_ctx(resp):
@@ -7515,6 +8646,28 @@ def nodes_api_page_at_date(config_uid, class_name):
     finally:
         conn.close()        
 
+def _api_background_job_owner():
+    user = getattr(g, "api_user", None)
+    identity = getattr(user, "id", None) or getattr(user, "email", None) or getattr(user, "username", None) or "anonymous"
+    return "api:" + str(identity)
+
+
+@app.route('/api/jobs/<job_id>', methods=['GET'])
+@api_auth_required
+def api_background_job_status(job_id):
+    job = _background_jobs.get(job_id, owner=_api_background_job_owner())
+    if job is None:
+        return jsonify({"ok": False, "error": "job not found"}), 404
+    return jsonify({"ok": True, "job": job})
+
+
+@app.route('/api/jobs/<job_id>/cancel', methods=['POST'])
+@api_auth_required
+def api_background_job_cancel(job_id):
+    ok = _background_jobs.request_cancel(job_id, owner=_api_background_job_owner())
+    return jsonify({"ok": bool(ok)})
+
+
 @app.route('/api/config/<config_uid>/node/<class_name>', methods=['GET', 'POST'])
 @api_auth_required
 def nodes_api(config_uid, class_name):
@@ -7530,7 +8683,7 @@ def nodes_api(config_uid, class_name):
 
     # --- runtime context for onAcceptServer ---
     runtime_parsed = _build_runtime_parsed_config(config)
-    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed)
+    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed, system_user=_runtime_system_user_payload_for_request())
 
     @after_this_request
     def _reset_ctx(resp):
@@ -7612,20 +8765,80 @@ def nodes_api(config_uid, class_name):
 
             # ----- array -----
             if isinstance(data, list):
-                created_nodes = []
+                try:
+                    async_threshold = max(100, int(os.environ.get("NODA_API_ASYNC_BULK_THRESHOLD") or 2000))
+                except Exception:
+                    async_threshold = 2000
 
+                if len(data) >= async_threshold:
+                    # A 100k payload must not occupy the HTTP/gevent worker. The
+                    # optimized writer validates in chunks, commits one SQLite
+                    # transaction per chunk, then rebuilds ordinary indexes once.
+                    app_obj = app
+                    data_copy = [dict(item) for item in data]
+                    runtime_user_payload = _runtime_system_user_payload_for_request()
+                    owner_key = _api_background_job_owner()
+
+                    def _run_bulk_api_import():
+                        with app_obj.app_context():
+                            import nodes as _bulk_nodes_mod
+                            cfg_obj = db.session.execute(
+                                select(Configuration).where(Configuration.uid == config_uid)
+                            ).scalar_one_or_none()
+                            if not cfg_obj:
+                                raise RuntimeError("Configuration not found")
+                            parsed_cfg = _build_runtime_parsed_config(cfg_obj)
+                            tokens = _bulk_nodes_mod.set_runtime_context(
+                                config_uid, parsed_cfg, system_user=runtime_user_payload
+                            )
+                            try:
+                                namespace = _load_server_handlers_ns(config_uid, cfg_obj)
+                                bulk_class = namespace.get(class_name)
+                                if bulk_class is None:
+                                    raise RuntimeError("Node class not found")
+                                result = bulk_class.bulk_upsert(
+                                    data_copy,
+                                    config_uid,
+                                    chunk_size=1000,
+                                    rebuild_indexes=True,
+                                    run_handlers=True,
+                                )
+                                result["accepted"] = len(data_copy)
+                                return {"ok": True, "result": result}
+                            finally:
+                                _bulk_nodes_mod.reset_runtime_context(tokens)
+                                try:
+                                    db.session.remove()
+                                except Exception:
+                                    pass
+
+                    job = _background_jobs.submit(
+                        _run_bulk_api_import,
+                        owner=owner_key,
+                        mode="runprogress",
+                        title=f"Import {class_name}: {len(data_copy)} nodes",
+                    )
+                    job_id = str(job.get("id") or "")
+                    return jsonify({
+                        "ok": True,
+                        "accepted": len(data_copy),
+                        "background": True,
+                        "job": {
+                            **job,
+                            "status_url": f"/api/jobs/{job_id}",
+                            "cancel_url": f"/api/jobs/{job_id}/cancel",
+                        },
+                    }), 202
+
+                created_nodes = []
                 for item_data in data:
                     raw_id = item_data.get('_id')
                     node_id = extract_internal_id(raw_id) if raw_id else str(uuid.uuid4())
-
                     user_data = dict(item_data)
-
                     node = node_class(node_id, config_uid)
                     if user_data:
-                        node.update_data(user_data)   # <-- AcceptRejected here
-
+                        node.update_data(user_data)
                     created_nodes.append(node.to_dict())
-
                 return jsonify(created_nodes), 201
 
             # ----- single -----
@@ -7675,7 +8888,7 @@ def node_batch_get(config_uid):
         abort(404)
 
     runtime_parsed = _build_runtime_parsed_config(config)
-    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed)
+    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed, system_user=_runtime_system_user_payload_for_request())
 
     @after_this_request
     def _reset_ctx(resp):
@@ -7728,7 +8941,7 @@ def node_batch_summary(config_uid):
         abort(404)
 
     runtime_parsed = _build_runtime_parsed_config(config)
-    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed)
+    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed, system_user=_runtime_system_user_payload_for_request())
 
     @after_this_request
     def _reset_ctx(resp):
@@ -10408,7 +11621,7 @@ def resolve_config_node_context(config_uid, class_name, node_id_candidates):
     try:
         try:
             runtime_parsed = _build_runtime_parsed_config(config)
-            ctx_tokens = _nodes_mod.set_runtime_context(str(config_uid), runtime_parsed)
+            ctx_tokens = _nodes_mod.set_runtime_context(str(config_uid), runtime_parsed, system_user=_runtime_system_user_payload_for_request())
         except Exception:
             ctx_tokens = None
 
@@ -11838,7 +13051,7 @@ def nodes_api_query(config_uid, class_name):
         abort(404)
 
     runtime_parsed = _build_runtime_parsed_config(config)
-    ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed)
+    ctx_tokens = _nodes_mod.set_runtime_context(config_uid, runtime_parsed, system_user=_runtime_system_user_payload_for_request())
 
     @after_this_request
     def _reset_ctx(resp):

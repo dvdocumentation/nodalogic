@@ -548,6 +548,10 @@ def _ngenie_code_guard_view(endpoint, view_func):
     def _wrapped(*args, **kwargs):
         try:
             cfg = _ngenie_code_config_from_route_kwargs(kwargs)
+            # Installed demo copies are runtime/client instances. They remain
+            # available through Client/API/Android but are never Designer objects.
+            if cfg is not None and _mark_installed_demo_copy_hidden(cfg):
+                abort(404)
             if cfg is not None and _config_is_ngenie_code_locked(cfg):
                 if _ngenie_code_should_block_endpoint(endpoint, request.method):
                     abort(403, description=_ngenie_code_forbid_message())
@@ -779,6 +783,109 @@ def _current_user_has_admin_login() -> bool:
         return bool(admin_email) and current_email == admin_email
     except Exception:
         return False
+
+
+def _designer_visible_configuration_clause():
+    """SQL predicate for configurations that may be opened in Designer."""
+    return sa.or_(
+        Configuration.designer_hidden == False,
+        Configuration.designer_hidden.is_(None),
+    )
+
+
+def _configuration_is_installed_demo_copy(config) -> bool:
+    """Recognize current and legacy demo installations without affecting Client/API.
+
+    New installations carry ``designer_hidden`` and ``demo_source_uid`` explicitly.
+    Older installations are recognized only when all of the following are true:
+    the configuration is owned by the account, is present in that account's Client
+    repository, is not itself a published demo, and its content UID matches a demo
+    published by another account.
+    """
+    if config is None:
+        return False
+    if bool(getattr(config, 'designer_hidden', False)):
+        return True
+    if bool(getattr(config, 'demo_product', False)) or bool(getattr(config, 'is_system', False)):
+        return False
+    if str(getattr(config, 'demo_source_uid', '') or '').strip():
+        return True
+    content_uid = str(getattr(config, 'content_uid', '') or '').strip()
+    config_uid = str(getattr(config, 'uid', '') or '').strip()
+    owner_id = getattr(config, 'user_id', None)
+    if not content_uid or not config_uid or owner_id is None:
+        return False
+    try:
+        from client_app import models as client_models
+        repo_exists = db.session.execute(
+            select(client_models.Repo.id).where(
+                client_models.Repo.user_id == int(owner_id),
+                client_models.Repo.config_uid == config_uid,
+            )
+        ).scalar_one_or_none()
+        if not repo_exists:
+            return False
+        source = db.session.execute(
+            select(Configuration.uid).where(
+                Configuration.demo_product == True,
+                Configuration.content_uid == content_uid,
+                Configuration.user_id != int(owner_id),
+                sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)),
+            ).limit(1)
+        ).scalar_one_or_none()
+        return bool(source)
+    except Exception:
+        return False
+
+
+def _mark_installed_demo_copy_hidden(config) -> bool:
+    """Persist the Designer-only visibility marker for old installed copies."""
+    if not _configuration_is_installed_demo_copy(config):
+        return False
+    if not bool(getattr(config, 'designer_hidden', False)):
+        config.designer_hidden = True
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+    return True
+
+
+def _backfill_installed_demo_visibility(owner_user_id) -> int:
+    """Best-effort one-time upgrade for demos installed before the marker existed."""
+    try:
+        owner_id = int(owner_user_id)
+    except Exception:
+        return 0
+    try:
+        from client_app import models as client_models
+        repo_uids = [
+            str(x) for x in db.session.execute(
+                select(client_models.Repo.config_uid).where(client_models.Repo.user_id == owner_id)
+            ).scalars().all() if str(x or '').strip()
+        ]
+        if not repo_uids:
+            return 0
+        configs = db.session.execute(
+            select(Configuration).where(
+                Configuration.user_id == owner_id,
+                Configuration.uid.in_(repo_uids),
+                sa.or_(Configuration.designer_hidden == False, Configuration.designer_hidden.is_(None)),
+                sa.or_(Configuration.demo_product == False, Configuration.demo_product.is_(None)),
+                sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)),
+            )
+        ).scalars().all()
+        changed = 0
+        for cfg in configs:
+            if _configuration_is_installed_demo_copy(cfg):
+                cfg.designer_hidden = True
+                changed += 1
+        if changed:
+            db.session.commit()
+        return changed
+    except Exception:
+        db.session.rollback()
+        return 0
 
 
 def bind_editor_context(context):
@@ -4607,7 +4714,11 @@ def import_config_new():
         
         # CHECKING IF A CONFIGURATION WITH THIS UID ALREADY EXISTS
         existing_config = db.session.execute(
-            select(Configuration).where(Configuration.user_id==current_user.id, Configuration.content_uid==content_uid)
+            select(Configuration).where(
+                Configuration.user_id == current_user.id,
+                Configuration.content_uid == content_uid,
+                _designer_visible_configuration_clause(),
+            )
         ).scalar_one_or_none()
         
         if existing_config:
@@ -8611,7 +8722,11 @@ def users_manage():
     # configs owned by current_user (only business configs can be shared here)
     cfgs = db.session.execute(
         select(Configuration)
-        .where(Configuration.user_id == owner_id, sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)))
+        .where(
+            Configuration.user_id == owner_id,
+            sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)),
+            _designer_visible_configuration_clause(),
+        )
         .order_by(Configuration.name)
     ).scalars().all()
 
@@ -8862,7 +8977,10 @@ def _profile_value_source_options(configs=None):
     if not cfgs:
         cfgs = db.session.execute(
             select(Configuration)
-            .where(Configuration.user_id == current_user.id)
+            .where(
+                Configuration.user_id == current_user.id,
+                _designer_visible_configuration_clause(),
+            )
             .order_by(Configuration.is_system, Configuration.name)
         ).scalars().all()
     out = []
@@ -9091,7 +9209,10 @@ def profile_edit(profile_uid):
     all_cfgs = db.session.execute(
         select(Configuration)
         .options(selectinload(Configuration.classes))
-        .where(Configuration.user_id == current_user.id)
+        .where(
+            Configuration.user_id == current_user.id,
+            _designer_visible_configuration_clause(),
+        )
         .order_by(Configuration.is_system, Configuration.name)
     ).scalars().unique().all()
     cfgs = [cfg for cfg in all_cfgs if not bool(getattr(cfg, 'is_system', False))]
@@ -9391,6 +9512,7 @@ def mobile_setup():
         .where(
             Configuration.user_id == owner_id,
             sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)),
+            _designer_visible_configuration_clause(),
         )
         .order_by(Configuration.name)
     ).scalars().all()
@@ -9630,11 +9752,19 @@ def _clone_demo_configuration(source, owner_user_id):
         db.session.flush()
 
     preserved_uid = target.uid
-    _copy_model_columns(source, target, exclude={'id', 'uid', 'user_id', 'is_system', 'demo_product', 'last_modified'})
+    _copy_model_columns(
+        source, target,
+        exclude={
+            'id', 'uid', 'user_id', 'is_system', 'demo_product',
+            'designer_hidden', 'demo_source_uid', 'last_modified',
+        },
+    )
     target.uid = preserved_uid
     target.user_id = int(owner_user_id)
     target.is_system = False
     target.demo_product = False
+    target.designer_hidden = True
+    target.demo_source_uid = str(source.uid or '')
     target.last_modified = datetime.now(timezone.utc)
     target.nodes_handlers = _rewrite_android_handlers_instance_refs_b64(
         target.nodes_handlers,
@@ -9897,7 +10027,12 @@ def contracts_prepare_config(config_uid):
 @_routes.route('/dashboard')
 @login_required
 def dashboard():
-    stmt = select(Configuration).where(Configuration.user_id == current_user.id, sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)))
+    _backfill_installed_demo_visibility(current_user.id)
+    stmt = select(Configuration).where(
+        Configuration.user_id == current_user.id,
+        sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)),
+        _designer_visible_configuration_clause(),
+    )
     configs = db.session.execute(stmt).scalars().all()
     
     stmt = select(Room).where(Room.user_id == current_user.id)

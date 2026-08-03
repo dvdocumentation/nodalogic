@@ -585,6 +585,13 @@ class Configuration(db.Model):
     is_system = db.Column(db.Boolean, default=False, index=True)
     # Published in the separate Demo products catalog. Installed copies are not republished.
     demo_product = db.Column(db.Boolean, default=False, index=True)
+    # Runtime/client-only configuration instance created when another account installs
+    # a published demo. It remains fully available to Client/API/Android, but is
+    # intentionally hidden and forbidden in NodaLogic Designer.
+    designer_hidden = db.Column(db.Boolean, default=False, index=True)
+    # UID of the published demo configuration from which this client-only instance
+    # was created. Empty for ordinary configurations and for the published source.
+    demo_source_uid = db.Column(db.String(36), default="", index=True)
     
     def update_last_modified(self):
         self.last_modified = datetime.now()

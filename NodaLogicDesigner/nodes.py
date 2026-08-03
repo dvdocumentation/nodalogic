@@ -24,6 +24,11 @@ import pickle
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+try:
+    import background_jobs as _background_jobs
+except Exception:
+    _background_jobs = None
+
 # Optional backend-only SQL storage/projection for backend transactions.
 # If balance_sql.py is absent or cannot be imported, the legacy JSON storage
 # inside node._data["_transactions"] / node._data["_state_transactions"] is used exactly as before.
@@ -672,6 +677,90 @@ def _current_config_uid() -> str:
     return str(current_config_uid_from_handlers() or CURRENT_CONFIG_UID.get() or '').strip()
 
 
+
+def register_in_config_rooms_many(nodes, config_uid=None) -> dict:
+    """Publish nodes to every room alias attached to their configuration.
+
+    Payloads are grouped by class and sent in one room object per class, avoiding
+    one database row / one FCM push per operation. Missing room aliases are a
+    normal no-op, which lets configurations use contracts and rooms in parallel.
+    The helper establishes its own Flask application context because it is
+    normally called from a server ``runasync`` worker.
+    """
+    values = list(nodes or []) if isinstance(nodes, (list, tuple, set)) else ([nodes] if nodes is not None else [])
+    if not values:
+        return {'ok': True, 'rooms': 0, 'objects': 0, 'messages': 0}
+    try:
+        room_handler = _bridge_func('handle_room_objects')
+        bridge_module = sys.modules.get(getattr(room_handler, '__module__', '')) if callable(room_handler) else None
+        Configuration = getattr(bridge_module, 'Configuration', None) if bridge_module is not None else None
+        RoomAlias = getattr(bridge_module, 'RoomAlias', None) if bridge_module is not None else None
+        db = getattr(bridge_module, 'db', None) if bridge_module is not None else None
+        app_obj = getattr(bridge_module, 'app', None) if bridge_module is not None else None
+        if not callable(room_handler) or Configuration is None or RoomAlias is None or db is None:
+            return {'ok': False, 'error': 'Room models are unavailable', 'rooms': 0, 'objects': 0, 'messages': 0}
+
+        def publish():
+            grouped = {}
+            resolved_cfg_uid = str(config_uid or '').strip()
+            for node in values:
+                if node is None:
+                    continue
+                cfg_uid = str(resolved_cfg_uid or getattr(node, '_config_uid', '') or '').strip()
+                class_name = str(getattr(node, '_schema_class_name', '') or node.__class__.__name__ or '').strip()
+                try:
+                    payload = node.to_dict() if hasattr(node, 'to_dict') else dict(node)
+                except Exception:
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                if not cfg_uid:
+                    data = payload.get('_data') if isinstance(payload.get('_data'), dict) else payload
+                    cfg_uid = str(payload.get('_config_uid') or data.get('_config_uid') or '').strip()
+                if not class_name or class_name == 'dict':
+                    data = payload.get('_data') if isinstance(payload.get('_data'), dict) else payload
+                    class_ref = str(payload.get('_class') or data.get('_class') or '').strip()
+                    class_name = class_ref.split('$')[-1] if class_ref else ''
+                if cfg_uid and class_name:
+                    grouped.setdefault((cfg_uid, class_name), []).append(payload)
+
+            total_rooms = set()
+            messages = 0
+            objects = 0
+            errors = []
+            for (cfg_uid, class_name), payloads in grouped.items():
+                cfg_obj = db.session.query(Configuration).filter(Configuration.uid == cfg_uid).first()
+                if not cfg_obj:
+                    continue
+                aliases = db.session.query(RoomAlias).filter(RoomAlias.config_id == cfg_obj.id).all()
+                room_uids = sorted({str(x.room_uid or '').strip() for x in aliases if str(x.room_uid or '').strip()})
+                for room_uid in room_uids:
+                    try:
+                        room_handler(cfg_uid, class_name, room_uid, payloads)
+                        total_rooms.add(room_uid)
+                        messages += 1
+                        objects += len(payloads)
+                    except Exception as exc:
+                        errors.append(f'{room_uid}:{class_name}: {exc}')
+            return {
+                'ok': not errors,
+                'rooms': len(total_rooms),
+                'objects': objects,
+                'messages': messages,
+                'errors': errors,
+            }
+
+        if app_obj is not None and hasattr(app_obj, 'app_context'):
+            with app_obj.app_context():
+                return publish()
+        return publish()
+    except Exception as exc:
+        return {'ok': False, 'error': str(exc), 'rooms': 0, 'objects': 0, 'messages': 0}
+
+
+def register_in_config_rooms(node, config_uid=None) -> dict:
+    return register_in_config_rooms_many([node], config_uid=config_uid)
+
 def message_user(user_key: str, payload=None, title: str = "Direct message", body: str = "New message", sender_user: str | None = None) -> dict:
     result = _call_bridge('send_message_to_user_global', str(user_key or '').strip(), title, body, payload, sender_user=sender_user)
     if isinstance(result, dict) and result.get('error') == 'send_message_to_user_global is unavailable':
@@ -1158,6 +1247,102 @@ def _execute_event_action(node, action: dict, input_data: dict, method_key: str 
         return False, {'error': str(e), 'method': m}
 
 
+def _submit_server_event_action(node, action: dict, input_data: dict, event_name: str = "") -> bool:
+    """Queue one server ClassEvent action without delaying the current save/API call.
+
+    Client-side ``runasync`` already used the background job pool, but server
+    lifecycle events (onAcceptServer/onAfterAcceptServer) historically ignored
+    the action mode and executed every action inline.  This helper preserves the
+    current configuration, parsed config and system user context, then reloads
+    the node in the worker before calling the action.  The original request does
+    not wait for the result.
+    """
+    if _background_jobs is None:
+        return False
+
+    try:
+        action_copy = copy.deepcopy(action or {})
+    except Exception:
+        action_copy = dict(action or {})
+    try:
+        input_copy = copy.deepcopy(input_data or {})
+    except Exception:
+        input_copy = dict(input_data or {})
+
+    node_class = node.__class__
+    node_id = str(getattr(node, "_id", "") or "")
+    config_uid = str(
+        getattr(node, "_config_uid", "")
+        or _config_uid_from_node_or_uid(getattr(node, "_data", {}).get("_id") if isinstance(getattr(node, "_data", None), dict) else "")
+        or CURRENT_CONFIG_UID.get()
+        or current_config_uid_from_handlers()
+        or ""
+    ).strip()
+    try:
+        parsed_copy = copy.deepcopy(CURRENT_PARSED_CONFIG.get())
+    except Exception:
+        parsed_copy = CURRENT_PARSED_CONFIG.get()
+    try:
+        system_user_copy = copy.deepcopy(CURRENT_SYSTEM_USER.get())
+    except Exception:
+        system_user_copy = CURRENT_SYSTEM_USER.get()
+
+    method_name = str(action_copy.get("method") or "").strip()
+    post_method_name = str(action_copy.get("postExecuteMethod") or "").strip()
+
+    def work():
+        tokens = []
+        try:
+            tokens.append((CURRENT_CONFIG_UID, CURRENT_CONFIG_UID.set(config_uid or None)))
+            tokens.append((CURRENT_PARSED_CONFIG, CURRENT_PARSED_CONFIG.set(parsed_copy)))
+            tokens.append((CURRENT_SYSTEM_USER, CURRENT_SYSTEM_USER.set(system_user_copy)))
+            tokens.append((RUNTIME_MESSAGES, RUNTIME_MESSAGES.set([])))
+            tokens.append((ACCEPT_GUARD, ACCEPT_GUARD.set(set())))
+            tokens.append((AFTER_ACCEPT_GUARD, AFTER_ACCEPT_GUARD.set(set())))
+            tokens.append((DATASET_VIEW_CACHE, DATASET_VIEW_CACHE.set({})))
+            tokens.append((DATASET_OBJ_CACHE, DATASET_OBJ_CACHE.set({})))
+            tokens.append((DATASET_ID_CACHE, DATASET_ID_CACHE.set({})))
+
+            fresh = None
+            try:
+                fresh = node_class.get(node_id, config_uid) if node_id else None
+            except Exception:
+                fresh = None
+            target = fresh or node
+
+            previous_current = globals().get("CURRENT_NODE")
+            globals()["CURRENT_NODE"] = target
+            try:
+                ok, data = _execute_event_action(target, action_copy, input_copy, "method")
+                if not ok:
+                    raise RuntimeError(str((data or {}).get("error") or data or f"Async handler {method_name} failed"))
+
+                if post_method_name:
+                    post_input = dict(input_copy)
+                    if data:
+                        post_input["_previous_result"] = data
+                    ok, post_data = _execute_event_action(target, action_copy, post_input, "postExecuteMethod")
+                    if not ok:
+                        raise RuntimeError(str((post_data or {}).get("error") or post_data or f"Async post handler {post_method_name} failed"))
+                return {"ok": True, "method": method_name, "post_method": post_method_name}
+            finally:
+                globals()["CURRENT_NODE"] = previous_current
+        finally:
+            for var, token in reversed(tokens):
+                try:
+                    var.reset(token)
+                except Exception:
+                    pass
+
+    _background_jobs.submit(
+        work,
+        owner="server:" + config_uid,
+        mode="runasync",
+        title=(str(event_name or "Server event") + (": " + method_name if method_name else "")),
+    )
+    return True
+
+
 def dispatch_node_class_event(node, event_name: str, input_data: dict) -> tuple[bool, dict]:
     parsed = CURRENT_PARSED_CONFIG.get()
     if not isinstance(parsed, dict):
@@ -1177,6 +1362,15 @@ def dispatch_node_class_event(node, event_name: str, input_data: dict) -> tuple[
     globals()["CURRENT_NODE"] = node
     try:
         for action in actions:
+            action_mode = str((action or {}).get("action") or "run").strip().lower()
+            if str(event_name or "").strip() == "onAfterAcceptServer" and action_mode in {"runasync", "runprogress"}:
+                # Only post-save actions may detach safely. onAcceptServer is a
+                # validation/normalization gate and must remain synchronous so
+                # it can reject the save.
+                if _submit_server_event_action(node, action, input_data, event_name):
+                    continue
+                # Safe fallback when the optional job module is unavailable.
+
             ok, data = _execute_event_action(node, action, input_data, 'method')
             if not ok:
                 return False, data or {}
@@ -1340,11 +1534,35 @@ def run_on_after_accept_server_once(node, saved_state: dict, input_data: dict | 
 
     payload: dict = dict(input_data or {})
     payload["_saved_state"] = dict(saved_state or {})
+    started = time.perf_counter()
     try:
-        dispatch_node_class_event(node, "onAfterAcceptServer", payload)
-    except Exception:
-        # Post-save hook must never break the main flow.
-        pass
+        ok, out = dispatch_node_class_event(node, "onAfterAcceptServer", payload)
+        if not ok:
+            print(
+                "onAfterAcceptServer failed",
+                getattr(node, "_schema_class_name", None) or node.__class__.__name__,
+                getattr(node, "_id", ""),
+                out,
+            )
+    except Exception as exc:
+        # Post-save hook must never break the main flow, but silently swallowing
+        # the error made failed WMS planning indistinguishable from success.
+        print(
+            "onAfterAcceptServer exception",
+            getattr(node, "_schema_class_name", None) or node.__class__.__name__,
+            getattr(node, "_id", ""),
+            repr(exc),
+        )
+    finally:
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        if elapsed_ms >= 1000.0:
+            print(
+                "onAfterAcceptServer slow",
+                getattr(node, "_schema_class_name", None) or node.__class__.__name__,
+                getattr(node, "_id", ""),
+                round(elapsed_ms, 3),
+                "ms",
+            )
 
 
 STORAGE_BASE_PATH = 'node_storage'
@@ -1387,6 +1605,8 @@ class Node:
     # applied in save order.  Index definitions remain synchronous by default.
     _async_index_executor = None
     _async_index_executor_lock = threading.RLock()
+    _text_sidecar_rebuild_pending = set()
+    _text_sidecar_rebuild_pending_lock = threading.RLock()
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -1565,21 +1785,12 @@ class Node:
                     '_updated_at': datetime.now(timezone.utc).isoformat()
                 }
             else:
-                
-                node_data = self._storage[self._id]
-                if '_data' not in node_data:
-                    node_data['_data'] = {}
-
-                if node_data['_data'] == None:
-                    node_data['_data'] = {}
-
-                
-                
-                node_data['_data']['_id'] = self._id
-                node_data['_data']['_class'] = self.__class__.__name__
-                
-                node_data['_updated_at'] = datetime.now(timezone.utc).isoformat()
-                self._storage[self._id] = node_data
+                # Constructing/loading an existing node is a read operation.
+                # Do not rewrite storage or touch _updated_at here: contract
+                # delivery hashes use persisted node content, and a read-side
+                # timestamp update made every acknowledged object look changed.
+                # get_data(), _data and to_dict() normalize _id/_class in memory.
+                pass
     
     @property
     def _data(self):
@@ -2048,7 +2259,12 @@ class Node:
 
                 # persist what handler left in cache (it may have modified _data)
                 to_write = self._data_cache
-                node_data['_data'] = dict(to_write) if isinstance(to_write, dict) else new_state
+                if isinstance(to_write, dict):
+                    audited = _apply_node_audit(dict(to_write), saved_state)
+                    self._data_cache = audited
+                    node_data['_data'] = audited
+                else:
+                    node_data['_data'] = _apply_node_audit(dict(new_state), saved_state)
                 node_data['_updated_at'] = datetime.now(timezone.utc).isoformat()
                 self._storage[self._id] = node_data
 
@@ -2133,7 +2349,12 @@ class Node:
 
                 # persist what handler left in cache (it may have modified _data)
                 to_write = self._data_cache
-                node_data['_data'] = dict(to_write) if isinstance(to_write, dict) else new_state
+                if isinstance(to_write, dict):
+                    audited = _apply_node_audit(dict(to_write), saved_state)
+                    self._data_cache = audited
+                    node_data['_data'] = audited
+                else:
+                    node_data['_data'] = _apply_node_audit(dict(new_state), saved_state)
                 node_data['_updated_at'] = datetime.now(timezone.utc).isoformat()
                 self._storage[self._id] = node_data
 
@@ -2220,6 +2441,439 @@ class Node:
             if actual != wanted:
                 mismatches[str(key)] = {"expected": wanted, "actual": actual}
         return mismatches
+
+    @classmethod
+    def _bulk_storage_path(cls, config_uid=None) -> str:
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        storage_key = f"{cls.__name__}_{cfg_uid}" if cfg_uid else cls.__name__
+        return os.path.join(STORAGE_BASE_PATH, f"{storage_key}.sqlite")
+
+    @classmethod
+    def _bulk_ensure_storage(cls, config_uid=None):
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        storage_key = f"{cls.__name__}_{cfg_uid}" if cfg_uid else cls.__name__
+        if storage_key not in cls._class_storages:
+            lock = cls._storage_locks.setdefault(storage_key, threading.RLock())
+            with lock:
+                if storage_key not in cls._class_storages:
+                    os.makedirs(STORAGE_BASE_PATH, exist_ok=True)
+                    cls._class_storages[storage_key] = SqliteDict(
+                        cls._bulk_storage_path(cfg_uid), autocommit=True
+                    )
+        return cls._class_storages[storage_key]
+
+    @classmethod
+    def _bulk_read_records(cls, config_uid, node_ids):
+        ids = [str(x) for x in (node_ids or []) if str(x)]
+        if not ids:
+            return {}
+        cls._bulk_ensure_storage(config_uid)
+        db_path = cls._bulk_storage_path(config_uid)
+        conn = sqlite3.connect(db_path, timeout=60.0)
+        try:
+            table = cls._atomic_sqlite_table(conn)
+            qtable = '"' + table.replace('"', '""') + '"'
+            out = {}
+            for start in range(0, len(ids), 800):
+                part = ids[start:start + 800]
+                marks = ','.join('?' for _ in part)
+                for key, raw in conn.execute(
+                    f"SELECT key, value FROM {qtable} WHERE key IN ({marks})", part
+                ).fetchall():
+                    if isinstance(raw, memoryview):
+                        raw = raw.tobytes()
+                    try:
+                        value = pickle.loads(raw)
+                    except Exception:
+                        continue
+                    if isinstance(value, dict):
+                        out[str(key)] = value
+            return out
+        finally:
+            conn.close()
+
+    @classmethod
+    def _bulk_write_records(cls, config_uid, records):
+        if not records:
+            return 0
+        cls._bulk_ensure_storage(config_uid)
+        db_path = cls._bulk_storage_path(config_uid)
+        conn = sqlite3.connect(db_path, timeout=120.0, isolation_level=None)
+        try:
+            conn.execute("PRAGMA busy_timeout=120000")
+            conn.execute("BEGIN IMMEDIATE")
+            table = cls._atomic_sqlite_table(conn)
+            qtable = '"' + table.replace('"', '""') + '"'
+            rows = [
+                (
+                    str(node_id),
+                    sqlite3.Binary(pickle.dumps(record, protocol=pickle.HIGHEST_PROTOCOL)),
+                )
+                for node_id, record in records.items()
+            ]
+            conn.executemany(
+                f"INSERT OR REPLACE INTO {qtable} (key, value) VALUES (?, ?)", rows
+            )
+            conn.commit()
+            return len(rows)
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+        finally:
+            conn.close()
+
+    @classmethod
+    def _bulk_replace_plain_index(cls, index_name, config_uid, buckets):
+        store = cls._defined_index_storage(index_name, config_uid)
+        db_path = os.path.join(
+            STORAGE_BASE_PATH,
+            f"{cls.__name__}_{str(config_uid or '').strip()}__idx__{index_name}.sqlite"
+            if str(config_uid or '').strip()
+            else f"{cls.__name__}__idx__{index_name}.sqlite",
+        )
+        # Ensure SqliteDict has created its table before opening a direct writer.
+        try:
+            _ = store.tablename
+        except Exception:
+            pass
+        conn = sqlite3.connect(db_path, timeout=120.0, isolation_level=None)
+        try:
+            conn.execute("PRAGMA busy_timeout=120000")
+            conn.execute("BEGIN IMMEDIATE")
+            table = cls._atomic_sqlite_table(conn)
+            qtable = '"' + table.replace('"', '""') + '"'
+            conn.execute(f"DELETE FROM {qtable}")
+            if buckets:
+                rows = [
+                    (
+                        str(key),
+                        sqlite3.Binary(pickle.dumps(list(values), protocol=pickle.HIGHEST_PROTOCOL)),
+                    )
+                    for key, values in buckets.items()
+                    if str(key) and values
+                ]
+                conn.executemany(
+                    f"INSERT OR REPLACE INTO {qtable} (key, value) VALUES (?, ?)", rows
+                )
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+        finally:
+            conn.close()
+
+        idx_def = cls._defined_index_def(index_name, config_uid)
+        idx_kind = cls._defined_index_kind(idx_def)
+        if idx_kind in {"text_index", "text_index_full"}:
+            cls._rebuild_text_search_sidecar(index_name, config_uid)
+        elif idx_kind == "hash_index":
+            cls._clear_hash_index_delta(index_name, config_uid)
+
+    @classmethod
+    def rebuild_plain_indexes_fast(cls, config_uid=None, index_names=None, progress_text="") -> dict:
+        """Rebuild non-semantic indexes in linear time.
+
+        Buckets are assembled in memory while the node table is scanned once,
+        then every bucket is written once in a single SQLite transaction.  This
+        avoids the old read/append/rewrite cycle for low-cardinality indexes.
+        """
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        wanted = None
+        if index_names:
+            raw = index_names if isinstance(index_names, (list, tuple, set)) else [index_names]
+            wanted = {str(x or "").strip() for x in raw if str(x or "").strip()}
+        definitions = []
+        semantic = []
+        for idx in cls._get_defined_indexes(cfg_uid) or []:
+            if not isinstance(idx, dict):
+                continue
+            name = str(idx.get("name") or "").strip()
+            if not name or (wanted is not None and name not in wanted):
+                continue
+            if cls._is_semantic_index_kind(cls._defined_index_kind(idx)):
+                semantic.append(name)
+            else:
+                definitions.append(idx)
+        result = {
+            "ok": True,
+            "class": cls.__name__,
+            "config_uid": cfg_uid,
+            "nodes": 0,
+            "indexes": len(definitions),
+            "semantic_skipped": semantic,
+            "index_nodes": {str(x.get("name") or ""): 0 for x in definitions},
+            "errors": [],
+        }
+        if not definitions:
+            return result
+
+        cls._bulk_ensure_storage(cfg_uid)
+        db_path = cls._bulk_storage_path(cfg_uid)
+        conn = sqlite3.connect(db_path, timeout=120.0)
+        buckets = {str(idx.get("name")): {} for idx in definitions}
+        try:
+            table = cls._atomic_sqlite_table(conn)
+            qtable = '"' + table.replace('"', '""') + '"'
+            cursor = conn.execute(f"SELECT key, value FROM {qtable}")
+            for row_no, (node_id, raw) in enumerate(cursor, 1):
+                if isinstance(raw, memoryview):
+                    raw = raw.tobytes()
+                try:
+                    record = pickle.loads(raw)
+                    data = (record or {}).get("_data") or {}
+                except Exception:
+                    data = {}
+                if not isinstance(data, dict):
+                    data = {}
+                for idx in definitions:
+                    name = str(idx.get("name") or "")
+                    keys_spec = idx.get("keys") or idx.get("field") or idx.get("key") or idx.get("fields") or ""
+                    values = cls._extract_index_values(data, keys_spec)
+                    for value in values:
+                        if value:
+                            buckets[name].setdefault(str(value), []).append(str(node_id))
+                            result["index_nodes"][name] += 1
+                result["nodes"] = row_no
+                if row_no % 5000 == 0 and _background_jobs is not None:
+                    try:
+                        _background_jobs.update_progress(
+                            text=(progress_text or f"Rebuilding {cls.__name__} indexes") + f": {row_no}",
+                        )
+                        _background_jobs.raise_if_cancelled()
+                    except Exception as exc:
+                        if exc.__class__.__name__ == "JobCancelled":
+                            raise
+        finally:
+            conn.close()
+
+        for idx in definitions:
+            name = str(idx.get("name") or "")
+            try:
+                cls._bulk_replace_plain_index(name, cfg_uid, buckets.get(name) or {})
+            except Exception as exc:
+                result["ok"] = False
+                result["errors"].append(f"{name}: {exc}")
+        return result
+
+    @classmethod
+    def rebuild_date_index_fast(cls, config_uid=None) -> dict:
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        cls._bulk_ensure_storage(cfg_uid)
+        date_store = cls._get_date_index_storage(cfg_uid)
+        storage_key = f"{cls.__name__}_{cfg_uid}" if cfg_uid else cls.__name__
+        db_path = os.path.join(STORAGE_BASE_PATH, f"{storage_key}__date_index.sqlite")
+        try:
+            db_path = str(date_store.filename)
+        except Exception:
+            pass
+        main_conn = sqlite3.connect(cls._bulk_storage_path(cfg_uid), timeout=120.0)
+        rows = []
+        try:
+            table = cls._atomic_sqlite_table(main_conn)
+            qtable = '"' + table.replace('"', '""') + '"'
+            for node_id, raw in main_conn.execute(f"SELECT key, value FROM {qtable}"):
+                if isinstance(raw, memoryview):
+                    raw = raw.tobytes()
+                try:
+                    record = pickle.loads(raw)
+                    data = (record or {}).get("_data") or {}
+                except Exception:
+                    data = {}
+                date_key = normalize_date_key((data or {}).get("_date_key") or (data or {}).get("_date"))
+                if date_key:
+                    rows.append((cls._date_index_key(date_key, str(node_id)), 1))
+        finally:
+            main_conn.close()
+        conn = sqlite3.connect(db_path, timeout=120.0, isolation_level=None)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            table = cls._atomic_sqlite_table(conn)
+            qtable = '"' + table.replace('"', '""') + '"'
+            conn.execute(f"DELETE FROM {qtable}")
+            if rows:
+                conn.executemany(
+                    f"INSERT OR REPLACE INTO {qtable} (key, value) VALUES (?, ?)",
+                    [(k, sqlite3.Binary(pickle.dumps(v, protocol=pickle.HIGHEST_PROTOCOL))) for k, v in rows],
+                )
+            conn.commit()
+        finally:
+            conn.close()
+        return {"ok": True, "rows": len(rows)}
+
+    @classmethod
+    def bulk_upsert(cls, items, config_uid=None, chunk_size=1000, rebuild_indexes=True, run_handlers=True) -> dict:
+        """Insert/update many nodes with one SQLite transaction per chunk.
+
+        onAcceptServer is executed against the in-memory candidate before the
+        chunk is persisted. onAfterAcceptServer runs after persistence. Derived
+        ordinary indexes are rebuilt once, linearly, after the import.
+        """
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        values = list(items or [])
+        chunk_size = max(50, min(5000, int(chunk_size or 1000)))
+        total = len(values)
+        written = 0
+        started = time.perf_counter()
+        after_nodes = []
+        for start in range(0, total, chunk_size):
+            if _background_jobs is not None:
+                _background_jobs.raise_if_cancelled()
+            # Guards are only needed inside one save graph. Bulk items are
+            # independent, so do not retain 100k keys for the whole job.
+            try:
+                ACCEPT_GUARD.set(set())
+                AFTER_ACCEPT_GUARD.set(set())
+            except Exception:
+                pass
+            chunk = values[start:start + chunk_size]
+            ids = []
+            normalized = []
+            for item in chunk:
+                if not isinstance(item, dict):
+                    raise ValueError("Bulk item must be an object")
+                raw_id = item.get("_id")
+                try:
+                    _cfg, _cls, internal_id = parse_uid_any(raw_id)
+                except Exception:
+                    internal_id = None
+                node_id = str(internal_id or raw_id or uuid.uuid4()).strip()
+                ids.append(node_id)
+                normalized.append((node_id, dict(item)))
+            existing = cls._bulk_read_records(cfg_uid, ids)
+            records = {}
+            after_nodes = []
+            # onAccept guard is request/job local; unique ids remain independent.
+            for node_id, user_data in normalized:
+                old_record = existing.get(node_id) or {}
+                saved_state = dict((old_record or {}).get("_data") or {})
+                new_state = dict(saved_state)
+                for key, value in user_data.items():
+                    if key not in {"_id", "_class", "_user_modification"}:
+                        new_state[key] = value
+                new_state["_id"] = normalize_own_uid(cfg_uid, cls.__name__, node_id)
+                new_state["_class"] = cls.__name__
+
+                node = object.__new__(cls)
+                node._id = node_id
+                node._config_uid = cfg_uid
+                node._schema_class_name = cls.__name__
+                node._storage = cls._bulk_ensure_storage(cfg_uid)
+                node._lock = threading.RLock()
+                node._data_cache = dict(new_state)
+                if run_handlers:
+                    run_on_accept_server_once(node, saved_state, user_data)
+                candidate = node._data_cache if isinstance(node._data_cache, dict) else new_state
+                audited = _apply_node_audit(dict(candidate), saved_state)
+                now = datetime.now(timezone.utc).isoformat()
+                record = dict(old_record) if isinstance(old_record, dict) else {}
+                record.update({
+                    "_id": node_id,
+                    "_class": cls.__name__,
+                    "_config_uid": cfg_uid,
+                    "_data": audited,
+                    "_created_at": record.get("_created_at") or now,
+                    "_updated_at": now,
+                })
+                records[node_id] = record
+                node._data_cache = dict(audited)
+                after_nodes.append((node, saved_state, user_data))
+            cls._bulk_write_records(cfg_uid, records)
+            written += len(records)
+            if run_handlers:
+                for node, saved_state, user_data in after_nodes:
+                    run_on_after_accept_server_once(node, saved_state, user_data)
+            try:
+                _call_bridge(
+                    "update_nodes_rls_index_bulk_global",
+                    cfg_uid,
+                    cls.__name__,
+                    [
+                        {"node_id": node_id, "data": (record or {}).get("_data") or {}}
+                        for node_id, record in records.items()
+                    ],
+                )
+            except Exception:
+                pass
+            if _background_jobs is not None:
+                _background_jobs.update_progress(
+                    current=written,
+                    total=total,
+                    text=f"{cls.__name__}: written {written} of {total}",
+                )
+
+        index_result = None
+        date_result = None
+        if rebuild_indexes:
+            index_result = cls.rebuild_plain_indexes_fast(
+                cfg_uid, progress_text=f"{cls.__name__}: rebuilding indexes"
+            )
+            semantic_names = list((index_result or {}).get("semantic_skipped") or [])
+            if semantic_names:
+                semantic_result = cls.rebuild_defined_indexes(cfg_uid, index_names=semantic_names)
+                index_result["semantic"] = semantic_result
+                if not semantic_result.get("ok", True):
+                    index_result["ok"] = False
+                    index_result.setdefault("errors", []).extend(semantic_result.get("errors") or [])
+            try:
+                date_result = cls.rebuild_date_index_fast(cfg_uid)
+            except Exception:
+                date_result = {"ok": False}
+
+        return {
+            "ok": True,
+            "class": cls.__name__,
+            "count": written,
+            "seconds": time.perf_counter() - started,
+            "indexes": index_result,
+            "date_index": date_result,
+        }
+
+    @classmethod
+    def bulk_delete(cls, node_ids, config_uid=None, rebuild_indexes=True) -> dict:
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        ids = [str(x) for x in (node_ids or []) if str(x)]
+        if not ids:
+            return {"ok": True, "count": 0}
+        cls._bulk_ensure_storage(cfg_uid)
+        conn = sqlite3.connect(cls._bulk_storage_path(cfg_uid), timeout=120.0, isolation_level=None)
+        deleted = 0
+        try:
+            conn.execute("PRAGMA busy_timeout=120000")
+            conn.execute("BEGIN IMMEDIATE")
+            table = cls._atomic_sqlite_table(conn)
+            qtable = '"' + table.replace('"', '""') + '"'
+            for start in range(0, len(ids), 800):
+                part = ids[start:start + 800]
+                marks = ','.join('?' for _ in part)
+                cur = conn.execute(f"DELETE FROM {qtable} WHERE key IN ({marks})", part)
+                deleted += max(0, int(cur.rowcount or 0))
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+        finally:
+            conn.close()
+        for node_id in ids:
+            cls._instance_locks.pop(node_id, None)
+        if rebuild_indexes:
+            index_result = cls.rebuild_plain_indexes_fast(cfg_uid)
+            semantic_names = list((index_result or {}).get("semantic_skipped") or [])
+            if semantic_names:
+                cls.rebuild_defined_indexes(cfg_uid, index_names=semantic_names)
+            try:
+                cls.rebuild_date_index_fast(cfg_uid)
+            except Exception:
+                pass
+        return {"ok": True, "count": deleted}
 
     def atomic_update(
         self,
@@ -2531,7 +3185,162 @@ class Node:
             if cand in storage:
                 return cls(cand, effective_config_uid)
         return None
+
+    @classmethod
+    def get_many_data(cls, node_ids, config_uid=None):
+        """Read many nodes as plain data dictionaries without constructing Node objects.
+
+        This is intended for reports and planning algorithms that need to enrich a
+        large QuantLedger slice.  ``Node.get()`` performs several storage lookups
+        per object (existence check, constructor check, then data read); doing that
+        for every report row creates a classic N+1 bottleneck.  This method performs
+        one storage read per *unique* id and never writes or runs handlers.
+
+        The result contains entries under the exact supplied reference and, when
+        unambiguous, under its internal id as well. Missing nodes are omitted.
+        """
+        values = list(node_ids or [])
+        if not values:
+            return {}
+
+        default_config_uid = config_uid
+        if not default_config_uid:
+            default_config_uid = current_config_uid_from_handlers()
+        if not default_config_uid:
+            try:
+                default_config_uid = CURRENT_CONFIG_UID.get()
+            except Exception:
+                default_config_uid = None
+
+        grouped = {}
+        requested = []
+        for raw_value in values:
+            raw = str(raw_value or "").strip()
+            if not raw:
+                continue
+            try:
+                uid_cfg, uid_cls, internal_id = parse_uid_any(raw)
+            except Exception:
+                uid_cfg, uid_cls, internal_id = None, None, raw
+            if uid_cls and str(uid_cls) != str(cls.__name__):
+                continue
+            effective_uid = str(config_uid or uid_cfg or default_config_uid or "").strip()
+            internal = str(internal_id or raw).strip()
+            if not internal:
+                continue
+            grouped.setdefault(effective_uid, {})[internal] = raw
+            requested.append((raw, effective_uid, internal))
+
+        loaded = {}
+        by_internal = {}
+        for effective_uid, ids in grouped.items():
+            storage_key = f"{cls.__name__}_{effective_uid}" if effective_uid else cls.__name__
+            if storage_key not in cls._class_storages:
+                if storage_key not in cls._storage_locks:
+                    cls._storage_locks[storage_key] = threading.RLock()
+                with cls._storage_locks[storage_key]:
+                    if storage_key not in cls._class_storages:
+                        db_path = os.path.join(STORAGE_BASE_PATH, f"{storage_key}.sqlite")
+                        if not os.path.exists(db_path):
+                            continue
+                        try:
+                            cls._class_storages[storage_key] = SqliteDict(db_path, autocommit=True)
+                        except Exception:
+                            continue
+            storage = cls._class_storages.get(storage_key)
+            if storage is None:
+                continue
+
+            for internal, original_raw in ids.items():
+                raw_record = None
+                try:
+                    raw_record = storage.get(internal)
+                except Exception:
+                    raw_record = None
+                if raw_record is None and original_raw != internal:
+                    try:
+                        raw_record = storage.get(original_raw)
+                    except Exception:
+                        raw_record = None
+                if not isinstance(raw_record, dict):
+                    continue
+                raw_data = raw_record.get("_data")
+                if not isinstance(raw_data, dict):
+                    continue
+                data = dict(raw_data)
+                data.setdefault("_class", cls.__name__)
+                data["_id"] = normalize_own_uid(
+                    effective_uid,
+                    cls.__name__,
+                    data.get("_id") or internal,
+                )
+                loaded[(effective_uid, internal)] = data
+                by_internal.setdefault(internal, data)
+
+        result = {}
+        for raw, effective_uid, internal in requested:
+            data = loaded.get((effective_uid, internal))
+            if data is None:
+                continue
+            result[raw] = data
+            result.setdefault(internal, data)
+            full_uid = normalize_own_uid(effective_uid, cls.__name__, internal)
+            result.setdefault(full_uid, data)
+        return result
     
+    @classmethod
+    def get_all_data(cls, config_uid=None, limit=None):
+        """Read a class as plain dictionaries without constructing Node objects.
+
+        Use this for reports that genuinely need a complete small/medium class
+        scan and cannot narrow the candidate set with an index. Unlike
+        ``get_all()``, this method does not instantiate handlers, run events or
+        populate Node caches. For large classes prefer ``find_ids_by_index()``
+        followed by ``get_many_data()``.
+        """
+        if not config_uid:
+            config_uid = current_config_uid_from_handlers()
+        if not config_uid:
+            try:
+                config_uid = CURRENT_CONFIG_UID.get()
+            except Exception:
+                config_uid = None
+
+        storage_key = f"{cls.__name__}_{config_uid}" if config_uid else cls.__name__
+        if storage_key not in cls._class_storages:
+            if storage_key not in cls._storage_locks:
+                cls._storage_locks[storage_key] = threading.RLock()
+            with cls._storage_locks[storage_key]:
+                if storage_key not in cls._class_storages:
+                    db_path = os.path.join(STORAGE_BASE_PATH, f"{storage_key}.sqlite")
+                    if not os.path.exists(db_path):
+                        return {}
+                    cls._class_storages[storage_key] = SqliteDict(db_path, autocommit=True)
+
+        storage = cls._class_storages[storage_key]
+        max_rows = None if limit is None else max(0, int(limit))
+        result = {}
+        count = 0
+        for internal_id, raw_record in storage.items():
+            if max_rows is not None and count >= max_rows:
+                break
+            if not isinstance(raw_record, dict):
+                continue
+            raw_data = raw_record.get("_data")
+            if not isinstance(raw_data, dict):
+                continue
+            data = dict(raw_data)
+            data.setdefault("_class", cls.__name__)
+            full_uid = normalize_own_uid(
+                config_uid,
+                cls.__name__,
+                data.get("_id") or internal_id,
+            )
+            data["_id"] = full_uid
+            result[full_uid] = data
+            count += 1
+        return result
+
     @classmethod
     def get_all(cls, config_uid=None):
         if not config_uid:
@@ -2787,6 +3596,325 @@ class Node:
                     db_path = os.path.join(STORAGE_BASE_PATH, f"{storage_key}.sqlite")
                     cls._defined_index_storages[storage_key] = SqliteDict(db_path, autocommit=True)
         return cls._defined_index_storages[storage_key]
+
+    @classmethod
+    def _text_search_db_path(cls, index_name: str, config_uid=None) -> str:
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        storage_key = f"{cls.__name__}_{cfg_uid}__idx__{index_name}" if cfg_uid else f"{cls.__name__}__idx__{index_name}"
+        return os.path.join(STORAGE_BASE_PATH, f"{storage_key}.sqlite")
+
+    @staticmethod
+    def _text_search_table_names():
+        return "noda_text_keys", "noda_text_fts", "noda_text_meta"
+
+    @classmethod
+    def _ensure_text_search_sidecar(
+        cls, conn, source_table: str, force_rebuild: bool = False, allow_rebuild: bool = True
+    ) -> bool:
+        """Prepare a Unicode substring search sidecar for text indexes.
+
+        The old limited Section search called a Python ``casefold`` UDF for
+        every one of 100k index keys.  That preserves Unicode correctness but
+        crosses the Python/SQLite boundary 100k times per key press.  The
+        sidecar stores casefolded keys once and, when SQLite supports it, uses
+        FTS5's trigram tokenizer for indexed substring lookup.
+        """
+        key_table, fts_table, meta_table = cls._text_search_table_names()
+        qsource = '"' + str(source_table).replace('"', '""') + '"'
+        conn.execute(
+            f'CREATE TABLE IF NOT EXISTS "{key_table}" ('
+            'key TEXT PRIMARY KEY, norm_key TEXT NOT NULL)'
+        )
+        conn.execute(
+            f'CREATE INDEX IF NOT EXISTS "{key_table}_norm" ON "{key_table}" (norm_key)'
+        )
+        conn.execute(
+            f'CREATE TABLE IF NOT EXISTS "{meta_table}" ('
+            'id INTEGER PRIMARY KEY CHECK(id=1), source_rows INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 1)'
+        )
+
+        fts_available = True
+        try:
+            conn.execute(
+                f'CREATE VIRTUAL TABLE IF NOT EXISTS "{fts_table}" '
+                "USING fts5(key UNINDEXED, norm_key, tokenize='trigram')"
+            )
+        except Exception:
+            fts_available = False
+
+        # Search requests and normal incremental writes only need the schema.
+        # Rebuilding 100k normalized keys here made one stale async update turn
+        # the next Section search into a multi-second foreground operation.
+        if not allow_rebuild and not force_rebuild:
+            return fts_available
+
+        source_rows = int(conn.execute(f"SELECT COUNT(*) FROM {qsource}").fetchone()[0] or 0)
+        side_rows = int(conn.execute(f'SELECT COUNT(*) FROM "{key_table}"').fetchone()[0] or 0)
+        meta = conn.execute(
+            f'SELECT source_rows, version FROM "{meta_table}" WHERE id=1'
+        ).fetchone()
+        ready = bool(meta and int(meta[0] or 0) == source_rows and int(meta[1] or 0) == 1 and side_rows == source_rows)
+        if force_rebuild or not ready:
+            conn.execute(f'DELETE FROM "{key_table}"')
+            rows = []
+            for (raw_key,) in conn.execute(f"SELECT CAST(key AS TEXT) FROM {qsource}"):
+                key = str(raw_key or "")
+                if key:
+                    rows.append((key, key.casefold()))
+                    if len(rows) >= 5000:
+                        conn.executemany(
+                            f'INSERT OR REPLACE INTO "{key_table}" (key, norm_key) VALUES (?, ?)',
+                            rows,
+                        )
+                        rows = []
+            if rows:
+                conn.executemany(
+                    f'INSERT OR REPLACE INTO "{key_table}" (key, norm_key) VALUES (?, ?)',
+                    rows,
+                )
+            if fts_available:
+                conn.execute(f'DELETE FROM "{fts_table}"')
+                conn.execute(
+                    f'INSERT INTO "{fts_table}" (key, norm_key) '
+                    f'SELECT key, norm_key FROM "{key_table}"'
+                )
+            conn.execute(
+                f'INSERT OR REPLACE INTO "{meta_table}" (id, source_rows, version) VALUES (1, ?, 1)',
+                (source_rows,),
+            )
+        elif fts_available:
+            # An older sidecar may have the normalized table but no populated
+            # FTS table.  Building it once is still far cheaper than scanning
+            # through Python on every search.
+            fts_rows = int(conn.execute(f'SELECT COUNT(*) FROM "{fts_table}"').fetchone()[0] or 0)
+            if fts_rows != source_rows:
+                conn.execute(f'DELETE FROM "{fts_table}"')
+                conn.execute(
+                    f'INSERT INTO "{fts_table}" (key, norm_key) '
+                    f'SELECT key, norm_key FROM "{key_table}"'
+                )
+        return fts_available
+
+    @classmethod
+    def _queue_text_search_sidecar_rebuild(cls, index_name: str, config_uid=None) -> None:
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        token = (cls.__name__, cfg_uid, str(index_name or "").strip())
+        with Node._text_sidecar_rebuild_pending_lock:
+            if token in Node._text_sidecar_rebuild_pending:
+                return
+            Node._text_sidecar_rebuild_pending.add(token)
+
+        def work():
+            try:
+                cls._rebuild_text_search_sidecar(index_name, cfg_uid)
+            except Exception as exc:
+                print("text search sidecar rebuild error", token, repr(exc))
+            finally:
+                with Node._text_sidecar_rebuild_pending_lock:
+                    Node._text_sidecar_rebuild_pending.discard(token)
+
+        cls._get_async_index_executor().submit(work)
+
+    @classmethod
+    def _sync_text_search_sidecar(cls, index_name: str, config_uid, removed, added) -> None:
+        db_path = cls._text_search_db_path(index_name, config_uid)
+        if not os.path.exists(db_path):
+            return
+        conn = sqlite3.connect(db_path, timeout=5.0, isolation_level=None)
+        needs_rebuild = False
+        try:
+            conn.execute("PRAGMA busy_timeout=5000")
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+            except Exception:
+                pass
+            conn.execute("BEGIN IMMEDIATE")
+            source_table = cls._atomic_sqlite_table(conn)
+            qsource = '"' + source_table.replace('"', '""') + '"'
+            fts_available = cls._ensure_text_search_sidecar(
+                conn, source_table, allow_rebuild=False
+            )
+            key_table, fts_table, meta_table = cls._text_search_table_names()
+            meta = conn.execute(
+                f'SELECT source_rows, version FROM "{meta_table}" WHERE id=1'
+            ).fetchone()
+
+            # An old installation can have the source index but no normalized
+            # sidecar yet. Do not rebuild it inside a save/index worker while it
+            # owns this transaction; enqueue one ordered full build instead.
+            if not meta:
+                source_has_rows = conn.execute(
+                    f"SELECT 1 FROM {qsource} LIMIT 1"
+                ).fetchone() is not None
+                side_has_rows = conn.execute(
+                    f'SELECT 1 FROM "{key_table}" LIMIT 1'
+                ).fetchone() is not None
+                if source_has_rows and not side_has_rows:
+                    needs_rebuild = True
+                    conn.commit()
+                    return
+
+            for raw in removed or ():
+                key = str(raw or "")
+                if not key:
+                    continue
+                still_exists = conn.execute(
+                    f"SELECT 1 FROM {qsource} WHERE key=? LIMIT 1", (key,)
+                ).fetchone()
+                if still_exists:
+                    continue
+                conn.execute(f'DELETE FROM "{key_table}" WHERE key=?', (key,))
+                if fts_available:
+                    # Deletion is uncommon. Keep compatibility with the existing
+                    # FTS layout; additions below avoid this full FTS key scan.
+                    conn.execute(f'DELETE FROM "{fts_table}" WHERE key=?', (key,))
+
+            for raw in added or ():
+                key = str(raw or "")
+                if not key:
+                    continue
+                already_present = conn.execute(
+                    f'SELECT 1 FROM "{key_table}" WHERE key=? LIMIT 1', (key,)
+                ).fetchone()
+                if already_present:
+                    # The bucket changed, but the searchable text did not.
+                    continue
+                folded = key.casefold()
+                conn.execute(
+                    f'INSERT OR REPLACE INTO "{key_table}" (key, norm_key) VALUES (?, ?)',
+                    (key, folded),
+                )
+                if fts_available:
+                    conn.execute(
+                        f'INSERT INTO "{fts_table}" (key, norm_key) VALUES (?, ?)',
+                        (key, folded),
+                    )
+
+            # Meta is advisory now; foreground search deliberately does not
+            # compare full-table counts. Keep it consistent at background cost.
+            side_rows = int(
+                conn.execute(f'SELECT COUNT(*) FROM "{key_table}"').fetchone()[0] or 0
+            )
+            conn.execute(
+                f'INSERT OR REPLACE INTO "{meta_table}" (id, source_rows, version) VALUES (1, ?, 1)',
+                (side_rows,),
+            )
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            # Search has a compatibility fallback, so a sidecar failure must
+            # never make the business save fail. Rebuild later, once.
+            needs_rebuild = True
+        finally:
+            conn.close()
+            if needs_rebuild:
+                cls._queue_text_search_sidecar_rebuild(index_name, config_uid)
+
+    @classmethod
+    def _rebuild_text_search_sidecar(cls, index_name: str, config_uid=None) -> None:
+        db_path = cls._text_search_db_path(index_name, config_uid)
+        conn = sqlite3.connect(db_path, timeout=120.0, isolation_level=None)
+        try:
+            conn.execute("PRAGMA busy_timeout=120000")
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+            except Exception:
+                pass
+            conn.execute("BEGIN IMMEDIATE")
+            source_table = cls._atomic_sqlite_table(conn)
+            cls._ensure_text_search_sidecar(conn, source_table, force_rebuild=True)
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+        finally:
+            conn.close()
+
+    @classmethod
+    def _search_text_sidecar(cls, index_name: str, config_uid, needles, bidirectional: bool, result_limit: int):
+        db_path = cls._text_search_db_path(index_name, config_uid)
+        conn = sqlite3.connect(db_path, timeout=1.5, isolation_level=None)
+        keys = []
+        seen = set()
+        needs_rebuild = False
+        try:
+            conn.execute("PRAGMA busy_timeout=1500")
+            conn.execute("BEGIN")
+            source_table = cls._atomic_sqlite_table(conn)
+            fts_available = cls._ensure_text_search_sidecar(
+                conn, source_table, allow_rebuild=False
+            )
+            key_table, fts_table, meta_table = cls._text_search_table_names()
+            meta = conn.execute(
+                f'SELECT source_rows, version FROM "{meta_table}" WHERE id=1'
+            ).fetchone()
+            if not meta:
+                needs_rebuild = True
+                return None
+            cap = max(20, int(result_limit or 20) * 4)
+
+            for _original, normalized in needles:
+                folded = str(normalized or "").casefold()
+                if not folded:
+                    continue
+                rows = []
+                if fts_available and len(folded) >= 3:
+                    # A quoted trigram query keeps the original substring
+                    # semantics, including spaces and punctuation.
+                    phrase = '"' + folded.replace('"', '""') + '"'
+                    try:
+                        rows = conn.execute(
+                            f'SELECT key FROM "{fts_table}" WHERE norm_key MATCH ? LIMIT ?',
+                            (phrase, cap),
+                        ).fetchall()
+                    except Exception:
+                        rows = []
+                if not rows:
+                    sql = f'SELECT key FROM "{key_table}" WHERE INSTR(norm_key, ?) > 0'
+                    params = [folded]
+                    if bidirectional:
+                        sql += ' OR INSTR(?, norm_key) > 0'
+                        params.append(folded)
+                    sql += ' LIMIT ?'
+                    params.append(cap)
+                    rows = conn.execute(sql, params).fetchall()
+                elif bidirectional and len(keys) < cap:
+                    # text_index_full also accepts a stored key contained in
+                    # the query.  Keep that legacy direction as a limited C
+                    # scan over pre-normalized text.
+                    extra = conn.execute(
+                        f'SELECT key FROM "{key_table}" WHERE INSTR(?, norm_key) > 0 LIMIT ?',
+                        (folded, cap),
+                    ).fetchall()
+                    rows.extend(extra)
+
+                for row in rows:
+                    key = str((row or [""])[0] or "")
+                    if key and key not in seen:
+                        seen.add(key)
+                        keys.append(key)
+                        if len(keys) >= cap:
+                            break
+                if len(keys) >= cap:
+                    break
+            conn.commit()
+            return keys
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            return None
+        finally:
+            conn.close()
+            if needs_rebuild:
+                cls._queue_text_search_sidecar_rebuild(index_name, config_uid)
 
     @staticmethod
     def _extract_index_values(data: dict, keys_spec: str) -> list[str]:
@@ -3099,7 +4227,19 @@ class Node:
                 return False
         try:
             store = cls._defined_index_storage(index_name, config_uid)
-            return bool(list(store.keys()))
+            try:
+                db_path = str(store.filename)
+            except Exception:
+                cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+                storage_key = f"{cls.__name__}_{cfg_uid}__idx__{index_name}" if cfg_uid else f"{cls.__name__}__idx__{index_name}"
+                db_path = os.path.join(STORAGE_BASE_PATH, f"{storage_key}.sqlite")
+            conn = sqlite3.connect(db_path, timeout=10.0)
+            try:
+                table = cls._atomic_sqlite_table(conn)
+                qtable = '"' + table.replace('"', '""') + '"'
+                return conn.execute(f"SELECT 1 FROM {qtable} LIMIT 1").fetchone() is not None
+            finally:
+                conn.close()
         except Exception:
             return False
 
@@ -3628,6 +4768,144 @@ class Node:
             return Node._async_index_executor
 
     @classmethod
+    def _defined_index_delta_path(cls, index_name: str, config_uid=None) -> str:
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        storage_key = (
+            f"{cls.__name__}_{cfg_uid}__idx__{index_name}__delta"
+            if cfg_uid else f"{cls.__name__}__idx__{index_name}__delta"
+        )
+        return os.path.join(STORAGE_BASE_PATH, storage_key + ".sqlite")
+
+    @classmethod
+    def _apply_hash_index_delta(cls, index_name, config_uid, node_id, removed, added) -> None:
+        """Overlay exact-index changes without rewriting a potentially huge bucket.
+
+        The historical index format stores ``value -> [node ids]``.  Rewriting a
+        100k-id low-cardinality bucket for one new item is quadratic and can take
+        minutes.  Keep that base format for compatibility, but store subsequent
+        membership changes as tiny rows in a sidecar.  Reads merge base + overlay;
+        a normal fast rebuild folds the overlay back into the base and clears it.
+        """
+        removed = [str(x) for x in (removed or []) if str(x)]
+        added = [str(x) for x in (added or []) if str(x)]
+        if not removed and not added:
+            return
+        path = cls._defined_index_delta_path(index_name, config_uid)
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        ready = getattr(Node, "_hash_index_delta_ready", None)
+        if ready is None:
+            ready = set()
+            Node._hash_index_delta_ready = ready
+        ready_lock = getattr(Node, "_hash_index_delta_ready_lock", None)
+        if ready_lock is None:
+            ready_lock = threading.RLock()
+            Node._hash_index_delta_ready_lock = ready_lock
+
+        conn = sqlite3.connect(path, timeout=30.0, isolation_level=None)
+        try:
+            conn.execute("PRAGMA busy_timeout=30000")
+            if path not in ready:
+                with ready_lock:
+                    if path not in ready:
+                        conn.execute(
+                            "CREATE TABLE IF NOT EXISTS index_delta ("
+                            "value TEXT NOT NULL, node_id TEXT NOT NULL, present INTEGER NOT NULL,"
+                            "PRIMARY KEY(value,node_id))"
+                        )
+                        conn.execute(
+                            "CREATE INDEX IF NOT EXISTS idx_index_delta_value "
+                            "ON index_delta(value,present,node_id)"
+                        )
+                        ready.add(path)
+            conn.execute("BEGIN IMMEDIATE")
+            sid = str(node_id)
+            rows = [(value, sid, 0) for value in removed] + [(value, sid, 1) for value in added]
+            conn.executemany(
+                "INSERT INTO index_delta(value,node_id,present) VALUES(?,?,?) "
+                "ON CONFLICT(value,node_id) DO UPDATE SET present=excluded.present",
+                rows,
+            )
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+        finally:
+            conn.close()
+
+    @classmethod
+    def _hash_index_delta_for_value(cls, index_name, config_uid, value):
+        path = cls._defined_index_delta_path(index_name, config_uid)
+        if not os.path.isfile(path):
+            return []
+        conn = sqlite3.connect(path, timeout=10.0)
+        try:
+            return [
+                (str(node_id), bool(present))
+                for node_id, present in conn.execute(
+                    "SELECT node_id,present FROM index_delta WHERE value=?",
+                    (str(value),),
+                ).fetchall()
+            ]
+        except sqlite3.OperationalError:
+            return []
+        finally:
+            conn.close()
+
+    @classmethod
+    def _hash_index_delta_values(cls, index_name, config_uid):
+        path = cls._defined_index_delta_path(index_name, config_uid)
+        if not os.path.isfile(path):
+            return []
+        conn = sqlite3.connect(path, timeout=10.0)
+        try:
+            return [str(row[0]) for row in conn.execute("SELECT DISTINCT value FROM index_delta").fetchall()]
+        except sqlite3.OperationalError:
+            return []
+        finally:
+            conn.close()
+
+    @classmethod
+    def _hash_index_effective_bucket(cls, index_name, config_uid, store, value):
+        try:
+            base = [str(x) for x in (store.get(str(value), []) or [])]
+        except Exception:
+            base = []
+        out = list(base)
+        positions = {node_id: idx for idx, node_id in enumerate(out)}
+        removed = set()
+        added = []
+        for node_id, present in cls._hash_index_delta_for_value(index_name, config_uid, value):
+            if present:
+                removed.discard(node_id)
+                if node_id not in positions and node_id not in added:
+                    added.append(node_id)
+            else:
+                removed.add(node_id)
+                if node_id in added:
+                    added.remove(node_id)
+        if removed:
+            out = [node_id for node_id in out if node_id not in removed]
+        out.extend(added)
+        return out
+
+    @classmethod
+    def _clear_hash_index_delta(cls, index_name, config_uid) -> None:
+        path = cls._defined_index_delta_path(index_name, config_uid)
+        if not os.path.isfile(path):
+            return
+        conn = sqlite3.connect(path, timeout=30.0)
+        try:
+            conn.execute("DELETE FROM index_delta")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+        finally:
+            conn.close()
+
+    @classmethod
     def _write_one_defined_index(cls, config_uid, node_id, old_state, new_state, idx, strict=False) -> bool:
         """Synchronously apply one index delta. Return whether storage changed."""
         if not isinstance(idx, dict):
@@ -3668,10 +4946,27 @@ class Node:
         removed = old_set - new_set
         added = new_set - old_set
 
-        # Protect the read-modify-write bucket update from another request or
-        # the optional background worker in this process. SQLite serializes
-        # statements, but without this lock two writers can still overwrite a
-        # bucket built from the same old value.
+        # Exact/hash indexes use an O(1) membership overlay.  This is critical
+        # for low-cardinality fields such as placement_zone where one bucket can
+        # contain 100 000 item ids.  The previous read/append/rewrite path made a
+        # single web save take minutes.
+        if idx_kind == "hash_index":
+            try:
+                cls._apply_hash_index_delta(name, config_uid, node_id, removed, added)
+                for val in removed:
+                    cls._index_debug("IDX DELTA DELETE", name, config_uid, val, str(node_id))
+                for val in added:
+                    cls._index_debug("IDX DELTA WRITE", name, config_uid, val, str(node_id))
+                return bool(removed or added)
+            except Exception as e:
+                if strict:
+                    raise RuntimeError(f"{name}: hash index delta failed: {e}") from e
+                print("hash_index delta update error", name, config_uid, node_id, e)
+                return False
+
+        # Text/fuzzy indexes keep the historical bucket path. Their keys are
+        # normally high-cardinality and the search sidecar depends on them.
+        # Protect the read-modify-write update from concurrent writers.
         cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
         storage_key = f"{cls.__name__}_{cfg_uid}__idx__{name}" if cfg_uid else f"{cls.__name__}__idx__{name}"
         index_lock = cls._defined_index_locks.setdefault(storage_key, threading.RLock())
@@ -3700,6 +4995,8 @@ class Node:
                 except Exception as e:
                     if strict:
                         raise RuntimeError(f"{name}: index update failed: {e}") from e
+        if idx_kind in {"text_index", "text_index_full"} and (removed or added):
+            cls._sync_text_search_sidecar(name, config_uid, removed, added)
         return bool(removed or added)
 
     @classmethod
@@ -3779,7 +5076,7 @@ class Node:
         return kind or "hash_index"
 
     @classmethod
-    def find_ids_by_index(cls, index_name: str, value, config_uid=None) -> list[str]:
+    def find_ids_by_index(cls, index_name: str, value, config_uid=None, limit=None) -> list[str]:
         cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
         name = str(index_name or "").strip()
         if not name:
@@ -3788,7 +5085,11 @@ class Node:
         idx_def = cls._defined_index_def(name, cfg_uid)
         idx_kind = cls._defined_index_kind(idx_def)
         if cls._is_semantic_index_kind(idx_kind):
-            return cls._semantic_find_ids(name, value, cfg_uid)
+            result = cls._semantic_find_ids(name, value, cfg_uid)
+            try:
+                return result[:max(0, int(limit))] if limit is not None else result
+            except Exception:
+                return result
         store = cls._defined_index_storage(name, cfg_uid)
 
         def _lookup_variants(one):
@@ -3844,84 +5145,167 @@ class Node:
                 except Exception:
                     values = raw
 
+        try:
+            result_limit = max(0, int(limit)) if limit is not None else None
+        except Exception:
+            result_limit = None
+
         def _append_bucket(out, seen, bucket):
             for x in (bucket or []):
                 sx = str(x)
                 if sx not in seen:
                     seen.add(sx)
                     out.append(sx)
+                    if result_limit is not None and len(out) >= result_limit:
+                        break
 
         def _collect_hash_many(seq):
             out = []
             seen = set()
-            wanted_refs = []
-            wanted_refs_seen = set()
+            unresolved_refs = []
+            unresolved_seen = set()
+
+            def add_effective(value):
+                bucket = cls._hash_index_effective_bucket(name, cfg_uid, store, value)
+                before = len(out)
+                _append_bucket(out, seen, bucket)
+                return len(out) > before
 
             for one in seq:
+                found = False
                 for variant in _lookup_variants(one):
-                    try:
-                        res = store.get(str(variant), []) or []
-                    except Exception:
-                        res = []
-                    _append_bucket(out, seen, res)
+                    if add_effective(variant):
+                        found = True
+                    if result_limit is not None and len(out) >= result_limit:
+                        return out
                 nref = _normalized_node_ref(one)
-                if nref and nref not in wanted_refs_seen:
-                    wanted_refs_seen.add(nref)
-                    wanted_refs.append(nref)
+                # The old implementation scanned every index key even when the
+                # direct full-UID lookup had already succeeded.  Only use the
+                # compatibility scan for unresolved legacy representations.
+                if not found and nref and nref not in unresolved_seen:
+                    unresolved_seen.add(nref)
+                    unresolved_refs.append(nref)
 
-            if not wanted_refs:
+            if not unresolved_refs:
                 return out
 
             try:
                 store_keys = list(store.keys())
             except Exception:
                 store_keys = []
-
-            for store_key in store_keys:
+            delta_keys = cls._hash_index_delta_values(name, cfg_uid)
+            candidate_keys = []
+            candidate_seen = set()
+            for store_key in list(store_keys) + list(delta_keys):
                 skey = str(store_key or "").strip()
-                if not skey:
+                if not skey or skey in candidate_seen:
                     continue
+                candidate_seen.add(skey)
                 snref = _normalized_node_ref(skey)
-                if not snref or snref not in wanted_refs_seen:
-                    continue
-                try:
-                    res = store.get(store_key, []) or []
-                except Exception:
-                    res = []
-                _append_bucket(out, seen, res)
+                if snref and snref in unresolved_seen:
+                    candidate_keys.append(skey)
+
+            for store_key in candidate_keys:
+                add_effective(store_key)
+                if result_limit is not None and len(out) >= result_limit:
+                    break
             return out
 
         def _collect_text_many(seq, bidirectional: bool = False):
             needles = []
             seen_needles = set()
             for one in seq:
-                s = "" if one is None else str(one).strip().lower()
-                if not s or s in seen_needles:
+                raw_needle = "" if one is None else str(one).strip()
+                normalized = raw_needle.lower()
+                if not normalized or normalized in seen_needles:
                     continue
-                seen_needles.add(s)
-                needles.append(s)
+                seen_needles.add(normalized)
+                needles.append((raw_needle, normalized))
             if not needles:
                 return []
 
             out = []
             seen = set()
+
+            # Section/list search only needs the first page.  Use the
+            # persistent Unicode/trigram sidecar instead of invoking a Python
+            # casefold callback for every key in the SQLite table.
+            if result_limit is not None:
+                sidecar_keys = cls._search_text_sidecar(
+                    name,
+                    cfg_uid,
+                    needles,
+                    bidirectional,
+                    result_limit,
+                )
+                if sidecar_keys is not None:
+                    for store_key in sidecar_keys:
+                        try:
+                            bucket = store.get(store_key, []) or []
+                        except Exception:
+                            bucket = []
+                        _append_bucket(out, seen, bucket)
+                        if len(out) >= result_limit:
+                            break
+                    return out
+
+                # Compatibility fallback for SQLite builds without FTS5 or a
+                # damaged sidecar.  It is deliberately kept out of the normal
+                # hot path.
+                cfg_part = str(cfg_uid or "").strip()
+                storage_key = (
+                    f"{cls.__name__}_{cfg_part}__idx__{name}"
+                    if cfg_part else f"{cls.__name__}__idx__{name}"
+                )
+                db_path = os.path.join(STORAGE_BASE_PATH, f"{storage_key}.sqlite")
+                conn = sqlite3.connect(db_path, timeout=30.0)
+                try:
+                    conn.create_function(
+                        "NODA_CASEFOLD",
+                        1,
+                        lambda value: str(value or "").casefold(),
+                        deterministic=True,
+                    )
+                    table = cls._atomic_sqlite_table(conn)
+                    qtable = '"' + table.replace('"', '""') + '"'
+                    clauses = []
+                    params = []
+                    for _original, normalized in needles:
+                        folded = str(normalized or "").casefold()
+                        clauses.append("INSTR(NODA_CASEFOLD(CAST(key AS TEXT)), ?) > 0")
+                        params.append(folded)
+                        if bidirectional:
+                            clauses.append("INSTR(?, NODA_CASEFOLD(CAST(key AS TEXT))) > 0")
+                            params.append(folded)
+                    sql = f"SELECT value FROM {qtable} WHERE " + " OR ".join(clauses) + " LIMIT ?"
+                    params.append(max(20, result_limit * 4))
+                    for (raw_bucket,) in conn.execute(sql, params).fetchall():
+                        if isinstance(raw_bucket, memoryview):
+                            raw_bucket = raw_bucket.tobytes()
+                        try:
+                            bucket = pickle.loads(raw_bucket)
+                        except Exception:
+                            bucket = []
+                        _append_bucket(out, seen, bucket)
+                        if len(out) >= result_limit:
+                            break
+                    return out
+                finally:
+                    conn.close()
+
             try:
                 store_keys = list(store.keys())
             except Exception:
                 store_keys = []
-
-            # text_index is SQL-LIKE semantics: indexed field value contains the
-            # search string. text_index_full extends this with the reverse direction
-            # too: the search string may contain the whole indexed field value.
             for store_key in store_keys:
                 skey = str(store_key or "").strip()
                 if not skey:
                     continue
                 skey_l = skey.lower()
                 if bidirectional:
-                    matched = any((n in skey_l) or (skey_l in n) for n in needles)
+                    matched = any((n in skey_l) or (skey_l in n) for _o, n in needles)
                 else:
-                    matched = any(n in skey_l for n in needles)
+                    matched = any(n in skey_l for _o, n in needles)
                 if not matched:
                     continue
                 try:
@@ -4002,12 +5386,14 @@ class Node:
 
         seq = values if isinstance(values, (list, tuple, set)) else [values]
         if idx_kind == "text_index":
-            return _collect_text_many(seq)
-        if idx_kind == "trigram_index":
-            return _collect_trigram_many(seq)
-        if idx_kind == "text_index_full":
-            return _collect_text_many(seq, bidirectional=True)
-        return _collect_hash_many(seq)
+            result = _collect_text_many(seq)
+        elif idx_kind == "trigram_index":
+            result = _collect_trigram_many(seq)
+        elif idx_kind == "text_index_full":
+            result = _collect_text_many(seq, bidirectional=True)
+        else:
+            result = _collect_hash_many(seq)
+        return result[:result_limit] if result_limit is not None else result
 
     @classmethod
     def find_by_index(cls, index_name: str, value, config_uid=None):
@@ -4181,7 +5567,9 @@ class Node:
     def to_dict(self):
         with self._lock:
             if self._id in self._storage:
-                result = self._storage[self._id].copy()
+                # Deep-copy before normalizing metadata so to_dict() stays a
+                # pure read even when a storage backend returns mutable objects.
+                result = copy.deepcopy(self._storage[self._id])
                 # We ensure that _data contains the current _id and _class
                 if '_data' in result:
                     result['_data']['_class'] = self.__class__.__name__
@@ -4938,6 +6326,33 @@ class Node:
             self._ui_layout = layout
             return True
 
+    def Progress(self, current=None, total=None, text: str = "", progress=None):
+        """Update progress of the current runprogress/runasync background job.
+
+        It is a no-op when the method is executed synchronously, so handlers may
+        call it without checking their execution mode.
+        """
+        if _background_jobs is not None:
+            try:
+                _background_jobs.update_progress(current=current, total=total, text=text, progress=progress)
+            except Exception:
+                pass
+        return True
+
+    def CancelRequested(self) -> bool:
+        """Return True when the user requested cancellation of this job."""
+        if _background_jobs is None:
+            return False
+        try:
+            return bool(_background_jobs.cancel_requested())
+        except Exception:
+            return False
+
+    def RaiseIfCancelled(self):
+        if _background_jobs is not None:
+            _background_jobs.raise_if_cancelled()
+        return True
+
     def Message(self, text: str, level: str = "info"):
         """Request a top message popup in the web client."""
         try:
@@ -5647,6 +7062,17 @@ def node_view(value, default=""):
         cfg_uid = str(CURRENT_CONFIG_UID.get() or current_config_uid_from_handlers() or "").strip()
     if not class_name or not internal_id:
         return str(default or internal_id or raw)
+
+    # _User nodes live in the owner's hidden _System configuration and are not
+    # ordinary business classes/repositories. Resolve them through the Flask
+    # platform bridge so NodeLink/NodeInput shows a user name instead of a raw UID.
+    if class_name == "_User":
+        try:
+            resolved_user_view = _call_bridge('resolve_system_user_view_global', raw, default=default)
+            if isinstance(resolved_user_view, str) and resolved_user_view.strip():
+                return resolved_user_view.strip()
+        except Exception:
+            pass
 
     if node is None:
         try:
