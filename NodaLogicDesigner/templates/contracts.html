@@ -31,7 +31,11 @@
               <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
                 <h5 class="mb-0">{{ contract.display_name or contract.name }}</h5>
                 <span class="badge text-bg-light border">{{ contract.source_type }}</span>
+                {% if contract_item.object_count is not none %}
                 <span class="badge text-bg-primary">{{ _("%(count)s objects", count=contract_item.object_count) }}</span>
+                {% else %}
+                <span class="badge text-bg-secondary">{{ _('Count on download') }}</span>
+                {% endif %}
               </div>
               <div class="text-muted small mb-2">{{ contract.name }}</div>
               <div class="small mb-1"><strong>{{ _('Download URL') }}:</strong> <code class="text-break">{{ url_for('contract_download', contract_uid=contract.uid, _external=True) }}</code></div>
