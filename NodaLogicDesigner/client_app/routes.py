@@ -23,7 +23,7 @@ from pathlib import Path
 from urllib.parse import urlparse, unquote
 
 import requests
-from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for, after_this_request, send_from_directory, send_file, Response, make_response, g, has_request_context
+from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for, after_this_request, send_from_directory, send_file, Response, make_response, g, has_request_context, current_app
 from markupsafe import escape
 from html import unescape
 from flask_login import current_user, login_required
@@ -37,6 +37,7 @@ from . import models
 from . import ngenie_core
 from . import ngenie_skill_registry
 import nodes as _nodes_mod
+import background_jobs as _background_jobs
 import hashlib
 import inspect
 import mimetypes
@@ -1474,6 +1475,123 @@ def _client_root_app_module():
     return sys.modules.get("app") or main
 
 
+def _client_runtime_system_user_payload() -> Dict[str, Any]:
+    """Logged-in ``_System/_User`` payload for web-client Node handlers.
+
+    For browser requests Flask-Login's ``current_user`` is authoritative.  A
+    value in ``g.api_user`` can represent an API/repository transport account
+    and must not override the account that actually opened the web client.
+    ``g.api_user`` is only a fallback for non-Flask-Login request contexts.
+    """
+    if not has_request_context():
+        return {}
+
+    actor = None
+    try:
+        if getattr(current_user, "is_authenticated", False):
+            actor = current_user
+    except Exception:
+        actor = None
+
+    if actor is None:
+        try:
+            actor = getattr(g, "api_user", None)
+        except Exception:
+            actor = None
+
+    root = _client_root_app_module()
+    resolver = getattr(root, "_system_user_payload", None)
+    if callable(resolver):
+        try:
+            payload = resolver(actor)
+            return payload if isinstance(payload, dict) else {}
+        except Exception:
+            pass
+    return {}
+
+
+def _client_remote_system_user_headers() -> Dict[str, str]:
+    """Preserve the interactive user when Repo HTTP uses owner credentials."""
+    payload = _client_runtime_system_user_payload()
+    data = payload.get("_data") if isinstance(payload.get("_data"), dict) else {}
+    user_uid = str(payload.get("_id") or data.get("_id") or "").strip()
+    user_login = str(data.get("login") or data.get("email") or payload.get("login") or payload.get("email") or "").strip()
+    headers: Dict[str, str] = {}
+    if user_uid:
+        headers["X-System-User-Id"] = user_uid
+    if user_login:
+        headers["X-System-User-Login"] = user_login
+    return headers
+
+
+def _client_system_user_view(uid: str) -> str:
+    root = _client_root_app_module()
+    resolver = getattr(root, "resolve_system_user_view_global", None)
+    if not callable(resolver):
+        return ""
+    try:
+        value = resolver(uid, default="")
+        return str(value or "").strip()
+    except Exception:
+        return ""
+
+
+def _client_system_user_picker_items(q: str = "", limit: int = 80) -> List[Dict[str, Any]]:
+    """NodeInput exception for the reserved ``_System/_User`` class only."""
+    root = _client_root_app_module()
+    owner_resolver = getattr(root, "_system_owner_id_for_user", None)
+    ensure_config = getattr(root, "_ensure_system_config_for_owner", None)
+    users_query = getattr(root, "_owner_scope_users_query", None)
+    payload_builder = getattr(root, "_system_user_node_payload_from_user", None)
+    if not all(callable(fn) for fn in (owner_resolver, ensure_config, users_query, payload_builder)):
+        return []
+
+    try:
+        owner_id = owner_resolver(current_user)
+        system_cfg = ensure_config(owner_id, sync_users=True)
+        if not owner_id or system_cfg is None:
+            return []
+        db_obj = getattr(root, "db", None)
+        user_model = getattr(root, "User", None)
+        if db_obj is None or user_model is None:
+            return []
+        sql_users = db_obj.session.execute(
+            users_query(owner_id).order_by(user_model.email)
+        ).scalars().all()
+    except Exception:
+        return []
+
+    needle = str(q or "").strip().casefold()
+    hard_limit = max(1, min(int(limit or 80), 200))
+    items: List[Dict[str, Any]] = []
+    for sql_user in sql_users:
+        try:
+            payload = payload_builder(sql_user, system_cfg.uid, owner_id=owner_id)
+            data = payload.get("_data") if isinstance(payload, dict) else None
+            if not isinstance(data, dict):
+                continue
+            uid = str(data.get("_id") or "").strip()
+            login = str(data.get("login") or data.get("email") or "").strip()
+            name = str(data.get("name") or login or uid).strip()
+            if needle and needle not in f"{login} {name} {uid}".casefold():
+                continue
+            items.append({
+                "uid": uid,
+                "_id": str(payload.get("_id") or ""),
+                "_class": "_User",
+                "_view": login or name,
+                "cover_html": "",
+                "data": data,
+                "repo_id": None,
+                "repo_uid": str(system_cfg.uid or ""),
+            })
+            if len(items) >= hard_limit:
+                break
+        except Exception:
+            continue
+    return items
+
+
 def _client_repo_is_local(repo: Optional[models.Repo]) -> bool:
     """True only when this repo has a live configuration in the current DB.
 
@@ -2444,6 +2562,14 @@ def _fill_virtual_node_views_batch(
         return target_parsed
 
     for (config_uid, cls_name), entries in pending.items():
+        # Exact platform exception for virtual-table NodeLink/NodeInput values.
+        if cls_name == "_User":
+            for uid, _, parent, view_key in entries:
+                view = _client_system_user_view(uid)
+                if view:
+                    parent[view_key] = view
+            continue
+
         unique_uids = list(dict.fromkeys(uid for uid, _, _, _ in entries))
         data_by_uid = _node_storage_data_batch_direct(config_uid, cls_name, unique_uids)
         parsed_cfg = parsed_for(config_uid)
@@ -2586,6 +2712,17 @@ def _fill_nodeinput_views(repo, parsed, layout, node_data, shared_cache: Optiona
                     continue
                 eff_cfg = str(cfg_uid or repo.config_uid or "")
                 ck = (eff_cfg, str(cls_name), str(internal_id))
+
+                # Reserved users live only in the owner's hidden _System config.
+                # Keep the ordinary NodeInput/NodeLink semantics and replace
+                # only this exact class with the platform resolver.
+                if cls_name == "_User":
+                    if ck not in node_cache:
+                        node_cache[ck] = _client_system_user_view(raw_ref) or None
+                    if node_cache.get(ck) is not None:
+                        node_data[view_key] = node_cache[ck]
+                    continue
+
                 if ck not in node_cache:
                     data = _node_storage_data_direct(eff_cfg, cls_name, internal_id, node_data_cache)
                     if data is None:
@@ -2692,6 +2829,14 @@ def _nl_context(repo: models.Repo, *, class_name: str, node_id: str, shared_cach
             cache_key = (str(eff_cfg), str(cls_name), str(internal_id))
             if cache_key in node_view_cache:
                 return str(node_view_cache.get(cache_key) or internal_id)
+
+            # Exact platform exception: a NodeLink/NodeInput to _System/_User
+            # is resolved by the system-user registry, not by a business repo.
+            if cls_name == "_User":
+                user_view = _client_system_user_view(uid)
+                if user_view:
+                    node_view_cache[cache_key] = user_view
+                    return user_view
 
             d = _node_storage_data_direct(eff_cfg, cls_name, internal_id, node_data_cache)
             if d is None:
@@ -3451,7 +3596,7 @@ def _nodes_config_context(config_uid: str, parsed_config: Optional[Dict[str, Any
             pass
 
 
-def _text_like_index_ids_for_class(config_uid: str, class_name: str, q: str) -> Optional[List[str]]:
+def _text_like_index_ids_for_class(config_uid: str, class_name: str, q: str, limit: int | None = None) -> Optional[List[str]]:
     q = (q or "").strip()
     if not q:
         return None
@@ -3489,7 +3634,7 @@ def _text_like_index_ids_for_class(config_uid: str, class_name: str, q: str) -> 
         except Exception:
             pass
         try:
-            ids = node_cls.find_ids_by_index(name, q, config_uid)
+            ids = node_cls.find_ids_by_index(name, q, config_uid, limit=max(1, int(limit or 0) - len(out)) if limit else None)
         except Exception as exc:
             # Do not turn a model/index failure into an apparently successful
             # unfiltered result without leaving a useful server-side trace.
@@ -3500,6 +3645,10 @@ def _text_like_index_ids_for_class(config_uid: str, class_name: str, q: str) -> 
             if sid not in seen:
                 seen.add(sid)
                 out.append(sid)
+                if limit and len(out) >= int(limit):
+                    break
+        if limit and len(out) >= int(limit):
+            break
     return out if has_index_rows else None
 
 
@@ -3547,13 +3696,13 @@ def _nodes_storage_page(config_uid: str, class_name: str, *, offset: int, limit:
         if index_name and index_value != "":
             try:
                 node_cls = _load_server_node_class(config_uid, class_name)
-                ids = node_cls.find_ids_by_index(index_name, index_value, config_uid)
+                ids = node_cls.find_ids_by_index(index_name, index_value, config_uid, limit=offset + limit)
             except Exception:
                 ids = []
             return fetch_items_by_ids(ids)
 
         if q_raw:
-            indexed_ids = _text_like_index_ids_for_class(config_uid, class_name, q_raw)
+            indexed_ids = _text_like_index_ids_for_class(config_uid, class_name, q_raw, limit=offset + limit)
             if indexed_ids is not None:
                 return fetch_items_by_ids(indexed_ids)
 
@@ -3622,7 +3771,7 @@ def _auth_tuple(repo: models.Repo) -> Optional[tuple]:
 
 def _api_get_remote(repo: models.Repo, path: str, *, params: Optional[dict] = None, timeout: int = 20) -> Any:
     url = repo.base_url.rstrip("/") + path
-    resp = requests.get(url, params=params, auth=_auth_tuple(repo), timeout=timeout)
+    resp = requests.get(url, params=params, auth=_auth_tuple(repo), headers=_client_remote_system_user_headers(), timeout=timeout)
     resp.raise_for_status()
     return resp.json()
 
@@ -3689,14 +3838,14 @@ def _fetch_nodes_for_class(repo: models.Repo, *, config_uid: str, class_name: st
 
 def _api_get_remote(repo: models.Repo, path: str, *, params: Optional[dict] = None, timeout: int = 20) -> Any:
     url = repo.base_url.rstrip("/") + path
-    resp = requests.get(url, params=params, auth=_auth_tuple(repo), timeout=timeout)
+    resp = requests.get(url, params=params, auth=_auth_tuple(repo), headers=_client_remote_system_user_headers(), timeout=timeout)
     resp.raise_for_status()
     return resp.json()
 
 
 def _api_post_remote(repo: models.Repo, path: str, *, json_data: Any = None, timeout: int = 20) -> Any:
     url = repo.base_url.rstrip("/") + path
-    resp = requests.post(url, json=json_data, auth=_auth_tuple(repo), timeout=timeout)
+    resp = requests.post(url, json=json_data, auth=_auth_tuple(repo), headers=_client_remote_system_user_headers(), timeout=timeout)
     resp.raise_for_status()
     if resp.content and resp.headers.get("content-type", "").lower().startswith("application/json"):
         return resp.json()
@@ -3710,7 +3859,7 @@ def _api_post_remote(repo: models.Repo, path: str, *, json_data: Any = None, tim
 
 def _api_delete_remote(repo: models.Repo, path: str, *, json_data: Any = None, timeout: int = 20) -> Any:
     url = repo.base_url.rstrip("/") + path
-    resp = requests.delete(url, json=json_data, auth=_auth_tuple(repo), timeout=timeout)
+    resp = requests.delete(url, json=json_data, auth=_auth_tuple(repo), headers=_client_remote_system_user_headers(), timeout=timeout)
     resp.raise_for_status()
     if resp.content and resp.headers.get("content-type", "").lower().startswith("application/json"):
         return resp.json()
@@ -4843,6 +4992,7 @@ def _ngenie_skill_selector_prompt() -> str:
 - Если приложен файл и пользователь просит только анализ/сводку без изменения узлов, выбирай analysis_reports.
 - Если пользователь просит только показать/найти список без изменения данных, обычно нужен search_display.
 - Если пользователь просит аналитический отчёт/агрегацию/HTML-проекцию, обычно нужен analysis_reports.
+- Если запрос относится к WMS-остаткам, QuantLedger, оборачиваемости, FEFO/FIFO, размещению или рекомендации перемещений, выбирай wms_ledger_decision. Для полноценного HTML-отчёта вместе/вместо него может понадобиться analysis_reports; для фактического изменения данных не позволяй runtime AI напрямую проводить QuantLedger.
 - Если ни один навык не подходит, верни пустой массив skill_ids и краткую причину.
 """.strip()
 
@@ -5787,7 +5937,7 @@ def _ngenie_find_existing_node(repo: models.Repo, cls_cfg: Dict[str, Any], class
     try:
         if _ngenie_local_repo(repo):
             parsed = get_parsed_config(repo, models.db) or {}
-            _nodes_mod.set_runtime_context(repo.config_uid, parsed)
+            _nodes_mod.set_runtime_context(repo.config_uid, parsed, system_user=_client_runtime_system_user_payload())
             node_cls = _load_server_node_class(repo.config_uid, class_name)
             nodes = node_cls.get_all(repo.config_uid) if node_cls and hasattr(node_cls, "get_all") else []
             node_values = list((nodes or {}).values()) if isinstance(nodes, dict) else list(nodes or [])
@@ -5848,7 +5998,7 @@ def _ngenie_call_node_note_method(repo: models.Repo, class_name: str, internal_i
         if not _ngenie_local_repo(repo):
             return None
         parsed = get_parsed_config(repo, models.db) or {}
-        _nodes_mod.set_runtime_context(repo.config_uid, parsed)
+        _nodes_mod.set_runtime_context(repo.config_uid, parsed, system_user=_client_runtime_system_user_payload())
         node_cls = _load_server_node_class(repo.config_uid, class_name)
         node = node_cls.get(internal_id, repo.config_uid) if node_cls and hasattr(node_cls, "get") else None
         if node is None:
@@ -6421,7 +6571,7 @@ def _ngenie_find_candidate_nodes(repo: models.Repo, cls_cfg: Dict[str, Any], cla
         scan_limit = max(1000, max_candidates * 100)
         if _ngenie_local_repo(repo):
             parsed = get_parsed_config(repo, models.db) or {}
-            _nodes_mod.set_runtime_context(repo.config_uid, parsed)
+            _nodes_mod.set_runtime_context(repo.config_uid, parsed, system_user=_client_runtime_system_user_payload())
             node_cls = _load_server_node_class(repo.config_uid, class_name)
             nodes = node_cls.get_all(repo.config_uid) if node_cls and hasattr(node_cls, "get_all") else []
             for node in list(nodes or [])[:scan_limit]:
@@ -7109,7 +7259,7 @@ def _ngenie_create_node(repo: models.Repo, class_name: str, data: Dict[str, Any]
     payload.setdefault("_class", class_name)
     if _ngenie_local_repo(repo):
         parsed = get_parsed_config(repo, models.db) or {}
-        _nodes_mod.set_runtime_context(repo.config_uid, parsed)
+        _nodes_mod.set_runtime_context(repo.config_uid, parsed, system_user=_client_runtime_system_user_payload())
         internal_id = _node_local_create(repo.config_uid, class_name, payload)
         return _nodes_mod.normalize_own_uid(repo.config_uid, class_name, internal_id)
     result = _api_post_remote(repo, f"/api/config/{repo.config_uid}/node/{class_name}", json_data=payload)
@@ -7132,7 +7282,7 @@ def _ngenie_update_node(repo: models.Repo, class_name: str, node_id: str, patch:
     merged.setdefault("_class", class_name)
     if _ngenie_local_repo(repo):
         parsed = get_parsed_config(repo, models.db) or {}
-        _nodes_mod.set_runtime_context(repo.config_uid, parsed)
+        _nodes_mod.set_runtime_context(repo.config_uid, parsed, system_user=_client_runtime_system_user_payload())
         node = _node_local_update_data(repo.config_uid, class_name, internal_id, merged)
         try:
             fresh = node.get_data() or {}
@@ -11138,7 +11288,7 @@ def _save_projection_object_data(obj_repo: models.Repo, cls_name: str, internal_
     current = (request.host_url or "").rstrip("/")
     if not base_url or base_url == current:
         parsed_ctx = get_parsed_config(obj_repo, models.db) or {}
-        tokens = _nodes_mod.set_runtime_context(obj_repo.config_uid, parsed_ctx)
+        tokens = _nodes_mod.set_runtime_context(obj_repo.config_uid, parsed_ctx, system_user=_client_runtime_system_user_payload())
         try:
             node = _node_local_update_data(obj_repo.config_uid, cls_name, internal_id, data, user_modification=user_modification)
             return _collect_runtime_messages_payload(node)
@@ -11146,7 +11296,7 @@ def _save_projection_object_data(obj_repo: models.Repo, cls_name: str, internal_
             _nodes_mod.reset_runtime_context(tokens)
 
     url = obj_repo.base_url.rstrip("/") + f"/api/config/{obj_repo.config_uid}/node/{cls_name}/{internal_id}"
-    resp = requests.put(url, json=payload, auth=_auth_tuple(obj_repo), timeout=20)
+    resp = requests.put(url, json=payload, auth=_auth_tuple(obj_repo), headers=_client_remote_system_user_headers(), timeout=20)
     resp.raise_for_status()
     try:
         remote_payload = resp.json()
@@ -11214,6 +11364,11 @@ def api_node_views_batch():
         cls_name = str(cls_name or "").strip()
         internal_id = str(internal_id or "").strip()
         if not eff_cfg or not cls_name or not internal_id:
+            continue
+        if cls_name == "_User":
+            user_view = _client_system_user_view(uid)
+            if user_view:
+                views[uid] = user_view
             continue
         if not _client_user_can_access_config(eff_cfg, current_user):
             continue
@@ -11326,7 +11481,7 @@ def api_node_save():
         return jsonify({"ok": False, "error": "Forbidden"}), 403
     data = _strip_projection_runtime_fields_for_save(cls_cfg, data)
     is_custom_process = _is_singleton_class_type(cls_cfg)
-    _ctx_tokens = _nodes_mod.set_runtime_context(cfg_uid, parsed_ctx)
+    _ctx_tokens = _nodes_mod.set_runtime_context(cfg_uid, parsed_ctx, system_user=_client_runtime_system_user_payload())
 
     @after_this_request
     def _reset_ctx(resp):
@@ -13348,7 +13503,7 @@ def _external_print_form_pdf_bytes(config_uid: str, class_name: str, data: Dict[
 
     print_node_id = _print_form_node_id(repo.config_uid, class_name, base_class_name, base_node_id)
 
-    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, parsed)
+    _ctx_tokens = _nodes_mod.set_runtime_context(config_uid, parsed, system_user=_client_runtime_system_user_payload())
     try:
         print_data = _execute_print_form_start_handler(
             repo, parsed, print_cls, print_node_id, base_class_name, base_node_id, base_data
@@ -13854,7 +14009,7 @@ def print_form_open(repo_id: int, print_class_name: str):
     if not base_class_name or not base_node_id:
         abort(400)
 
-    _ctx_tokens = _nodes_mod.set_runtime_context(repo.config_uid, parsed)
+    _ctx_tokens = _nodes_mod.set_runtime_context(repo.config_uid, parsed, system_user=_client_runtime_system_user_payload())
     try:
         print_cls, print_node_id, print_html, print_data = _build_print_form_runtime(
             repo, parsed, print_class_name, base_class_name, base_node_id
@@ -13935,7 +14090,7 @@ def print_form_pdf(repo_id: int, print_class_name: str):
     if not base_class_name or not base_node_id:
         abort(400)
 
-    _ctx_tokens = _nodes_mod.set_runtime_context(repo.config_uid, parsed)
+    _ctx_tokens = _nodes_mod.set_runtime_context(repo.config_uid, parsed, system_user=_client_runtime_system_user_payload())
     try:
         _, _, print_html, _ = _build_print_form_runtime(repo, parsed, print_class_name, base_class_name, base_node_id)
     finally:
@@ -15343,6 +15498,24 @@ def _run_web_nodascript_action(code: Any, data_root: Dict[str, Any], host: Any, 
         setattr(_nodes_mod, "CURRENT_NODE", prev_current)
 
 
+@client_bp.route("/api/node/event_job/<job_id>", methods=["GET"])
+@login_required
+def api_node_event_job_status(job_id):
+    owner = "web:" + str(current_user.get_id() or "")
+    job = _background_jobs.get(job_id, owner=owner)
+    if job is None:
+        return jsonify({"ok": False, "error": "job not found"}), 404
+    return jsonify({"ok": True, "job": job})
+
+
+@client_bp.route("/api/node/event_job/<job_id>/cancel", methods=["POST"])
+@login_required
+def api_node_event_job_cancel(job_id):
+    owner = "web:" + str(current_user.get_id() or "")
+    ok = _background_jobs.request_cancel(job_id, owner=owner)
+    return jsonify({"ok": bool(ok)})
+
+
 @client_bp.route("/api/node/event_web", methods=["POST"])
 @login_required
 def api_node_event_web():
@@ -15376,7 +15549,7 @@ def api_node_event_web():
     eff_id = target_node_id or node_id
 
     parsed = get_parsed_config(repo, models.db) or {}
-    _ctx_tokens = _nodes_mod.set_runtime_context(repo.config_uid, parsed)
+    _ctx_tokens = _nodes_mod.set_runtime_context(repo.config_uid, parsed, system_user=_client_runtime_system_user_payload())
 
     @after_this_request
     def _reset_ctx(resp):
@@ -15418,6 +15591,73 @@ def api_node_event_web():
             "node_data": {},
             "patches": []
         })
+
+    # runprogress and runasync are real background modes. The first request only
+    # queues the event; a worker executes the exact same endpoint once with an
+    # internal marker, preserving all existing handler/rendering semantics.
+    internal_job_execution = bool(j.get("__event_job_execute"))
+    action_modes = []
+    for action_item in actions:
+        method_name = str((action_item or {}).get("method") or "").strip().lower()
+        if method_name == "nodascript":
+            continue
+        mode_name = str((action_item or {}).get("action") or "run").strip().lower()
+        if mode_name in ("runprogress", "runasync"):
+            action_modes.append(mode_name)
+    execution_mode = "runprogress" if "runprogress" in action_modes else ("runasync" if "runasync" in action_modes else "run")
+
+    # Reports/projections are potentially expensive and must never occupy the
+    # request worker by default.  Existing explicit runasync/runprogress modes
+    # still win; only the standard onRunProjection action is upgraded from run.
+    if execution_mode == "run" and _is_projection_class_type(eff_cls_cfg):
+        projection_methods = {
+            str((action_item or {}).get("method") or "").strip().lower()
+            for action_item in actions
+            if str((action_item or {}).get("method") or "").strip()
+        }
+        if str(listener or "").strip().lower() == "onrunprojection" or "onrunprojection" in projection_methods:
+            execution_mode = "runprogress"
+
+    if not internal_job_execution and execution_mode in ("runprogress", "runasync"):
+        app_obj = current_app._get_current_object()
+        user_id = str(current_user.get_id() or "")
+        request_body = dict(j)
+        request_body["__event_job_execute"] = True
+
+        def _execute_event_job():
+            with app_obj.test_client() as test_client:
+                with test_client.session_transaction() as session_data:
+                    session_data["_user_id"] = user_id
+                    session_data["_fresh"] = True
+                response = test_client.post(
+                    "/client/api/node/event_web",
+                    json=request_body,
+                    headers={"X-Noda-Background-Job": "1"},
+                )
+                result = response.get_json(silent=True)
+                if result is None:
+                    result = {"ok": False, "error": response.get_data(as_text=True)[:2000]}
+                if response.status_code >= 400:
+                    raise RuntimeError(str(result.get("error") or f"HTTP {response.status_code}"))
+                return result
+
+        job = _background_jobs.submit(
+            _execute_event_job,
+            owner="web:" + user_id,
+            mode=execution_mode,
+            title=str(event or "Operation"),
+        )
+        job_id = str(job.get("id") or "")
+        return jsonify({
+            "ok": True,
+            "background": True,
+            "mode": execution_mode,
+            "job": {
+                **job,
+                "status_url": f"/client/api/node/event_job/{job_id}",
+                "cancel_url": f"/client/api/node/event_job/{job_id}/cancel",
+            },
+        }), 202
 
     base_url = (repo.base_url or "").strip().rstrip("/")
     current = (request.host_url or "").rstrip("/")
@@ -16434,7 +16674,7 @@ def api_class_event_web():
 
     repo = _get_repo_or_404(repo_id)
     parsed = get_parsed_config(repo, models.db) or {}
-    _ctx_tokens = _nodes_mod.set_runtime_context(repo.config_uid, parsed)
+    _ctx_tokens = _nodes_mod.set_runtime_context(repo.config_uid, parsed, system_user=_client_runtime_system_user_payload())
 
     @after_this_request
     def _reset_ctx(resp):
@@ -16550,6 +16790,15 @@ def api_class_nodes():
 
     if not class_name:
         return jsonify({"ok": False, "error": "bad args"}), 400
+
+    # NodeInput keeps its normal class-based API.  The only exception is the
+    # reserved _User class, whose nodes belong to the owner's hidden _System
+    # configuration rather than to the current business repository.
+    if class_name == "_User":
+        return jsonify({
+            "ok": True,
+            "items": _client_system_user_picker_items(q=q, limit=limit),
+        })
 
     if repo_id:
         repos = [models.Repo.query.filter_by(id=repo_id, user_id=current_user.id).first()]
