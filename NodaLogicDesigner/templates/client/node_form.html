@@ -455,6 +455,11 @@
   <div class="nl-runprogress-card">
     <div class="spinner-border text-primary mb-3" aria-hidden="true"></div>
     <div class="fw-semibold" id="nlRunProgressText">{{ _('Operation is running...') }}</div>
+    <div class="small text-muted mt-2" id="nlRunProgressDetail"></div>
+    <div class="progress mt-3" style="height:10px">
+      <div class="progress-bar progress-bar-striped progress-bar-animated" id="nlRunProgressBar" style="width:0%"></div>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-secondary mt-3 d-none" id="nlRunProgressCancel">{{ _('Cancel') }}</button>
   </div>
 </div>
 
@@ -774,7 +779,9 @@ const API_EVENT_WEB = {{ api_event_web|tojson }};
 const API_SAVE = {{ api_save_url|tojson }};
 const API_DISCUSSION_MESSAGES = `/client/api/node-discussion/by-node/${encodeURIComponent(DISCUSSION_NODE_ID)}/messages`;
 
+const NL_RUNPROGRESS_DEFAULT_TEXT = {{ _('Operation is running...')|tojson }};
 let nlRunProgressDepth = 0;
+let nlActiveBackgroundJob = null;
 function nlActionsForEvent(eventName, payload){
   const listener = String((payload && (payload.listener || payload.id)) || "").trim();
   const out = [];
@@ -792,25 +799,90 @@ function nlActionsForEvent(eventName, payload){
   return out;
 }
 function nlUsesRunProgress(eventName, payload){
+  const listener = String((payload && (payload.listener || payload.id)) || "").trim().toLowerCase();
+  // Projection generation is runprogress by platform default even when an old
+  // configuration still stores action="run". Keep ordinary projection UI
+  // interactions (drag/move/save) synchronous.
+  if (IS_PROJECTION && listener === "onrunprojection") return true;
   return nlActionsForEvent(eventName, payload).some((a) =>
     String((a && a.action) || "run").trim().toLowerCase() === "runprogress"
   );
+}
+function nlRunProgressUpdate(job){
+  const text = document.getElementById("nlRunProgressText");
+  const detail = document.getElementById("nlRunProgressDetail");
+  const bar = document.getElementById("nlRunProgressBar");
+  const cancel = document.getElementById("nlRunProgressCancel");
+  const progress = Math.max(0, Math.min(1, Number(job && job.progress || 0)));
+  if (text) text.textContent = String((job && job.text) || NL_RUNPROGRESS_DEFAULT_TEXT);
+  if (detail) {
+    const current = Number(job && job.current || 0);
+    const total = Number(job && job.total || 0);
+    detail.textContent = total > 0 ? `${current.toLocaleString()} / ${total.toLocaleString()}` : "";
+  }
+  if (bar) bar.style.width = `${Math.round(progress * 100)}%`;
+  if (cancel) {
+    cancel.classList.toggle("d-none", !(job && job.cancel_url));
+    cancel.disabled = !!(job && job.cancel_requested);
+  }
 }
 function nlRunProgressStart(){
   nlRunProgressDepth += 1;
   const overlay = document.getElementById("nlRunProgressOverlay");
   if (!overlay) return;
+  nlRunProgressUpdate({progress:0, text:NL_RUNPROGRESS_DEFAULT_TEXT});
   overlay.classList.add("is-visible");
   overlay.setAttribute("aria-hidden", "false");
 }
 function nlRunProgressStop(){
   nlRunProgressDepth = Math.max(0, nlRunProgressDepth - 1);
   if (nlRunProgressDepth > 0) return;
+  nlActiveBackgroundJob = null;
   const overlay = document.getElementById("nlRunProgressOverlay");
   if (!overlay) return;
   overlay.classList.remove("is-visible");
   overlay.setAttribute("aria-hidden", "true");
 }
+async function nlResolveBackgroundEventResponse(initial){
+  if (!initial || !initial.job) return initial;
+  const mode = String(initial.mode || initial.job.mode || "runasync").toLowerCase();
+  let job = Object.assign({}, initial.job || {});
+  if (mode === "runasync") {
+    try { window.message && window.message("Background task started", "info"); } catch(_) {}
+    return {ok:true, background:true, async_started:true, job};
+  }
+  nlActiveBackgroundJob = job;
+  nlRunProgressUpdate(job);
+  while (true) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const response = await fetch(job.status_url, {credentials:"same-origin"});
+    const payload = await response.json();
+    if (!payload || payload.ok !== true || !payload.job) {
+      throw new Error((payload && payload.error) || "Background job status failed");
+    }
+    job = Object.assign({}, job, payload.job || {});
+    nlActiveBackgroundJob = job;
+    nlRunProgressUpdate(job);
+    if (job.status === "completed") return job.result || {ok:true};
+    if (job.status === "cancelled") return {ok:false, error:"Operation cancelled", message:{text:"Operation cancelled", level:"warning"}};
+    if (job.status === "failed") {
+      const err = job.error && (job.error.message || job.error.error);
+      return {ok:false, error:String(err || "Background job failed"), message:{text:String(err || "Background job failed"), level:"error"}};
+    }
+  }
+}
+document.addEventListener("click", async (event) => {
+  const button = event.target && event.target.closest ? event.target.closest("#nlRunProgressCancel") : null;
+  if (!button || !nlActiveBackgroundJob || !nlActiveBackgroundJob.cancel_url) return;
+  button.disabled = true;
+  try {
+    await fetch(nlActiveBackgroundJob.cancel_url, {method:"POST", credentials:"same-origin"});
+    nlActiveBackgroundJob.cancel_requested = true;
+    nlRunProgressUpdate(nlActiveBackgroundJob);
+  } catch(_) {
+    button.disabled = false;
+  }
+});
 
 // Scanner WS context (used by base.html)
 window.NL = window.NL || {};
@@ -2334,8 +2406,8 @@ async function fireOnInputWeb(payload){
       })
     });
     try{
-      const j = await r.json();
-
+      let j = await r.json();
+      j = await nlResolveBackgroundEventResponse(j);
 
       try { handleProjectionCommandResponse(j, payload || {}); } catch(_){}
 
@@ -2538,6 +2610,7 @@ async function fireOnClickWeb(payload, target_class = "", target_node = "", opti
       credentials: "same-origin",
     });
     j = await r.json();
+    j = await nlResolveBackgroundEventResponse(j);
   } catch (e) {
     console.error("fireOnClickWeb fetch/json error", e);
     return;
