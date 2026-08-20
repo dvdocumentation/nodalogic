@@ -17,11 +17,14 @@ import pickle
 import sqlite3
 import os
 import re
+import smtplib
+from email.message import EmailMessage
 import traceback
 import sys
 import time
 import uuid
 from collections import OrderedDict
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 from ast import FunctionDef, fix_missing_locations, parse
 from datetime import datetime, timezone
@@ -105,6 +108,11 @@ except Exception:  # pragma: no cover - optional dependency, checked at route ca
 # True:  enforce the hard guard and show lock warnings/buttons as disabled.
 NGENIE_CODE_LOCK_ENABLED = False
 
+# nGenie Code is an internal engine for Solutions / N-Reactor.  Keep the package
+# available to solutions.generator, but do not replace the ordinary configurator's
+# AI Generator merely because the ngenie_code directory is installed.
+NGENIE_CODE_EDITOR_ENABLED = False
+
 
 def _ngenie_code_lock_enabled() -> bool:
     return bool(NGENIE_CODE_LOCK_ENABLED)
@@ -116,6 +124,12 @@ def _ngenie_code_available() -> bool:
         return bool(ngenie_code.available())
     except Exception:
         return False
+
+
+def _ngenie_code_editor_enabled() -> bool:
+    # Deliberately separate from _ngenie_code_available(): Solutions / N-Reactor
+    # must still see and use the installed ngenie_code package.
+    return bool(NGENIE_CODE_EDITOR_ENABLED) and _ngenie_code_available()
 
 
 def _config_has_ngenie_code_lock_marker(config) -> bool:
@@ -283,82 +297,38 @@ def _ngenie_code_chat_context_for_llm(config, limit: int = 30) -> str:
 
 
 
-def _solutions_optional_call(function_name: str, *args, **kwargs):
-    """Call optional Solutions helper if the folder-based feature is installed."""
+
+
+def _optional_feature_call(module_name: str, function_name: str, *args, **kwargs):
+    """Call an optional feature package without making it an editor dependency."""
     try:
-        import solutions
-        fn = getattr(solutions, function_name, None)
-        if callable(fn):
-            return fn(*args, **kwargs)
-    except Exception:
-        current_app.logger.exception('Optional Solutions helper failed: %s', function_name)
-    return None
+        module = __import__(module_name, fromlist=[function_name])
+    except (ImportError, ModuleNotFoundError):
+        return None
+    fn = getattr(module, function_name, None)
+    if not callable(fn):
+        return None
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:
+        if exc.__class__.__name__ in {"GenerationCancelled", "GenerationBudgetExceeded"}:
+            raise
+        current_app.logger.exception("Optional feature helper failed: %s.%s", module_name, function_name)
+        return None
 
 
-def _solutions_enrich_prompt_if_needed(config, prompt: str, question_answers=None) -> str:
-    enriched = _solutions_optional_call(
-        'enrich_prompt_for_config',
-        config,
-        prompt,
-        question_answers=question_answers,
-        user=current_user,
-    )
-    return enriched if isinstance(enriched, str) and enriched.strip() else prompt
 
 
-def _solutions_record_answers_if_needed(config, question_answers) -> None:
-    if question_answers:
-        _solutions_optional_call(
-            'record_question_answers_for_config',
-            config,
-            question_answers,
-            user=current_user,
-            commit=True,
-        )
 
 
-def _solutions_record_questions_if_needed(config, questions, message: str = '') -> None:
-    if questions:
-        _solutions_optional_call(
-            'record_questions_for_config',
-            config,
-            questions,
-            message=message,
-            user=current_user,
-            commit=False,
-        )
 
 
-def _solutions_record_success_if_needed(config, message: str = '') -> None:
-    _solutions_optional_call(
-        'record_generation_success_for_config',
-        config,
-        message=message,
-        user=current_user,
-        commit=False,
-    )
 
 
-def _solutions_run_plan_if_needed(config, question_answers=None, start_only: bool = False):
-    """Continue optional Solutions plan.py.
 
-    Returns a payload with type=questions/message/generate/waiting/finished, or None.
-    Kept here so the core editor still works when the solutions folder is absent.
-    """
-    def _solution_llm(plan_prompt: str, debug_stage: str = 'solution_plan') -> str:
-        import ngenie_code
-        system_prompt = ngenie_code.build_system_prompt()
-        return call_llm('ngenie_code', system_prompt, plan_prompt, debug_stage=debug_stage)
 
-    return _solutions_optional_call(
-        'run_plan_for_config',
-        config,
-        user=current_user,
-        question_answers=question_answers,
-        call_llm=None if start_only else _solution_llm,
-        commit=True,
-        start_only=start_only,
-    )
+
+
 
 
 def _ngenie_code_summarize_generation(before: dict, after: dict, request_id: str = '', instruction_url: str = '') -> str:
@@ -467,6 +437,43 @@ _NGENIE_CODE_LOCK_ALLOWED_ENDPOINTS = {
     'ngenie_code_chat_new',
 }
 
+# A generated Solution configuration is deliberately hidden from Designer, but
+# the Solution workspace still has to use a very small subset of nGenie Code
+# endpoints. Do not broaden this list to normal editor CRUD routes: users must
+# continue working only through /solutions/<uid>/work.
+_SOLUTION_WORKSPACE_ALLOWED_HIDDEN_ENDPOINTS = {
+    'ai_generate',
+    'ngenie_code_chat',
+    'ngenie_code_chat_add',
+    'ngenie_code_question_answers',
+    'ngenie_code_chat_new',
+}
+
+
+def _hidden_config_is_owned_solution(config) -> bool:
+    """Return True only when the hidden config belongs to current user's Solution.
+
+    ``designer_hidden`` is shared by installed demo products and generated
+    Solutions. Demo products must keep returning 404 for all Designer routes;
+    only an actually linked Solution may call the narrow workspace API above.
+    The import stays optional so deployments without the ``solutions`` folder
+    preserve the old behavior.
+    """
+    if config is None or not getattr(current_user, 'is_authenticated', False):
+        return False
+    try:
+        from solutions.engine import active_solution_for_config
+        return active_solution_for_config(config, user=current_user) is not None
+    except Exception:
+        return False
+
+
+def _hidden_config_endpoint_allowed_for_solution(endpoint, config) -> bool:
+    return (
+        str(endpoint or '') in _SOLUTION_WORKSPACE_ALLOWED_HIDDEN_ENDPOINTS
+        and _hidden_config_is_owned_solution(config)
+    )
+
 
 def _ngenie_code_owned_config_by_uid(uid):
     uid = str(uid or '').strip()
@@ -548,10 +555,13 @@ def _ngenie_code_guard_view(endpoint, view_func):
     def _wrapped(*args, **kwargs):
         try:
             cfg = _ngenie_code_config_from_route_kwargs(kwargs)
-            # Installed demo copies are runtime/client instances. They remain
-            # available through Client/API/Android but are never Designer objects.
+            # Installed demo copies and generated Solution configs are
+            # runtime/client instances and remain hidden from Designer. A linked
+            # Solution, however, needs the narrow nGenie workspace API so its
+            # visible chat can load, save answers and run generation.
             if cfg is not None and _mark_installed_demo_copy_hidden(cfg):
-                abort(404)
+                if not _hidden_config_endpoint_allowed_for_solution(endpoint, cfg):
+                    abort(404)
             if cfg is not None and _config_is_ngenie_code_locked(cfg):
                 if _ngenie_code_should_block_endpoint(endpoint, request.method):
                     abort(403, description=_ngenie_code_forbid_message())
@@ -744,6 +754,7 @@ _REQUIRED_APP_CONTEXT_NAMES = (
     'active_connections',
     'get_config',
     'get_ws_scheme',
+    'user_can_access_config',
     's3',
 )
 
@@ -773,6 +784,7 @@ if TYPE_CHECKING:
     _s3_key_from_public_url: Any
     get_config: Any
     get_ws_scheme: Any
+    user_can_access_config: Any
 
 
 def _current_user_has_admin_login() -> bool:
@@ -3533,6 +3545,11 @@ def edit_config(uid):
     if not config:
         abort(404)
 
+    # Client-only Demo/Solution instances must not be reachable by a crafted
+    # direct Designer URL. Hiding them from the dashboard alone is not access control.
+    if bool(getattr(config, 'designer_hidden', False)) and not _current_user_has_admin_login():
+        abort(404)
+
     if request.method == 'GET':
         _ensure_system_config_for_current_user(sync_users=True)
         _cleanup_reserved_user_classes_for_current_user()
@@ -3555,7 +3572,10 @@ def edit_config(uid):
     # unfinished plan.py as well. The chat JSON endpoint also does this, but this
     # server-side hook makes startup independent of JS tab/loading order.
     if request.method == 'GET' and _config_is_ngenie_code_locked(config):
-        _solutions_run_plan_if_needed(config, start_only=True)
+        _optional_feature_call(
+        "solutions", "run_plan_from_editor", config, user=current_user,
+        start_only=True, model_call=call_llm,
+    )
         try:
             db.session.refresh(config)
         except Exception:
@@ -3600,7 +3620,7 @@ def edit_config(uid):
                            rooms=rooms,
                            ui_tpl_buttons=ui_tpl_buttons,
                            ui_tpl_map=ui_tpl_map,
-                           ngenie_code_available=_ngenie_code_available(),
+                           ngenie_code_available=_ngenie_code_editor_enabled(),
                            ngenie_code_lock_enabled=_ngenie_code_lock_enabled(),
                            ngenie_code_locked=_config_is_ngenie_code_locked(config),
                            can_publish_demo_product=_current_user_has_admin_login())
@@ -4896,8 +4916,9 @@ def import_config_new():
             print(f"  Importing {len(events_data)} events for class {class_data['name']}")
             
             for event_data in events_data:
+                event_name = event_data['event']
                 new_event = ClassEvent(
-                    event=event_data['event'],
+                    event=event_name,
                     listener=event_data.get('listener', ''),
                     class_id=new_class.id
                 )
@@ -4906,7 +4927,7 @@ def import_config_new():
                 
                 # Import event actions
                 actions_data = event_data.get('actions', [])
-                print(f"    Importing {len(actions_data)} actions for event {event_data['event']}")
+                print(f"    Importing {len(actions_data)} actions for event {event_name}")
                 
                 for action_data in actions_data:
                     new_action = EventAction(
@@ -5083,6 +5104,44 @@ def import_config_new():
         flash(_('Import error: {error}').format(error=str(e)), 'error')
         return redirect(url_for('dashboard'))
 
+def _cooperate_during_config_apply():
+    """Yield long configuration deploy loops to the gevent WSGI server.
+
+    The production server is a single gevent event loop. Rebuilding a full
+    configuration performs many ORM object creations/flushes; without an explicit
+    cooperative yield, unrelated Client HTTP requests can look completely frozen
+    until deploy ends. This helper never changes transaction semantics.
+    """
+    try:
+        import gevent
+        gevent.sleep(0)
+    except Exception:
+        pass
+
+
+def _atomic_replace_text_file(path: str, text_value: str) -> None:
+    """Publish a handler file atomically so readers see old or new, never half."""
+    target = os.path.abspath(path)
+    parent = os.path.dirname(target)
+    os.makedirs(parent, exist_ok=True)
+    tmp = os.path.join(parent, f".{os.path.basename(target)}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        with open(tmp, 'w', encoding='utf-8', newline="\n") as fh:
+            fh.write(text_value)
+            fh.flush()
+            try:
+                os.fsync(fh.fileno())
+            except Exception:
+                pass
+        os.replace(tmp, target)
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+
+
 def apply_full_config_from_json(config, data):
     """
     Completely updates the config configuration using JSON data.
@@ -5126,18 +5185,25 @@ def apply_full_config_from_json(config, data):
     print("Deleting existing data...")
     for class_obj in config.classes:
         db.session.delete(class_obj)
+        _cooperate_during_config_apply()
     for dataset in config.datasets:
         db.session.delete(dataset)
+        _cooperate_during_config_apply()
     for section in config.sections:
         db.session.delete(section)
+        _cooperate_during_config_apply()
     for server in config.servers:
         db.session.delete(server)
+        _cooperate_during_config_apply()
     for ra in (getattr(config, 'room_aliases', None) or []):
         db.session.delete(ra)
+        _cooperate_during_config_apply()
     for event in config.config_events:
         db.session.delete(event)
+        _cooperate_during_config_apply()
     for timer in (getattr(config, 'config_timers', None) or []):
         db.session.delete(timer)
+        _cooperate_during_config_apply()
     
     # Importing classes
     classes_data = data.get('classes', [])
@@ -5194,6 +5260,7 @@ def apply_full_config_from_json(config, data):
             )
         db.session.add(new_class)
         db.session.flush()
+        _cooperate_during_config_apply()
         
         # Importing class methods
         methods_data = class_data.get('methods', [])
@@ -5208,23 +5275,30 @@ def apply_full_config_from_json(config, data):
                 class_id=new_class.id
             )
             db.session.add(new_method)
+            _cooperate_during_config_apply()
         
         # Importing class events
         events_data = class_data.get('events', [])
         print(f"  Importing {len(events_data)} events for class {class_data['name']}")
         
         for event_data in events_data:
+            if not isinstance(event_data, dict):
+                continue
+            event_name = str(event_data.get('event') or event_data.get('name') or '').strip()
+            if not event_name:
+                continue
             new_event = ClassEvent(
-                event=event_data['event'],
+                event=event_name,
                 listener=event_data.get('listener', ''),
                 class_id=new_class.id
             )
             db.session.add(new_event)
             db.session.flush()
+            _cooperate_during_config_apply()
             
             # Importing event actions
             actions_data = event_data.get('actions', [])
-            print(f"    Importing {len(actions_data)} actions for event {event_data['event']}")
+            print(f"    Importing {len(actions_data)} actions for event {event_name}")
             
             for action_data in actions_data:
                 new_action = EventAction(
@@ -5241,6 +5315,7 @@ def apply_full_config_from_json(config, data):
                     event_id=new_event.id
                 )
                 db.session.add(new_action)
+                _cooperate_during_config_apply()
     
     # Importing datasets
     datasets_data = data.get('datasets', [])
@@ -5264,6 +5339,7 @@ def apply_full_config_from_json(config, data):
             config_id=config.id
         )
         db.session.add(new_dataset)
+        _cooperate_during_config_apply()
     
     # Importing sections
     sections_data = data.get('sections', [])
@@ -5279,6 +5355,7 @@ def apply_full_config_from_json(config, data):
             config_id=config.id
         )
         db.session.add(new_section)
+        _cooperate_during_config_apply()
     
     # Importing servers
     servers_data = data.get('servers', [])
@@ -5292,6 +5369,7 @@ def apply_full_config_from_json(config, data):
             config_id=config.id
         )
         db.session.add(new_server)
+        _cooperate_during_config_apply()
 
 
     # Importing room aliases (rooms)
@@ -5308,14 +5386,20 @@ def apply_full_config_from_json(config, data):
             config_id=config.id
         )
         db.session.add(new_ra)
+        _cooperate_during_config_apply()
 
      # Importing common events
     common_events_data = data.get('CommonEvents', [])
     print(f"Importing {len(common_events_data)} common events.")
 
     for ev_data in common_events_data:
+        if not isinstance(ev_data, dict):
+            continue
+        event_name = str(ev_data.get('event') or ev_data.get('name') or '').strip()
+        if not event_name:
+            continue
         new_event = ConfigEvent(
-            event=ev_data['event'],
+            event=event_name,
             listener=ev_data.get('listener', ''),
             config_id=config.id
         )
@@ -5335,6 +5419,7 @@ def apply_full_config_from_json(config, data):
                 post_http_function_name=(action_data.get('postHttpFunctionName', '') or '') if _is_http_request_method(action_data.get('postExecuteMethod', '')) else ''
             )
             db.session.add(new_action)
+            _cooperate_during_config_apply()
 
     timers_data = data.get('Timers', data.get('timers', []))
     print(f"Importing {len(timers_data)} timers.")
@@ -5367,6 +5452,7 @@ def apply_full_config_from_json(config, data):
                 post_http_function_name=(action_data.get('postHttpFunctionName', '') or '') if _is_http_request_method(action_data.get('postExecuteMethod', '')) else ''
             )
             db.session.add(new_action)
+            _cooperate_during_config_apply()
     
     # Updating the timestamp
     config.update_last_modified()
@@ -5378,8 +5464,8 @@ def apply_full_config_from_json(config, data):
         handlers_file_path = os.path.join(handlers_dir, 'handlers.py')
         try:
             handlers_code = base64.b64decode(config.nodes_server_handlers).decode('utf-8')
-            with open(handlers_file_path, 'w', encoding='utf-8', newline="\n") as f:
-                f.write(handlers_code)
+            _atomic_replace_text_file(handlers_file_path, handlers_code)
+            _cooperate_during_config_apply()
             print(f"Created/updated server handlers file: {handlers_file_path}")
         except Exception as e:
             print(f"Error creating server handlers file: {str(e)}")
@@ -5544,11 +5630,38 @@ def call_lmstudio(system_prompt: str, user_prompt: str) -> str:
         raise RuntimeError("LLM response did not contain assistant content. " + _llm_response_shape(data))
     return content
 
-def call_llm(provider: str, system_prompt: str, user_prompt: str, *, debug_stage: str = "call", debug_meta: dict = None) -> str:
+def _release_db_before_external_llm() -> None:
+    """End any current DB transaction before waiting on an external LLM.
+
+    SQLite permits only one writer at a time.  Solutions may enqueue audit/state
+    rows before generation; leaving that transaction open while an LLM request
+    runs for minutes blocks unrelated users from writing.  Persist the short DB
+    work first, then perform the slow network operation outside a transaction.
+    """
+    try:
+        db.session.commit()
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        raise
+
+
+def call_llm(provider: str, system_prompt: str, user_prompt: str, *, debug_stage: str = "call", debug_meta: dict = None, max_tokens: int = None) -> str:
+    # Critical concurrency boundary: never hold a SQLAlchemy/SQLite write
+    # transaction across a potentially very long external model request.
+    _release_db_before_external_llm()
     provider = (provider or "").strip().lower()
     if provider == "ngenie_code":
         import ngenie_code
-        return ngenie_code.call_llm(system_prompt, user_prompt, debug_stage=debug_stage, debug_meta=debug_meta or {})
+        return ngenie_code.call_llm(
+            system_prompt,
+            user_prompt,
+            max_tokens=max_tokens,
+            debug_stage=debug_stage,
+            debug_meta=debug_meta or {},
+        )
     if provider == "lmstudio":
         return call_lmstudio(system_prompt, user_prompt)
     # default
@@ -5608,24 +5721,33 @@ def extract_json_from_text(text: str) -> str:
     json.loads(candidate)
     return candidate
 
-ALLOWED_UI_TYPES_AI = {
-    # BASIC
-    "Text", "Picture", "HTML", "Button", "BottomButtons", "Input", "Switch", "CheckBox",
-    "Table", "Parameters", "NodeChildren", "Spinner",
-    "gauge", "pie", "bar", "line", "Gauge", "Pie", "Bar", "Line",
+try:
+    # WEB NodaLayout is the source of truth for Show()/static web layouts.  Keeping
+    # a second independent list here previously produced false blockers such as
+    # ``Show(...): unknown UI type 'Tabs'`` although Tabs is implemented by the
+    # renderer and used by the editor itself/reference configurations.
+    from client_app.nodalayout import NODALAYOUT_WEB_ELEMENT_TYPES
+except Exception:
+    # Startup/import fallback for stripped utility environments.  Keep the full
+    # production list here too so validation degrades to permissive-correct rather
+    # than rejecting supported UI when client_app is temporarily unavailable.
+    NODALAYOUT_WEB_ELEMENT_TYPES = frozenset({
+        "Text", "Picture", "HTML", "Button", "Input", "TextInput", "Switch", "CheckBox",
+        "Table", "Parameters", "NodeChildren", "Spinner",
+        "DatasetField", "DatasetInput", "DatasetLink", "DataSetLink", "NodeInput", "NodeLink",
+        "VerticalLayout", "HorizontalLayout", "VerticalScroll", "HorizontalScroll", "Card",
+        "Tabs", "Tab", "CodeFrame", "ImageSlider", "PictureGallery",
+        "gauge", "pie", "bar", "line", "Gauge", "Pie", "Bar", "Line",
+    })
 
-    # DATA REFERENCES (these are valid runtime UI controls and are documented in nGenie Code instructions)
-    "DatasetField", "DatasetInput", "DatasetLink", "DataSetLink",
-    "NodeInput", "NodeLink",
-
-    # CONTAINERS
-    "VerticalLayout", "HorizontalLayout", "VerticalScroll", "HorizontalScroll", "Card",
-
-    # PLUGINS (PlugIn)
-    "FloatingButton", "ToolbarButton",
+ALLOWED_UI_TYPES_AI = set(NODALAYOUT_WEB_ELEMENT_TYPES) | {
+    # Android-focused/screen plugin elements.  These are not all rendered by the
+    # web NodaLayout module, but are valid NodaLogic UI/PlugIn types.
+    "BottomButtons", "FloatingButton", "ToolbarButton",
     "PhotoButton", "GalleryButton", "MediaGallery",
     "CameraBarcodeScannerButton",  # camera scan button
     "BarcodeScanner",              # hardware scanner interception (TSD terminals)
+    "ActiveCV",
 }
 
 CONTAINER_UI_TYPES_AI = {"VerticalLayout", "HorizontalLayout", "VerticalScroll", "HorizontalScroll", "Card"}
@@ -5695,8 +5817,27 @@ def _iter_layout_elements_ai(layout):
                     yield from _iter_layout_elements_ai(item["value"])
                 if t == "BottomButtons" and isinstance(item.get("value"), list):
                     yield from _iter_layout_elements_ai(item["value"])
+                if t == "Tabs" and isinstance(item.get("value"), list):
+                    # Tabs.value contains Tab descriptors; each Tab owns a normal
+                    # row-based layout. Validate both the descriptor type and the
+                    # controls nested inside its layout/legacy layput field.
+                    for tab in item.get("value") or []:
+                        if not isinstance(tab, dict):
+                            continue
+                        yield tab
+                        tab_layout = tab.get("layout")
+                        if tab_layout is None:
+                            tab_layout = tab.get("layput")
+                        if isinstance(tab_layout, list):
+                            yield from _iter_layout_elements_ai(tab_layout)
                 if t == "Table" and isinstance(item.get("layout"), list):
                     yield from _iter_layout_elements_ai(item["layout"])
+                if t == "Table" and isinstance(item.get("virtual_node"), dict):
+                    vnode = item.get("virtual_node") or {}
+                    if isinstance(vnode.get("layout"), list):
+                        yield from _iter_layout_elements_ai(vnode.get("layout"))
+                    if isinstance(vnode.get("cover"), list):
+                        yield from _iter_layout_elements_ai(vnode.get("cover"))
             else:
                 yield from _iter_layout_elements_ai(item)
 
@@ -5715,7 +5856,7 @@ def validate_layout_types_ai(layout, where="layout"):
         if t == "Text" and "size" in el and not isinstance(el.get("size"), int):
             errors.append(f"{where}: Text.size must be integer (got {type(el.get('size')).__name__})")
         # Input.input_type must be one of allowed (if present)
-        if t == "Input" and "input_type" in el:
+        if t in ("Input", "TextInput") and "input_type" in el:
             it = el.get("input_type")
             if not isinstance(it, str) or it not in ALLOWED_INPUT_TYPES_AI:
                 errors.append(f"{where}: Input.input_type must be one of {sorted(ALLOWED_INPUT_TYPES_AI)} (got {it!r})")
@@ -5838,20 +5979,74 @@ class _ShowPlugInLiteralValidatorAI(ast.NodeVisitor):
                 self.errors.append(f"{where}: unknown UI type '{t}' (CASE-SENSITIVE)")
             if t == "Text":
                 snode = d.get("size")
-                if snode is not None and not (isinstance(snode, ast.Constant) and isinstance(snode.value, int)):
-                    self.errors.append(f"{where}: Text.size must be integer literal")
-            if t == "Input":
+                # Static validator: reject only a literal value that is
+                # definitely wrong. Variables/calls/expressions are runtime
+                # values and are verified by the real NodaLayout renderer.
+                if isinstance(snode, ast.Constant) and not isinstance(snode.value, int):
+                    self.errors.append(f"{where}: Text.size literal must be integer")
+            if t in ("Input", "TextInput"):
                 inode = d.get("input_type")
-                if inode is not None and not (isinstance(inode, ast.Constant) and isinstance(inode.value, str) and inode.value in ALLOWED_INPUT_TYPES_AI):
-                    self.errors.append(f"{where}: Input.input_type must be one of {sorted(ALLOWED_INPUT_TYPES_AI)} (CASE-SENSITIVE)")
+                if isinstance(inode, ast.Constant):
+                    if not (isinstance(inode.value, str) and inode.value in ALLOWED_INPUT_TYPES_AI):
+                        self.errors.append(f"{where}: Input.input_type literal must be one of {sorted(ALLOWED_INPUT_TYPES_AI)} (CASE-SENSITIVE)")
 
             # recurse for containers / bottom buttons / table
             if t in CONTAINER_UI_TYPES_AI:
                 self._validate_layout_literal(d.get("value"), where)
             if t == "BottomButtons":
                 self._validate_layout_literal(d.get("value"), where)
+            if t == "Tabs":
+                tabs_node = d.get("value")
+                if isinstance(tabs_node, ast.List):
+                    for tab_node in tabs_node.elts:
+                        if isinstance(tab_node, ast.Dict):
+                            # For an inline literal we can prove the descriptor type.
+                            # Tabs.value accepts Tab descriptors only; a literal
+                            # {"type": "Text"} is therefore a real deterministic error.
+                            tab_type_node = None
+                            for key_node, value_node in zip(tab_node.keys, tab_node.values):
+                                if (
+                                    isinstance(key_node, ast.Constant)
+                                    and key_node.value == "type"
+                                ):
+                                    tab_type_node = value_node
+                                    break
+                            if (
+                                isinstance(tab_type_node, ast.Constant)
+                                and isinstance(tab_type_node.value, str)
+                                and tab_type_node.value != "Tab"
+                            ):
+                                self.errors.append(f"{where}: Tabs.value must contain Tab objects")
+                                continue
+                            self._validate_element_dict(tab_node, where)
+                            continue
+
+                        # This validator intentionally checks STATIC literals only.
+                        # A local variable such as `main_tab` is ast.Name even when
+                        # it was assigned a perfectly valid {"type": "Tab", ...}
+                        # above.  The old code treated every such non-literal as a
+                        # hard error, creating an impossible LLM repair loop.
+                        #
+                        # Reject only values that are statically known NOT to be a
+                        # Tab object. Dynamic expressions are left to runtime/layout
+                        # validation, exactly like non-literal Show/PlugIn values.
+                        if isinstance(tab_node, (ast.Constant, ast.List, ast.Tuple, ast.Set)):
+                            self.errors.append(f"{where}: Tabs.value must contain Tab objects")
             if t == "Table":
                 self._validate_layout_literal(d.get("layout"), where)
+                vnode = d.get("virtual_node")
+                if isinstance(vnode, ast.Dict):
+                    vnode_keys = []
+                    for key in vnode.keys:
+                        vnode_keys.append(key.value if isinstance(key, ast.Constant) and isinstance(key.value, str) else None)
+                    vnode_dict = dict(zip(vnode_keys, vnode.values))
+                    self._validate_layout_literal(vnode_dict.get("layout"), where)
+                    self._validate_layout_literal(vnode_dict.get("cover"), where)
+
+        # Tab is a descriptor, not a standalone control. Its child layout is
+        # nevertheless ordinary NodaLayout and must be checked recursively.
+        if isinstance(tnode, ast.Constant) and isinstance(tnode.value, str) and tnode.value == "Tab":
+            self._validate_layout_literal(d.get("layout") or d.get("layput"), where)
 
 def validate_show_plugin_literals_ai(py_code: str):
     try:
@@ -6035,6 +6230,215 @@ def merge_llm_config_into_current_ai(current_cfg: dict, llm_cfg: dict):
 
     return out
 
+
+
+def _ngenie_reference_field_lines(text: str):
+    """Return ordered (field_name, original_line) pairs from data_structure."""
+    rows = []
+    for raw in str(text or "").splitlines():
+        line = raw.rstrip()
+        m = re.search(r"\|\s*([A-Za-z_][A-Za-z0-9_]*)\s*:", line)
+        rows.append((m.group(1) if m else "", line))
+    return rows
+
+
+def _ngenie_reference_merge_data_structure(reference_text: str, candidate_text: str) -> str:
+    """Reference fields are immutable baseline; project-specific fields are additive."""
+    ref_rows = _ngenie_reference_field_lines(reference_text)
+    cand_rows = _ngenie_reference_field_lines(candidate_text)
+    ref_names = {name for name, _line in ref_rows if name}
+    out = [line for _name, line in ref_rows if line.strip()]
+    for name, line in cand_rows:
+        if not line.strip():
+            continue
+        if name and name in ref_names:
+            continue
+        if line not in out:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _ngenie_reference_merge_named_dicts(reference_items, candidate_items, key_name="name"):
+    """Keep exact reference dictionaries for existing identities and append extras."""
+    ref = [deepcopy(x) for x in (reference_items or []) if isinstance(x, dict)]
+    cand = [deepcopy(x) for x in (candidate_items or []) if isinstance(x, dict)]
+    out = list(ref)
+    known = {str(x.get(key_name) or ""): i for i, x in enumerate(out) if str(x.get(key_name) or "")}
+    for item in cand:
+        key = str(item.get(key_name) or "")
+        if key and key in known:
+            # Preserve the proven reference values, but allow truly new metadata
+            # keys that the reference row did not know about.
+            merged = dict(item)
+            merged.update(out[known[key]])
+            out[known[key]] = merged
+        else:
+            out.append(item)
+            if key:
+                known[key] = len(out) - 1
+    return out
+
+
+def _ngenie_reference_merge_event_actions(reference_events, candidate_events):
+    def event_key(ev):
+        return (str(ev.get("event") or ""), str(ev.get("listener") or ""))
+    out = [deepcopy(x) for x in (reference_events or []) if isinstance(x, dict)]
+    idx = {event_key(x): i for i, x in enumerate(out)}
+    for ev in [x for x in (candidate_events or []) if isinstance(x, dict)]:
+        key = event_key(ev)
+        if key not in idx:
+            out.append(deepcopy(ev)); idx[key] = len(out) - 1; continue
+        base = out[idx[key]]
+        merged = dict(ev)
+        merged.update({k: deepcopy(v) for k, v in base.items() if k != "actions"})
+        ref_actions = [deepcopy(a) for a in (base.get("actions") or []) if isinstance(a, dict)]
+        cand_actions = [deepcopy(a) for a in (ev.get("actions") or []) if isinstance(a, dict)]
+        seen = {json.dumps(a, ensure_ascii=False, sort_keys=True, default=str) for a in ref_actions}
+        for action in cand_actions:
+            sig = json.dumps(action, ensure_ascii=False, sort_keys=True, default=str)
+            if sig not in seen:
+                ref_actions.append(action); seen.add(sig)
+        merged["actions"] = ref_actions
+        out[idx[key]] = merged
+    return out
+
+
+def _ngenie_layout_elements_by_id(value, result=None):
+    result = result if result is not None else {}
+    if isinstance(value, dict):
+        element_id = str(value.get("id") or "").strip()
+        if element_id:
+            result.setdefault(element_id, value)
+        for child in value.values():
+            if isinstance(child, (dict, list)):
+                _ngenie_layout_elements_by_id(child, result)
+    elif isinstance(value, list):
+        for child in value:
+            _ngenie_layout_elements_by_id(child, result)
+    return result
+
+
+def _ngenie_reference_restore_layout_options(reference_layout: str, candidate_layout: str) -> str:
+    """Keep candidate layout additions while restoring reference option sets."""
+    try:
+        ref = json.loads(str(reference_layout or ""))
+        cand = json.loads(str(candidate_layout or ""))
+    except Exception:
+        return candidate_layout or reference_layout
+    ref_map = _ngenie_layout_elements_by_id(ref)
+    cand_map = _ngenie_layout_elements_by_id(cand)
+    for element_id, ref_el in ref_map.items():
+        cur = cand_map.get(element_id)
+        if not isinstance(cur, dict):
+            # Missing reference controls are a validator concern; do not place a
+            # nested widget at an invalid top-level position here.
+            continue
+        # Existing reference widget identity/type stays authoritative.
+        for k in ("type", "id"):
+            if k in ref_el:
+                cur[k] = deepcopy(ref_el[k])
+        if isinstance(ref_el.get("dataset"), list):
+            ref_ds = [deepcopy(x) for x in ref_el.get("dataset") or []]
+            cur_ds = [deepcopy(x) for x in (cur.get("dataset") or [])]
+            if all(isinstance(x, dict) for x in ref_ds + cur_ds):
+                by_id = {str(x.get("_id") or x.get("id") or ""): i for i, x in enumerate(ref_ds)}
+                for x in cur_ds:
+                    key = str(x.get("_id") or x.get("id") or "")
+                    if key and key in by_id:
+                        merged = dict(x); merged.update(ref_ds[by_id[key]]); ref_ds[by_id[key]] = merged
+                    elif x not in ref_ds:
+                        ref_ds.append(x)
+                cur["dataset"] = ref_ds
+        if isinstance(ref_el.get("table_header"), list):
+            headers = list(ref_el.get("table_header") or [])
+            for item in (cur.get("table_header") or []):
+                if item not in headers:
+                    headers.append(item)
+            cur["table_header"] = headers
+    return json.dumps(cand, ensure_ascii=False, separators=(",", ":"))
+
+
+def _ngenie_reference_merge_display_table(reference_text: str, candidate_text: str) -> str:
+    ref = [x.strip() for x in str(reference_text or "").split(",") if x.strip()]
+    cand = [x.strip() for x in str(candidate_text or "").split(",") if x.strip()]
+    out = list(ref)
+    ref_fields = set()
+    for item in ref:
+        m = re.search(r"@([A-Za-z_][A-Za-z0-9_]*)", item)
+        if m: ref_fields.add(m.group(1))
+    for item in cand:
+        m = re.search(r"@([A-Za-z_][A-Za-z0-9_]*)", item)
+        if m and m.group(1) in ref_fields:
+            continue
+        if item not in out:
+            out.append(item)
+    return ",".join(out)
+
+
+def _ngenie_preserve_reference_surface(reference_cfg: dict, candidate_cfg: dict) -> dict:
+    """Make reference-based generation additive instead of subtractive.
+
+    The approved answers choose defaults/seed data and project extensions.  They
+    must not silently delete working reference capabilities (enum options, indexes,
+    UI, events, reports) from the exact reference base.
+    """
+    ref_cfg = reference_cfg if isinstance(reference_cfg, dict) else {}
+    out = json.loads(json.dumps(candidate_cfg if isinstance(candidate_cfg, dict) else {}, ensure_ascii=False, default=str))
+    if not ref_cfg.get("classes"):
+        return out
+
+    # Root engineering prompt of the reference is authoritative.  Project facts
+    # already live in Solution context and class metadata; replacing this prompt
+    # previously invented STOCK_SPACE v1 while the working reference uses v3.
+    if str(ref_cfg.get("ngenie_prompt") or "").strip():
+        out["ngenie_prompt"] = ref_cfg.get("ngenie_prompt")
+
+    ref_classes = {str(c.get("name") or ""): c for c in (ref_cfg.get("classes") or []) if isinstance(c, dict)}
+    out_classes = {str(c.get("name") or ""): c for c in (out.get("classes") or []) if isinstance(c, dict)}
+    ordered = []
+    for ref_cls in ref_cfg.get("classes") or []:
+        if not isinstance(ref_cls, dict):
+            continue
+        name = str(ref_cls.get("name") or "")
+        cur = deepcopy(out_classes.get(name) or ref_cls)
+        # Stable product surface/identity of existing reference classes.
+        for key in (
+            "name", "section", "section_code", "has_storage", "display_name",
+            "record_view", "cover_image", "class_type", "projection_type",
+            "hidden", "hide_mobile_client", "hide_web_client", "include_in_contract",
+            "print_template_type", "print_target_classes", "print_html_template",
+        ):
+            if key in ref_cls:
+                cur[key] = deepcopy(ref_cls.get(key))
+        cur["data_structure"] = _ngenie_reference_merge_data_structure(
+            ref_cls.get("data_structure"), cur.get("data_structure")
+        )
+        cur["indexes"] = _ngenie_reference_merge_named_dicts(ref_cls.get("indexes"), cur.get("indexes"), "name")
+        cur["methods"] = _ngenie_reference_merge_named_dicts(ref_cls.get("methods"), cur.get("methods"), "name")
+        cur["events"] = _ngenie_reference_merge_event_actions(ref_cls.get("events"), cur.get("events"))
+        cur["display_image_table"] = _ngenie_reference_merge_display_table(
+            ref_cls.get("display_image_table"), cur.get("display_image_table")
+        )
+        for layout_key in ("init_screen_layout", "init_screen_layout_web"):
+            if ref_cls.get(layout_key) and cur.get(layout_key):
+                cur[layout_key] = _ngenie_reference_restore_layout_options(ref_cls.get(layout_key), cur.get(layout_key))
+            elif ref_cls.get(layout_key):
+                cur[layout_key] = deepcopy(ref_cls.get(layout_key))
+        ordered.append(cur)
+    # Keep only project-specific additions after the complete reference surface.
+    ref_names = set(ref_classes)
+    ordered.extend(deepcopy(c) for c in (out.get("classes") or []) if isinstance(c, dict) and str(c.get("name") or "") not in ref_names)
+    out["classes"] = ordered
+
+    # Existing reference sections/events are also an additive baseline.
+    ref_sections = [deepcopy(x) for x in (ref_cfg.get("sections") or []) if isinstance(x, dict)]
+    cur_sections = [deepcopy(x) for x in (out.get("sections") or []) if isinstance(x, dict)]
+    sec_keys = {str(x.get("code") or x.get("name") or "") for x in ref_sections}
+    out["sections"] = ref_sections + [x for x in cur_sections if str(x.get("code") or x.get("name") or "") not in sec_keys]
+    out["CommonEvents"] = _ngenie_reference_merge_event_actions(ref_cfg.get("CommonEvents"), out.get("CommonEvents"))
+    return out
+
+
 def validate_full_llm_config_ai(cfg: dict):
     """
     Full AI-only validation:
@@ -6051,8 +6455,10 @@ def validate_full_llm_config_ai(cfg: dict):
 
     # handlers python parse
     for field, code in (("nodes_handlers", android_code), ("nodes_server_handlers", server_code)):
+        # A solution may legitimately be server-only or Android-only.  Runtime
+        # handler presence is required by the JSON->Python contract only when
+        # metadata actually declares methods/events for that runtime.
         if not code.strip():
-            errors.append(f"{field}: empty")
             continue
         try:
             ast.parse(code)
@@ -6106,12 +6512,12 @@ def _split_handlers_header_and_body(code: str):
     body = body.lstrip("\n")
     return header, body
 
-def _call_llm_code_only(provider: str, system_prompt: str, user_prompt: str, *, debug_stage: str = "handler_body") -> str:
+def _call_llm_code_only(provider: str, system_prompt: str, user_prompt: str, *, debug_stage: str = "handler_body", max_tokens: int = None) -> str:
     """
     Calls LLM and returns the text "as is", but:
     - truncates the ``` if LLM did send it
     """
-    txt = call_llm(provider, system_prompt, user_prompt, debug_stage=debug_stage) or ""
+    txt = call_llm(provider, system_prompt, user_prompt, debug_stage=debug_stage, max_tokens=max_tokens) or ""
     s = txt.strip()
     if s.startswith("```"):
         # снять fence
@@ -6123,6 +6529,195 @@ def _call_llm_code_only(provider: str, system_prompt: str, user_prompt: str, *, 
             s = s[:end_fence].strip()
     return s.strip()
 
+def _handler_contract_requirements_ai(config_json: dict, kind_label: str):
+    """Return the exact internal JSON -> Python obligations for one runtime.
+
+    This is the single source of truth used by validation, retry prompts and
+    coverage heuristics. A class is required only when metadata actually wires
+    an internal method to the selected runtime.
+    """
+    runtime = "android_python" if str(kind_label or "").upper() == "ANDROID" else "server_python"
+    android_events = {"onshow", "onresume", "oninput", "onaccept", "onafteraccept"}
+    server_events = {"onshowweb", "oninputweb", "oninputserver", "onacceptserver", "onafteracceptserver"}
+    runtime_events = android_events if runtime == "android_python" else server_events
+
+    requirements = []
+    for cls in (config_json or {}).get("classes") or []:
+        if not isinstance(cls, dict):
+            continue
+        cname = str(cls.get("name") or "").strip()
+        if not cname:
+            continue
+
+        declared_runtime_methods = []
+        method_runtime_by_name = {}
+        for method in cls.get("methods") or []:
+            if not isinstance(method, dict):
+                continue
+            mname = str(method.get("name") or method.get("code") or "").strip()
+            mengine = str(method.get("engine") or "").strip()
+            msource = str(method.get("source") or "internal").strip()
+            if mname:
+                method_runtime_by_name[mname] = mengine
+            if mengine == runtime and msource in {"", "internal"} and mname:
+                declared_runtime_methods.append(mname)
+
+        runtime_event_targets = set()
+        all_event_targets = set()
+        for event in cls.get("events") or []:
+            if not isinstance(event, dict):
+                continue
+            event_name = str(event.get("event") or "").strip().lower()
+            for action in event.get("actions") or []:
+                if not isinstance(action, dict):
+                    continue
+                action_source = str(action.get("source") or "internal").strip().lower()
+                if action_source not in {"", "internal"}:
+                    continue
+                mname = str(action.get("method") or "").strip()
+                if not mname:
+                    continue
+                all_event_targets.add(mname)
+                declared_engine = method_runtime_by_name.get(mname, "")
+                if declared_engine == runtime or (not declared_engine and event_name in runtime_events):
+                    runtime_event_targets.add(mname)
+
+        required_methods = []
+        for mname in declared_runtime_methods:
+            if mname.startswith("_") and mname not in all_event_targets:
+                continue
+            if mname not in required_methods:
+                required_methods.append(mname)
+        for mname in sorted(runtime_event_targets):
+            if mname not in required_methods:
+                required_methods.append(mname)
+
+        if required_methods:
+            requirements.append((cname, required_methods))
+    return requirements
+
+
+def _handler_contract_checklist_ai(config_json: dict, kind_label: str) -> str:
+    """Compact checklist shown to the model before it writes a full handler."""
+    rows = []
+    for cname, methods in _handler_contract_requirements_ai(config_json, kind_label):
+        rows.append(f"- {cname}: " + ", ".join(methods))
+    return "\n".join(rows)
+
+
+def _handler_contract_errors_ai(config_json: dict, code: str, kind_label: str):
+    """Validate only the JSON contract that belongs to this Python runtime."""
+    runtime = "android_python" if str(kind_label or "").upper() == "ANDROID" else "server_python"
+    try:
+        tree = ast.parse(str(code or ""))
+    except SyntaxError as exc:
+        return [f"{kind_label}: Python syntax error: {exc}"]
+
+    class_methods = {}
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        class_methods[node.name] = {
+            child.name
+            for child in node.body
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+
+    errors = []
+    for cname, required_methods in _handler_contract_requirements_ai(config_json, kind_label):
+        implemented = class_methods.get(cname)
+        if implemented is None:
+            errors.append(f"class {cname}: missing from {runtime} handler file")
+            continue
+        for mname in required_methods:
+            if mname not in implemented:
+                errors.append(
+                    f"class {cname}: JSON declares {runtime} method {mname}, but Python class does not implement it"
+                )
+    return errors
+
+
+def _handler_repair_preservation_errors_ai(before_code: str, after_code: str):
+    """Reject only mechanically impossible/destructive handler repair shapes.
+
+    Deleting or substantially shrinking a class/file can be a legitimate repair
+    when metadata/requirements changed, so those heuristics must never be hard
+    blockers.  The only preservation invariant kept here is duplicate top-level
+    class definitions: Python would silently shadow one definition and the repair
+    transaction would be ambiguous.
+    """
+    try:
+        after_tree = ast.parse(str(after_code or ""))
+    except SyntaxError:
+        # Syntax itself is reported by the normal Python gate.
+        return []
+
+    after_counts = {}
+    for node in getattr(after_tree, "body", []):
+        if isinstance(node, ast.ClassDef):
+            after_counts[node.name] = int(after_counts.get(node.name, 0)) + 1
+    duplicates = sorted(name for name, count in after_counts.items() if count > 1)
+    if not duplicates:
+        return []
+    return [
+        "repair produced duplicate top-level Python class definitions: "
+        + ", ".join(duplicates)
+        + "; edit the existing class instead of appending another copy"
+    ]
+
+def _handler_contract_target_count_ai(config_json: dict, kind_label: str) -> int:
+    """Count only classes/methods that really belong to this runtime contract."""
+    return sum(
+        1 + len(methods)
+        for _cname, methods in _handler_contract_requirements_ai(config_json, kind_label)
+    )
+
+
+def _handler_contract_needs_full_retry_ai(config_json: dict, contract_errors, kind_label: str) -> bool:
+    """Retry whole-body generation only for a genuinely incomplete artifact.
+
+    A few JSON/Python misses are exactly what focused SEARCH/REPLACE repair is for.
+    Regenerating a 100k+ handler because one public method is absent is expensive and
+    can destroy good code.  A large coverage failure, on the other hand, usually means
+    the model returned a fragment/skeleton and should be regenerated as one coherent body.
+    """
+    errors = [str(x) for x in (contract_errors or []) if str(x or "").strip()]
+    if not errors:
+        return False
+    targets = max(1, _handler_contract_target_count_ai(config_json, kind_label))
+    # Allow a small local-repair tail: up to 8% of the declared contract, minimum 3.
+    local_limit = max(3, int((targets * 0.08) + 0.9999))
+    missing_classes = sum(1 for row in errors if "missing from" in row and "handler file" in row)
+    # Multiple missing classes are a strong sign of a fragment/skeleton even in a
+    # small solution. Otherwise use proportional contract coverage.
+    if missing_classes >= max(2, int((targets * 0.10) + 0.9999)):
+        return True
+    return len(errors) > local_limit
+
+
+def _normalize_generated_handler_body_ai(candidate_text: str, canonical_header: str):
+    """Accept the canonical BODY protocol and legacy complete-file responses.
+
+    nGenie generation contracts define handler output as the editable BODY because
+    the runtime header is platform-owned and restored verbatim before persistence.
+    Older prompts asked for a complete file, so remain backward compatible: when a
+    `from nodes import Node...` marker is present, discard that model-supplied header;
+    otherwise treat the whole response as the editable body.
+    """
+    candidate = str(candidate_text or "").strip()
+    if not candidate:
+        return "", "LLM returned an empty handler body."
+    response_header, response_body = _split_handlers_header_and_body(candidate)
+    body = response_body if response_header else candidate
+    if not str(body or "").strip():
+        return "", "LLM returned no editable handler body."
+    canonical_full = str(canonical_header or "").rstrip() + "\n\n" + str(body).strip() + "\n"
+    ok, err = validate_python_syntax(canonical_full)
+    if not ok:
+        return "", err
+    return str(body).strip(), ""
+
+
 def _generate_handlers_body_ai(
     provider: str,
     system_prompt: str,
@@ -6132,10 +6727,21 @@ def _generate_handlers_body_ai(
     current_body: str,
     kind_label: str,   # "ANDROID" or "SERVER"
     max_attempts: int = 3,
+    reference_code: str = "",
+    strict_contract: bool = False,
+    initial_validation_error: str = "",
 ):
-    """
-    Generates ONLY the body (after the header) for handlers.
-    We keep the header exactly the same as in the current configuration.
+    """Generate one coherent COMPLETE editable handler BODY.
+
+    Retry semantics are deliberately iterative: every retry edits the immediately
+    preceding model response. Older code rebuilt the prompt from the original
+    pre-generation body on every attempt, so the model was not actually repairing
+    its own latest result. The pipeline does not rank attempts or roll back to an
+    earlier response based on contract-error counts; validation only supplies the
+    factual errors for the next model turn.
+
+    The immutable NodaLogic runtime header belongs to the platform and is never
+    generated by the model.
     """
     extra_contract = ""
     if (provider or "").strip().lower() == "ngenie_code":
@@ -6145,53 +6751,1112 @@ def _generate_handlers_body_ai(
         except Exception:
             extra_contract = ""
 
-    # Strict requirements for the response format
-    base_prompt = (
-        f"You are updating NodaLogic {kind_label} handlers.\n"
-        + (("\nMandatory nGenie Code generation contract:\n" + extra_contract + "\n\n") if extra_contract else "")
-        + "Return ONLY python code BODY (no imports, no constants, no markdown, no ```).\n"
-        "The BODY must start with class definitions (e.g., 'class ...').\n"
-        "Do NOT repeat the header. Do NOT include 'from nodes import Node'.\n"
-        "Keep NodaLogic event/class methods declared in JSON class.methods callable as def MethodName(self, input_data=None) returning (bool, dict).\n"
-        "Normal Python helpers may be module-level functions with ordinary arguments; avoid making them class methods unless they follow the same NodaLogic callable contract.\n"
-        "\n"
-        "User request:\n"
-        f"{user_request}\n\n"
-        "Merged configuration JSON (without needing to include huge handler base64):\n"
-        f"{json.dumps(merged_config_json, ensure_ascii=False, indent=2)}\n\n"
-        "Current immutable header (DO NOT CHANGE IT):\n"
-        f"{current_header}\n\n"
-        "Current handlers BODY (edit this):\n"
-        f"{current_body}\n"
+    canonical_header = str(current_header or "").rstrip() + "\n"
+    original_body_text = str(current_body or "").strip()
+    exact_checklist = _handler_contract_checklist_ai(merged_config_json, kind_label)
+    checklist_section = (
+        "\n\nEXACT JSON -> " + str(kind_label or "").upper() + " RUNTIME CONTRACT CHECKLIST.\n"
+        "This list is generated by the SAME validator that will accept/reject the result. "
+        "Every listed class must exist in this handler and every listed method must be implemented "
+        "as a real callable method. Do not drop an already implemented checklist item while fixing another one.\n"
+        + (exact_checklist or "(No internal methods are required for this runtime.)")
     )
 
-    body = None
-    last_err = None
+    ref_full = str(reference_code or "").strip()
+    ref_body = ""
+    if ref_full:
+        _ref_header, split_ref_body = _split_handlers_header_and_body(ref_full)
+        ref_body = str(split_ref_body if _ref_header else ref_full).strip()
 
-    for attempt in range(1, max_attempts + 1):
-        prompt = base_prompt if attempt == 1 else (
-            base_prompt
-            + "\n\n"
-            "The previous BODY is invalid.\n"
-            f"Error:\n{last_err}\n\n"
-            "Fix the BODY and return ONLY the corrected BODY.\n"
+    def _full_generation_prompt(body_text: str) -> str:
+        reference_section = ""
+        if ref_body and ref_body != str(body_text or "").strip():
+            reference_section = (
+                "\n\nFULL REFERENCE EDITABLE HANDLER BODY (proven engineering baseline; NOT mandatory copy/paste):\n"
+                "For functional areas required by the request, preserve the reference's proven mechanics/UX/integration while adapting them; "
+                "a shorter request is not permission to replace them with a poorer duplicate. "
+                "Do not copy genuinely unrelated code only to match the reference. Do not return the reference runtime header.\n"
+                + ref_body
+            )
+        return (
+            f"You are updating the COMPLETE editable NodaLogic {kind_label} Python handler BODY.\n"
+            + (("\nMandatory nGenie Code generation contract:\n" + extra_contract + "\n\n") if extra_contract else "")
+            + "Return ONLY the COMPLETE final editable BODY from its first generated import/helper/class to its last character. No markdown and no ``` fences.\n"
+            + "DO NOT return the immutable NodaLogic runtime header. The platform owns it and will prepend its exact canonical header after your response.\n"
+            + "You have the whole current editable body in context. Make all mutually dependent changes coherently across generated imports, helpers and classes.\n"
+            + "Do NOT answer with patches, diffs, AST fragments, isolated classes or ellipses. Do NOT omit unchanged parts of the editable body.\n"
+            + "If the output reaches the provider token limit, continue from the exact next character when the platform asks you to continue; never restart or summarize the body.\n"
+            + "The reference is a proven implementation baseline, not a mandatory product clone. Approved facts/TZ/graph/standards determine which functional areas are in scope; "
+              "for an in-scope area, preserve proven reference mechanics/UX/integration unless an explicit requirement conflicts, and do not add unrelated areas merely for parity.\n"
+            + "Keep NodaLogic event/class methods declared in JSON class.methods callable as def MethodName(self, input_data=None) returning (bool, dict).\n"
+            + "Normal Python helpers may be module-level functions with ordinary arguments.\n"
+            + checklist_section
+            + "\n\nUser request / approved Solution requirements:\n"
+            + str(user_request or "")
+            + "\n\nMerged configuration JSON (handler base64 fields omitted):\n"
+            + json.dumps({k: v for k, v in (merged_config_json or {}).items() if k not in {'nodes_handlers', 'nodes_server_handlers'}}, ensure_ascii=False, indent=2)
+            + "\n\nIMMUTABLE PLATFORM RUNTIME HEADER (context only; NEVER return this block):\n"
+            + canonical_header
+            + "\nCURRENT COMPLETE EDITABLE HANDLER BODY (return this artifact in full after editing):\n"
+            + str(body_text or "").strip()
+            + reference_section
         )
 
-        candidate_body = _call_llm_code_only(provider, system_prompt, prompt, debug_stage=f"{kind_label.lower()}_handlers_attempt_{attempt}")
+    def _classes_named_in_error(error_text: str):
+        names = []
+        for match in re.finditer(r"\bclass\s+([A-Za-z_]\w*)\s*:", str(error_text or "")):
+            name = str(match.group(1) or "").strip()
+            if name and name not in names:
+                names.append(name)
+        return names
 
-        # Quick check: Does it look like body (must start with class/decorator)
-        if not candidate_body or ("from nodes import Node" in candidate_body) or ("import " in candidate_body[:200]):
-            last_err = "LLM returned header/imports or empty text. Must return only class body."
+    def _metadata_snippet(class_names):
+        wanted = set(class_names or [])
+        if not wanted:
+            return ""
+        rows = [
+            cls for cls in ((merged_config_json or {}).get("classes") or [])
+            if isinstance(cls, dict) and str(cls.get("name") or "").strip() in wanted
+        ]
+        return json.dumps(rows, ensure_ascii=False, indent=2) if rows else ""
+
+    def _reference_class_snippet(class_names):
+        wanted = set(class_names or [])
+        if not wanted or not ref_body:
+            return ""
+        try:
+            tree = ast.parse(ref_body)
+            lines = ref_body.splitlines()
+            chunks = []
+            for node in tree.body:
+                if not isinstance(node, ast.ClassDef) or node.name not in wanted:
+                    continue
+                start_line = max(1, int(getattr(node, "lineno", 1)))
+                end_line = int(getattr(node, "end_lineno", start_line))
+                chunks.append("\n".join(lines[start_line - 1:end_line]))
+            return "\n\n".join(chunks)
+        except Exception:
+            return ""
+
+    def _retry_prompt(body_text: str, validation_error: str) -> str:
+        affected = _classes_named_in_error(validation_error)
+        metadata_excerpt = _metadata_snippet(affected)
+        reference_excerpt = _reference_class_snippet(affected)
+        return (
+            f"TECHNICAL WHOLE-BODY REPAIR for the NodaLogic {kind_label} handler.\n"
+            "The body below is the IMMEDIATELY PREVIOUS model response. It is the current repair state. "
+            "DO NOT regenerate from the old/original handler and do not redesign unrelated working code.\n"
+            "Fix the listed validation errors while preserving every already working class/method. "
+            "Return ONLY the COMPLETE corrected editable BODY, not a patch/diff/fragment and not the immutable runtime header.\n"
+            "Do not satisfy the contract with TODO/placeholder/no-op stubs: use the surrounding implementation and supplied metadata/reference evidence.\n"
+            + checklist_section
+            + "\n\nVALIDATION ERRORS TO FIX:\n"
+            + str(validation_error or "")
+            + (
+                "\n\nMETADATA FOR AFFECTED CLASSES:\n" + metadata_excerpt
+                if metadata_excerpt else ""
+            )
+            + (
+                "\n\nREFERENCE IMPLEMENTATION FOR AFFECTED CLASSES (when present; adapt, do not blindly clone):\n" + reference_excerpt
+                if reference_excerpt else ""
+            )
+            + "\n\nIMMUTABLE PLATFORM RUNTIME HEADER (context only; NEVER return this block):\n"
+            + canonical_header
+            + "\nLATEST CURRENT COMPLETE EDITABLE HANDLER BODY:\n"
+            + str(body_text or "").strip()
+        )
+
+    working_body_text = original_body_text
+    last_err = None
+    start_with_focused_repair = False
+
+    # Resume may already carry a model-generated BODY.  If the saved BODY itself
+    # is syntactically broken, treat that validator result as authoritative even
+    # when an older Stop/Continue checkpoint did not persist handler_validation_error.
+    # This lets Continue repair the saved response instead of regenerating the file.
+    seed_error = str(initial_validation_error or "").strip()
+    if str(kind_label or "").strip().upper() == "SERVER" and original_body_text:
+        seed_body, seed_normalize_error = _normalize_generated_handler_body_ai(original_body_text, canonical_header)
+        if not seed_body and seed_normalize_error and not seed_error:
+            seed_error = str(seed_normalize_error)
+
+    # A saved validation error means resume from THIS body. Syntax errors are handled
+    # below by the dedicated exact SEARCH/REPLACE path; contract errors keep the
+    # historical coherent whole-body retry semantics.
+    if seed_error and original_body_text:
+        seed_body, seed_normalize_error = _normalize_generated_handler_body_ai(original_body_text, canonical_header)
+        if seed_body:
+            seed_full = canonical_header.rstrip() + "\n\n" + seed_body.strip() + "\n"
+            seed_contract_errors = _handler_contract_errors_ai(merged_config_json, seed_full, kind_label)
+            if not seed_contract_errors:
+                return seed_body.strip()
+            working_body_text = seed_body.strip()
+            last_err = seed_error
+            start_with_focused_repair = True
+        else:
+            # The latest saved response may itself be syntactically broken. Keep it
+            # as the current repair state rather than rolling back to an older body.
+            working_body_text = original_body_text
+            last_err = seed_error + ("\n" + str(seed_normalize_error) if seed_normalize_error and str(seed_normalize_error) not in seed_error else "")
+            start_with_focused_repair = True
+
+    for attempt in range(1, max_attempts + 1):
+        # Syntax-only retry is deliberately NOT a complete-handler rewrite.  The
+        # model receives a small verbatim window around the current SyntaxError and
+        # returns one literal SEARCH/REPLACE edit.  The edit is accepted only when
+        # SEARCH occurs exactly once in the complete handler; then the existing full
+        # Python syntax validator is run again.
+        if (
+            str(kind_label or "").strip().upper() == "SERVER"
+            and working_body_text
+            and _handler_validation_is_syntax_error_ai(last_err)
+        ):
+            try:
+                candidate_body = _repair_handler_syntax_exact_ai(
+                    provider=provider,
+                    current_header=canonical_header,
+                    current_body=working_body_text,
+                    kind_label=kind_label,
+                    validation_error=str(last_err or ""),
+                    max_attempts=3,
+                )
+            except Exception as syntax_exc:
+                _attach_handler_resume_state_ai(
+                    syntax_exc, kind_label, canonical_header, working_body_text, last_err
+                )
+                raise
+
+            canonical_full = canonical_header.rstrip() + "\n\n" + candidate_body.strip() + "\n"
+            contract_errors = _handler_contract_errors_ai(merged_config_json, canonical_full, kind_label)
+            if not contract_errors:
+                return candidate_body.strip()
+            if not strict_contract and not _handler_contract_needs_full_retry_ai(merged_config_json, contract_errors, kind_label):
+                return candidate_body.strip()
+
+            working_body_text = candidate_body.strip()
+            active_errors = contract_errors
+            last_err = (
+                ("JSON/Python generation contract is incomplete; the complete Solution handler BODY must satisfy EVERY declared runtime method in this same call.\n"
+                 if strict_contract else
+                 "JSON/Python generation contract is substantially incomplete; regenerate the coherent editable body.\n")
+                + "\n".join(active_errors[:120])
+            )
+            start_with_focused_repair = True
             continue
 
-        full_code = (current_header or "") + "\n" + candidate_body.strip() + "\n"
-        ok, err = validate_python_syntax(full_code)  # Do not touch validate_python_syntax globally.
-        if ok:
+        prompt = (
+            _retry_prompt(working_body_text, last_err or "Previous body did not validate.")
+            if (attempt > 1 or start_with_focused_repair)
+            else _full_generation_prompt(working_body_text)
+        )
+
+        try:
+            candidate_text = _call_llm_code_only(
+                provider,
+                system_prompt,
+                prompt,
+                debug_stage=f"{kind_label.lower()}_handlers_attempt_{attempt}",
+            )
+        except Exception as call_exc:
+            # Server Stop / budget / provider failure must preserve the latest
+            # complete repair state so Continue can enter exact syntax repair
+            # instead of starting the 100k+ handler over again.
+            if str(kind_label or "").strip().upper() == "SERVER":
+                _attach_handler_resume_state_ai(
+                    call_exc, kind_label, canonical_header, working_body_text, last_err
+                )
+            raise
+
+        # Preserve the model's immediately previous response even when Python syntax
+        # is broken. The next attempt must see and repair THIS response instead of
+        # restarting from the pre-generation artifact.
+        response_header, response_body = _split_handlers_header_and_body(str(candidate_text or "").strip())
+        raw_candidate_body = str(response_body if response_header else candidate_text or "").strip()
+
+        candidate_body, normalize_error = _normalize_generated_handler_body_ai(candidate_text, canonical_header)
+        if not candidate_body:
+            last_err = normalize_error or "LLM returned an invalid editable handler body."
+            if raw_candidate_body:
+                working_body_text = raw_candidate_body
+            # Next iteration uses exact SEARCH/REPLACE when this is a SyntaxError.
+            continue
+
+        canonical_full = canonical_header.rstrip() + "\n\n" + candidate_body.strip() + "\n"
+        contract_errors = _handler_contract_errors_ai(merged_config_json, canonical_full, kind_label)
+        if not contract_errors:
             return candidate_body.strip()
 
-        last_err = err
+        if not strict_contract and not _handler_contract_needs_full_retry_ai(merged_config_json, contract_errors, kind_label):
+            return candidate_body.strip()
 
-    raise RuntimeError(f"Failed to generate valid {kind_label} handlers body after {max_attempts} attempts: {last_err}")
+        # Retry from the immediately previous model response. The pipeline does not
+        # compare attempts or decide that an older response was semantically better.
+        working_body_text = candidate_body.strip()
+        active_errors = contract_errors
+
+        last_err = (
+            ("JSON/Python generation contract is incomplete; the complete Solution handler BODY must satisfy EVERY declared runtime method in this same call.\n"
+             if strict_contract else
+             "JSON/Python generation contract is substantially incomplete; regenerate the coherent editable body.\n")
+            + "\n".join(active_errors[:120])
+        )
+
+    exc = RuntimeError(
+        f"Failed to generate valid complete {kind_label} handler body after {max_attempts} attempts: {last_err}"
+    )
+    # Private resume-state retains the latest model response. It is NEVER published
+    # until the full JSON+Android+Server package passes the gate.
+    setattr(exc, "ngenie_handler_kind", str(kind_label or "").upper())
+    setattr(exc, "ngenie_handler_body", str(working_body_text or "").strip())
+    setattr(exc, "ngenie_handler_header", canonical_header)
+    setattr(exc, "ngenie_handler_error", str(last_err or ""))
+    raise exc
+
+
+def _exact_text_match_positions(text: str, needle: str, limit: int = 64):
+    positions = []
+    start = 0
+    while len(positions) < limit:
+        pos = text.find(needle, start)
+        if pos < 0:
+            break
+        positions.append(pos)
+        start = pos + max(1, len(needle))
+    return positions
+
+
+def _normalize_escaped_control_text_for_exact_patch(value: str) -> str:
+    """Decode only transport-style escaped control characters for exact patches.
+
+    Some providers occasionally return JSON strings where structural newlines are
+    double escaped (literal ``\\n`` after json.loads).  We never use fuzzy matching:
+    this normalization is considered only after the original SEARCH has zero
+    matches, and only a uniquely matching normalized SEARCH may be applied.
+    """
+    text = str(value or "")
+    return (
+        text.replace("\\r\\n", "\r\n")
+            .replace("\\n", "\n")
+            .replace("\\t", "\t")
+            .replace("\\r", "\r")
+    )
+
+
+def _exact_text_match_error(source_text: str, edit_index: int, search: str, positions) -> str:
+    """Human/LLM-readable rejection reason without applying fuzzy edits."""
+    count = len(positions)
+    if count == 0:
+        preview = search[:700]
+        return (
+            f"handler repair edit #{edit_index}: SEARCH must match exactly once in the ORIGINAL file, got 0. "
+            "The SEARCH text below is not present verbatim. Copy a fresh unique anchor from CURRENT COMPLETE HANDLER FILE.\n"
+            f"REJECTED SEARCH:\n{preview}"
+        )
+    contexts = []
+    radius = 320
+    for hit_no, pos in enumerate(positions[:4], start=1):
+        left = max(0, pos - radius)
+        right = min(len(source_text), pos + len(search) + radius)
+        contexts.append(f"MATCH {hit_no} CONTEXT:\n{source_text[left:right]}")
+    return (
+        f"handler repair edit #{edit_index}: SEARCH must match exactly once in the ORIGINAL file, got {count}. "
+        "Do not ask the platform to choose an occurrence. Extend SEARCH with surrounding unique context, or merge overlapping fixes into one edit.\n"
+        + "\n\n".join(contexts)
+    )
+
+
+def _apply_exact_text_edits_ai(source_text: str, patch_obj: dict) -> str:
+    """Apply exact SEARCH/REPLACE edits atomically against one original file.
+
+    No AST and no fuzzy matching are used. Every SEARCH is resolved against the
+    SAME original source before any replacement is made. Search ranges must be
+    non-overlapping; related changes must be combined into one edit.
+    """
+    if not isinstance(patch_obj, dict):
+        raise ValueError("handler repair patch must be a JSON object")
+    edits = patch_obj.get("edits")
+    if not isinstance(edits, list) or not edits:
+        raise ValueError("handler repair patch must contain non-empty edits[]")
+    if len(edits) > 60:
+        raise ValueError("handler repair patch contains too many edits (>60)")
+
+    source = str(source_text or "")
+    resolved = []
+    for index, edit in enumerate(edits, start=1):
+        if not isinstance(edit, dict):
+            raise ValueError(f"handler repair edit #{index} must be an object")
+        search = edit.get("search")
+        replace = edit.get("replace")
+        if not isinstance(search, str) or not search:
+            raise ValueError(f"handler repair edit #{index}: search must be non-empty text")
+        if not isinstance(replace, str):
+            raise ValueError(f"handler repair edit #{index}: replace must be text")
+        positions = _exact_text_match_positions(source, search)
+        effective_search = search
+        effective_replace = replace
+        if not positions:
+            normalized_search = _normalize_escaped_control_text_for_exact_patch(search)
+            if normalized_search != search:
+                normalized_positions = _exact_text_match_positions(source, normalized_search)
+                if len(normalized_positions) == 1:
+                    # Transport escaping, not fuzzy matching: the normalized anchor
+                    # is still required to exist verbatim and uniquely in source.
+                    effective_search = normalized_search
+                    effective_replace = _normalize_escaped_control_text_for_exact_patch(replace)
+                    positions = normalized_positions
+        if len(positions) != 1:
+            raise ValueError(_exact_text_match_error(source, index, effective_search, positions))
+        pos = positions[0]
+        resolved.append((pos, pos + len(effective_search), index, effective_search, effective_replace))
+
+    ordered = sorted(resolved, key=lambda row: row[0])
+    for prev, cur in zip(ordered, ordered[1:]):
+        if cur[0] < prev[1]:
+            raise ValueError(
+                f"handler repair edits #{prev[2]} and #{cur[2]} overlap in the ORIGINAL file. "
+                "Combine them into one SEARCH/REPLACE edit with a unique anchor."
+            )
+
+    result = source
+    for pos, end, _index, _search, replace in sorted(resolved, key=lambda row: row[0], reverse=True):
+        result = result[:pos] + replace + result[end:]
+    return result
+
+
+
+def _handler_validation_is_syntax_error_ai(error_text: str) -> bool:
+    """Return True only for the existing validate_python_syntax() SyntaxError shape."""
+    return bool(re.search(r"(?:^|\n)\s*Syntax error\s+\d+\s*:", str(error_text or ""), flags=re.I))
+
+
+def _attach_handler_resume_state_ai(exc, kind_label: str, canonical_header: str, body_text: str, validation_error: str):
+    """Attach the latest private handler state to an exception without overwriting newer state.
+
+    solutions/generator.py already persists these attributes into the private
+    atomic transaction.  The helper is intentionally tiny so Stop/Continue can
+    resume the exact last body even when cancellation happens inside an LLM call.
+    """
+    try:
+        if not str(getattr(exc, "ngenie_handler_kind", "") or "").strip():
+            setattr(exc, "ngenie_handler_kind", str(kind_label or "").upper())
+        if not str(getattr(exc, "ngenie_handler_body", "") or "").strip():
+            setattr(exc, "ngenie_handler_body", str(body_text or "").strip())
+        if not str(getattr(exc, "ngenie_handler_header", "") or "").strip():
+            setattr(exc, "ngenie_handler_header", str(canonical_header or ""))
+        if not str(getattr(exc, "ngenie_handler_error", "") or "").strip():
+            setattr(exc, "ngenie_handler_error", str(validation_error or ""))
+    except Exception:
+        pass
+    return exc
+
+
+def _syntax_repair_window_ai(full_source: str, validation_error: str, radius_lines: int = 36):
+    """Return a verbatim source window around the current SyntaxError line.
+
+    The window is context only. SEARCH uniqueness is always checked against the
+    complete handler file, never against this window.
+    """
+    source = str(full_source or "")
+    lines = source.splitlines(keepends=True)
+    if not lines:
+        return source, 1, 1, 1
+    match = re.search(r"Syntax error\s+(\d+)\s*:", str(validation_error or ""), flags=re.I)
+    line_no = int(match.group(1)) if match else 1
+    line_no = max(1, min(line_no, len(lines)))
+    radius = max(8, int(radius_lines or 36))
+    start = max(0, line_no - 1 - radius)
+    end = min(len(lines), line_no + radius)
+    return "".join(lines[start:end]), start + 1, end, line_no
+
+
+def _syntax_search_collision_feedback_ai(full_source: str, search: str, error_line: int, max_contexts: int = 12) -> str:
+    """Describe every relevant exact SEARCH collision without choosing one.
+
+    The model does not need the complete handler merely to *guess* uniqueness.
+    The pipeline owns the complete text, checks global literal uniqueness itself,
+    and on collision returns verbatim contexts (target-nearest first) so the next
+    SEARCH can be extended safely.  No regex/fuzzy matching or occurrence choice
+    is performed here.
+    """
+    source = str(full_source or "")
+    needle = str(search or "")
+    if not needle:
+        return "SEARCH is empty."
+
+    total = source.count(needle)
+    if total <= 1:
+        return ""
+
+    positions = []
+    start = 0
+    # Enough positions to show useful collision evidence while keeping the retry
+    # prompt compact.  The authoritative total above is still over the whole file.
+    while len(positions) < max(1, int(max_contexts or 12)):
+        pos = source.find(needle, start)
+        if pos < 0:
+            break
+        positions.append(pos)
+        start = pos + max(1, len(needle))
+
+    def _line_no(pos: int) -> int:
+        return source.count("\n", 0, max(0, pos)) + 1
+
+    target_line = max(1, int(error_line or 1))
+    ranked = sorted(positions, key=lambda pos: (abs(_line_no(pos) - target_line), _line_no(pos)))
+    contexts = []
+    radius = 520
+    for shown_no, pos in enumerate(ranked, start=1):
+        line_no = _line_no(pos)
+        left = max(0, pos - radius)
+        right = min(len(source), pos + len(needle) + radius)
+        marker = "TARGET-NEAREST" if shown_no == 1 else "OTHER MATCH"
+        contexts.append(
+            f"{marker} #{shown_no}, complete-file line ~{line_no}:\n"
+            + source[left:right]
+        )
+
+    hidden = max(0, total - len(ranked))
+    tail = f"\n\n{hidden} additional match(es) are not shown." if hidden else ""
+    return (
+        f"SEARCH is NOT unique in the COMPLETE handler: exact literal count = {total}.\n"
+        f"The current SyntaxError is reported near complete-file line {target_line}.\n"
+        "The platform did NOT apply any replacement and will NOT choose an occurrence. "
+        "Use the target-nearest context plus surrounding text to return a longer SEARCH "
+        "that still contains the intended syntax-error location and is globally unique.\n\n"
+        + "\n\n--- COLLISION CONTEXT ---\n\n".join(contexts)
+        + tail
+    )
+
+
+def _repair_handler_syntax_exact_ai(
+    provider: str,
+    current_header: str,
+    current_body: str,
+    kind_label: str,
+    validation_error: str,
+    max_attempts: int = 3,
+):
+    """Repair only Python syntax with one exact, unique SEARCH/REPLACE per turn.
+
+    This path is deliberately narrower than semantic/runtime handler repair:
+    - no regex, AST merge, fuzzy matching or automatic occurrence choice;
+    - the model first sees a verbatim window around the current SyntaxError;
+    - exactly one edit is accepted;
+    - SEARCH must occur exactly once in the COMPLETE current handler;
+    - on collision the pipeline returns verbatim contexts for the competing matches
+      and expands the target window; the model never has to guess global uniqueness;
+    - SEARCH must itself be copied from the supplied target repair window;
+    - the immutable runtime header cannot change;
+    - the existing full-file validate_python_syntax() decides whether to stop or
+      expose the next syntax error.
+    """
+    canonical_header = str(current_header or "").rstrip() + "\n"
+    current_body_text = str(current_body or "").strip()
+    current_full = canonical_header.rstrip() + ("\n\n" if current_body_text else "\n") + current_body_text + "\n"
+
+    ok, actual_error = validate_python_syntax(current_full)
+    if ok:
+        return current_body_text
+    current_error = str(actual_error or validation_error or "Python syntax validation failed")
+    if not _handler_validation_is_syntax_error_ai(current_error):
+        raise ValueError("exact syntax repair requires a SyntaxError from validate_python_syntax")
+
+    system_prompt = (
+        "You are repairing ONLY a local Python syntax error in an existing NodaLogic "
+        + str(kind_label or "").upper()
+        + " handler. Do not redesign, refactor, complete contracts, or change business logic. "
+          "Return one JSON object only: {\"edits\":[{\"search\":\"...\",\"replace\":\"...\"}]}. "
+          "Return EXACTLY ONE edit. SEARCH is literal text, never regex. Copy SEARCH verbatim from "
+          "the supplied CURRENT SYNTAX REPAIR WINDOW. You are NOT expected to know global uniqueness from that window: "
+          "the platform checks the COMPLETE handler itself. If SEARCH collides, no replacement is applied; the next retry will show "
+          "verbatim contexts of the competing matches and a larger target window. The platform will never choose an occurrence for you. "
+          "REPLACE must be the smallest correction of that exact block. Never use ellipses, line numbers, markdown, comments outside JSON, "
+          "or a complete rewritten handler. Preserve all unrelated text byte-for-byte."
+    )
+
+    last_rejection = ""
+    collision_retry = False
+    for attempt in range(1, max(1, int(max_attempts or 1)) + 1):
+        # The first turn is intentionally small. If the previous SEARCH collided
+        # globally, widen only the target context; collision evidence itself is
+        # also returned below. This avoids forcing the model to reread the whole
+        # handler merely to discover uniqueness.
+        radius_lines = 36 if not collision_retry else min(180, 36 + 72 * max(1, attempt - 1))
+        window, start_line, end_line, error_line = _syntax_repair_window_ai(
+            current_full, current_error, radius_lines=radius_lines
+        )
+        collision_retry = False
+        prompt = (
+            "Fix this Python syntax error with one exact literal SEARCH/REPLACE edit.\n"
+            "CURRENT VALIDATOR ERROR:\n" + current_error + "\n\n"
+            f"The following is a VERBATIM excerpt of COMPLETE handler lines {start_line}-{end_line}; "
+            f"the parser reports the error at complete-file line {error_line}.\n"
+            "SEARCH must be copied from this excerpt. Global uniqueness is checked by the platform against the COMPLETE handler file. "
+            "If a previous SEARCH collided, use the returned collision contexts only to see why, then extend SEARCH with text from this target window.\n\n"
+            "CURRENT SYNTAX REPAIR WINDOW:\n" + window
+        )
+        if last_rejection:
+            prompt += (
+                "\n\nPREVIOUS PATCH WAS REJECTED / DID NOT FINISH SYNTAX REPAIR:\n"
+                + last_rejection
+                + "\nReturn a corrected single exact edit against the CURRENT window above."
+            )
+
+        try:
+            completion_text = call_llm(
+                provider,
+                system_prompt,
+                prompt,
+                debug_stage=f"{str(kind_label or '').lower()}_handler_syntax_search_replace_{attempt}",
+                max_tokens=4096,
+            )
+        except Exception as call_exc:
+            _candidate_header, candidate_body = _split_handlers_header_and_body(current_full)
+            _attach_handler_resume_state_ai(
+                call_exc, kind_label, canonical_header, candidate_body or current_body_text, current_error
+            )
+            raise
+
+        try:
+            patch_obj = json.loads(extract_json_from_text(completion_text))
+            edits = patch_obj.get("edits") if isinstance(patch_obj, dict) else None
+            if not isinstance(edits, list) or len(edits) != 1:
+                raise ValueError("syntax repair must return exactly one edits[] item")
+            edit = edits[0]
+            if not isinstance(edit, dict):
+                raise ValueError("syntax repair edit must be an object")
+            search = edit.get("search")
+            replace = edit.get("replace")
+            if not isinstance(search, str) or not search:
+                raise ValueError("syntax repair SEARCH must be non-empty literal text")
+            if not isinstance(replace, str):
+                raise ValueError("syntax repair REPLACE must be literal text")
+            if search == replace:
+                raise ValueError("syntax repair SEARCH and REPLACE are identical")
+            # A one-character token can technically be unique, but it is a poor
+            # safety anchor in a large generated handler. Require real context.
+            if len(search) < 16:
+                raise ValueError("syntax repair SEARCH is too short; include more unique surrounding context")
+            if search not in window:
+                raise ValueError(
+                    "syntax repair SEARCH must be copied verbatim from CURRENT SYNTAX REPAIR WINDOW; "
+                    "do not target unseen code"
+                )
+
+            # Global uniqueness is the pipeline's responsibility, not the model's.
+            # Check the COMPLETE handler before applying anything. On collision,
+            # return verbatim competing contexts (target-nearest first) and retry
+            # with a larger target window. No occurrence is ever auto-selected.
+            global_count = current_full.count(search)
+            if global_count > 1:
+                last_rejection = _syntax_search_collision_feedback_ai(
+                    current_full, search, error_line, max_contexts=12
+                )
+                collision_retry = True
+                continue
+
+            # _apply_exact_text_edits_ai still authoritatively enforces count == 1
+            # (including the existing transport-escape normalization). It performs
+            # plain literal replacement only; no regex/fuzzy matching.
+            patched_full = _apply_exact_text_edits_ai(current_full, {"edits": [edit]})
+            patched_header, patched_body = _split_handlers_header_and_body(patched_full)
+            if str(patched_header or "").rstrip() != canonical_header.rstrip():
+                raise ValueError("syntax repair attempted to change the immutable runtime header")
+            if not str(patched_body or "").strip():
+                raise ValueError("syntax repair produced an empty handler body")
+
+            syntax_ok, next_error = validate_python_syntax(patched_full)
+            if syntax_ok:
+                return str(patched_body).strip()
+
+            next_error = str(next_error or "Python syntax validation failed")
+            if next_error == current_error:
+                # Do not advance to a changed file when the exact same parser error
+                # remains; retry from the authoritative current text with a better edit.
+                last_rejection = (
+                    "The edit matched uniquely and was applied in a temporary copy, but the exact same "
+                    "SyntaxError remained. The edit was NOT accepted. Fix the reported syntax location itself."
+                )
+                continue
+
+            # The local edit made observable parser progress. Keep it privately and
+            # expose only the next SyntaxError to another single exact repair turn.
+            current_full = patched_full
+            current_error = next_error
+            current_body_text = str(patched_body).strip()
+            last_rejection = (
+                "The previous unique edit was applied and changed the parser result. "
+                "The handler is still syntactically invalid; fix ONLY the new validator error shown above."
+            )
+        except Exception as patch_exc:
+            last_rejection = str(patch_exc)
+            continue
+
+    exc = RuntimeError(
+        f"Failed exact SEARCH/REPLACE syntax repair for {str(kind_label or '').upper()} handler after "
+        f"{max(1, int(max_attempts or 1))} attempt(s): {current_error}; {last_rejection}"
+    )
+    _candidate_header, candidate_body = _split_handlers_header_and_body(current_full)
+    _attach_handler_resume_state_ai(
+        exc, kind_label, canonical_header, candidate_body or current_body_text, current_error
+    )
+    raise exc
+
+
+def _compact_handler_repair_system_prompt(kind_label: str) -> str:
+    """Small repair-only prompt instead of the full ~150k-char instruction bundle."""
+    contract = ""
+    try:
+        import ngenie_code
+        contract = ngenie_code.build_generation_contract(kind_label)
+    except Exception:
+        contract = ""
+    return (
+        "You are nGenie Code repairing an existing COMPLETE NodaLogic "
+        + str(kind_label or "").upper()
+        + " Python handler file. The current complete file is authoritative. "
+          "Preserve all unrelated working behavior. Make only the changes required "
+          "by the supplied validation errors. Do not redesign the solution.\n\n"
+        + (("Critical NodaLogic contract:\n" + contract + "\n\n") if contract else "")
+        + "OUTPUT CONTRACT: return one JSON object only, with key edits. "
+          "edits is a list of {search, replace}. SEARCH must be copied EXACTLY from "
+          "the current complete file and must be a smallest practical UNIQUE block. "
+          "REPLACE is the complete replacement text for that exact block. "
+          "All SEARCH blocks are resolved against the SAME ORIGINAL current file before any edit is applied. "
+          "Therefore every SEARCH must be unique in that original file and SEARCH ranges must not overlap. "
+          "If two changes touch the same block, combine them into ONE edit. For an insertion, "
+          "include a short unique anchor in SEARCH and repeat that anchor plus the "
+          "new text in REPLACE. Never use ellipses, line numbers, unified diff, AST "
+          "fragments, markdown fences or commentary."
+    )
+
+
+def _scoped_handler_repair_source_ai(current_full: str, issue_text: str, max_chars: int = 120000):
+    """Return a verbatim, dependency-aware subset for focused handler repair.
+
+    SEARCH/REPLACE patches are still applied to the complete original file.  The
+    subset exists only to reduce prompt tokens.  If the affected class cannot be
+    identified safely, callers receive the full file.
+    """
+    source = str(current_full or "")
+    issue = str(issue_text or "")
+    if not source.strip() or not issue.strip():
+        return source, [], True
+    try:
+        tree = ast.parse(source)
+    except Exception:
+        return source, [], True
+
+    lines = source.splitlines(keepends=True)
+    top_nodes = [
+        node for node in tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        and getattr(node, "lineno", None) and getattr(node, "end_lineno", None)
+    ]
+    classes = {node.name: node for node in top_nodes if isinstance(node, ast.ClassDef)}
+    functions = {node.name: node for node in top_nodes if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    lowered = issue.lower()
+    selected_class_names = [
+        name for name in classes
+        if re.search(r"(?<![A-Za-z0-9_])" + re.escape(name.lower()) + r"(?![A-Za-z0-9_])", lowered)
+    ]
+    selected_function_names = [
+        name for name in functions
+        if re.search(r"(?<![A-Za-z0-9_])" + re.escape(name.lower()) + r"(?![A-Za-z0-9_])", lowered)
+    ]
+    selected_names = selected_class_names + selected_function_names
+    if not selected_names:
+        return source, [], True
+
+    selected_nodes = [classes[name] for name in selected_class_names] + [functions[name] for name in selected_function_names]
+    helper_names = set(selected_function_names)
+    frontier = list(selected_nodes)
+    # Include direct and second-order module helper dependencies.  This usually
+    # captures validation helpers without dragging every unrelated business class.
+    for _depth in range(3):
+        wanted = set()
+        for node in frontier:
+            for child in ast.walk(node):
+                if isinstance(child, ast.Name) and child.id in functions:
+                    wanted.add(child.id)
+        wanted -= helper_names
+        if not wanted:
+            break
+        helper_names.update(wanted)
+        frontier = [functions[name] for name in wanted]
+
+    chosen = selected_nodes + [
+        functions[name] for name in functions
+        if name in helper_names and name not in selected_function_names
+    ]
+    chosen.sort(key=lambda node: int(node.lineno))
+    first_decl_line = min((int(node.lineno) for node in top_nodes), default=1)
+    pieces = ["".join(lines[:max(0, first_decl_line - 1)]).rstrip()]
+    for node in chosen:
+        pieces.append("".join(lines[int(node.lineno) - 1:int(node.end_lineno)]).rstrip())
+    scoped = "\n\n".join(piece for piece in pieces if piece).strip() + "\n"
+    if not scoped.strip() or len(scoped) >= len(source) * 0.92 or len(scoped) > max_chars:
+        return source, selected_names, True
+    return scoped, selected_names, False
+
+
+
+def _handler_repair_metadata_context_ai(config_json: dict, kind_label: str, issue_text: str) -> dict:
+    """Return compact model-facing metadata for one complete handler repair.
+
+    The complete Python BODY remains authoritative and is still returned in full.
+    Sending the complete configuration metadata as well made a one-line Server fix
+    carry another 100k+ characters of forms/layouts/access-policy context.  The
+    handler needs two things instead: the exact JSON->runtime contract for every
+    runtime class, and richer metadata only for classes actually mentioned by the
+    current issue.  Acceptance/validation still runs against the complete candidate.
+    """
+    runtime = "android_python" if str(kind_label or "").strip().upper() == "ANDROID" else "server_python"
+    config_json = config_json if isinstance(config_json, dict) else {}
+    issue = str(issue_text or "")
+    # ``user_request`` also contains the broad approved generation goal. For
+    # metadata scoping, match against the concrete obligations when present;
+    # otherwise every WMS class scores merely because the overall goal says WMS.
+    focus = issue
+    for marker in (
+        "CURRENT Server obligations for this atomic repair transaction:",
+        "CURRENT Android obligations for this atomic repair transaction:",
+    ):
+        pos = issue.find(marker)
+        if pos >= 0:
+            focus = issue[pos + len(marker):]
+            break
+    issue_low = focus.lower()
+    issue_tokens = {
+        token.lower() for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", focus)
+        if token.lower() not in {
+            "current", "complete", "handler", "repair", "server", "android",
+            "python", "runtime", "metadata", "candidate", "issue", "issues",
+            "solution", "fix", "preserve", "approved", "generation", "goal",
+        }
+    }
+
+    contract_rows = []
+    scored_rows = []
+    for row in (config_json.get("classes") or []):
+        if not isinstance(row, dict):
+            continue
+        cname = str(row.get("name") or "").strip()
+        methods = []
+        relevant_method_names = []
+        for method in (row.get("methods") or []):
+            if not isinstance(method, dict):
+                continue
+            source = str(method.get("source") or "internal").strip().lower()
+            engine = str(method.get("engine") or "").strip().lower()
+            if source == "internal" and engine == runtime:
+                mname = str(method.get("name") or method.get("code") or "").strip()
+                if mname:
+                    methods.append({
+                        "name": mname,
+                        "code": str(method.get("code") or mname),
+                    })
+                    relevant_method_names.append(mname)
+
+        runtime_events = []
+        for event in (row.get("events") or []):
+            if not isinstance(event, dict):
+                continue
+            event_name = str(event.get("event") or event.get("name") or "").strip()
+            event_low = event_name.lower()
+            belongs = (
+                (runtime == "server_python" and event_low in {"onshowweb", "oninputweb", "oninputserver", "onacceptserver", "onafteracceptserver"})
+                or (runtime == "android_python" and event_low in {"onshow", "oninput", "onaccept", "onafteraccept", "onresume"})
+            )
+            if belongs:
+                runtime_events.append(event)
+
+        if methods or runtime_events:
+            contract_rows.append({
+                "name": cname,
+                "has_storage": row.get("has_storage"),
+                "class_type": row.get("class_type"),
+                "methods": methods,
+                "events": runtime_events,
+            })
+
+        haystack = json.dumps(row, ensure_ascii=False, default=str).lower()
+        score = 0
+        if cname and cname.lower() in issue_low:
+            score += 20
+        for mname in relevant_method_names:
+            if mname.lower() in issue_low:
+                score += 12
+        for token in issue_tokens:
+            if token in haystack:
+                score += 1
+        if score > 0:
+            compact_row = {
+                key: deepcopy(row.get(key))
+                for key in (
+                    "name", "display_name", "has_storage", "class_type", "data_structure",
+                    "ngenie_role", "ngenie_prompt", "ngenie_description", "methods", "events", "indexes",
+                )
+                if key in row
+            }
+            scored_rows.append((score, cname, compact_row))
+
+    scored_rows.sort(key=lambda item: (-item[0], item[1]))
+    relevant_rows = [row for _score, _name, row in scored_rows[:4]]
+    return {
+        "runtime": runtime,
+        "ngenie_prompt": str(config_json.get("ngenie_prompt") or "")[:12000],
+        "runtime_contract": contract_rows,
+        "issue_relevant_classes": relevant_rows,
+    }
+
+
+def _repair_handlers_body_full_ai(
+    provider: str,
+    user_request: str,
+    merged_config_json: dict,
+    current_header: str,
+    current_body: str,
+    kind_label: str,
+    max_attempts: int = 2,
+    require_clean_contract: bool = False,
+):
+    """Repair one Solutions handler by replacing its COMPLETE editable BODY.
+
+    This path deliberately does not use SEARCH/REPLACE.  The model receives the
+    complete current handler body and must return the complete final body.  The
+    platform validates that complete artifact and commits it with one assignment.
+    Therefore a correct method cannot be lost because an unrelated textual edit
+    failed to match elsewhere in the same file.
+    """
+    canonical_header = str(current_header or "").rstrip() + "\n"
+    current_body_text = str(current_body or "").strip()
+    current_full = canonical_header.rstrip() + "\n\n" + current_body_text + "\n"
+
+    extra_contract = ""
+    if (provider or "").strip().lower() == "ngenie_code":
+        try:
+            import ngenie_code
+            extra_contract = ngenie_code.build_generation_contract(kind_label)
+        except Exception:
+            extra_contract = ""
+
+    system_prompt = (
+        "You are nGenie Code repairing an existing COMPLETE NodaLogic "
+        + str(kind_label or "").upper()
+        + " Python handler BODY. The current body is authoritative. Preserve all "
+          "unrelated working behavior and make every mutually dependent change needed "
+          "for the supplied current issues.\n\n"
+        + (("Critical NodaLogic contract:\n" + extra_contract + "\n\n") if extra_contract else "")
+        + "OUTPUT CONTRACT: return ONLY the COMPLETE FINAL EDITABLE HANDLER BODY, "
+          "from its first generated import/helper/class through its last character. "
+          "Do not return the immutable platform runtime header. Do not return JSON, "
+          "SEARCH/REPLACE, diff, isolated classes, ellipses, markdown fences or commentary. "
+          "Unchanged code must remain present in the returned body."
+    )
+    metadata_json = json.dumps(
+        _handler_repair_metadata_context_ai(merged_config_json or {}, kind_label, user_request),
+        ensure_ascii=False,
+        indent=2,
+    )
+    exact_checklist = _handler_contract_checklist_ai(merged_config_json or {}, kind_label)
+    last_err = ""
+    for attempt in range(1, max_attempts + 1):
+        prompt = (
+            "Repair the CURRENT COMPLETE handler BODY as one coherent artifact.\n\n"
+            + str(user_request or "")
+            + "\n\nEXACT JSON -> " + str(kind_label or "").upper() + " RUNTIME CONTRACT CHECKLIST "
+              "(generated by the same validator that accepts/rejects the result):\n"
+            + (exact_checklist or "(No internal methods are required for this runtime.)")
+            + "\n\nCOMPACT RELEVANT CONFIGURATION METADATA:\n"
+            + metadata_json
+            + "\n\nIMMUTABLE PLATFORM RUNTIME HEADER (context only; DO NOT return):\n"
+            + canonical_header
+            + "\nCURRENT COMPLETE EDITABLE HANDLER BODY (return this artifact in full after editing):\n"
+            + current_body_text
+        )
+        if last_err:
+            prompt += (
+                "\n\nThe previous complete-body repair was rejected by the platform:\n"
+                + last_err
+                + "\nReturn the COMPLETE corrected editable BODY again."
+            )
+
+        candidate_text = _call_llm_code_only(
+            provider,
+            system_prompt,
+            prompt,
+            debug_stage=f"{str(kind_label or '').lower()}_handler_full_body_repair_{attempt}",
+            max_tokens=65536,
+        )
+        candidate_body, normalize_error = _normalize_generated_handler_body_ai(candidate_text, canonical_header)
+        if not candidate_body:
+            last_err = normalize_error or "LLM returned an invalid complete editable handler body."
+            continue
+
+        canonical_full = canonical_header.rstrip() + "\n\n" + candidate_body.strip() + "\n"
+        ok, err = validate_python_syntax(canonical_full)
+        if not ok:
+            last_err = err
+            continue
+
+        preservation_errors = _handler_repair_preservation_errors_ai(current_full, canonical_full)
+        if preservation_errors:
+            last_err = "; ".join(preservation_errors)
+            current_body_text = candidate_body.strip()
+            current_full = canonical_full
+            continue
+
+        contract_errors = set(_handler_contract_errors_ai(merged_config_json, canonical_full, kind_label))
+        if require_clean_contract and contract_errors:
+            # Solution repair is a semantic transaction: metadata and the complete
+            # runtime BODY must leave the round together. A method added to JSON is
+            # NOT accepted as pre-existing debt to be discovered by the next round.
+            last_err = (
+                "Solution repair still violates the JSON/Python contract; fix ALL of these declarations in this same complete BODY: "
+                + "; ".join(sorted(contract_errors)[:120])
+            )
+            current_body_text = candidate_body.strip()
+            current_full = canonical_full
+            continue
+        # A complete Server BODY is not accepted merely because it parses and
+        # satisfies JSON-declared methods.  NameError-class defects are equally
+        # deterministic and must be repaired inside THIS same full-body call, not
+        # leaked into the next outer repair round.
+        if require_clean_contract and str(kind_label or "").strip().upper() == "SERVER":
+            _runtime_candidate = deepcopy(merged_config_json or {})
+            _runtime_candidate["nodes_server_handlers"] = _encode_b64_text(canonical_full)
+            unresolved_errors = _ngenie_unresolved_server_global_errors(_runtime_candidate)
+            if unresolved_errors:
+                last_err = (
+                    "Solution Server BODY still has unresolved runtime globals; define/import/fix ALL of them in this same complete BODY: "
+                    + "; ".join(str(x) for x in unresolved_errors[:120])
+                )
+                current_body_text = candidate_body.strip()
+                current_full = canonical_full
+                continue
+
+        # One atomic result: caller replaces the complete BODY only after all
+        # checks above have succeeded.  No individual method/edit can disappear
+        # because of an unrelated textual-anchor failure.
+        return candidate_body.strip()
+
+    raise RuntimeError(
+        f"Failed to validate complete {str(kind_label or '').upper()} handler BODY repair after "
+        f"{max_attempts} attempt(s): {last_err}"
+    )
+
+
+def _repair_handlers_body_ai(
+    provider: str,
+    user_request: str,
+    merged_config_json: dict,
+    current_header: str,
+    current_body: str,
+    kind_label: str,
+    max_attempts: int = 2,
+    force_full_source: bool = False,
+    require_clean_contract: bool = False,
+):
+    """Repair a complete handler with exact textual edits, not a full-file rewrite.
+
+    The first attempt sees only a dependency-aware verbatim scope when the
+    failing classes can be identified; a rejected patch retries against the full
+    file.  The response is always compact SEARCH/REPLACE JSON, so unchanged Python
+    is neither regenerated nor normally resent.
+    """
+    canonical_header = str(current_header or "").rstrip() + "\n"
+    current_full = canonical_header + ("\n" if str(current_body or "").strip() else "") + str(current_body or "").strip() + "\n"
+    system_prompt = _compact_handler_repair_system_prompt(kind_label)
+    context_json = json.dumps(
+        {k: v for k, v in (merged_config_json or {}).items() if k not in {"nodes_handlers", "nodes_server_handlers"}},
+        ensure_ascii=False,
+        indent=2,
+    )
+
+    last_err = ""
+    # A complete-runtime repair round must see one coherent file.  Earlier versions
+    # split validation issues into many tiny calls and showed only scoped fragments;
+    # after metadata changed, those calls could work from mutually stale assumptions.
+    # Keep scoped mode for non-Solutions callers, but Solutions generation passes
+    # force_full_source=True and repairs one complete Android/Server artifact per round.
+    scoped_source, scoped_classes, scope_is_full = _scoped_handler_repair_source_ai(current_full, user_request)
+    for attempt in range(1, max_attempts + 1):
+        use_full = bool(force_full_source) or scope_is_full or attempt > 1
+        repair_source = current_full if use_full else scoped_source
+        source_label = "CURRENT COMPLETE HANDLER FILE" if use_full else "VERBATIM REPAIR SCOPE EXTRACTED FROM THE CURRENT COMPLETE HANDLER FILE"
+        scope_note = ""
+        if not use_full:
+            scope_note = (
+                "\nThe platform selected affected classes: " + ", ".join(scoped_classes) + ". "
+                "Every shown source block is copied verbatim from the complete file. "
+                "Return SEARCH anchors only from the shown blocks; the platform applies them atomically to the complete original file.\n"
+            )
+        prompt = (
+            "Repair the existing handler using exact textual edits.\n\n"
+            + str(user_request or "")
+            + "\n\nRelevant configuration metadata:\n"
+            + context_json
+            + scope_note
+            + "\n\n" + source_label + ":\n"
+            + repair_source
+        )
+        if last_err:
+            prompt += (
+                "\n\nThe previous exact-text repair patch was rejected by the platform:\n"
+                + last_err
+                + "\nReturn a corrected JSON edits patch against the CURRENT complete file shown above."
+            )
+
+        completion_text = call_llm(
+            provider,
+            system_prompt,
+            prompt,
+            debug_stage=f"{str(kind_label or '').lower()}_handler_json_patch_{attempt}",
+            max_tokens=32768,
+        )
+        try:
+            patch_obj = json.loads(extract_json_from_text(completion_text))
+            patched_full = _apply_exact_text_edits_ai(current_full, patch_obj)
+
+            # The immutable runtime prefix always comes from the current file.
+            # This is still plain-text repair: no Python AST merge is performed.
+            _candidate_header, candidate_body = _split_handlers_header_and_body(patched_full)
+            if not _candidate_header:
+                raise ValueError("repair patch removed the runtime header/from nodes import Node marker")
+            if not str(candidate_body or "").strip():
+                raise ValueError("repair patch produced an empty handler body")
+            canonical_full = canonical_header + "\n" + candidate_body.strip() + "\n"
+            ok, err = validate_python_syntax(canonical_full)
+            if not ok:
+                raise ValueError(err)
+            preservation_errors = _handler_repair_preservation_errors_ai(current_full, canonical_full)
+            if preservation_errors:
+                raise ValueError("; ".join(preservation_errors))
+            contract_errors = set(_handler_contract_errors_ai(merged_config_json, canonical_full, kind_label))
+            if require_clean_contract and contract_errors:
+                raise ValueError(
+                    "Solution focused repair still violates the JSON/Python contract; fix ALL declarations in this same full-file patch: "
+                    + "; ".join(sorted(contract_errors)[:120])
+                )
+            if require_clean_contract and str(kind_label or "").strip().upper() == "SERVER":
+                _runtime_candidate = deepcopy(merged_config_json or {})
+                _runtime_candidate["nodes_server_handlers"] = _encode_b64_text(canonical_full)
+                unresolved_errors = _ngenie_unresolved_server_global_errors(_runtime_candidate)
+                if unresolved_errors:
+                    raise ValueError(
+                        "Solution focused Server repair still has unresolved runtime globals; fix ALL of them in this same full-file patch: "
+                        + "; ".join(str(x) for x in unresolved_errors[:120])
+                    )
+            return candidate_body.strip()
+        except Exception as exc:
+            last_err = str(exc)
+
+    raise RuntimeError(
+        f"Failed to apply focused {str(kind_label or '').upper()} handler repair after "
+        f"{max_attempts} attempt(s): {last_err}"
+    )
+
 
 def ensure_handlers_skeleton_and_headers(config_uid: str, config_url: str, cfg: dict):
     """
@@ -6278,19 +7943,970 @@ class {name}(Node):
     cfg["nodes_handlers"] = _encode_b64_text(android_code)
     cfg["nodes_server_handlers"] = _encode_b64_text(server_code)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def _ngenie_handler_ui_map(code: str):
+    result = {}
+    if not str(code or "").strip():
+        return result
+    try:
+        tree = ast.parse(code)
+    except Exception:
+        return result
+    for cls in [n for n in tree.body if isinstance(n, ast.ClassDef)]:
+        methods = {}
+        for fn in [n for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+            direct_show = False
+            delegates = set()
+            for node in ast.walk(fn):
+                if not isinstance(node, ast.Call):
+                    continue
+                f = node.func
+                if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id == "self":
+                    if f.attr == "Show":
+                        direct_show = True
+                    else:
+                        delegates.add(f.attr)
+            methods[fn.name] = {"show": direct_show, "delegates": delegates}
+        result[cls.name] = methods
+    return result
+
+
+def _ngenie_method_draws_ui(methods: dict, name: str, seen=None) -> bool:
+    seen = set(seen or set())
+    if name in seen:
+        return False
+    seen.add(name)
+    info = methods.get(name) or {}
+    if info.get("show"):
+        return True
+    return any(_ngenie_method_draws_ui(methods, str(child), seen) for child in (info.get("delegates") or set()))
+
+
+def _ngenie_ensure_method_metadata(cls: dict, method: str, engine: str) -> bool:
+    methods = cls.setdefault("methods", [])
+    for row in methods:
+        if isinstance(row, dict) and str(row.get("name") or "") == method and str(row.get("engine") or "") == engine:
+            return False
+    methods.append({"name": method, "source": "internal", "engine": engine, "code": method})
+    return True
+
+
+def _ngenie_ensure_event(cls: dict, event: str, listener: str, method: str) -> bool:
+    events = cls.setdefault("events", [])
+    for row in events:
+        if not isinstance(row, dict) or str(row.get("event") or "") != event:
+            continue
+        if str(row.get("listener") or "") != str(listener or ""):
+            continue
+        for action in row.get("actions") or []:
+            if isinstance(action, dict) and str(action.get("method") or "") == method:
+                return False
+        row.setdefault("actions", []).append({"action": "run", "source": "internal", "server": "internal", "method": method, "postExecuteMethod": ""})
+        return True
+    events.append({"event": event, "listener": listener, "actions": [{"action": "run", "source": "internal", "server": "internal", "method": method, "postExecuteMethod": ""}]})
+    return True
+
+
+def _ngenie_autofix_generated_ui_wiring(cfg: dict):
+    """Deterministically repair unambiguous lifecycle metadata.
+
+    A generated ``Open/Show/BuildView`` that already calls ``self.Show`` has one
+    obvious web/mobile lifecycle: onShowWeb/onShow.  Asking the LLM to spend
+    minutes rediscovering that metadata is both slow and fragile.  Projection
+    ``onRunProjection`` wiring is equally canonical.
+    """
+    changes = []
+    classes = [c for c in (cfg.get("classes") or []) if isinstance(c, dict)]
+    by_name = {str(c.get("name") or ""): c for c in classes if str(c.get("name") or "")}
+    server_map = _ngenie_handler_ui_map(_decode_b64_text(cfg.get("nodes_server_handlers", "")))
+    android_map = _ngenie_handler_ui_map(_decode_b64_text(cfg.get("nodes_handlers", "")))
+
+    for cname, methods in server_map.items():
+        cls = by_name.get(cname)
+        if not cls:
+            continue
+        for method in methods:
+            if method.lower() not in {"open", "show", "buildview"} or not _ngenie_method_draws_ui(methods, method):
+                continue
+            changed = _ngenie_ensure_method_metadata(cls, method, "server_python")
+            changed = _ngenie_ensure_event(cls, "onShowWeb", "", method) or changed
+            if changed:
+                changes.append(f"{cname}.onShowWeb->{method}")
+        if str(cls.get("class_type") or "") == "projection" and "onRunProjection" in methods:
+            changed = _ngenie_ensure_method_metadata(cls, "onRunProjection", "server_python")
+            changed = _ngenie_ensure_event(cls, "onInputWeb", "onRunProjection", "onRunProjection") or changed
+            if changed:
+                changes.append(f"{cname}.onInputWeb->onRunProjection")
+
+    for cname, methods in android_map.items():
+        cls = by_name.get(cname)
+        if not cls:
+            continue
+        for method in methods:
+            if method.lower() not in {"open", "show", "buildview"} or not _ngenie_method_draws_ui(methods, method):
+                continue
+            changed = _ngenie_ensure_method_metadata(cls, method, "android_python")
+            changed = _ngenie_ensure_event(cls, "onShow", "", method) or changed
+            if changed:
+                changes.append(f"{cname}.onShow->{method}")
+    return changes
+
+
+def _ngenie_normalize_generated_event_shapes(cfg: dict):
+    """Canonicalize event rows emitted by LLMs before validation/apply.
+
+    NodaLogic export/import uses ``event`` + ``listener`` + ``actions``.  Models
+    occasionally emit UI-ish aliases such as ``name``/``handlers``.  A missing
+    ``event`` used to survive validation and then crash apply_full_config_from_json
+    with KeyError('event').  Normalize the unambiguous aliases here so a staged
+    candidate can be resumed without another expensive LLM pass.
+    """
+    changes = []
+
+    def normalize_rows(rows, scope):
+        if not isinstance(rows, list):
+            return []
+        out = []
+        for idx, raw in enumerate(rows):
+            if not isinstance(raw, dict):
+                changes.append(f"{scope}[{idx}]: dropped non-object event row")
+                continue
+            row = raw
+            if row.get('enabled') is False:
+                changes.append(f"{scope}[{idx}]: dropped disabled event")
+                continue
+            event_name = str(row.get('event') or row.get('name') or '').strip()
+            if not event_name:
+                # A row without an event cannot be imported or dispatched.  Keep
+                # it out of apply rather than allowing a late KeyError.
+                changes.append(f"{scope}[{idx}]: dropped event without event/name")
+                continue
+            if not str(row.get('event') or '').strip():
+                row['event'] = event_name
+                changes.append(f"{scope}[{idx}]: name -> event ({event_name})")
+            row.setdefault('listener', '')
+            actions = row.get('actions')
+            if not isinstance(actions, list):
+                actions = []
+                handlers = row.get('handlers')
+                if isinstance(handlers, dict):
+                    for listener, handler in handlers.items():
+                        if isinstance(handler, str) and handler.strip():
+                            actions.append({
+                                'action': 'run', 'source': 'internal', 'server': 'internal',
+                                'method': handler.strip(), 'postExecuteMethod': ''
+                            })
+                        elif isinstance(handler, dict):
+                            method = str(handler.get('method') or handler.get('handler') or '').strip()
+                            if method:
+                                actions.append({
+                                    'action': str(handler.get('action') or 'run'),
+                                    'source': str(handler.get('source') or 'internal'),
+                                    'server': str(handler.get('server') or 'internal'),
+                                    'method': method,
+                                    'postExecuteMethod': str(handler.get('postExecuteMethod') or ''),
+                                })
+                row['actions'] = actions
+                if 'handlers' in row:
+                    changes.append(f"{scope}[{idx}]: handlers -> actions")
+            # Empty CommonEvents are pure no-ops.  Dropping them is cleaner than
+            # persisting an inert alias event that came from a non-canonical LLM
+            # shape (the supplied candidate had exactly this case).
+            if scope == 'CommonEvents' and not row.get('actions'):
+                changes.append(f"{scope}[{idx}]: dropped no-op event {event_name}")
+                continue
+            out.append(row)
+        return out
+
+    cfg['CommonEvents'] = normalize_rows(cfg.get('CommonEvents') or [], 'CommonEvents')
+    for ci, cls in enumerate(cfg.get('classes') or []):
+        if not isinstance(cls, dict):
+            continue
+        cls['events'] = normalize_rows(cls.get('events') or [], f"classes[{ci}].events")
+    return changes
+
+
+_NGENIE_QUANT_LEDGER_RUNTIME_NAMES = {
+    "QuantLedgerError", "QuantFormatError", "ScopeRequiredError", "ResourceError",
+    "NegativeBalanceError", "OperationConflictError", "SelectorConflictError",
+    "MoveResult", "BalanceRow", "MovementRow", "StatementRow", "VerifyResult",
+    "quant", "parse_quant", "quant_part", "transaction", "LedgerTransaction", "move",
+    "get_balance", "balance", "select_balances", "balances", "select_movements", "movements",
+    "statement", "verify_space", "rebuild_balances",
+}
+
+
+# Supported server-runtime names which may be used by generated business code but
+# are intentionally not required in every immutable handler header.  If the body
+# actually references one of these names, generation supplies the import
+# deterministically rather than wasting an LLM repair on platform boilerplate.
+_NGENIE_NODES_SERVER_RUNTIME_NAMES = {
+    "AcceptRejected",
+    "system_user_node",
+    "current_config_uid_from_handlers",
+    "register_in_config_rooms_many",
+}
+
+
+def _ngenie_loaded_python_names(code: str) -> set:
+    """Best-effort set of identifiers loaded by generated Python code."""
+    if not str(code or "").strip():
+        return set()
+    try:
+        tree = ast.parse(code)
+    except Exception:
+        return set()
+    return {
+        node.id for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+    }
+
+
+def _ngenie_top_level_imported_names(code: str) -> set:
+    """Names imported at module level (local imports do not satisfy other methods)."""
+    if not str(code or "").strip():
+        return set()
+    try:
+        tree = ast.parse(code)
+    except Exception:
+        return set()
+    names = set()
+    for node in getattr(tree, "body", []):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names.add(alias.asname or str(alias.name).split(".", 1)[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                names.add(alias.asname or alias.name)
+    return names
+
+
+def _ngenie_insert_header_imports(code: str, import_lines: list[str]) -> str:
+    """Insert deterministic platform imports into the immutable handler header.
+
+    The handler LLM is intentionally allowed to edit only the body.  Supported
+    platform dependencies therefore have to be supplied by the generator, not
+    hallucinated as method-local imports.  Keep them before ``from nodes import
+    Node`` so subsequent body generations continue to regard them as immutable.
+    """
+    rows = [str(row or "").strip() for row in (import_lines or []) if str(row or "").strip()]
+    if not rows:
+        return code
+    text_code = str(code or "")
+    marker = "from nodes import Node"
+    idx = text_code.find(marker)
+    block = "\n".join(rows) + "\n"
+    if idx >= 0:
+        line_start = text_code.rfind("\n", 0, idx) + 1
+        return text_code[:line_start] + block + text_code[line_start:]
+    return block + text_code
+
+
+def _ngenie_autofix_generated_server_runtime_imports(cfg: dict) -> list[str]:
+    """Supply supported runtime imports referenced by a generated server handler.
+
+    A real failure from reference-based generation exposed the design
+    hole here: server-body generation is told to return *no imports*, while the
+    immutable default header historically contained only ``nodes``.  The model
+    therefore produced valid-looking calls to ``quant``/``move``/``Decimal``
+    that compiled but failed at runtime.  Make these dependencies deterministic
+    exactly as the working reference implementation does.
+    """
+    code = _decode_b64_text((cfg or {}).get("nodes_server_handlers", "") or "")
+    if not code.strip():
+        return []
+    loaded = _ngenie_loaded_python_names(code)
+    imported = _ngenie_top_level_imported_names(code)
+    lines = []
+    changes = []
+
+    quant_needed = sorted((loaded & _NGENIE_QUANT_LEDGER_RUNTIME_NAMES) - imported)
+    if quant_needed:
+        lines.append("from quant_ledger.api import " + ", ".join(quant_needed))
+        changes.append("server handlers: injected QuantLedger imports: " + ", ".join(quant_needed))
+
+    nodes_needed = sorted((loaded & _NGENIE_NODES_SERVER_RUNTIME_NAMES) - imported)
+    if nodes_needed:
+        lines.append("from nodes import " + ", ".join(nodes_needed))
+        changes.append("server handlers: injected supported nodes runtime imports: " + ", ".join(nodes_needed))
+
+    if "Decimal" in loaded and "Decimal" not in imported:
+        lines.append("from decimal import Decimal")
+        changes.append("server handlers: injected Decimal import")
+
+    if not lines:
+        return []
+    code = _ngenie_insert_header_imports(code, lines)
+    cfg["nodes_server_handlers"] = _encode_b64_text(code)
+    return changes
+
+
+def _ngenie_autofix_hidden_no_ui_server_artifacts(cfg: dict) -> list[str]:
+    """Remove hallucinated server UI from classes explicitly designed as no-UI.
+
+    Handler-only repair cannot create real NodaLogic lifecycle wiring because it
+    lives in JSON ``class.events``.  A model previously tried to work around that
+    by inventing ``self.listen(...)`` and a ShowDispatcher method inside a class
+    whose approved metadata said ``hidden`` / ``не имеет UI``.  Such code is both
+    contrary to the design and invalid against the real Node runtime.  This case
+    is unambiguous enough to normalize without another model call.
+    """
+    code = _decode_b64_text((cfg or {}).get("nodes_server_handlers", "") or "")
+    if not code.strip():
+        return []
+    try:
+        tree = ast.parse(code)
+    except Exception:
+        return []
+    by_name = {
+        str(c.get("name") or ""): c
+        for c in (cfg.get("classes") or [])
+        if isinstance(c, dict) and str(c.get("name") or "")
+    }
+    lines = code.splitlines(keepends=True)
+    removals = []
+    changes = []
+
+    def add_range(node):
+        start = max(1, int(getattr(node, "lineno", 1) or 1))
+        end = max(start, int(getattr(node, "end_lineno", start) or start))
+        removals.append((start, end))
+
+    for class_node in [n for n in getattr(tree, "body", []) if isinstance(n, ast.ClassDef)]:
+        meta = by_name.get(str(class_node.name or ""))
+        if not meta or not bool(meta.get("hidden")):
+            continue
+        if str(meta.get("init_screen_layout") or "").strip() or str(meta.get("init_screen_layout_web") or "").strip():
+            continue
+        if any(isinstance(ev, dict) for ev in (meta.get("events") or [])):
+            continue
+        desc = " ".join(
+            str(meta.get(k) or "") for k in ("display_name", "ngenie_role", "ngenie_prompt", "ngenie_description")
+        ).lower()
+        if not ("no ui" in desc or "не имеет ui" in desc or "без ui" in desc):
+            continue
+        declared = {
+            str(m.get("code") or m.get("name") or "").strip()
+            for m in (meta.get("methods") or []) if isinstance(m, dict)
+        }
+        removed_listener = False
+        removed_methods = []
+        for fn in [n for n in getattr(class_node, "body", []) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+            if fn.name == "__init__":
+                for stmt in getattr(fn, "body", []):
+                    if not isinstance(stmt, ast.Expr) or not isinstance(getattr(stmt, "value", None), ast.Call):
+                        continue
+                    call = stmt.value
+                    func = call.func
+                    if (
+                        isinstance(func, ast.Attribute)
+                        and isinstance(func.value, ast.Name)
+                        and func.value.id == "self"
+                        and func.attr in {"listen", "add_listener", "addListener"}
+                    ):
+                        add_range(stmt)
+                        removed_listener = True
+                continue
+            if fn.name in declared:
+                continue
+            uses_show = False
+            for node in ast.walk(fn):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                if isinstance(func, ast.Attribute) and func.attr == "Show":
+                    uses_show = True
+                    break
+                if isinstance(func, ast.Name) and func.id == "Show":
+                    uses_show = True
+                    break
+            if uses_show:
+                add_range(fn)
+                removed_methods.append(fn.name)
+        if removed_listener or removed_methods:
+            detail = []
+            if removed_listener:
+                detail.append("unsupported self.listen wiring")
+            if removed_methods:
+                detail.append("undeclared UI methods " + ", ".join(sorted(removed_methods)))
+            changes.append(f"{class_node.name}: removed accidental no-UI artifacts ({'; '.join(detail)})")
+
+    if not removals:
+        return []
+    # Remove whole source ranges from bottom to top so AST line numbers remain valid.
+    for start, end in sorted(set(removals), reverse=True):
+        del lines[start - 1:end]
+    cleaned = "".join(lines)
+    try:
+        ast.parse(cleaned)
+    except Exception:
+        return []
+    cfg["nodes_server_handlers"] = _encode_b64_text(cleaned)
+    return changes
+
+
+def _ngenie_autofix_shadowed_orphan_class_methods(candidate: dict) -> list[str]:
+    """Remove repair debris that shadows an existing module-level callable.
+
+    A focused repair once tried to fix ``plan_putaway_by_zone`` by replacing the
+    next top-level ``class`` anchor with an indented ``def``.  Python therefore
+    attached the new function to the *previous* Node class, while the real
+    module-level strategy remained unchanged.  If a class method is not declared
+    in that class metadata and has the same name as an existing top-level
+    function, the method is unambiguously shadow/orphan repair debris.
+    """
+    code = _decode_b64_text((candidate or {}).get("nodes_server_handlers", "") or "")
+    if not code.strip():
+        return []
+    try:
+        tree = ast.parse(code)
+    except Exception:
+        return []
+    metadata = {
+        str(cls.get("name") or ""): cls
+        for cls in (candidate.get("classes") or [])
+        if isinstance(cls, dict) and str(cls.get("name") or "")
+    }
+    top_functions = {
+        node.name for node in getattr(tree, "body", [])
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    if not top_functions:
+        return []
+    removals = []
+    details = []
+    for class_node in [n for n in getattr(tree, "body", []) if isinstance(n, ast.ClassDef)]:
+        cls_meta = metadata.get(class_node.name) or {}
+        declared = {
+            str(m.get("name") or m.get("code") or "").strip()
+            for m in (cls_meta.get("methods") or [])
+            if isinstance(m, dict) and str(m.get("name") or m.get("code") or "").strip()
+        }
+        for fn in getattr(class_node, "body", []):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if fn.name in declared or fn.name == "__init__":
+                continue
+            if fn.name not in top_functions:
+                continue
+            start = int(getattr(fn, "lineno", 1) or 1)
+            end = int(getattr(fn, "end_lineno", start) or start)
+            removals.append((start, end))
+            details.append(f"{class_node.name}.{fn.name}")
+    if not removals:
+        return []
+    lines = code.splitlines(keepends=True)
+    for start, end in sorted(set(removals), reverse=True):
+        del lines[start - 1:end]
+    cleaned = "".join(lines)
+    try:
+        ast.parse(cleaned)
+    except Exception:
+        return []
+    candidate["nodes_server_handlers"] = _encode_b64_text(cleaned)
+    return ["Server handler: removed orphan class methods shadowing active module functions: " + ", ".join(sorted(details))]
+
+
+def _ngenie_autofix_unreferenced_orphan_node_classes(candidate: dict) -> list[str]:
+    """Drop unreferenced Node subclasses that do not exist in configuration metadata.
+
+    Earlier repair rounds could append a Python-only report class while trying to
+    satisfy an old exact-name metadata rule.  Such a class cannot be opened or
+    instantiated as a configuration class and only pollutes later repair scopes.
+    Removal is intentionally conservative: direct ``Node`` subclass, absent from
+    metadata, and no executable/string reference outside its own definition.
+    """
+    code = _decode_b64_text((candidate or {}).get("nodes_server_handlers", "") or "")
+    if not code.strip():
+        return []
+    try:
+        tree = ast.parse(code)
+    except Exception:
+        return []
+    metadata_names = {
+        str(cls.get("name") or "") for cls in (candidate.get("classes") or [])
+        if isinstance(cls, dict) and str(cls.get("name") or "")
+    }
+    class_nodes = [n for n in getattr(tree, "body", []) if isinstance(n, ast.ClassDef)]
+    candidates = []
+    for node in class_nodes:
+        if node.name in metadata_names:
+            continue
+        direct_node = any(isinstance(base, ast.Name) and base.id == "Node" for base in node.bases)
+        if not direct_node:
+            continue
+        candidates.append(node)
+    if not candidates:
+        return []
+    orphan_names = {node.name for node in candidates}
+    referenced = set()
+    for node in getattr(tree, "body", []):
+        if isinstance(node, ast.ClassDef) and node.name in orphan_names:
+            continue
+        for child in ast.walk(node):
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load) and child.id in orphan_names:
+                referenced.add(child.id)
+            elif isinstance(child, ast.Constant) and isinstance(child.value, str) and child.value in orphan_names:
+                referenced.add(child.value)
+    removable = [node for node in candidates if node.name not in referenced]
+    if not removable:
+        return []
+    lines = code.splitlines(keepends=True)
+    for node in sorted(removable, key=lambda n: int(n.lineno), reverse=True):
+        start = int(node.lineno)
+        end = int(getattr(node, "end_lineno", start) or start)
+        del lines[start - 1:end]
+    cleaned = "".join(lines)
+    try:
+        ast.parse(cleaned)
+    except Exception:
+        return []
+    candidate["nodes_server_handlers"] = _encode_b64_text(cleaned)
+    return ["Server handler: removed unreferenced Python-only Node classes: " + ", ".join(sorted(n.name for n in removable))]
+
+
+def _ngenie_unresolved_server_global_errors(candidate: dict) -> list[str]:
+    """Detect definite unresolved global names in generated server Python.
+
+    Python syntax validation does not catch ``NameError``.  This check uses the
+    stdlib symbol table and only reports names that a function/class resolves as
+    global while the module neither defines nor imports them.  Star-import files
+    are skipped to avoid false positives.
+    """
+    import builtins
+    import symtable
+
+    code = _decode_b64_text((candidate or {}).get("nodes_server_handlers", "") or "")
+    if not code.strip():
+        return []
+    try:
+        tree = ast.parse(code)
+        table = symtable.symtable(code, "<generated server handler>", "exec")
+    except Exception:
+        return []
+    for node in getattr(tree, "body", []):
+        if isinstance(node, ast.ImportFrom) and any(alias.name == "*" for alias in node.names):
+            return []
+    module_names = set(dir(builtins))
+    for symbol in table.get_symbols():
+        if symbol.is_assigned() or symbol.is_imported() or symbol.is_namespace() or symbol.is_parameter():
+            module_names.add(symbol.get_name())
+    unresolved = set()
+    def visit_table(current):
+        for symbol in current.get_symbols():
+            if symbol.is_referenced() and symbol.is_global() and symbol.get_name() not in module_names:
+                unresolved.add(symbol.get_name())
+        for child in current.get_children():
+            visit_table(child)
+    visit_table(table)
+    if not unresolved:
+        return []
+    first_line = {}
+    first_scope = {}
+    # Prefer a concrete function/method owner in the error text so focused repair
+    # can extract that exact symbol instead of resending the whole handler.
+    for top in getattr(tree, "body", []):
+        scopes = []
+        if isinstance(top, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            scopes.append((top.name, top))
+        elif isinstance(top, ast.ClassDef):
+            for fn in top.body:
+                if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    scopes.append((f"{top.name}.{fn.name}", fn))
+        for scope_name, scope_node in scopes:
+            for node in ast.walk(scope_node):
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in unresolved:
+                    line = int(getattr(node, "lineno", 0) or 0)
+                    if node.id not in first_line or (line and line < first_line[node.id]):
+                        first_line[node.id] = line
+                        first_scope[node.id] = scope_name
+    errors = []
+    for name in sorted(unresolved):
+        scope = first_scope.get(name) or "module"
+        # Preserve the runtime target at the point where the deterministic
+        # validator KNOWS it.  Do not throw that information away and later
+        # rediscover it by fuzzy parsing of the human-readable message.
+        errors.append(
+            f"[targets:server_python] SERVER Python: unresolved global name '{name}' in function {scope} near line {first_line.get(name) or '?'}; "
+            "generated handler would raise NameError at runtime."
+        )
+    return errors
+
+
+def _ngenie_dedupe_top_level_handler_classes(candidate: dict) -> list[str]:
+    """Collapse duplicate top-level Python class/function definitions, keeping the last.
+
+    Python itself resolves duplicate top-level bindings by replacing the
+    earlier binding with the last one.  Focused LLM repair can accidentally append
+    another copy while trying to satisfy a metadata error.  Removing the shadowed
+    earlier definitions therefore preserves actual runtime semantics while keeping
+    the handler deterministic for validation and future repair.
+    """
+    changes = []
+    for field_name, label in (("nodes_handlers", "Android"), ("nodes_server_handlers", "Server")):
+        code = _decode_b64_text((candidate or {}).get(field_name, ""))
+        if not str(code or "").strip():
+            continue
+        try:
+            tree = ast.parse(code)
+        except Exception:
+            continue
+        definitions_by_key = {}
+        for node in getattr(tree, "body", []):
+            if isinstance(node, ast.ClassDef):
+                definitions_by_key.setdefault(("class", node.name), []).append(node)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                definitions_by_key.setdefault(("function", node.name), []).append(node)
+        duplicate_keys = [key for key, rows in definitions_by_key.items() if len(rows) > 1]
+        if not duplicate_keys:
+            continue
+        lines = code.splitlines(keepends=True)
+        removals = []
+        for key in duplicate_keys:
+            rows = definitions_by_key[key]
+            # Python exposes only the last top-level binding with a given name.
+            # Removing shadowed earlier definitions therefore preserves runtime semantics.
+            for node in rows[:-1]:
+                start = int(getattr(node, "lineno", 1) or 1)
+                end = int(getattr(node, "end_lineno", start) or start)
+                removals.append((start, end))
+        for start, end in sorted(removals, reverse=True):
+            del lines[start - 1:end]
+        cleaned = "".join(lines)
+        try:
+            ast.parse(cleaned)
+        except Exception:
+            continue
+        candidate[field_name] = _encode_b64_text(cleaned)
+        changes.append(f"{label} handler: removed shadowed duplicate top-level definitions: {', '.join(sorted(kind + ' ' + name for kind, name in duplicate_keys))}")
+    return changes
+
+
+
+def _ngenie_validate_generation_candidate(config, candidate: dict, ack_errors=None, reference_config: dict | None = None):
+    """Normalize/autofix a generated candidate and run every active validator."""
+    config_url = url_for('get_config', uid=config.uid, _external=True)
+    ensure_handlers_skeleton_and_headers(config.uid, config_url, candidate)
+    auto_changes = _ngenie_dedupe_top_level_handler_classes(candidate)
+    # Never delete candidate methods/classes from heuristic "orphan" guesses.
+    # Those old autofixes silently changed legitimate helper architecture and
+    # are less trustworthy than the model-authored atomic repair. Unsupported
+    # APIs such as self.listen are reported by deterministic validation instead.
+    auto_changes.extend(_ngenie_autofix_generated_server_runtime_imports(candidate))
+    # IMPORTANT: finish every deterministic metadata normalization BEFORE checking
+    # JSON -> Python.  Older ordering checked the contract first and then rewired
+    # events/UI, allowing the validator itself to create a method obligation that
+    # was visible only on the next round.
+    auto_changes.extend(_ngenie_normalize_generated_event_shapes(candidate))
+    auto_changes.extend(_ngenie_autofix_generated_ui_wiring(candidate))
+
+    # Generation must satisfy the structural JSON -> Python contract itself.
+    # Never fabricate empty handler classes here: that hides the primary defect
+    # and turns it into a noisy list of missing methods during repair.
+    android_contract_errors = _handler_contract_errors_ai(
+        candidate, _decode_b64_text(candidate.get("nodes_handlers", "")), "ANDROID"
+    )
+    server_contract_errors = _handler_contract_errors_ai(
+        candidate, _decode_b64_text(candidate.get("nodes_server_handlers", "")), "SERVER"
+    )
+
+    errors = list(android_contract_errors) + list(server_contract_errors)
+    errors.extend(_ngenie_unresolved_server_global_errors(candidate))
+    errors.extend(validate_full_llm_config_ai(candidate))
+    try:
+        import ngenie_code
+        errors.extend(str(x) for x in (ack_errors or []) if str(x or '').strip())
+        errors.extend(ngenie_code.validate_no_config_exfiltration(candidate))
+        quality_errors = list(ngenie_code.validate_generation_quality(candidate))
+        # A typed reference is an accepted implementation benchmark. Generic
+        # validator warnings that are also produced by the exact reference are
+        # baseline limitations of that validator, not regressions introduced by
+        # the generated candidate. Suppress only exact matching messages; new
+        # project-specific warnings still fail validation.
+        if isinstance(reference_config, dict) and reference_config:
+            try:
+                baseline_quality = set(str(x) for x in ngenie_code.validate_generation_quality(reference_config))
+                quality_errors = [str(x) for x in quality_errors if str(x) not in baseline_quality]
+            except Exception:
+                pass
+        errors.extend(quality_errors)
+    except Exception as exc:
+        errors.append(f"nGenie Code validation failed: {exc}")
+    # Preserve order while eliminating duplicate validator messages.
+    errors = list(dict.fromkeys(str(err) for err in errors if str(err or '').strip()))
+    return errors, auto_changes
+
+
+
+
+
+def _ngenie_draft_apply_safety_errors(candidate: dict) -> list[str]:
+    """Minimal gate for persisting an intermediate working draft.
+
+    A draft does not need to pass release/quality validation.  It only needs to
+    be safe enough to become the next repair base: both Python artifacts must be
+    syntactically valid, JSON runtime declarations must have matching Python
+    implementations, and nGenie security must not detect configuration
+    exfiltration/cross-config behavior.  apply_full_config_from_json remains the
+    final structural guard and rolls back atomically if metadata cannot be loaded.
+    """
+    if not isinstance(candidate, dict):
+        return ["candidate is not a JSON object"]
+    errors = []
+    for field_name, label, runtime_label in (
+        ("nodes_handlers", "Android", "ANDROID"),
+        ("nodes_server_handlers", "Server", "SERVER"),
+    ):
+        raw = candidate.get(field_name) or ""
+        code = _decode_b64_text(raw) if raw else ""
+        if code.strip():
+            ok, err = validate_python_syntax(code)
+            if not ok:
+                errors.append(f"{label} handler Python syntax: {err}")
+                continue
+        # JSON<->Python coherence is part of draft integrity, not release quality.
+        # Run this even when the handler artifact is empty: metadata that requires
+        # runtime methods with no Python file is exactly the state we must reject.
+        errors.extend(_handler_contract_errors_ai(candidate, code, runtime_label))
+    try:
+        import ngenie_code
+        errors.extend(str(x) for x in ngenie_code.validate_no_config_exfiltration(candidate) if str(x or '').strip())
+    except Exception as exc:
+        errors.append(f"nGenie safety validation failed: {exc}")
+    return list(dict.fromkeys(errors))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def _ngenie_repair_goal_prompt(prompt: str) -> str:
+    """Stable normalized goal used only for generic repair-loop progress."""
+    text = str(prompt or "").replace("\r\n", "\n").strip()
+    for marker in ("--- ОСНОВНОЙ ПРОМПТ ГЕНЕРАЦИИ ---", "--- ОСНОВНОЙ ПРОМПТ ЭТАПА ---"):
+        idx = text.find(marker)
+        if idx >= 0:
+            tail = text[idx + len(marker):].lstrip()
+            next_sep = tail.find("\n--- ")
+            if next_sep >= 0:
+                tail = tail[:next_sep]
+            if tail.strip():
+                return re.sub(r"\s+", " ", tail).strip()[:4000]
+    # Post-generation focused changes do not carry the plan marker.  A bounded
+    # normalized prefix is enough together with config UID/base fingerprint.
+    return re.sub(r"\s+", " ", text).strip()[:4000]
+
+
+def _ngenie_repair_issue_id(value: Any) -> str:
+    """Stable key for one repair question/blocker.
+
+    Rows may carry [ID:...] in the human-readable error.  Mechanical
+    validators do not, so fall back to a normalized text fingerprint.  Progress is
+    therefore based on whether a question already sent to repair comes back, not on
+    the total number of newly discovered issues.
+    """
+    text = str(value or "").strip()
+    match = re.search(r"\[ID:([^\]]+)\]", text, flags=re.I)
+    if match:
+        return "semantic:" + re.sub(r"[^A-Za-z0-9_.:-]+", "_", match.group(1).strip()).upper()
+    normalized = " ".join(text.lower().split())
+    if not normalized:
+        return ""
+    return "mechanical:" + hashlib.sha1(normalized.encode("utf-8", errors="replace")).hexdigest()[:20]
+
+
+def _ngenie_repair_issue_state(value: Any) -> str:
+    """Reviewer-declared progress for a semantic issue; empty for mechanical errors."""
+    text = str(value or "")
+    match = re.search(r"\[repair_state:([^\]]+)\]", text, flags=re.I)
+    if not match:
+        return ""
+    state = str(match.group(1) or "").strip().lower()
+    return state if state in {"new", "partial", "unchanged"} else ""
+
+
+def _ngenie_repair_issue_fingerprint(value: Any) -> str:
+    """Fingerprint the concrete current remainder, not just the stable issue_id."""
+    text = str(value or "").strip()
+    text = re.sub(r"\[repair_state:[^\]]+\]", "", text, flags=re.I)
+    normalized = " ".join(text.lower().split())
+    return hashlib.sha1(normalized.encode("utf-8", errors="replace")).hexdigest()[:20] if normalized else ""
+
+
+
+
+def _ngenie_repair_needs_android(errors) -> bool:
+    """Generic nGenie routing; Solution-specific routing lives in solutions/."""
+    rows = [str(x or "").strip().lower() for x in (errors or []) if str(x or "").strip()]
+    for row in rows:
+        targets_match = re.search(r"\[targets:([^\]]+)\]", row, flags=re.I)
+        if targets_match:
+            targets = {x.strip().lower() for x in targets_match.group(1).split(",") if x.strip()}
+            if "android_python" in targets:
+                return True
+            if targets:
+                continue
+        if any(k in row for k in ("server_python", "nodes_server_handlers", "server handler", "server method")):
+            continue
+        if any(k in row for k in (
+            "android_python", "nodes_handlers", "android handler", "android method",
+            "android", "mobile", "terminal_steps", "scanner", "barcode", "ocr",
+        )):
+            return True
+    return False
+
+
+def _ngenie_repair_needs_server(errors) -> bool:
+    """Generic nGenie routing; domain-specific server hints live in solutions/."""
+    rows = [str(x or "").strip().lower() for x in (errors or []) if str(x or "").strip()]
+    for row in rows:
+        targets_match = re.search(r"\[targets:([^\]]+)\]", row, flags=re.I)
+        if targets_match:
+            targets = {x.strip().lower() for x in targets_match.group(1).split(",") if x.strip()}
+            if "server_python" in targets:
+                return True
+            if targets:
+                continue
+        if any(marker in row for marker in ("must wire oninputweb", "must wire onshowweb", "class.events", "event wiring")):
+            continue
+        if any(k in row for k in (
+            "server_python", "nodes_server_handlers", "server handler", "server method",
+            "top-level server handler", "onshowweb", "oninputweb", "oninputserver",
+        )):
+            return True
+    return False
+
+
+def _ngenie_repair_needs_metadata(errors) -> bool:
+    """Generic metadata routing; Solution/domain heuristics live in solutions/."""
+    rows = [str(x or "").strip().lower() for x in (errors or []) if str(x or "").strip()]
+    metadata_markers = (
+        "data_structure", "index ", "indexes", "missing field", "section",
+        "common events shape", "commonevents shape", "class metadata", "dataset",
+        "record_view", "cover_image", "display_image_table", "screen layout",
+        "class_type", "has_storage", "missing class", "must wire oninputweb",
+        "must wire onshowweb", "class.events", "event wiring",
+    )
+    for row in rows:
+        targets_match = re.search(r"\[targets:([^\]]+)\]", row, flags=re.I)
+        if targets_match:
+            targets = {x.strip().lower() for x in targets_match.group(1).split(",") if x.strip()}
+            if "metadata" in targets:
+                return True
+            if targets:
+                continue
+        if any(marker in row for marker in metadata_markers):
+            return True
+    return False
+
+def _ngenie_metadata_repair_errors(errors):
+    return [str(e) for e in (errors or []) if _ngenie_repair_needs_metadata([e])]
+
+
+def _ngenie_android_repair_errors(errors):
+    return [str(e) for e in (errors or []) if _ngenie_repair_needs_android([e])]
+
+
+def _ngenie_server_repair_errors(errors):
+    return [str(e) for e in (errors or []) if _ngenie_repair_needs_server([e])]
+
+
+
+def _ngenie_validation_error_signature(errors):
+    """Stable signature used only to detect repair loops inside one run.
+
+    Validation messages are deterministic enough that whitespace/case normalization
+    catches the dangerous case: the same set returns after a repair.  We do NOT
+    weaken this to fuzzy matching because a genuinely changed message is useful
+    evidence of progress; the separate error-count rule still requires the total
+    number of blockers to decrease before another automatic round is allowed.
+    """
+    rows = []
+    for value in (errors or []):
+        text = " ".join(str(value or "").strip().lower().split())
+        if text:
+            rows.append(text)
+    return tuple(sorted(set(rows)))
+
+def _ngenie_handler_syntax_only_errors(errors) -> bool:
+    rows = [str(x or "").strip().lower() for x in (errors or []) if str(x or "").strip()]
+    if not rows:
+        return False
+    return all(
+        (("nodes_handlers" in row or "nodes_server_handlers" in row) and "syntax error" in row)
+        for row in rows
+    )
+
+
 @_routes.route('/config/<uid>/ai-generate', methods=['POST'])
 @login_required
 def ai_generate(uid):
-    config = db.session.execute(
-        select(Configuration).where(
-            Configuration.uid == uid,
-            Configuration.user_id == current_user.id
-        )
-    ).scalar_one_or_none()
-
+    config = db.session.execute(select(Configuration).where(Configuration.uid == uid, Configuration.user_id == current_user.id)).scalar_one_or_none()
     if not config:
         abort(404)
 
+    # Optional feature delegation only. The full Solution lifecycle lives in
+    # solutions/generator.py; if that package is absent, this route remains the
+    # original generic nGenie generator.
+    try:
+        import solutions as _solutions_feature
+    except (ImportError, ModuleNotFoundError):
+        _solutions_feature = None
+    if _solutions_feature is not None:
+        _owned_solution = _solutions_feature.active_solution_for_config(config, user=current_user)
+        if _owned_solution is not None:
+            _solution_generator = getattr(_solutions_feature, 'run_solution_ai_generate', None)
+            if not callable(_solution_generator):
+                return jsonify({'status': 'error', 'message': 'Solutions generation runtime is unavailable'}), 500
+            return _solution_generator(
+                config, request_obj=request, user=current_user, editor_module=sys.modules[__name__]
+            )
     if request.is_json:
         data = request.get_json(silent=True) or {}
     else:
@@ -6301,397 +8917,333 @@ def ai_generate(uid):
         prompt = 'Продолжи генерацию с учетом ответов на уточняющие вопросы.'
     original_user_prompt = prompt
     write_instruction = _ngenie_code_bool(data.get('write_instruction'))
-    solution_plan_generate = _ngenie_code_bool(data.get('solution_plan_generate'))
+    runtime_error_repair = _ngenie_code_bool(data.get('runtime_error_repair'))
     force_old_ai = _ngenie_code_bool(data.get('old_ai') or data.get('force_old_ai'))
     llm_provider = (data.get('llm') or 'deepseek').strip().lower()
-    ngenie_code_mode = _ngenie_code_available() and not force_old_ai
+    ngenie_code_mode = _ngenie_code_editor_enabled() and (not force_old_ai)
     ngenie_code_request_id = uuid.uuid4().hex
-
+    early_attachments_text = ''
+    if ngenie_code_mode and getattr(request, 'files', None):
+        try:
+            import ngenie_code
+            early_attachments_text = ngenie_code.read_uploaded_files(request.files.getlist('attachments'))
+        except Exception:
+            early_attachments_text = ''
     if force_old_ai and _config_is_ngenie_code_locked(config):
-        return jsonify({"status": "error", "message": _ngenie_code_forbid_message()}), 403
-
-    if not prompt and not question_answers:
-        return jsonify({"status": "error", "message": "Empty prompt"}), 400
-
+        return (jsonify({'status': 'error', 'message': _ngenie_code_forbid_message()}), 403)
+    if not prompt and (not question_answers) and (not early_attachments_text):
+        return (jsonify({'status': 'error', 'message': 'Empty prompt'}), 400)
     if ngenie_code_mode:
-        if solution_plan_generate:
-            user_chat_content = 'Генерация конфигурации по утвержденному ТЗ Solution.'
-        else:
-            user_chat_content = _ngenie_code_format_question_answers_for_chat(original_user_prompt, question_answers)
-        user_meta = {'kind': 'question_answers' if question_answers else 'generate', 'write_instruction': bool(write_instruction), 'solution_plan_generate': bool(solution_plan_generate)}
+        user_chat_content = _ngenie_code_format_question_answers_for_chat(original_user_prompt, question_answers)
+        user_meta_kind = 'question_answers' if question_answers else 'generate'
+        user_meta = {'kind': user_meta_kind, 'write_instruction': bool(write_instruction)}
         if question_answers:
             user_meta['question_answers'] = question_answers
-        _ngenie_code_add_chat_message(
-            config,
-            'user',
-            user_chat_content,
-            request_id=ngenie_code_request_id,
-            meta=user_meta,
-            commit=True,
-        )
-        _solutions_record_answers_if_needed(config, question_answers)
-        if question_answers:
-            plan_payload = _solutions_run_plan_if_needed(config, question_answers=question_answers, start_only=False)
-            if isinstance(plan_payload, dict):
-                ptype = str(plan_payload.get('type') or '').lower()
-                if ptype == 'questions':
-                    assistant_text = str(plan_payload.get('message') or 'Для начала уточни вот эти данные')
-                    return jsonify({
-                        "status": "ok",
-                        "message": assistant_text,
-                        "ngenie_code_questions": plan_payload.get('questions') or [],
-                        "ngenie_code_request_id": ngenie_code_request_id,
-                    })
-                if ptype in {'message', 'waiting', 'finished'}:
-                    assistant_text = str(plan_payload.get('message') or 'План решения обновлен.')
-                    return jsonify({
-                        "status": "ok",
-                        "message": assistant_text,
-                        "ngenie_code_request_id": ngenie_code_request_id,
-                    })
-                if ptype == 'generate':
-                    prompt = str(plan_payload.get('prompt') or prompt or 'Сгенерируй конфигурацию по утвержденному решению.')
-                    original_user_prompt = prompt
-
+        _ngenie_code_add_chat_message(config, 'user', user_chat_content, request_id=ngenie_code_request_id, meta=user_meta, commit=True)
     try:
-        # 1. System prompt. nGenie Code is used unless the request explicitly asks for old_ai.
-        attachments_text = ""
+        attachments_text = ''
         if ngenie_code_mode:
             import ngenie_code
-            llm_provider = "ngenie_code"
-            ngenie_code.set_debug_context(
-                request_id=ngenie_code_request_id,
-                user_id=getattr(current_user, 'id', None),
-                user_email=getattr(current_user, 'email', ''),
-                config_uid=getattr(config, 'uid', ''),
-                config_name=getattr(config, 'name', ''),
-                original_prompt=original_user_prompt[:4000],
-            )
+            llm_provider = 'ngenie_code'
+            ngenie_code.set_debug_context(request_id=ngenie_code_request_id, user_id=getattr(current_user, 'id', None), user_email=getattr(current_user, 'email', ''), config_uid=getattr(config, 'uid', ''), config_name=getattr(config, 'name', ''), original_prompt=original_user_prompt[:4000])
             system_prompt = ngenie_code.build_system_prompt(request_id=ngenie_code_request_id)
-            attachments_text = ngenie_code.read_uploaded_files(request.files.getlist('attachments')) if getattr(request, 'files', None) else ""
+            android_system_prompt = system_prompt
+            server_system_prompt = system_prompt
+            attachments_text = early_attachments_text
             chat_context = _ngenie_code_chat_context_for_llm(config)
-            prompt = _solutions_enrich_prompt_if_needed(config, prompt, question_answers=question_answers)
             prompt = ngenie_code.build_user_prompt(prompt, attachments_text, chat_context=chat_context, question_answers=question_answers)
         else:
-            llm_url = "https://raw.githubusercontent.com/dvdocumentation/nodalogic/refs/heads/main/LLM.txt"
+            llm_url = 'https://raw.githubusercontent.com/dvdocumentation/nodalogic/refs/heads/main/LLM.txt'
             r = requests.get(llm_url, timeout=10)
             if r.status_code == 200:
                 system_prompt = r.text
             else:
-                system_prompt = "You are the NodaLogic configuration generation assistant. Always return valid JSON without any explanations."
-
-        # 2. current configuration
-        current_config_json = json.loads(get_config(config.uid))
-        before_config_json_for_summary = json.loads(json.dumps(current_config_json, ensure_ascii=False))
-
-        # 3. form a request to LLM:
-        #    Request return the COMPLETE new configuration in the same JSON format.
-        #3) STEP 1: Ask LLM for a JSON patch. Handler code is generated in STEP 2.
-        ngenie_code_generation_contract = ""
-        if ngenie_code_mode:
+                system_prompt = 'You are the NodaLogic configuration generation assistant. Always return valid JSON without any explanations.'
+            android_system_prompt = system_prompt
+            server_system_prompt = system_prompt
+        persisted_config_json = json.loads(get_config(config.uid))
+        before_config_json_for_summary = json.loads(json.dumps(persisted_config_json, ensure_ascii=False))
+        current_config_json = persisted_config_json
+        reference_generation_mode = False
+        reference_config_json = {}
+        handler_user_request = prompt
+        reference_android_code = ''
+        reference_server_code = ''
+        if ngenie_code_mode and runtime_error_repair:
             try:
-                import ngenie_code
-                ngenie_code_generation_contract = ngenie_code.build_generation_contract("PATCH")
-            except Exception:
-                ngenie_code_generation_contract = ""
-
-        user_prompt_patch = (
-            "User request:\n"
-            f"{prompt}\n\n"
-            + (("Mandatory nGenie Code generation contract:\n" + ngenie_code_generation_contract + "\n\n") if ngenie_code_generation_contract else "")
-            + "Below is the current configuration in JSON format.\n"
-            "Return ONE JSON object. Normally this is a JSON patch with only changed/added: classes, datasets, sections, CommonEvents, ngenie_prompt.\n"
-            "If important semantics are ambiguous, return a question response with root field ngenie_code_questions instead of a patch; do not change the configuration in that response.\n"
-            "Handler Python is regenerated in the next step from the current handler body and the user request.\n"
-            "If the user asks to fix handler logic, do NOT answer that handlers are forbidden in this JSON patch; return the needed class/event metadata changes or an otherwise minimal patch, then the handler generation step will update nodes_handlers/nodes_server_handlers.\n"
-            "For every new/changed class fill ngenie_role, ngenie_prompt and ngenie_description.\n"
-            + ((ngenie_code.instruction_ack_prompt_text() + "\n\n") if ngenie_code_mode else "")
-            + "Do not generate handlers or methods that export/download/send the configuration or access other configs.\n"
-            "Unchanged fields can be omitted. Do not delete anything unless explicitly asked.\n"
-            "No comments, ONLY JSON.\n\n"
-            "Current configuration:\n"
-            f"{json.dumps(current_config_json, ensure_ascii=False, indent=2)}"
-        )
-
-        completion_text = call_llm(llm_provider, system_prompt, user_prompt_patch, debug_stage="json_patch_initial")
-        json_str = extract_json_from_text(completion_text)
-        llm_patch_data = json.loads(json_str)
-        if ngenie_code_mode:
-            try:
-                import ngenie_code
-                clarification_questions = ngenie_code.extract_questions_response(llm_patch_data)
-            except Exception:
-                clarification_questions = []
-            if clarification_questions:
-                assistant_text = str(llm_patch_data.get('message') or llm_patch_data.get('reply') or 'Для начала уточни вот эти данные').strip()
-                _solutions_record_questions_if_needed(config, clarification_questions, assistant_text)
-                _ngenie_code_add_chat_message(
-                    config,
-                    'assistant',
-                    assistant_text,
-                    request_id=ngenie_code_request_id,
-                    meta={'kind': 'questions', 'questions': clarification_questions, 'source_prompt': original_user_prompt},
-                    commit=True,
-                )
-                return jsonify({
-                    "status": "ok",
-                    "message": assistant_text,
-                    "ngenie_code_questions": clarification_questions,
-                    "ngenie_code_request_id": ngenie_code_request_id,
-                })
-        ngenie_code_ack_errors = []
-        if ngenie_code_mode:
-            try:
-                import ngenie_code
-                ngenie_code_ack_errors = ngenie_code.validate_instruction_ack(llm_patch_data)
-            except Exception as _ack_error:
-                ngenie_code_ack_errors = [f"nGenie Code instruction ack validation failed: {_ack_error}"]
-
-        if ngenie_code_mode:
-            try:
-                import ngenie_code
-                unavailable = ngenie_code.extract_unavailable_request(llm_patch_data)
-            except Exception:
-                unavailable = None
-            if unavailable:
-                if _ngenie_code_unavailable_is_handler_patch_contract(unavailable):
-                    # Continue to handler generation instead of recording a fake missing-feature request.
-                    llm_patch_data = _ngenie_code_minimal_ack_patch()
-                    ngenie_code_ack_errors = []
-                else:
-                    requested = str(unavailable.get('requested_feature') or unavailable.get('requested') or unavailable.get('feature') or 'запрошенная возможность').strip()
-                    reason = str(unavailable.get('reason') or unavailable.get('details') or 'В текущих инструкциях/платформе нет такой возможности.').strip()
-                    _ngenie_code_record_feature_request(config, original_user_prompt, requested, reason, completion_text)
-                    assistant_text = "Такой возможности пока нет: " + requested + "\n" + reason + "\nЯ записал заявку разработчику; конфигурация не изменялась."
-                    _ngenie_code_add_chat_message(config, 'assistant', assistant_text, request_id=ngenie_code_request_id, meta={'kind': 'unavailable'}, commit=False)
+                fast_candidate = json.loads(json.dumps(current_config_json, ensure_ascii=False))
+                _fast_validation_errors, fast_changes = _ngenie_validate_generation_candidate(config, fast_candidate, [])
+                missing_names = re.findall('NameError\\s*:\\s*name\\s+[\'\\"]([^\'\\"]+)[\'\\"]\\s+is\\s+not\\s+defined', str(original_user_prompt or ''), flags=re.I)
+                fast_server_code = _decode_b64_text(fast_candidate.get('nodes_server_handlers', '') or '')
+                fast_imported = _ngenie_top_level_imported_names(fast_server_code)
+                deterministic_name_fix = bool(missing_names) and all((name in fast_imported for name in missing_names))
+                if fast_changes and deterministic_name_fix:
+                    apply_full_config_from_json(config, fast_candidate)
+                    _ngenie_code_mark_locked(config)
+                    assistant_message = 'Исправил runtime-ошибку без обращения к модели: ' + '; '.join(fast_changes)
+                    _ngenie_code_add_chat_message(config, 'assistant', assistant_message, request_id=ngenie_code_request_id, meta={'kind': 'runtime_autofix', 'changes': fast_changes, 'validation_warnings': _fast_validation_errors}, commit=False)
+                    None
+                    None
                     db.session.commit()
-                    return jsonify({
-                        "status": "ok",
-                        "message": assistant_text,
-                        "ngenie_code_feature_request": True,
-                        "ngenie_code_request_id": ngenie_code_request_id if 'ngenie_code_request_id' in locals() else ""
-                    })
-
-        # Merge patch into current (handlers remain current for now—we'll update them in step 2)
+                    return jsonify({'status': 'ok', 'message': assistant_message, 'fast_runtime_repair': True, 'auto_changes': fast_changes, 'ngenie_code_request_id': ngenie_code_request_id})
+            except Exception:
+                db.session.rollback()
+                current_config_json = json.loads(get_config(config.uid))
+                before_config_json_for_summary = json.loads(json.dumps(current_config_json, ensure_ascii=False))
+        ngenie_code_generation_contract = ''
         if ngenie_code_mode:
-            llm_patch_data_for_merge = ngenie_code.strip_instruction_ack(llm_patch_data)
-        else:
-            llm_patch_data_for_merge = llm_patch_data
-        merged_config_data = merge_llm_config_into_current_ai(current_config_json, llm_patch_data_for_merge)
-
-        # 4) STEP 2: Generate handlers as CODE (body), and do base64 yourself
-        # Android handlers
-        current_android_code = _decode_b64_text(current_config_json.get("nodes_handlers", ""))
-        android_header, android_body = _split_handlers_header_and_body(current_android_code)
-
-        # If the header is empty (the marker wasn't found), we use the current one as "all immutable."
-        # and the body is then empty: LLM will return the full file as the body (but we don't want that).
-        # Therefore, we use a fallback: if the marker isn't found, immutable = ANDROID_IMPORTS_TEMPLATE + NODE_CLASS_CODE_ANDROID
-        if not android_header:
-            base_url = current_config_json.get("url", "")
-            android_header = (ANDROID_IMPORTS_TEMPLATE.format(uid=config.uid, config_url=base_url) + "\n" + NODE_CLASS_CODE_ANDROID.strip() + "\n")
-            # body — the current code without the header (if any), otherwise the entire code
-            android_body = android_body or ""
-
-        new_android_body = _generate_handlers_body_ai(
-            provider=llm_provider,
-            system_prompt=system_prompt,
-            user_request=prompt,
-            merged_config_json=merged_config_data,
-            current_header=android_header,
-            current_body=android_body,
-            kind_label="ANDROID",
-            max_attempts=3,
-        )
-        new_android_full = (android_header.rstrip() + "\n\n" + new_android_body.strip() + "\n")
-        merged_config_data["nodes_handlers"] = _encode_b64_text(new_android_full)
-
-        # Server handlers (if used; if empty, you can leave it empty or also generate it)
-        current_server_code = _decode_b64_text(current_config_json.get("nodes_server_handlers", ""))
-        server_header, server_body = _split_handlers_header_and_body(current_server_code)
-
-        if current_config_json.get("nodes_server_handlers") or server_header or server_body:
-            if not server_header:
-                
-                server_header = (NODE_CLASS_CODE.strip() + "\n")
-                server_body = server_body or ""
-
-            new_server_body = _generate_handlers_body_ai(
-                provider=llm_provider,
-                system_prompt=system_prompt,
-                user_request=prompt,
-                merged_config_json=merged_config_data,
-                current_header=server_header,
-                current_body=server_body,
-                kind_label="SERVER",
-                max_attempts=3,
-            )
-            new_server_full = (server_header.rstrip() + "\n\n" + new_server_body.strip() + "\n")
-            merged_config_data["nodes_server_handlers"] = _encode_b64_text(new_server_full)
-
-        # 5) Final validation of the entire configuration (including syntax + UI types)
-        config_url = url_for('get_config', uid=config.uid, _external=True)
-
-        # 1) ensure basic headers/skeleton handlers (with ANDROID_IMPORTS_TEMPLATE)
-        ensure_handlers_skeleton_and_headers(config.uid, config_url, merged_config_data)
-
-        # 2) We guarantee classes from JSON in both handlers (even if LLM “forgot”)
-        ensure_all_classes_present_in_handlers(merged_config_data)
-
-        errors = validate_full_llm_config_ai(merged_config_data)
-        if ngenie_code_mode:
-            import ngenie_code
-            errors.extend(ngenie_code_ack_errors)
-            errors.extend(ngenie_code.validate_no_config_exfiltration(merged_config_data))
-            errors.extend(ngenie_code.validate_generation_quality(merged_config_data))
-
-        # Retry up to 3 times: fix patch+body handlers (leave the header alone)
-        attempts = 1
-        while errors and attempts < 3:
-            attempts += 1
-
-            fix_prompt_patch = (
-                (("Mandatory nGenie Code generation contract:\n" + ngenie_code_generation_contract + "\n\n") if ngenie_code_generation_contract else "")
-                + "Your configuration PATCH did NOT validate.\n"
-                "Fix ONLY the errors below.\n"
-                "Return ONE JSON object (PATCH) with only: classes, datasets, sections, CommonEvents and _ngenie_code_instruction_ack.\n"
-                + ((ngenie_code.instruction_ack_prompt_text() + "\n") if ngenie_code_mode else "")
-                + "If errors mention handler code, do not claim this is impossible; handler bodies are regenerated immediately after this JSON repair step. Fix class/event metadata here and let the handler step fix Python code.\n"
-                "No comments, ONLY JSON.\n\n"
-                "Errors:\n- " + "\n- ".join(errors) + "\n\n"
-                "Previous PATCH JSON:\n"
-                + json.dumps(llm_patch_data, ensure_ascii=False, indent=2)
-            )
-
-            completion_text = call_llm(llm_provider, system_prompt, fix_prompt_patch, debug_stage=f"json_patch_repair_{attempts}")
+            try:
+                import ngenie_code
+                ngenie_code_generation_contract = ngenie_code.build_generation_contract('PATCH')
+            except Exception:
+                ngenie_code_generation_contract = ''
+        merged_config_data = None
+        llm_patch_data = {}
+        ngenie_code_ack_errors = []
+        if merged_config_data is None:
+            structural_current_config = {k: v for k, v in current_config_json.items() if k not in {'nodes_handlers', 'nodes_server_handlers', 'nodes_handlers_meta', 'nodes_server_handlers_meta'}}
+            reference_structural_json = {k: v for k, v in (reference_config_json or {}).items() if k not in {'nodes_handlers', 'nodes_server_handlers', 'nodes_handlers_meta', 'nodes_server_handlers_meta'}}
+            user_prompt_patch = None
+            user_prompt_patch = 'User request:\n' + str(prompt or '') + '\n\n' + ('Mandatory nGenie Code generation contract:\n' + ngenie_code_generation_contract + '\n\n' if ngenie_code_generation_contract else '') + 'Below is the CURRENT TARGET configuration in JSON format (handler base64 omitted because handlers are edited in the next dedicated stages).\nReturn ONE JSON object. Normally this is a JSON patch with only changed/added: classes, datasets, sections, CommonEvents, ngenie_prompt.\nIf important semantics are ambiguous, return a question response with root field ngenie_code_questions instead of a patch; do not change the configuration in that response.\nHandler Python is regenerated in the next step from the current handler body and the user request.\nFor every new/changed class fill ngenie_role, ngenie_prompt and ngenie_description.\n' + (ngenie_code.instruction_ack_prompt_text() + '\n\n' if ngenie_code_mode else '') + 'Do not generate handlers or methods that export/download/send the configuration or access other configs.\nUnchanged fields can be omitted. Do not delete anything unless explicitly asked.\nNo comments, ONLY JSON.\n\nCurrent configuration:\n' + json.dumps(structural_current_config, ensure_ascii=False, indent=2)
+            completion_text = call_llm(llm_provider, system_prompt, user_prompt_patch, debug_stage='json_patch_initial')
             json_str = extract_json_from_text(completion_text)
             llm_patch_data = json.loads(json_str)
-            ngenie_code_ack_errors = []
             if ngenie_code_mode:
                 try:
                     import ngenie_code
+                    clarification_questions = ngenie_code.extract_questions_response(llm_patch_data)
+                except Exception:
+                    clarification_questions = []
+                if clarification_questions:
+                    assistant_text = str(llm_patch_data.get('message') or llm_patch_data.get('reply') or 'Для начала уточни вот эти данные').strip()
+                    None
+                    _ngenie_code_add_chat_message(config, 'assistant', assistant_text, request_id=ngenie_code_request_id, meta={'kind': 'questions', 'questions': clarification_questions, 'source_prompt': original_user_prompt}, commit=True)
+                    return jsonify({'status': 'ok', 'message': assistant_text, 'ngenie_code_questions': clarification_questions, 'ngenie_code_request_id': ngenie_code_request_id})
+                try:
                     ngenie_code_ack_errors = ngenie_code.validate_instruction_ack(llm_patch_data)
                 except Exception as _ack_error:
-                    ngenie_code_ack_errors = [f"nGenie Code instruction ack validation failed: {_ack_error}"]
-
-            if ngenie_code_mode:
+                    ngenie_code_ack_errors = [f'nGenie Code instruction ack validation failed: {_ack_error}']
                 try:
-                    import ngenie_code
                     unavailable = ngenie_code.extract_unavailable_request(llm_patch_data)
                 except Exception:
                     unavailable = None
                 if unavailable:
                     if _ngenie_code_unavailable_is_handler_patch_contract(unavailable):
-                        # Continue to handler generation instead of recording a fake missing-feature request.
                         llm_patch_data = _ngenie_code_minimal_ack_patch()
                         ngenie_code_ack_errors = []
                     else:
                         requested = str(unavailable.get('requested_feature') or unavailable.get('requested') or unavailable.get('feature') or 'запрошенная возможность').strip()
                         reason = str(unavailable.get('reason') or unavailable.get('details') or 'В текущих инструкциях/платформе нет такой возможности.').strip()
                         _ngenie_code_record_feature_request(config, original_user_prompt, requested, reason, completion_text)
-                        assistant_text = "Такой возможности пока нет: " + requested + "\n" + reason + "\nЯ записал заявку разработчику; конфигурация не изменялась."
+                        assistant_text = 'Такой возможности пока нет: ' + requested + '\n' + reason + '\nЯ записал заявку разработчику; конфигурация не изменялась.'
                         _ngenie_code_add_chat_message(config, 'assistant', assistant_text, request_id=ngenie_code_request_id, meta={'kind': 'unavailable'}, commit=False)
                         db.session.commit()
-                        return jsonify({
-                            "status": "ok",
-                            "message": assistant_text,
-                            "ngenie_code_feature_request": True,
-                            "ngenie_code_request_id": ngenie_code_request_id if 'ngenie_code_request_id' in locals() else ""
-                        })
-
-            if ngenie_code_mode:
-                llm_patch_data_for_merge = ngenie_code.strip_instruction_ack(llm_patch_data)
-            else:
-                llm_patch_data_for_merge = llm_patch_data
+                        return jsonify({'status': 'ok', 'message': assistant_text, 'ngenie_code_feature_request': True, 'ngenie_code_request_id': ngenie_code_request_id})
+            llm_patch_data_for_merge = ngenie_code.strip_instruction_ack(llm_patch_data) if ngenie_code_mode else llm_patch_data
             merged_config_data = merge_llm_config_into_current_ai(current_config_json, llm_patch_data_for_merge)
+            current_android_code = _decode_b64_text(current_config_json.get('nodes_handlers', ''))
+            android_header, android_body = _split_handlers_header_and_body(current_android_code)
+            if not android_header:
+                base_url = current_config_json.get('url', '')
+                android_header = ANDROID_IMPORTS_TEMPLATE.format(uid=config.uid, config_url=base_url) + '\n' + NODE_CLASS_CODE_ANDROID.strip() + '\n'
+                android_body = android_body or ''
+            new_android_body = _generate_handlers_body_ai(provider=llm_provider, system_prompt=locals().get('android_system_prompt', system_prompt), user_request=handler_user_request, merged_config_json=merged_config_data, current_header=android_header, current_body=android_body, kind_label='ANDROID', max_attempts=3, reference_code=reference_android_code, strict_contract=bool(False))
+            merged_config_data['nodes_handlers'] = _encode_b64_text(android_header.rstrip() + '\n\n' + new_android_body.strip() + '\n')
+            current_server_code = _decode_b64_text(current_config_json.get('nodes_server_handlers', ''))
+            server_header, server_body = _split_handlers_header_and_body(current_server_code)
+            server_contract_required = bool(_handler_contract_errors_ai(merged_config_data, current_server_code, 'SERVER'))
+            if current_config_json.get('nodes_server_handlers') or server_header or server_body or server_contract_required:
+                if not server_header:
+                    server_header = NODE_CLASS_CODE.strip() + '\n'
+                    server_body = server_body or ''
+                new_server_body = _generate_handlers_body_ai(provider=llm_provider, system_prompt=locals().get('server_system_prompt', system_prompt), user_request=handler_user_request, merged_config_json=merged_config_data, current_header=server_header, current_body=server_body, kind_label='SERVER', max_attempts=3, reference_code=reference_server_code, strict_contract=bool(False))
+                merged_config_data['nodes_server_handlers'] = _encode_b64_text(server_header.rstrip() + '\n\n' + new_server_body.strip() + '\n')
+        errors, auto_changes = _ngenie_validate_generation_candidate(config, merged_config_data, ngenie_code_ack_errors, reference_config_json if reference_generation_mode else None)
+        attempts = 1
+        repair_rounds_completed = 0
+        repair_stop_reason = ''
+        repair_issue_attempts = {}
+        unchanged_issue_failures = {}
+        max_unchanged_issue_failures = 3
+        while errors:
+            if not errors:
+                break
+            attempts += 1
+            repair_rounds_completed += 1
+            handler_syntax_only = _ngenie_handler_syntax_only_errors(errors)
+            errors_before_repair = list(errors)
+            errors_before_count = len(errors_before_repair)
+            round_base_candidate = deepcopy(merged_config_data)
+            repair_runtime_failures = []
+            round_issue_keys = {key for key in (_ngenie_repair_issue_id(x) for x in errors_before_repair) if key}
+            round_issue_rows = {}
+            round_issue_fingerprints = {}
+            round_repair_attempted_keys = set()
+            for _row in errors_before_repair:
+                _key = _ngenie_repair_issue_id(_row)
+                if not _key:
+                    continue
+                round_issue_rows[_key] = str(_row)
+                round_issue_fingerprints[_key] = _ngenie_repair_issue_fingerprint(_row)
 
-            config_url = url_for('get_config', uid=config.uid, _external=True)
-            ensure_handlers_skeleton_and_headers(config.uid, config_url, merged_config_data)
-            ensure_all_classes_present_in_handlers(merged_config_data)
+            def _mark_repair_attempt(rows):
+                """Count a retry only when an issue is actually sent to an LLM repair.
 
-            # regen ANDROID body with knowledge of errors
-            new_android_body = _generate_handlers_body_ai(
-                provider=llm_provider,
-                system_prompt=system_prompt,
-                user_request=prompt + "\n\nValidation errors to fix:\n- " + "\n- ".join(errors),
-                merged_config_json=merged_config_data,
-                current_header=android_header,
-                current_body=android_body,
-                kind_label="ANDROID",
-                max_attempts=3,
-            )
-            new_android_full = (android_header.rstrip() + "\n\n" + new_android_body.strip() + "\n")
-            merged_config_data["nodes_handlers"] = _encode_b64_text(new_android_full)
+                Validation-only loops must never advance plateau counters or retry
+                numbers.  One issue may target several artifacts in the same round;
+                it still counts as one focused repair round.
+                """
+                for _value in rows or []:
+                    _key = _ngenie_repair_issue_id(_value)
+                    if not _key or _key in round_repair_attempted_keys:
+                        continue
+                    round_repair_attempted_keys.add(_key)
+                    repair_issue_attempts[_key] = int(repair_issue_attempts.get(_key) or 0) + 1
 
-            # regen SERVER body if it exists/used
-            if current_config_json.get("nodes_server_handlers") or server_header or server_body:
-                new_server_body = _generate_handlers_body_ai(
-                    provider=llm_provider,
-                    system_prompt=system_prompt,
-                    user_request=prompt + "\n\nValidation errors to fix:\n- " + "\n- ".join(errors),
-                    merged_config_json=merged_config_data,
-                    current_header=server_header,
-                    current_body=server_body,
-                    kind_label="SERVER",
-                    max_attempts=3,
-                )
-                new_server_full = (server_header.rstrip() + "\n\n" + new_server_body.strip() + "\n")
-                merged_config_data["nodes_server_handlers"] = _encode_b64_text(new_server_full)
-
-            config_url = url_for('get_config', uid=config.uid, _external=True)
-            ensure_handlers_skeleton_and_headers(config.uid, config_url, merged_config_data)
-            ensure_all_classes_present_in_handlers(merged_config_data)
-
-            errors = validate_full_llm_config_ai(merged_config_data)
-            if ngenie_code_mode:
-                import ngenie_code
-                errors.extend(ngenie_code_ack_errors)
-                errors.extend(ngenie_code.validate_no_config_exfiltration(merged_config_data))
-                errors.extend(ngenie_code.validate_generation_quality(merged_config_data))
-
+            def _repair_retry_note(rows):
+                counts = []
+                for _value in rows or []:
+                    _key = _ngenie_repair_issue_id(_value)
+                    if _key:
+                        counts.append(int(repair_issue_attempts.get(_key) or 1))
+                retry_no = max(counts or [1])
+                if retry_no <= 1:
+                    return ''
+                return f'\nIMPORTANT: this requirement is still open after {retry_no - 1} previous focused repair round(s). The CURRENT candidate below is authoritative. Re-read the current implementation and repair only the remaining root cause. Do NOT repeat an earlier edit blindly and do NOT restore an already-fixed old state. If one target layer is already correct, preserve it and change only the layer that is still inconsistent.\n'
+            metadata_errors = _ngenie_metadata_repair_errors(errors_before_repair)
+            if not handler_syntax_only and metadata_errors:
+                _mark_repair_attempt(metadata_errors)
+                fix_prompt_patch = ('Mandatory nGenie Code generation contract:\n' + ngenie_code_generation_contract + '\n\n' if ngenie_code_generation_contract else '') + 'The CURRENT generated candidate did NOT validate.\n' + 'Fix ALL currently listed METADATA errors in ONE PATCH and preserve all already-correct metadata.\n' + 'Return ONE JSON object (PATCH) with only: classes, datasets, sections, CommonEvents and _ngenie_code_instruction_ack.\n' + (ngenie_code.instruction_ack_prompt_text() + '\n' if ngenie_code_mode else '') + 'Do not repair Python handler code in this call.\nNo comments, ONLY JSON.\n' + _repair_retry_note(metadata_errors) + '\nMetadata errors:\n- ' + '\n- '.join(metadata_errors) + '\n\nCURRENT COMPLETE candidate metadata (handlers omitted):\n' + json.dumps({k: v for k, v in (merged_config_data or {}).items() if k not in {'nodes_handlers', 'nodes_server_handlers'}}, ensure_ascii=False, indent=2)
+                if not isinstance(fix_prompt_patch, str) or not fix_prompt_patch.strip():
+                    raise RuntimeError('Metadata repair prompt is unavailable')
+                completion_text = call_llm(llm_provider, system_prompt, fix_prompt_patch, debug_stage=f'json_patch_repair_{attempts}')
+                llm_patch_data = json.loads(extract_json_from_text(completion_text))
+                ngenie_code_ack_errors = []
+                if ngenie_code_mode:
+                    try:
+                        ngenie_code_ack_errors = ngenie_code.validate_instruction_ack(llm_patch_data)
+                    except Exception as _ack_error:
+                        ngenie_code_ack_errors = [f'nGenie Code instruction ack validation failed: {_ack_error}']
+                    try:
+                        unavailable = ngenie_code.extract_unavailable_request(llm_patch_data)
+                    except Exception:
+                        unavailable = None
+                    if unavailable:
+                        if _ngenie_code_unavailable_is_handler_patch_contract(unavailable):
+                            llm_patch_data = _ngenie_code_minimal_ack_patch()
+                            ngenie_code_ack_errors = []
+                        else:
+                            requested = str(unavailable.get('requested_feature') or unavailable.get('requested') or unavailable.get('feature') or 'запрошенная возможность').strip()
+                            reason = str(unavailable.get('reason') or unavailable.get('details') or 'В текущих инструкциях/платформе нет такой возможности.').strip()
+                            _ngenie_code_record_feature_request(config, original_user_prompt, requested, reason, completion_text)
+                            assistant_text = 'Такой возможности пока нет: ' + requested + '\n' + reason + '\nЯ записал заявку разработчику; конфигурация не изменялась.'
+                            _ngenie_code_add_chat_message(config, 'assistant', assistant_text, request_id=ngenie_code_request_id, meta={'kind': 'unavailable'}, commit=False)
+                            db.session.commit()
+                            return jsonify({'status': 'ok', 'message': assistant_text, 'ngenie_code_feature_request': True, 'ngenie_code_request_id': ngenie_code_request_id})
+                llm_patch_data_for_merge = ngenie_code.strip_instruction_ack(llm_patch_data) if ngenie_code_mode else llm_patch_data
+                merged_config_data = merge_llm_config_into_current_ai(merged_config_data, llm_patch_data_for_merge)
+            else:
+                llm_patch_data = {}
+                ngenie_code_ack_errors = []
+            android_errors = _ngenie_android_repair_errors(errors_before_repair)
+            server_errors = _ngenie_server_repair_errors(errors_before_repair)
+            if android_errors:
+                _mark_repair_attempt(android_errors)
+                android_code_now = _decode_b64_text(merged_config_data.get('nodes_handlers', ''))
+                android_header, android_body = _split_handlers_header_and_body(android_code_now)
+                if not android_header:
+                    config_url = url_for('get_config', uid=config.uid, _external=True)
+                    android_header = ANDROID_IMPORTS_TEMPLATE.format(uid=config.uid, config_url=config_url) + '\n' + NODE_CLASS_CODE_ANDROID.strip() + '\n'
+                android_retry_no = max([int(repair_issue_attempts.get(_ngenie_repair_issue_id(x)) or 1) for x in android_errors] or [1])
+                android_request = 'Repair the CURRENT COMPLETE Android handler as one coherent artifact. Fix ALL currently listed Android/runtime issues in the complete final BODY. Preserve every already-correct capability and unrelated implementation. Do not redesign metadata.\n' + _repair_retry_note(android_errors) + '\nApproved generation goal: ' + _ngenie_repair_goal_prompt(original_user_prompt) + '\n\nCURRENT Android obligations for this atomic repair transaction:\n- ' + '\n- '.join(android_errors)
+                try:
+                    new_android_body = _repair_handlers_body_full_ai(provider=llm_provider, user_request=android_request, merged_config_json=merged_config_data, current_header=android_header, current_body=android_body, kind_label='ANDROID', max_attempts=3 if android_retry_no > 1 else 2, require_clean_contract=True)
+                    merged_config_data['nodes_handlers'] = _encode_b64_text(android_header.rstrip() + '\n\n' + new_android_body.strip() + '\n')
+                except Exception as repair_exc:
+                    if repair_exc.__class__.__name__ in {'GenerationCancelled', 'GenerationBudgetExceeded'}:
+                        raise
+                    repair_runtime_failures.append('ANDROID: ' + str(repair_exc))
+            if server_errors:
+                _mark_repair_attempt(server_errors)
+                server_code_now = _decode_b64_text(merged_config_data.get('nodes_server_handlers', ''))
+                server_header, server_body = _split_handlers_header_and_body(server_code_now)
+                if not server_header:
+                    server_header = NODE_CLASS_CODE.strip() + '\n'
+                server_retry_no = max([int(repair_issue_attempts.get(_ngenie_repair_issue_id(x)) or 1) for x in server_errors] or [1])
+                server_request = 'Repair the CURRENT COMPLETE server handler as one coherent artifact. Fix ALL currently listed Server/runtime issues in the complete final BODY. Preserve every already-correct capability and unrelated implementation. Do not redesign metadata.\n' + _repair_retry_note(server_errors) + '\nApproved generation goal: ' + _ngenie_repair_goal_prompt(original_user_prompt) + '\n\nCURRENT Server obligations for this atomic repair transaction:\n- ' + '\n- '.join(server_errors)
+                try:
+                    new_server_body = _repair_handlers_body_full_ai(provider=llm_provider, user_request=server_request, merged_config_json=merged_config_data, current_header=server_header, current_body=server_body, kind_label='SERVER', max_attempts=3 if server_retry_no > 1 else 2, require_clean_contract=True)
+                    merged_config_data['nodes_server_handlers'] = _encode_b64_text(server_header.rstrip() + '\n\n' + new_server_body.strip() + '\n')
+                except Exception as repair_exc:
+                    if repair_exc.__class__.__name__ in {'GenerationCancelled', 'GenerationBudgetExceeded'}:
+                        raise
+                    repair_runtime_failures.append('SERVER: ' + str(repair_exc))
+            errors, auto_changes = _ngenie_validate_generation_candidate(config, merged_config_data, ngenie_code_ack_errors, reference_config_json if reference_generation_mode else None)
+            if errors:
+                errors_after_count = len(errors)
+                after_issue_rows = {}
+                after_issue_fingerprints = {}
+                for _row in errors:
+                    _key = _ngenie_repair_issue_id(_row)
+                    if not _key:
+                        continue
+                    after_issue_rows[_key] = str(_row)
+                    after_issue_fingerprints[_key] = _ngenie_repair_issue_fingerprint(_row)
+                after_issue_keys = set(after_issue_rows)
+                repeated_round_keys = sorted(after_issue_keys & round_issue_keys)
+                new_issue_keys = sorted(after_issue_keys - round_issue_keys)
+                resolved_issue_keys = sorted(round_issue_keys - after_issue_keys)
+                for _key in resolved_issue_keys:
+                    unchanged_issue_failures.pop(_key, None)
+                partial_issue_keys = []
+                unchanged_issue_keys = []
+                unrouted_repeated_keys = []
+                for _key in repeated_round_keys:
+                    if _key not in round_repair_attempted_keys:
+                        unrouted_repeated_keys.append(_key)
+                        continue
+                    _row = after_issue_rows.get(_key, '')
+                    _state = _ngenie_repair_issue_state(_row)
+                    _before_fp = round_issue_fingerprints.get(_key, '')
+                    _after_fp = after_issue_fingerprints.get(_key, '')
+                    if _state == 'partial' or (_state != 'unchanged' and _after_fp and (_after_fp != _before_fp)):
+                        unchanged_issue_failures[_key] = 0
+                        partial_issue_keys.append(_key)
+                    else:
+                        unchanged_issue_failures[_key] = int(unchanged_issue_failures.get(_key) or 0) + 1
+                        unchanged_issue_keys.append(_key)
+                if unrouted_repeated_keys:
+                    repair_stop_reason = 'repair routing did not select a target for: ' + ', '.join((x.split(':', 1)[-1] for x in unrouted_repeated_keys[:6]))
+                    break
+                hard_stalled_keys = sorted((_key for _key in unchanged_issue_keys if int(unchanged_issue_failures.get(_key) or 0) >= max_unchanged_issue_failures))
+                if not hard_stalled_keys:
+                    continue
+                stalled_preview = ', '.join((x.split(':', 1)[-1] for x in hard_stalled_keys[:4]))
+                repair_stop_reason = f"один и тот же конкретный остаток проблемы не изменился после {max_unchanged_issue_failures} последовательных repair-попыток ({stalled_preview or 'тот же blocker'})"
+                break
         if errors:
+            error_text = 'AI generation failed validation:\n- ' + '\n- '.join(errors)
             if ngenie_code_mode and _ngenie_code_validation_errors_look_like_missing_feature(errors):
-                requested = ' / '.join(str(e) for e in errors[:3])[:1000]
+                requested = ' / '.join((str(e) for e in errors[:3]))[:1000]
                 reason = 'Валидация показала, что LLM использовала компонент/возможность, которой нет в текущем NodaLogic/UI.'
-                _ngenie_code_record_feature_request(config, original_user_prompt, requested, reason, "\n".join(errors))
-                assistant_text = "Похоже, в текущей платформе нет нужного UI-компонента или возможности.\n" + "- " + "\n- ".join(errors) + "\nЯ записал заявку разработчику; конфигурация не изменялась."
+                _ngenie_code_record_feature_request(config, original_user_prompt, requested, reason, '\n'.join(errors))
+                assistant_text = 'Похоже, в текущей платформе нет нужного UI-компонента или возможности.\n- ' + '\n- '.join(errors)
+                assistant_text += '\nЯ записал заявку разработчику; конфигурация не изменялась.'
                 _ngenie_code_add_chat_message(config, 'assistant', assistant_text, request_id=ngenie_code_request_id, meta={'kind': 'missing_feature_validation', 'errors': errors}, commit=False)
                 db.session.commit()
-                return jsonify({
-                    "status": "ok",
-                    "message": assistant_text,
-                    "ngenie_code_feature_request": True,
-                    "ngenie_code_request_id": ngenie_code_request_id if 'ngenie_code_request_id' in locals() else ""
-                })
-            error_text = "AI generation failed validation:\n- " + "\n- ".join(errors)
+                return jsonify({'status': 'ok', 'message': assistant_text, 'ngenie_code_feature_request': True, 'generation_candidate_saved': False, 'can_resume_generation': False, 'ngenie_code_request_id': ngenie_code_request_id})
             if ngenie_code_mode:
-                _ngenie_code_add_chat_message(config, 'assistant', error_text, request_id=ngenie_code_request_id, meta={'kind': 'validation_error', 'errors': errors}, commit=True)
-            return jsonify({
-                "status": "error",
-                "message": error_text,
-                "ngenie_code_request_id": ngenie_code_request_id if ngenie_code_mode else ""
-            }), 400
-
-        
-
+                _ngenie_code_add_chat_message(config, 'assistant', error_text, request_id=ngenie_code_request_id, meta={'kind': 'validation_error', 'errors': errors, 'candidate_saved': False}, commit=True)
+            return (jsonify({'status': 'error', 'message': error_text, 'generation_candidate_saved': False, 'can_resume_generation': False, 'ngenie_code_request_id': ngenie_code_request_id if ngenie_code_mode else ''}), 400)
         new_config_data = merged_config_data
-
-        
-
     except Exception as e:
-        #current_app.logger.exception("AI generator error")
-        error_text = f"An error occurred while requesting LLM or parsing the response.: {e}"
+        error_text = f'An error occurred while requesting LLM or parsing the response.: {e}'
         if locals().get('ngenie_code_mode'):
             try:
-                _ngenie_code_add_chat_message(config, 'assistant', error_text, request_id=locals().get('ngenie_code_request_id', ''), meta={'kind': 'exception_before_apply'}, commit=True)
+                _ngenie_code_add_chat_message(config, 'assistant', error_text, request_id=locals().get('ngenie_code_request_id', ''), meta={'kind': 'exception_before_apply', 'candidate_saved': False}, commit=True)
             except Exception:
                 pass
-        return jsonify({
-            "status": "error",
-            "message": error_text,
-            "ngenie_code_request_id": locals().get('ngenie_code_request_id', '')
-        }), 500
-
+        return (jsonify({'status': 'error', 'message': error_text, 'generation_candidate_saved': False, 'can_resume_generation': False, 'ngenie_code_request_id': locals().get('ngenie_code_request_id', '')}), 500)
     try:
         apply_full_config_from_json(config, new_config_data)
         if ngenie_code_mode:
@@ -6701,47 +9253,29 @@ def ai_generate(uid):
                     import ngenie_code
                     cfg_after = _ngenie_code_current_json(config) or new_config_data
                     doc_prompt = ngenie_code.build_instruction_prompt(cfg_after, prompt)
-                    config.ngenie_code_instruction = ngenie_code.call_llm(ngenie_code.build_system_prompt(request_id=ngenie_code_request_id), doc_prompt, max_tokens=8000, debug_stage="write_instruction_after_generation")
+                    _release_db_before_external_llm()
+                    config.ngenie_code_instruction = ngenie_code.call_llm(ngenie_code.build_system_prompt(request_id=ngenie_code_request_id), doc_prompt, max_tokens=8000, debug_stage='write_instruction_after_generation')
                 except Exception as doc_error:
                     current_app.logger.exception('nGenie Code instruction generation failed')
-                    config.ngenie_code_instruction = (getattr(config, 'ngenie_code_instruction', '') or '') + (
-                        '\n\n> Instruction generation failed: ' + str(doc_error)
-                    )
-        instruction_url = url_for('ngenie_code_document', uid=config.uid, kind='instruction') if ngenie_code_mode and getattr(config, 'ngenie_code_instruction', '') else ""
+                    config.ngenie_code_instruction = (getattr(config, 'ngenie_code_instruction', '') or '') + ('\n\n> Instruction generation failed: ' + str(doc_error))
+        instruction_url = url_for('ngenie_code_document', uid=config.uid, kind='instruction') if ngenie_code_mode and getattr(config, 'ngenie_code_instruction', '') else ''
         if ngenie_code_mode:
             cfg_after_summary = _ngenie_code_current_json(config) or new_config_data
-            assistant_message = _ngenie_code_summarize_generation(
-                locals().get('before_config_json_for_summary', {}),
-                cfg_after_summary,
-                request_id=ngenie_code_request_id,
-                instruction_url=instruction_url,
-            )
+            assistant_message = _ngenie_code_summarize_generation(before_config_json_for_summary, cfg_after_summary, request_id=ngenie_code_request_id, instruction_url=instruction_url)
             _ngenie_code_add_chat_message(config, 'assistant', assistant_message, request_id=ngenie_code_request_id, meta={'kind': 'generation_success'}, commit=False)
-            _solutions_record_success_if_needed(config, assistant_message)
         else:
-            assistant_message = "Configuration successfully updated via AI generator"
+            assistant_message = 'Configuration successfully updated via AI generator'
         db.session.commit()
-        return jsonify({
-            "status": "ok",
-            "message": assistant_message if ngenie_code_mode else "Configuration successfully updated via AI generator",
-            "ngenie_code_locked": bool(getattr(config, 'ngenie_code_locked', False)),
-            "instruction_url": instruction_url,
-            "ngenie_code_request_id": ngenie_code_request_id if ngenie_code_mode else ""
-        })
+        return jsonify({'status': 'ok', 'message': assistant_message if ngenie_code_mode else 'Configuration successfully updated via AI generator', 'ngenie_code_locked': bool(getattr(config, 'ngenie_code_locked', False)), 'instruction_url': instruction_url, 'ngenie_code_request_id': ngenie_code_request_id if ngenie_code_mode else ''})
     except Exception as e:
         db.session.rollback()
-        #current_app.logger.exception("AI generator apply config error")
-        error_text = f"Error applying configuration: {e}"
-        if locals().get('ngenie_code_mode'):
+        error_text = f'Error applying configuration: {e}'
+        if ngenie_code_mode:
             try:
-                _ngenie_code_add_chat_message(config, 'assistant', error_text, request_id=locals().get('ngenie_code_request_id', ''), meta={'kind': 'apply_error'}, commit=True)
+                _ngenie_code_add_chat_message(config, 'assistant', error_text, request_id=ngenie_code_request_id, meta={'kind': 'apply_error', 'candidate_saved': False}, commit=True)
             except Exception:
                 pass
-        return jsonify({
-            "status": "error",
-            "message": error_text,
-            "ngenie_code_request_id": locals().get('ngenie_code_request_id', '')
-        }), 500
+        return (jsonify({'status': 'error', 'message': error_text, 'generation_candidate_saved': False, 'can_resume_generation': False, 'ngenie_code_request_id': ngenie_code_request_id if ngenie_code_mode else ''}), 500)
 
 
 
@@ -6764,9 +9298,15 @@ def ngenie_code_chat(uid):
             _ngenie_code_add_chat_message(config, role, content, request_id=str(data.get('request_id') or ''), meta=meta, commit=False)
             if role == 'user' and isinstance(meta, dict) and meta.get('kind') == 'question_answers':
                 qa = meta.get('question_answers')
-                _solutions_record_answers_if_needed(config, qa)
+                _optional_feature_call(
+                    "solutions", "record_question_answers_for_config", config, qa,
+                    user=current_user, commit=True,
+                )
                 if _ngenie_code_bool(meta.get('resume_plan')):
-                    plan_payload = _solutions_run_plan_if_needed(config, question_answers=qa, start_only=False)
+                    plan_payload = _optional_feature_call(
+                        "solutions", "run_plan_from_editor", config,
+                        user=current_user, question_answers=qa, start_only=False, model_call=call_llm,
+                    )
                     if isinstance(plan_payload, dict):
                         ptype = str(plan_payload.get('type') or '').lower()
                         response = {
@@ -6786,8 +9326,19 @@ def ngenie_code_chat(uid):
         except Exception as e:
             db.session.rollback()
             return jsonify({'status': 'error', 'message': str(e)}), 500
-    _solutions_run_plan_if_needed(config, start_only=True)
-    return jsonify({'status': 'ok', 'messages': _ngenie_code_chat_rows(config)})
+    _optional_feature_call(
+        "solutions", "run_plan_from_editor", config, user=current_user,
+        start_only=True, model_call=call_llm,
+    )
+    messages = _ngenie_code_chat_rows(config)
+    if not messages:
+        fallback = _optional_feature_call('solutions', 'solution_chat_rows_for_config', config, user=current_user, limit=200)
+        if isinstance(fallback, list):
+            messages = fallback
+    pending_question_key = _optional_feature_call(
+        'solutions', 'pending_question_key_for_config', config, user=current_user
+    ) or ''
+    return jsonify({'status': 'ok', 'messages': messages, 'pending_question_key': pending_question_key})
 
 
 
@@ -6809,7 +9360,10 @@ def ngenie_code_chat_add(uid):
         _ngenie_code_add_chat_message(config, role, content, request_id=str(data.get('request_id') or ''), meta=meta, commit=False)
         if role == 'user' and isinstance(meta, dict) and meta.get('kind') == 'question_answers':
             qa = meta.get('question_answers')
-            _solutions_record_answers_if_needed(config, qa)
+            _optional_feature_call(
+                "solutions", "record_question_answers_for_config", config, qa,
+                user=current_user, commit=True,
+            )
         db.session.commit()
         return jsonify({'status': 'ok', 'messages': _ngenie_code_chat_rows(config)})
     except Exception as e:
@@ -6822,11 +9376,10 @@ def ngenie_code_chat_add(uid):
 def ngenie_code_question_answers(uid):
     """Save structured question answers and optionally resume Solutions plan.py.
 
-    The UI calls this on every field change. Most calls only persist
-    Solution.answers_json. When the question action is `straight`, or `if_all`
-    and the whole question array is complete, the UI sends resume=true; then the
-    backend replays plan.py from the beginning and continues with the next DSL
-    statement.
+    The solution workspace sends this endpoint when the user presses the
+    explicit «Ответить» button. Partial values stay as a local browser draft;
+    resume=true is accepted only when all required fields are present, then the
+    backend replays plan.py and continues with the next DSL statement.
     """
     config = db.session.execute(
         select(Configuration).where(Configuration.uid == uid, Configuration.user_id == current_user.id)
@@ -6842,9 +9395,39 @@ def ngenie_code_question_answers(uid):
     if action not in {'nothing', 'straight', 'if_all'}:
         action = 'nothing'
     resume = _ngenie_code_bool(data.get('resume'))
+    if resume:
+        try:
+            import ngenie_code
+            validation_questions = ngenie_code.normalize_questions(questions)
+        except Exception:
+            validation_questions = questions
+        missing = []
+        for qi, question in enumerate(validation_questions):
+            if not isinstance(question, dict):
+                continue
+            qid = str(question.get('id') or question.get('key') or f'q_{qi + 1}')
+            q_answers = answers.get(qid) if isinstance(answers.get(qid), dict) else {}
+            for fi, raw_field in enumerate(question.get('fields') or []):
+                field = raw_field if isinstance(raw_field, dict) else {'id': f'field_{fi + 1}', 'caption': str(raw_field or '')}
+                if field.get('required') is False:
+                    continue
+                field_id = str(field.get('id') or f'field_{fi + 1}')
+                value = q_answers.get(field_id)
+                complete = bool(value) if isinstance(value, list) else (True if isinstance(value, bool) else bool(str(value or '').strip()))
+                if not complete:
+                    missing.append(str(field.get('caption') or field_id))
+        if missing:
+            return jsonify({
+                'status': 'error',
+                'message': 'Заполните обязательные поля: ' + ', '.join(missing[:10]),
+                'missing_fields': missing,
+            }), 400
     qa = {'questions': questions, 'answers': answers, 'action': action}
     try:
-        _solutions_record_answers_if_needed(config, qa)
+        _optional_feature_call(
+            "solutions", "record_question_answers_for_config", config, qa,
+            user=current_user, commit=True,
+        )
         if resume:
             content = str(data.get('content') or '').strip() or _ngenie_code_format_question_answers_for_chat('', qa)
             _ngenie_code_add_chat_message(
@@ -6855,7 +9438,10 @@ def ngenie_code_question_answers(uid):
                 meta={'kind': 'question_answers', 'question_answers': qa, 'resume_plan': True},
                 commit=False,
             )
-            plan_payload = _solutions_run_plan_if_needed(config, question_answers=qa, start_only=False)
+            plan_payload = _optional_feature_call(
+                "solutions", "run_plan_from_editor", config,
+                user=current_user, question_answers=qa, start_only=False, model_call=call_llm,
+            )
             if isinstance(plan_payload, dict):
                 ptype = str(plan_payload.get('type') or '').lower()
                 response = {
@@ -6887,8 +9473,21 @@ def ngenie_code_chat_new(uid):
     if not config:
         abort(404)
     try:
-        db.session.query(NGenieCodeChatMessage).filter(NGenieCodeChatMessage.config_id == config.id).delete(synchronize_session=False)
-        _ngenie_code_add_chat_message(config, 'assistant', 'Новый чат создан. История очищена.', request_id='', meta={'kind': 'new_chat'}, commit=False)
+        solution = _optional_feature_call('solutions', 'active_solution_for_config', config, user=current_user)
+        if solution is not None:
+            # A generated-solution session is an audit trail. "New chat" creates
+            # a visible boundary but never destroys evidence needed by diagnostics.
+            _ngenie_code_add_chat_message(
+                config,
+                'assistant',
+                'Новый этап чата создан. Предыдущая история сохранена в диагностике решения.',
+                request_id='',
+                meta={'kind': 'new_chat', 'solution_uid': getattr(solution, 'uid', ''), 'history_preserved': True},
+                commit=False,
+            )
+        else:
+            db.session.query(NGenieCodeChatMessage).filter(NGenieCodeChatMessage.config_id == config.id).delete(synchronize_session=False)
+            _ngenie_code_add_chat_message(config, 'assistant', 'Новый чат создан. История очищена.', request_id='', meta={'kind': 'new_chat'}, commit=False)
         db.session.commit()
         return jsonify({'status': 'ok', 'messages': _ngenie_code_chat_rows(config)})
     except Exception as e:
@@ -6960,6 +9559,7 @@ def ngenie_code_write_instruction(uid):
         ngenie_code.set_debug_context(request_id=request_id, user_id=getattr(current_user, 'id', None), user_email=getattr(current_user, 'email', ''), config_uid=getattr(config, 'uid', ''), config_name=getattr(config, 'name', ''), original_prompt=extra_prompt[:4000])
         cfg = _ngenie_code_current_json(config)
         doc_prompt = ngenie_code.build_instruction_prompt(cfg, extra_prompt)
+        _release_db_before_external_llm()
         config.ngenie_code_instruction = ngenie_code.call_llm(ngenie_code.build_system_prompt(request_id=request_id), doc_prompt, max_tokens=8000, debug_stage="write_instruction_manual")
         _ngenie_code_mark_locked(config)
         assistant_text = "Инструкция создана и прикреплена к конфигурации."
@@ -6993,6 +9593,7 @@ def ngenie_code_generate_example(uid):
         ngenie_code.set_debug_context(request_id=request_id, user_id=getattr(current_user, 'id', None), user_email=getattr(current_user, 'email', ''), config_uid=getattr(config, 'uid', ''), config_name=getattr(config, 'name', ''), original_prompt=extra_prompt[:4000])
         cfg = _ngenie_code_current_json(config)
         example_prompt = ngenie_code.build_example_prompt(cfg, extra_prompt)
+        _release_db_before_external_llm()
         config.ngenie_code_example = ngenie_code.call_llm(ngenie_code.build_system_prompt(request_id=request_id), example_prompt, max_tokens=8000, debug_stage="generate_example_manual")
         _ngenie_code_mark_locked(config)
         assistant_text = "Пример создан и прикреплен к конфигурации."
@@ -8127,7 +10728,7 @@ def _enforce_web_access_modes():
 
     # Common authenticated pages that do not expose configuration internals.
     if endpoint in {
-        "index", "logout", "choose_mode", "static", "set_language",
+        "index", "public_offer", "logout", "choose_mode", "static", "set_language",
         "edit_profile", "update_device_token",
     }:
         return
@@ -8319,6 +10920,17 @@ def admin_dashboard():
         ngenie_code_debug_records = ngenie_code.list_debug_records(limit=100)
     except Exception:
         ngenie_code_debug_records = []
+    try:
+        from solutions.models import Solution
+        admin_solutions = (
+            db.session.query(Solution, User)
+            .outerjoin(User, Solution.user_id == User.id)
+            .order_by(Solution.updated_at.desc(), Solution.created_at.desc())
+            .limit(200)
+            .all()
+        )
+    except Exception:
+        admin_solutions = []
     
     return render_template('admin_dashboard.html',
                          total_users=total_users,
@@ -8328,6 +10940,7 @@ def admin_dashboard():
                          users_with_stats=users_with_stats,
                          ngenie_code_feature_requests=ngenie_code_feature_requests,
                          ngenie_code_debug_records=ngenie_code_debug_records,
+                         admin_solutions=admin_solutions,
                          active_connections=active_connections)
 
 
@@ -9327,34 +11940,110 @@ def users_delete(user_id: int):
     return redirect(url_for('users_manage'))
 
 
+def _landing_language() -> str:
+    """Return the public landing language without putting landing copy in Babel catalogs."""
+    posted = str(request.form.get('landing_lang') or '').strip().lower()
+    requested = str(request.args.get('lang') or '').strip().lower()
+    if posted in {'ru', 'en'}:
+        session['current_language'] = posted
+        session.permanent = True
+        return posted
+    if requested in {'ru', 'en'}:
+        session['current_language'] = requested
+        session.permanent = True
+        return requested
+    try:
+        locale = str(get_locale() or '').strip().lower()
+    except Exception:
+        locale = ''
+    return 'en' if locale.startswith('en') else 'ru'
+
+
+def _clean_contact_header(value: str, limit: int) -> str:
+    return re.sub(r'[\r\n]+', ' ', str(value or '')).strip()[:limit]
+
+
+def _send_landing_contact_email(*, name: str, email: str, company: str, message: str) -> None:
+    """Send landing-page feedback through a configurable SMTP relay.
+
+    No mail credentials are stored in the repository. Configure at least
+    NODALOGIC_CONTACT_SMTP_HOST. Authentication is optional for trusted/local
+    relays; when it is required, also set USERNAME/PASSWORD.
+    """
+    host = str(os.getenv('NODALOGIC_CONTACT_SMTP_HOST') or 'smtp.beget.com').strip()
+
+    try:
+        port = int(str(os.getenv('NODALOGIC_CONTACT_SMTP_PORT') or '465').strip())
+    except Exception:
+        port = 465
+
+    username = str(os.getenv('NODALOGIC_CONTACT_SMTP_USERNAME') or 'site@nmaker.pw').strip()
+    password = str(os.getenv('NODALOGIC_CONTACT_SMTP_PASSWORD') or 'Ferret_2016')
+    recipient = str(os.getenv('NODALOGIC_CONTACT_TO') or 'dv1555@hotmail.com').strip()
+    sender = str(os.getenv('NODALOGIC_CONTACT_SMTP_FROM') or username or recipient).strip()
+    use_ssl = str(os.getenv('NODALOGIC_CONTACT_SMTP_SSL') or '1').strip().lower() in {'1', 'true', 'yes', 'on'}
+    use_starttls = str(os.getenv('NODALOGIC_CONTACT_SMTP_STARTTLS') or '0').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+    mail = EmailMessage()
+    mail['Subject'] = f'NodaLogic website: {name or email}'
+    mail['From'] = sender
+    mail['To'] = recipient
+    mail['Reply-To'] = email
+    mail.set_content(
+        'New message from the NodaLogic public website\n\n'
+        f'Name: {name}\n'
+        f'Email: {email}\n'
+        f'Company / project: {company or "-"}\n\n'
+        f'{message}\n'
+    )
+
+    smtp_cls = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
+    with smtp_cls(host, port, timeout=20) as smtp:
+        if not use_ssl and use_starttls:
+            smtp.starttls()
+        if username:
+            smtp.login(username, password)
+        smtp.send_message(mail)
+
+
+@_routes.route('/index.html', methods=['GET'])
 @_routes.route('/', methods=['GET', 'POST'])
 def index():
-    if current_user.is_authenticated:
-        return redirect(url_for('choose_mode'))
-    
+    # The public landing page must stay reachable even for an authenticated
+    # user.  Authentication only changes the CTA target; choose-mode remains
+    # the post-login workspace and is not used as a replacement for `/`.
+    landing_lang = _landing_language()
+    open_auth = False
+    auth_tab = 'login'
+    contact_values = {}
+
     if request.method == 'POST':
         form_type = request.form.get('form_type')
-        
+
         if form_type == 'login':
             email = request.form.get('email')
             password = request.form.get('password')
             user = db.session.execute(
                 select(User).where(User.email == email)
             ).scalar_one_or_none()
-            
+
             if user and check_password_hash(user.password, password):
                 login_user(user)
                 return redirect(url_for('choose_mode'))
-            flash(_('Invalid email or password'), 'error')
+            flash('Invalid email or password' if landing_lang == 'en' else 'Неверный email или пароль', 'error')
+            open_auth = True
+            auth_tab = 'login'
 
         elif form_type == 'register':
             email = request.form.get('email')
             password = request.form.get('password')
-            
+
             if db.session.execute(
                 select(User).where(User.email == email)
             ).scalar_one_or_none():
-                flash(_('Email already taken'), 'error')
+                flash('Email already taken' if landing_lang == 'en' else 'Этот email уже зарегистрирован', 'error')
+                open_auth = True
+                auth_tab = 'register'
             else:
                 new_user = User(
                     email=email,
@@ -9368,8 +12057,66 @@ def index():
                 db.session.commit()
                 login_user(new_user)
                 return redirect(url_for('choose_mode'))
-    
-    return render_template('index.html')
+
+        elif form_type == 'contact':
+            # Honeypot: bots tend to fill this field; real users never see it.
+            if request.form.get('website'):
+                return redirect(url_for('index', lang=landing_lang) + '#contact')
+
+            name = _clean_contact_header(request.form.get('name'), 120)
+            email = _clean_contact_header(request.form.get('email'), 180)
+            company = _clean_contact_header(request.form.get('company'), 180)
+            message = str(request.form.get('message') or '').strip()[:6000]
+            contact_values = {
+                'name': name,
+                'email': email,
+                'company': company,
+                'message': message,
+            }
+
+            if not name or not email or not message or '@' not in email:
+                flash(
+                    'Please fill in your name, a valid email and a message.' if landing_lang == 'en'
+                    else 'Заполните имя, корректный email и текст сообщения.',
+                    'warning',
+                )
+            else:
+                try:
+                    _send_landing_contact_email(
+                        name=name,
+                        email=email,
+                        company=company,
+                        message=message,
+                    )
+                    flash(
+                        'Message sent. Thank you — we will get back to you.' if landing_lang == 'en'
+                        else 'Сообщение отправлено. Спасибо — мы свяжемся с вами.',
+                        'success',
+                    )
+                    return redirect(url_for('index', lang=landing_lang) + '#contact')
+                except Exception as exc:
+                    current_app.logger.warning('Landing contact email failed: %s', exc)
+                    flash(
+                        'Could not send the form right now. Please write directly to dv1555@hotmail.com.' if landing_lang == 'en'
+                        else 'Сейчас не удалось отправить форму. Напишите напрямую на dv1555@hotmail.com.',
+                        'warning',
+                    )
+
+    return render_template(
+        'index.html',
+        landing_lang=landing_lang,
+        open_auth=open_auth,
+        auth_tab=auth_tab,
+        contact_values=contact_values,
+        landing_authenticated=bool(current_user.is_authenticated),
+        current_year=datetime.now(timezone.utc).year,
+    )
+
+
+@_routes.route('/offer', methods=['GET'])
+@_routes.route('/public-offer', methods=['GET'])
+def public_offer():
+    return render_template('public_offer.html')
 
 
 @_routes.route('/logout')
@@ -10003,9 +12750,9 @@ def _prepare_configuration_contract(config, actor):
 @login_required
 def contracts_prepare_config(config_uid):
     config = db.session.execute(
-        select(Configuration).where(Configuration.uid == config_uid, Configuration.user_id == current_user.id)
+        select(Configuration).where(Configuration.uid == config_uid)
     ).scalar_one_or_none()
-    if config is None:
+    if config is None or not user_can_access_config(current_user, str(config_uid)):
         abort(404)
     try:
         contract, selected, stats = _prepare_configuration_contract(config, current_user)
@@ -10193,4 +12940,4 @@ def update_config_timestamp(response):
 
 
 
-MOVED_EDITOR_NAMES = ['b64decode_filter', 'before_request', 'update_config_timestamp', 'ANDROID_IMPORTS_TEMPLATE', 'DEEPSEEK_API_URL', 'LANGUAGES', 'LMSTUDIO_API_KEY', 'LMSTUDIO_API_URL', 'LMSTUDIO_MODEL', 'NODE_CLASS_CODE', 'NODE_CLASS_CODE_ANDROID', 'PLUGIN_TEMPLATES', 'UI_COMPONENT_TEMPLATES', 'WIZARD_ACTIVE_TEMPLATES', 'WIZARD_COVER_TEMPLATES', '_enforce_web_access_modes', 'admin_dashboard', 'admin_toggle_user_active', 'admin_user_detail', 'choose_mode', 'contracts_create', 'contracts_delete', 'contracts_page', 'contracts_qr', 'contracts_update', 'create_room', 'dashboard', 'delete_room', 'edit_profile', 'generate_qr_code', 'get_default_server_handlers', 'get_locale', 'get_plugin_templates', 'get_timezone', 'get_ui_component_templates', 'get_wizard_active_templates', 'get_wizard_cover_templates', 'index', 'init_editor_ui', 'logout', 'room_detail', 'set_language', 'update_device_token', 'users_create', 'users_delete', 'users_manage', 'users_update', 'utility_processor', 'ALLOWED_INPUT_TYPES_AI', 'ALLOWED_UI_TYPES_AI', 'CONTAINER_UI_TYPES_AI', '_PY_SCRIPT_UPLOAD_SESSION_KEY', '_ShowPlugInLiteralValidatorAI', '_action_python_text_value', '_call_llm_code_only', '_carry_existing_event_python_script_refs', '_decode_b64_py', '_decode_b64_text', '_deep_merge_dict_keep_existing', '_encode_b64_py', '_encode_b64_text', '_generate_handlers_body_ai', '_is_remote_script_ref', '_iter_layout_elements_ai', '_last_python_script_upload_url', '_merge_class', '_normalize_event_action_python_scripts_for_save', '_normalize_python_script_text_for_save', '_remember_python_script_upload', '_s3_text_content_type', '_save_python_text_to_s3_via_upload_url', '_split_commands_str', '_split_handlers_header_and_body', '_upsert_list_by_key_keep_missing', '_wiz_active_field_to_json', '_wiz_build_active_table', '_wiz_build_cover_table', '_wiz_cover_field_to_json', '_wiz_cover_row_to_simple', '_wiz_json_field_to_simple', '_wiz_norm_id', '_wiz_parse_fn_call', '_wiz_parse_line_spec', '_wiz_parse_select', '_wiz_split_once_top_level', '_wiz_split_top_level', '_wiz_table_to_simple', '_wiz_unquote', '_wizard_build_active_field', '_wizard_build_cover_field', '_wizard_build_table', '_wizard_normalize_id', '_wizard_parse_fn_call', '_wizard_parse_select', '_wizard_split_once_top_level', '_wizard_split_top_level', 'add_class', 'add_config_event', 'add_dataset', 'add_event', 'add_method', 'add_method_to_class', 'add_new_method_to_class', 'add_section', 'ai_generate', 'ai_generate_layout', 'apply_full_config_from_json', 'call_deepseek', 'call_llm', 'call_lmstudio', 'clear_handlers', 'clear_server_handlers', 'code_editor', 'create_class', 'create_config', 'create_debug_room', 'create_room_alias', 'create_server', 'debug_room', 'delete_class', 'delete_config', 'delete_config_event', 'delete_dataset', 'delete_event', 'delete_method', 'delete_room_alias', 'delete_s3_text', 'delete_section', 'delete_server', 'download_handlers', 'download_server_handlers', 'edit_class', 'edit_config', 'edit_config_event', 'edit_dataset', 'edit_event', 'edit_method', 'ensure_all_classes_present_in_handlers', 'ensure_class_stub_in_module', 'ensure_handlers_skeleton_and_headers', 'export_class_json', 'export_config', 'extract_functions_from_handlers', 'extract_json_array_from_text', 'extract_json_from_text', 'extract_method_body_from_code', 'extract_method_names_ai', 'get_config_event_json', 'get_config_methods', 'get_dataset_json', 'get_method_body', 'get_s3_text_upload_url', 'get_section_json', 'get_user_local_time', 'import_config', 'import_config_new', 'layout_to_simplified_markup', 'layout_wizard', 'merge_llm_config_into_current_ai', 'method_exists_in_code', 'print_form_template_preview', 'python_s3_editor', 'read_s3_text', 'remove_class_from_module', 'remove_method_from_code', 'remove_method_from_module', 'save_common_layouts', 'save_method', 'save_s3_text_via_upload_url', 'simplified_markup_to_layout', 'split_handlers_by_immutable_prefix_ai', 'sync_android_methods_from_code', 'sync_classes_from_android_handlers', 'sync_classes_from_server_handlers', 'sync_methods_from_code', 'sync_server_methods_from_code', 'update_config', 'update_dataset', 'update_existing_method', 'update_handlers_code', 'update_room_alias', 'update_section', 'update_server', 'update_server_handlers_code', 'upload_handlers', 'upload_s3_text', 'upload_server_handlers', 'validate_cover_images_ai', 'validate_full_llm_config_ai', 'validate_handlers_semantics_ai', 'validate_layout_types_ai', 'validate_python_syntax', 'validate_sections_ai', 'validate_sections_command_targets_ai', 'validate_show_plugin_literals_ai']
+MOVED_EDITOR_NAMES = ['b64decode_filter', 'before_request', 'update_config_timestamp', 'ANDROID_IMPORTS_TEMPLATE', 'DEEPSEEK_API_URL', 'LANGUAGES', 'LMSTUDIO_API_KEY', 'LMSTUDIO_API_URL', 'LMSTUDIO_MODEL', 'NODE_CLASS_CODE', 'NODE_CLASS_CODE_ANDROID', 'PLUGIN_TEMPLATES', 'UI_COMPONENT_TEMPLATES', 'WIZARD_ACTIVE_TEMPLATES', 'WIZARD_COVER_TEMPLATES', '_enforce_web_access_modes', 'admin_dashboard', 'admin_toggle_user_active', 'admin_user_detail', 'choose_mode', 'contracts_create', 'contracts_delete', 'contracts_page', 'contracts_qr', 'contracts_update', 'create_room', 'dashboard', 'delete_room', 'edit_profile', 'generate_qr_code', 'get_default_server_handlers', 'get_locale', 'get_plugin_templates', 'get_timezone', 'get_ui_component_templates', 'get_wizard_active_templates', 'get_wizard_cover_templates', 'index', 'public_offer', 'init_editor_ui', 'logout', 'room_detail', 'set_language', 'update_device_token', 'users_create', 'users_delete', 'users_manage', 'users_update', 'utility_processor', 'ALLOWED_INPUT_TYPES_AI', 'ALLOWED_UI_TYPES_AI', 'CONTAINER_UI_TYPES_AI', '_PY_SCRIPT_UPLOAD_SESSION_KEY', '_ShowPlugInLiteralValidatorAI', '_action_python_text_value', '_call_llm_code_only', '_carry_existing_event_python_script_refs', '_decode_b64_py', '_decode_b64_text', '_deep_merge_dict_keep_existing', '_encode_b64_py', '_encode_b64_text', '_generate_handlers_body_ai', '_is_remote_script_ref', '_iter_layout_elements_ai', '_last_python_script_upload_url', '_merge_class', '_normalize_event_action_python_scripts_for_save', '_normalize_python_script_text_for_save', '_remember_python_script_upload', '_s3_text_content_type', '_save_python_text_to_s3_via_upload_url', '_split_commands_str', '_split_handlers_header_and_body', '_upsert_list_by_key_keep_missing', '_wiz_active_field_to_json', '_wiz_build_active_table', '_wiz_build_cover_table', '_wiz_cover_field_to_json', '_wiz_cover_row_to_simple', '_wiz_json_field_to_simple', '_wiz_norm_id', '_wiz_parse_fn_call', '_wiz_parse_line_spec', '_wiz_parse_select', '_wiz_split_once_top_level', '_wiz_split_top_level', '_wiz_table_to_simple', '_wiz_unquote', '_wizard_build_active_field', '_wizard_build_cover_field', '_wizard_build_table', '_wizard_normalize_id', '_wizard_parse_fn_call', '_wizard_parse_select', '_wizard_split_once_top_level', '_wizard_split_top_level', 'add_class', 'add_config_event', 'add_dataset', 'add_event', 'add_method', 'add_method_to_class', 'add_new_method_to_class', 'add_section', 'ai_generate', 'ai_generate_layout', 'apply_full_config_from_json', 'call_deepseek', 'call_llm', 'call_lmstudio', 'clear_handlers', 'clear_server_handlers', 'code_editor', 'create_class', 'create_config', 'create_debug_room', 'create_room_alias', 'create_server', 'debug_room', 'delete_class', 'delete_config', 'delete_config_event', 'delete_dataset', 'delete_event', 'delete_method', 'delete_room_alias', 'delete_s3_text', 'delete_section', 'delete_server', 'download_handlers', 'download_server_handlers', 'edit_class', 'edit_config', 'edit_config_event', 'edit_dataset', 'edit_event', 'edit_method', 'ensure_all_classes_present_in_handlers', 'ensure_class_stub_in_module', 'ensure_handlers_skeleton_and_headers', 'export_class_json', 'export_config', 'extract_functions_from_handlers', 'extract_json_array_from_text', 'extract_json_from_text', 'extract_method_body_from_code', 'extract_method_names_ai', 'get_config_event_json', 'get_config_methods', 'get_dataset_json', 'get_method_body', 'get_s3_text_upload_url', 'get_section_json', 'get_user_local_time', 'import_config', 'import_config_new', 'layout_to_simplified_markup', 'layout_wizard', 'merge_llm_config_into_current_ai', 'method_exists_in_code', 'print_form_template_preview', 'python_s3_editor', 'read_s3_text', 'remove_class_from_module', 'remove_method_from_code', 'remove_method_from_module', 'save_common_layouts', 'save_method', 'save_s3_text_via_upload_url', 'simplified_markup_to_layout', 'split_handlers_by_immutable_prefix_ai', 'sync_android_methods_from_code', 'sync_classes_from_android_handlers', 'sync_classes_from_server_handlers', 'sync_methods_from_code', 'sync_server_methods_from_code', 'update_config', 'update_dataset', 'update_existing_method', 'update_handlers_code', 'update_room_alias', 'update_section', 'update_server', 'update_server_handlers_code', 'upload_handlers', 'upload_s3_text', 'upload_server_handlers', 'validate_cover_images_ai', 'validate_full_llm_config_ai', 'validate_handlers_semantics_ai', 'validate_layout_types_ai', 'validate_python_syntax', 'validate_sections_ai', 'validate_sections_command_targets_ai', 'validate_show_plugin_literals_ai']

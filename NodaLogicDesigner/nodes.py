@@ -1173,7 +1173,28 @@ def _call_script_callable(fn, node, input_data):
             return fn()
 
 
-def _run_python_script_action(node, action: dict, input_data: dict, *, text_key: str = 'methodText') -> tuple[bool, dict]:
+def _record_solution_runtime_exception(node, exc, *, source="node_event", event_name="", method_name="", input_data=None, context=None):
+    """Best-effort optional Solutions journal; never changes event semantics."""
+    try:
+        import traceback as _tb
+        from solutions.runtime_errors import record_runtime_error
+        cfg_uid = str(
+            getattr(node, "_config_uid", "")
+            or CURRENT_CONFIG_UID.get()
+            or current_config_uid_from_handlers()
+            or ""
+        ).strip()
+        record_runtime_error(
+            cfg_uid, exception=exc, traceback_text=_tb.format_exc(), source=source,
+            class_name=str(getattr(node, "_schema_class_name", "") or node.__class__.__name__),
+            node_id=str(getattr(node, "_id", "") or ""), event_name=event_name,
+            method_name=method_name, input_data=input_data, context=context,
+        )
+    except Exception:
+        pass
+
+
+def _run_python_script_action(node, action: dict, input_data: dict, *, text_key: str = 'methodText', event_name: str = '') -> tuple[bool, dict]:
     alt_text_key = 'post_execute_text' if text_key == 'postExecuteMethodText' else 'method_text'
     script_ref = str((action or {}).get(text_key) or (action or {}).get(alt_text_key) or '').strip()
     if not script_ref:
@@ -1218,17 +1239,21 @@ def _run_python_script_action(node, action: dict, input_data: dict, *, text_key:
     except AcceptRejected as e:
         return False, e.payload
     except Exception as e:
+        _record_solution_runtime_exception(
+            node, e, source='python_script_event', event_name=event_name, method_name='PythonScript',
+            input_data=input_data, context={'script': script_ref},
+        )
         return False, {'error': str(e), 'script': script_ref}
 
 
-def _execute_event_action(node, action: dict, input_data: dict, method_key: str = 'method') -> tuple[bool, dict]:
+def _execute_event_action(node, action: dict, input_data: dict, method_key: str = 'method', event_name: str = '') -> tuple[bool, dict]:
     m = str((action or {}).get(method_key) or '').strip()
     if not m:
         return True, {}
 
     if m == 'PythonScript':
         text_key = 'postExecuteMethodText' if method_key == 'postExecuteMethod' else 'methodText'
-        return _run_python_script_action(node, action, input_data, text_key=text_key)
+        return _run_python_script_action(node, action, input_data, text_key=text_key, event_name=event_name)
 
     # NodaScript remains a client/runtime concern here.  We do not fail server
     # saves just because an old event contains a NodaScript action.
@@ -1244,6 +1269,13 @@ def _execute_event_action(node, action: dict, input_data: dict, method_key: str 
     except AcceptRejected as e:
         return False, e.payload
     except Exception as e:
+        _record_solution_runtime_exception(
+            node, e, source='node_event', event_name=event_name, method_name=m,
+            input_data=input_data, context={
+                'action': str((action or {}).get('action') or 'run'),
+                'method_key': method_key,
+            },
+        )
         return False, {'error': str(e), 'method': m}
 
 
@@ -1313,7 +1345,7 @@ def _submit_server_event_action(node, action: dict, input_data: dict, event_name
             previous_current = globals().get("CURRENT_NODE")
             globals()["CURRENT_NODE"] = target
             try:
-                ok, data = _execute_event_action(target, action_copy, input_copy, "method")
+                ok, data = _execute_event_action(target, action_copy, input_copy, "method", event_name=event_name)
                 if not ok:
                     raise RuntimeError(str((data or {}).get("error") or data or f"Async handler {method_name} failed"))
 
@@ -1321,7 +1353,7 @@ def _submit_server_event_action(node, action: dict, input_data: dict, event_name
                     post_input = dict(input_copy)
                     if data:
                         post_input["_previous_result"] = data
-                    ok, post_data = _execute_event_action(target, action_copy, post_input, "postExecuteMethod")
+                    ok, post_data = _execute_event_action(target, action_copy, post_input, "postExecuteMethod", event_name=event_name)
                     if not ok:
                         raise RuntimeError(str((post_data or {}).get("error") or post_data or f"Async post handler {post_method_name} failed"))
                 return {"ok": True, "method": method_name, "post_method": post_method_name}
@@ -1371,7 +1403,7 @@ def dispatch_node_class_event(node, event_name: str, input_data: dict) -> tuple[
                     continue
                 # Safe fallback when the optional job module is unavailable.
 
-            ok, data = _execute_event_action(node, action, input_data, 'method')
+            ok, data = _execute_event_action(node, action, input_data, 'method', event_name=event_name)
             if not ok:
                 return False, data or {}
 
@@ -1380,7 +1412,7 @@ def dispatch_node_class_event(node, event_name: str, input_data: dict) -> tuple[
                 post_input = dict(input_data or {}) if isinstance(input_data, dict) else {}
                 if data:
                     post_input['_previous_result'] = data
-                ok, post_data = _execute_event_action(node, action, post_input, 'postExecuteMethod')
+                ok, post_data = _execute_event_action(node, action, post_input, 'postExecuteMethod', event_name=event_name)
                 if not ok:
                     return False, post_data or {}
 

@@ -1,4 +1,4 @@
-from flask import Flask, url_for, request, jsonify, abort, after_this_request, send_from_directory, g, current_app
+from flask import Flask, url_for, request, jsonify, abort, after_this_request, send_from_directory, g, current_app, render_template, redirect, flash
 from flask_login import login_required, current_user
 
 from werkzeug.utils import secure_filename
@@ -422,10 +422,12 @@ def _noda_download_json_cached(download_url: str, *, force_refresh: bool = False
 NL_FORMAT = "1.1"
 
 DEFAULT_PUSH_GATEWAY_TOKEN = "I2YixHv7-5e5s2s45SWiQ2GPufGWkdz9Zn05DFY7Ip2wxRpI"
-NMAKER_SERVER_URL = os.environ.get("NMAKER_SERVER_URL", "https://nmaker.pw").rstrip("/")
+# Public address of this installation.  This deployment has one fixed HTTPS domain,
+# so do not derive links from nginx/internal Flask request data.
+NMAKER_SERVER_URL = "https://nmaker.pw"
 PUSH_GATEWAY_URL = os.environ.get("PUSH_GATEWAY_URL", "").rstrip("/")
 PUSH_GATEWAY_TOKEN = os.environ.get("PUSH_GATEWAY_TOKEN", DEFAULT_PUSH_GATEWAY_TOKEN)
-PUBLIC_API_BASE_URL = os.environ.get("PUBLIC_API_BASE_URL", "").rstrip("/")
+PUBLIC_API_BASE_URL = "https://nmaker.pw"
 
 
 
@@ -6278,15 +6280,15 @@ def _contract_object_version(payload: dict) -> str:
 
 
 def _contract_public_url(contract: Contract) -> str:
-    return url_for('contract_download', contract_uid=contract.uid, _external=True)
+    return f"{PUBLIC_API_BASE_URL}/api/contracts/{contract.uid}"
 
 
 def _contract_ack_url(contract: Contract) -> str:
-    return url_for('contract_ack', contract_uid=contract.uid, _external=True)
+    return f"{PUBLIC_API_BASE_URL}/api/contracts/{contract.uid}/ack"
 
 
 def _contract_add_url(contract: Contract) -> str:
-    return url_for('contract_add_info', contract_uid=contract.uid, _external=True)
+    return f"{PUBLIC_API_BASE_URL}/api/contracts/{contract.uid}/add"
 
 
 def _contract_add_payload(contract: Contract) -> dict:
@@ -7968,6 +7970,19 @@ try:
 except Exception as _e:
     print('Late db.create_all skipped:', _e)
 
+def _record_solution_runtime_exception(config_uid, exc, *, source='runtime', class_name='', node_id='', event_name='', method_name='', input_data=None, context=None):
+    """Best-effort bridge to the optional Solutions runtime journal."""
+    try:
+        from solutions.runtime_errors import record_runtime_error
+        record_runtime_error(
+            config_uid, exception=exc, traceback_text=traceback.format_exc(), source=source,
+            class_name=class_name, node_id=node_id, event_name=event_name, method_name=method_name,
+            input_data=input_data, context=context,
+        )
+    except Exception:
+        pass
+
+
 @app.route('/api/config/<config_uid>/node/<class_name>/<node_id>/<method_name>', methods=['POST'])
 @api_auth_required
 def execute_node_method(config_uid, class_name, node_id, method_name):
@@ -8032,6 +8047,11 @@ def execute_node_method(config_uid, class_name, node_id, method_name):
                         return _accept_rejected_response(e)
 
                     except Exception as e:
+                        _record_solution_runtime_exception(
+                            config_uid, e, source='node_api', class_name=class_name, node_id=node_id,
+                            method_name=method_name, input_data={'args': args, 'kwargs': kwargs},
+                            context={'request_path': request.path, 'method_kind': 'custom'},
+                        )
                         return jsonify({
                             'status': False,
                             'error': str(e)
@@ -8065,6 +8085,11 @@ def execute_node_method(config_uid, class_name, node_id, method_name):
                     except _nodes_mod.AcceptRejected as e:
                         return _accept_rejected_response(e)
                     except Exception as e:
+                        _record_solution_runtime_exception(
+                            config_uid, e, source='node_api', class_name=class_name, node_id=node_id,
+                            method_name=method_name, input_data=input_data,
+                            context={'request_path': request.path, 'method_kind': 'node'},
+                        )
                         return jsonify({
                             'status': False,
                             'error': str(e),
@@ -8076,6 +8101,11 @@ def execute_node_method(config_uid, class_name, node_id, method_name):
     except _nodes_mod.AcceptRejected as e:
         return _accept_rejected_response(e)
     except Exception as e:
+        _record_solution_runtime_exception(
+            config_uid, e, source='node_api_outer', class_name=class_name, node_id=node_id,
+            method_name=method_name, input_data=(request.get_json(silent=True) or {}),
+            context={'request_path': request.path},
+        )
         return jsonify({'status': False, "error": str(e)}), 500
 
 #API for calling remote nodes
@@ -8400,7 +8430,10 @@ def execute_class_method(config_uid, class_name, method_name):
         })
 
     except Exception as e:
-
+        _record_solution_runtime_exception(
+            config_uid, e, source='class_method_api', class_name=class_name, method_name=method_name,
+            input_data=data, context={'request_path': request.path},
+        )
         return jsonify({
             "status": False,
             "error": str(e)
@@ -11907,12 +11940,12 @@ def execute_config_node_event(ctx, event_name, listener, input_data):
     actions = sorted(list(event_obj.actions), key=lambda a: (getattr(a, "order", 0) or 0, getattr(a, "id", 0) or 0))
     results = []
     for action in actions:
-        results.append(execute_config_event_action(node, action, input_data))
+        results.append(execute_config_event_action(node, action, input_data, event_name=event_name, listener=listener))
 
     return {"event_found": True, "event": event_name, "listener": listener, "actions": results}
 
 
-def execute_config_event_action(node, action, input_data):
+def execute_config_event_action(node, action, input_data, event_name='', listener=''):
     method_name = (getattr(action, "method", "") or "").strip()
     post_method_name = (getattr(action, "post_execute_method", "") or getattr(action, "postExecuteMethod", "") or "").strip()
 
@@ -11926,14 +11959,28 @@ def execute_config_event_action(node, action, input_data):
         "postExecuteData": None,
     }
 
-    if method_name:
-        result["data"] = execute_config_method(node, action, method_name, input_data, post=False)
+    try:
+        if method_name:
+            result["data"] = execute_config_method(node, action, method_name, input_data, post=False)
 
-    if post_method_name:
-        post_input = {"input": input_data, "result": result["data"]}
-        result["postExecuteData"] = execute_config_method(node, action, post_method_name, post_input, post=True)
-
-    return result
+        if post_method_name:
+            post_input = {"input": input_data, "result": result["data"]}
+            result["postExecuteData"] = execute_config_method(node, action, post_method_name, post_input, post=True)
+        return result
+    except Exception as exc:
+        cfg_uid = str(getattr(node, '_config_uid', '') or '').strip()
+        _record_solution_runtime_exception(
+            cfg_uid, exc, source='config_event',
+            class_name=str(getattr(node, '_schema_class_name', '') or node.__class__.__name__),
+            node_id=str(getattr(node, '_id', '') or ''), event_name=event_name,
+            method_name=(post_method_name if post_method_name and result.get('data') is not None else method_name),
+            input_data=input_data, context={
+                'listener': listener,
+                'action': str(getattr(action, 'action', 'run') or 'run'),
+                'source': str(getattr(action, 'source', 'internal') or 'internal'),
+            },
+        )
+        raise
 
 
 def execute_config_method(node, action, method_name, input_data, post=False):
@@ -13860,6 +13907,133 @@ def ngenie_class_settings_save(class_id):
         'ngenie_prompt': cls.ngenie_prompt or '',
         'ngenie_description': getattr(cls, 'ngenie_description', '') or '',
     })
+
+
+
+# -----------------------------------------------------------------------------
+# Simple fixed-domain contract preparation route.
+#
+# This route lives in app.py and is registered before editor_routes.  Therefore
+# the WMS button works even when an older editor_routes.py still contains the
+# former owner-only lookup or does not contain the route at all.
+# -----------------------------------------------------------------------------
+def _prepare_configuration_contract_nmaker(config, actor):
+    selected = [
+        {'config_uid': str(config.uid), 'class_name': str(class_obj.name)}
+        for class_obj in list(config.classes or [])
+        if bool(getattr(class_obj, 'include_in_contract', False))
+        and str(getattr(class_obj, 'name', '') or '').strip()
+    ]
+    if not selected:
+        raise ValueError('No classes are marked for inclusion in the contract')
+
+    stable_name = 'config-' + str(config.uid)
+    contracts = db.session.execute(
+        select(Contract).where(
+            Contract.user_id == actor.id,
+            Contract.source_type == 'class',
+        ).order_by(Contract.updated_at.desc(), Contract.created_at.desc())
+    ).scalars().all()
+
+    contract = next((row for row in contracts if str(row.name or '') == stable_name), None)
+    if contract is None:
+        for row in contracts:
+            refs = list(row.source_classes_json or [])
+            if not refs and row.source_config_uid and row.class_name:
+                refs = [{
+                    'config_uid': row.source_config_uid,
+                    'class_name': row.class_name,
+                }]
+            if any(
+                str(ref.get('config_uid') or '') == str(config.uid)
+                for ref in refs
+                if isinstance(ref, dict)
+            ):
+                contract = row
+                break
+
+    if contract is None:
+        contract = Contract(user_id=actor.id)
+        db.session.add(contract)
+        existing_refs = []
+    else:
+        existing_refs = list(contract.source_classes_json or [])
+        if not existing_refs and contract.source_config_uid and contract.class_name:
+            existing_refs = [{
+                'config_uid': contract.source_config_uid,
+                'class_name': contract.class_name,
+            }]
+
+    preserved_other_configs = [
+        ref for ref in existing_refs
+        if isinstance(ref, dict)
+        and str(ref.get('config_uid') or '') != str(config.uid)
+    ]
+    merged_refs = preserved_other_configs + selected
+    source_text = '\n'.join(
+        str(ref['config_uid']) + '$' + str(ref['class_name'])
+        for ref in merged_refs
+    )
+
+    _contract_update_from_data(contract, {
+        'name': contract.name or stable_name,
+        'display_name': contract.display_name or (
+            (config.name or stable_name) + ' · Mobile data'
+        ),
+        'source_type': 'class',
+        'source_classes_text': source_text,
+    }, actor)
+
+    db.session.flush()
+    stats = _contract_recreate_nodes_for_contract(contract)
+    db.session.commit()
+    return contract, selected, stats
+
+
+@app.route(
+    '/contracts/config/<config_uid>/prepare',
+    methods=['GET', 'POST'],
+    strict_slashes=False,
+)
+@login_required
+def contracts_prepare_config_nmaker(config_uid):
+    config = db.session.execute(
+        select(Configuration).where(Configuration.uid == str(config_uid))
+    ).scalar_one_or_none()
+
+    # Do not require Configuration.user_id == current_user.id.  Shared configs
+    # and configs owned by a child account are valid when ACL grants access.
+    if config is None or not user_can_access_config(current_user, str(config_uid)):
+        abort(404)
+
+    try:
+        contract, selected, stats = _prepare_configuration_contract_nmaker(
+            config, current_user
+        )
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+        try:
+            return redirect(url_for('edit_config', uid=config.uid, tab='classes'))
+        except Exception:
+            return jsonify({'ok': False, 'error': str(exc)}), 400
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            'Contract preparation failed for config %s', config_uid
+        )
+        raise
+
+    payload = json.dumps(_contract_add_payload(contract), ensure_ascii=False, indent=2)
+    return render_template(
+        'contract_ready.html',
+        config=config,
+        contract=contract,
+        selected=selected,
+        stats=stats,
+        payload=payload,
+        public_base_url=PUBLIC_API_BASE_URL,
+    )
 
 
 # Editor/configuration routes are kept in a separate module; API/runtime routes stay here.
