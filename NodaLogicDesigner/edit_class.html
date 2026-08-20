@@ -1,0 +1,3035 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+
+    <nav aria-label="breadcrumb" class="mb-4">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('dashboard') }}">{{ _('Home') }}</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('edit_config', uid=class_obj.config.uid) }}">{{ _('Configuration') }}</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{ _('Edit class') }}</li>
+        </ol>
+    </nav>
+
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-code-square"></i> {{ class_obj.name }}</h2>
+        <a href="{{ url_for('delete_class', class_id=class_obj.id) }}?tab={{ request.args.get('tab', 'classes') }}" 
+           class="btn btn-outline-danger"
+           onclick="return confirm('Delete class {{ class_obj.name }}?')">
+            <i class="bi bi-trash"></i> {{ _('Delete') }}
+        </a>
+    </div>
+
+<!-- Class props -->
+<div class="card mb-4">
+  <div class="card-header bg-light">
+    <ul class="nav nav-tabs card-header-tabs" id="classSettingsTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="general-tab" data-bs-toggle="tab" data-bs-target="#general"
+                type="button" role="tab">
+          <i class="bi bi-gear"></i> {{ _('General Settings') }}
+        </button>
+      </li>
+
+      <!-- NEW: Display tab -->
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="display-tab" data-bs-toggle="tab" data-bs-target="#display"
+                type="button" role="tab">
+          <i class="bi bi-eye"></i> {{ _('Display') }}
+        </button>
+      </li>
+
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="api-tab" data-bs-toggle="tab" data-bs-target="#api"
+                type="button" role="tab">
+          <i class="bi bi-plug"></i> {{ _('API') }}
+        </button>
+      </li>
+
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="migration-tab" data-bs-toggle="tab" data-bs-target="#migration"
+                type="button" role="tab">
+          <i class="bi bi-arrow-left-right"></i> {{ _('Migration') }}
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="indexes-tab" data-bs-toggle="tab" data-bs-target="#indexes"
+                type="button" role="tab">
+          <i class="bi bi-filter-square"></i> {{ _('Indexes') }}
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="ngenie-tab" data-bs-toggle="tab" data-bs-target="#ngenie"
+                type="button" role="tab">
+          <i class="bi bi-magic"></i> nGenie
+        </button>
+      </li>
+    </ul>
+  </div>
+
+  <div class="card-body">
+ 
+    <form method="POST" id="classSettingsForm">
+      <input type="hidden" name="active_tab" value="{{ request.args.get('tab', 'classes') }}">
+      <input type="hidden" id="classNGenieSaveUrl" value="{{ url_for('ngenie_class_settings_save', class_id=class_obj.id) }}">
+
+      <input type="hidden" id="indexesJson" name="indexes_json" value='{{ (class_obj.indexes_json or []) | tojson | forceescape }}'>
+      <div class="tab-content">
+
+        <!-- GENERAL -->
+        <div class="tab-pane fade show active" id="general" role="tabpanel">
+          <div class="mb-3">
+            <label for="className" class="form-label">{{ _('Class name') }}</label>
+            <input type="text" class="form-control" id="className" name="name"
+                   value="{{ class_obj.name }}"
+                   pattern="[a-zA-Z_][a-zA-Z0-9_]*"
+                   title="{{ _('A class name must begin with a letter or underscore and contain only letters, numbers, and underscores.') }}"
+                   {% if class_obj.name != 'NewClass' %}readonly{% endif %}
+                   required>
+            <small class="text-muted">
+              {% if class_obj.name != 'NewClass' %}
+                {{ _('The class name cannot be changed after creation') }}
+              {% else %}
+                {{ _('Used to create a class in Python. Must begin with a letter or underscore and contain only letters, numbers, and underscores.') }}
+              {% endif %}
+            </small>
+          </div>
+
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="hidden" name="hidden"
+                   {% if class_obj.hidden %}checked{% endif %}>
+            <label class="form-check-label" for="hidden">{{ _('Hidden class') }}</label>
+            <small class="text-muted d-block">{{ _('Hide class from user interface') }}</small>
+          </div>
+
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="hasStorage" name="has_storage"
+                   {% if class_obj.has_storage %}checked{% endif %}>
+            <label class="form-check-label" for="hasStorage">{{ _('Autosave to _data') }}</label>
+          </div>
+
+          <div class="mb-3">
+            <label for="classType" class="form-label">{{ _('Class type') }}</label>
+            <select class="form-select" id="classType" name="class_type">
+              <option value="">{{ _('-- Not specified --') }}</option>
+              <option value="custom_process" {% if class_obj.class_type == 'custom_process' %}selected{% endif %}>{{ _('Custom process') }}</option>
+              <option value="projection" {% if class_obj.class_type == 'projection' %}selected{% endif %}>{{ _('Projection') }}</option>
+              <option value="print_form" {% if class_obj.class_type == 'print_form' %}selected{% endif %}>{{ _('PrintForm') }}</option>
+              <option value="data_node" {% if class_obj.class_type == 'data_node' %}selected{% endif %}>{{ _('Data node') }}</option>
+              <option value="custom_task" {% if class_obj.class_type == 'custom_task' %}selected{% endif %}>{{ _('User task') }}</option>
+              <option value="background_task" {% if class_obj.class_type == 'background_task' %}selected{% endif %}>{{ _('Background task') }}</option>
+            <option value="solo_object" {% if class_obj.class_type == 'solo_object' %}selected{% endif %}>{{ _('Solo Object') }}</option>
+            </select>
+          </div>
+
+
+          <div class="mb-3" id="dataNodeStructureFields" style="display:none;">
+            <label for="dataStructure" class="form-label">{{ _('Data structure') }}</label>
+            <div class="mb-2 d-flex flex-wrap gap-1">
+              <button type="button" class="btn btn-sm btn-purple text-white" onclick="openMarkupWizard('dataStructure', 'structure')">{{ _('Wizard') }}</button>
+            </div>
+            <textarea class="form-control font-monospace" id="dataStructure" name="data_structure" rows="6">{{ class_obj.data_structure or '' }}</textarea>
+          </div>
+
+
+          <div id="projectionFields" class="border rounded p-3 mb-3 bg-light" style="display:none;">
+            <div class="mb-3">
+              <label for="projectionType" class="form-label">{{ _('Projection type') }}</label>
+              <select class="form-select" id="projectionType" name="projection_type">
+                <option value="kanban_projection" {% if class_obj.projection_type == 'kanban_projection' %}selected{% endif %}>{{ _('Kanban projection') }}</option>
+                <option value="schedule_projection" {% if class_obj.projection_type == 'schedule_projection' %}selected{% endif %}>{{ _('Schedule projection') }}</option>
+                <option value="diagram_projection" {% if class_obj.projection_type == 'diagram_projection' %}selected{% endif %}>{{ _('Diagram projection') }}</option>
+                <option value="gantt_projection" {% if class_obj.projection_type == 'gantt_projection' %}selected{% endif %}>{{ _('Gantt projection') }}</option>
+                <option value="node_list_projection" {% if class_obj.projection_type == 'node_list_projection' %}selected{% endif %}>{{ _('Node list projection') }}</option>
+                <option value="html_projection" {% if class_obj.projection_type == 'html_projection' %}selected{% endif %}>{{ _('HTML projection') }}</option>
+              </select>
+            </div>
+            <div id="kanbanProjectionFields" class="mb-0">
+              <label for="projectionKanbanColumns" class="form-label">{{ _('Kanban columns') }}</label>
+              <textarea class="form-control font-monospace" id="projectionKanbanColumns" name="projection_kanban_columns" rows="5"
+                        placeholder='[{"id":"income","caption":"Incoming"},{"id":"develop","caption":"Development"}]'>{{ class_obj.projection_kanban_columns or '' }}</textarea>
+              <small class="text-muted d-block mt-1">{{ _('JSON array stored in the configuration and exposed to the web client as _kanban_columns.') }}</small>
+            </div>
+          </div>
+
+          <div id="printFormFields" class="border rounded p-3 mb-3 bg-light" style="display:none;">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+              <div>
+                <div class="fw-semibold">{{ _('PrintForm settings') }}</div>
+                <small class="text-muted">{{ _('The form does not store persistent data. The web client injects _basement_data and runs onInputWeb with listener onStartForm before rendering.') }}</small>
+              </div>
+            </div>
+
+            <ul class="nav nav-tabs" id="printFormTabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="print-template-tab" data-bs-toggle="tab" data-bs-target="#print-template-pane" type="button" role="tab" aria-controls="print-template-pane" aria-selected="true">
+                  <i class="bi bi-filetype-html"></i> {{ _('Template') }}
+                </button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="print-menu-tab" data-bs-toggle="tab" data-bs-target="#print-menu-pane" type="button" role="tab" aria-controls="print-menu-pane" aria-selected="false">
+                  <i class="bi bi-printer"></i> {{ _('Print menu') }}
+                </button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="print-layout-tab" data-bs-toggle="tab" data-bs-target="#print-layout-pane" type="button" role="tab" aria-controls="print-layout-pane" aria-selected="false">
+                  <i class="bi bi-code-slash"></i> {{ _('HTML layout') }}
+                </button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="print-preview-tab" data-bs-toggle="tab" data-bs-target="#print-preview-pane" type="button" role="tab" aria-controls="print-preview-pane" aria-selected="false">
+                  <i class="bi bi-eye"></i> {{ _('Preview') }}
+                </button>
+              </li>
+            </ul>
+
+            <div class="tab-content border border-top-0 bg-white rounded-bottom p-3">
+              <div class="tab-pane fade show active" id="print-template-pane" role="tabpanel" aria-labelledby="print-template-tab">
+                <div class="mb-3">
+                  <label for="printTemplateType" class="form-label">{{ _('Template type') }}</label>
+                  <select class="form-select" id="printTemplateType" name="print_template_type">
+                    <option value="html_jinja" {% if (class_obj.print_template_type or 'html_jinja') == 'html_jinja' %}selected{% endif %}>{{ _('HTML + Jinja') }}</option>
+                  </select>
+                  <small class="text-muted">{{ _('More template engines can be added later without changing the PrintForm class type.') }}</small>
+                </div>
+                <div class="alert alert-info mb-0 small">
+                  {{ _('Use onInputWeb/onInput with listener onStartForm to prepare _data before this template is rendered.') }}
+                </div>
+              </div>
+
+              <div class="tab-pane fade" id="print-menu-pane" role="tabpanel" aria-labelledby="print-menu-tab">
+                <label class="form-label">{{ _('Show in Print menu for classes') }}</label>
+                <div class="border rounded bg-light p-2" style="max-height:280px; overflow:auto;">
+                  {% set selected_print_targets = class_obj.print_target_classes or [] %}
+                  {% for target_class in (available_print_target_classes or []) %}
+                    <div class="form-check">
+                      <input class="form-check-input" type="checkbox"
+                             id="printTarget_{{ target_class.id }}"
+                             name="print_target_classes"
+                             value="{{ target_class.name }}"
+                             {% if target_class.name in selected_print_targets %}checked{% endif %}>
+                      <label class="form-check-label" for="printTarget_{{ target_class.id }}">
+                        {{ target_class.display_name or target_class.name }}
+                        <span class="text-muted small">({{ target_class.name }})</span>
+                      </label>
+                    </div>
+                  {% else %}
+                    <div class="text-muted small">{{ _('No target classes yet.') }}</div>
+                  {% endfor %}
+                </div>
+                <small class="text-muted d-block mt-2">
+                  {{ _('Selected classes will show this PrintForm in the Print dropdown.') }}
+                </small>
+              </div>
+
+              <div class="tab-pane fade" id="print-layout-pane" role="tabpanel" aria-labelledby="print-layout-tab">
+                <label for="printHtmlTemplate" class="form-label">{{ _('HTML layout') }}</label>
+                <textarea class="form-control font-monospace"
+                          id="printHtmlTemplate"
+                          name="print_html_template"
+                          rows="20"
+                          placeholder="{{ _('HTML + Jinja template') }}">{{ print_html_template_text or '' }}</textarea>
+                <small class="text-muted d-block mt-1">
+                  {{ _('Jinja context contains _data, every data field both as field and _field, plus qr(value), image_src(value), and table_rows(value). Nested dictionaries support dot access, for example customer._id.') }}
+                </small>
+              </div>
+
+              <div class="tab-pane fade" id="print-preview-pane" role="tabpanel" aria-labelledby="print-preview-tab">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                  <label class="form-label mb-0">{{ _('Preview') }}</label>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="printTemplatePreviewBtn">
+                    <i class="bi bi-arrow-clockwise"></i> {{ _('Refresh preview') }}
+                  </button>
+                </div>
+                <iframe id="printTemplatePreview" class="border rounded bg-white w-100" style="min-height:420px;"></iframe>
+                <small class="text-muted d-block mt-2">
+                  {{ _('Preview uses sample data. Runtime rendering uses _data prepared by onStartForm.') }}
+                </small>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label for="sectionCode" class="form-label">{{ _('Section code') }}</label>
+            <select class="form-select" id="sectionCode" name="section_code">
+              <option value="">{{ _('-- Not specified --') }}</option>
+              {% for section in class_obj.config.sections %}
+              <option value="{{ section.code }}" {% if class_obj.section_code == section.code %}selected{% endif %}>
+                {{ section.code }} ({{ section.name }})
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+
+        <!-- DISPLAY -->
+        <div class="tab-pane fade" id="display" role="tabpanel">
+          <div class="mb-3">
+            <label for="displayName" class="form-label">{{ _('Display name') }}</label>
+            <input type="text" class="form-control" id="displayName" name="display_name"
+                  value="{{ class_obj.display_name }}">
+            <small class="text-muted">{{ _('Human-readable class name, can contain any characters.') }}</small>
+          </div>
+
+          <div class="mb-3">
+            <label for="recordView" class="form-label">{{ _('Record template') }}</label>
+            <input type="text" class="form-control" id="recordView" name="record_view"
+                  value="{{ class_obj.record_view or '' }}"
+                  placeholder="№{number} от {date}">
+            <small class="text-muted">{{ _('Record display template: use {field}. If the template fails, _view will be used, then id.') }}</small>
+          </div>
+
+          <div class="row g-3 mb-3">
+            <div class="col-12 col-md-6 form-check ps-5">
+              <input type="checkbox" class="form-check-input" id="hideMobileClient" name="hide_mobile_client" {% if class_obj.hide_mobile_client %}checked{% endif %}>
+              <label class="form-check-label" for="hideMobileClient">{{ _('Hide mobile client') }}</label>
+            </div>
+            <div class="col-12 col-md-6 form-check ps-5">
+              <input type="checkbox" class="form-check-input" id="hideWebClient" name="hide_web_client" {% if class_obj.hide_web_client %}checked{% endif %}>
+              <label class="form-check-label" for="hideWebClient">{{ _('Hide web client') }}</label>
+            </div>
+          </div>
+
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="showTagCloud" name="show_tag_cloud"
+                   {% if class_obj.show_tag_cloud %}checked{% endif %}>
+            <label class="form-check-label" for="showTagCloud">{{ _('Show tag cloud') }}</label>
+            <small class="text-muted d-block">{{ _('When enabled, the web client shows tag badges on covers and a tag filter for this class.') }}</small>
+          </div>
+
+          <div class="mb-3 form-check" id="mobilePrintEnabledGroup">
+            <input type="checkbox" class="form-check-input" id="mobilePrintEnabled" name="mobile_print_enabled"
+                   {% if class_obj.mobile_print_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="mobilePrintEnabled">{{ _('Show print on mobile device') }}</label>
+            <small class="text-muted d-block">{{ _('For normal classes this exposes the mobile print button. PrintForm classes do not use this flag.') }}</small>
+          </div>
+
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="useStandardCommands" name="use_standard_commands"
+                  {% if class_obj.use_standard_commands %}checked{% endif %}>
+            <label class="form-check-label" for="useStandardCommands">{{ _('Use standard commands') }}</label>
+          </div>
+
+          <div class="form-check mb-3">
+              <input type="checkbox" class="form-check-input" id="dashboardEnabled" name="dashboard_enabled"
+                     {% if class_obj.dashboard_enabled %}checked{% endif %}>
+              <label class="form-check-label fw-semibold" for="dashboardEnabled">{{ _('Pin to home page') }}</label>
+            <small class="text-muted d-block">{{ _('Shows nodes of this class on the Dashboard tab in web and mobile clients.') }}</small>
+          </div>
+          <div id="dashboardOptions" class="row g-3 align-items-end mb-3">
+              <div class="col-12 col-md-6">
+                <label for="dashboardWidth" class="form-label">{{ _('Tile width') }}</label>
+                <select class="form-select" id="dashboardWidth" name="dashboard_width">
+                  {% set dw = class_obj.dashboard_width or '100' %}
+                  <option value="100" {% if dw == '100' %}selected{% endif %}>100%</option>
+                  <option value="50" {% if dw == '50' %}selected{% endif %}>50%</option>
+                  <option value="25" {% if dw == '25' %}selected{% endif %}>25%</option>
+                </select>
+              </div>
+              <div class="col-12 col-md-6">
+                <div class="form-check">
+                  <input type="checkbox" class="form-check-input" id="dashboardTop" name="dashboard_top"
+                         {% if class_obj.dashboard_top %}checked{% endif %}>
+                  <label class="form-check-label" for="dashboardTop">{{ _('Move to top') }}</label>
+                  <small class="text-muted d-block">{{ _('Top tiles are shown before other dashboard tiles.') }}</small>
+                </div>
+              </div>
+            </div>
+
+          <input type="hidden" id="commands" name="commands" value="{{ class_obj.commands }}">
+          <input type="hidden" id="svgCommands" name="svg_commands" value="{{ class_obj.svg_commands }}">
+
+          <ul class="nav nav-tabs mb-3" id="displaySubTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+              <button class="nav-link active"
+                      id="display-general-tab"
+                      data-bs-toggle="tab"
+                      data-bs-target="#display-general-pane"
+                      type="button"
+                      role="tab"
+                      aria-controls="display-general-pane"
+                      aria-selected="true">
+                {{ _('General/Android') }}
+              </button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link"
+                      id="display-web-tab"
+                      data-bs-toggle="tab"
+                      data-bs-target="#display-web-pane"
+                      type="button"
+                      role="tab"
+                      aria-controls="display-web-pane"
+                      aria-selected="false">
+                {{ _('Web') }}
+              </button>
+            </li>
+          </ul>
+
+          <div class="tab-content border rounded p-3 bg-light-subtle">
+            <div class="tab-pane fade show active"
+                id="display-general-pane"
+                role="tabpanel"
+                aria-labelledby="display-general-tab">
+
+              <div class="mb-3">
+                <label for="coverImage" class="form-label">{{ _('Cover') }}</label>
+                <div class="mb-2 d-flex flex-wrap gap-1">
+                  <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('coverImage')">{{ _('Format') }}</button>
+                  <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('coverImage')">{{ _('Check') }}</button>
+                  <button type="button" class="btn btn-sm btn-purple text-white" onclick="openMarkupWizard('coverImage', 'cover')">{{ _('Wizard') }}</button>
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="generateCoverFromStructure('coverImage')">{{ _('Generate by data structure') }}</button>
+                  {% for t in (ui_tpl_buttons or []) %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('coverImage', '{{ t.key }}')">{{ t.label }}</button>
+                  {% endfor %}
+                </div>
+                <textarea class="form-control" id="coverImage" name="cover_image"
+                          rows="4" placeholder="{{ _('JSON markup for the node cover') }}">{{ class_obj.cover_image }}</textarea>
+                <small class="text-muted">{{ _('JSON markup or generated markup from Wizard.') }}</small>
+              </div>
+
+
+              <div class="mb-3">
+                <label for="initScreenLayout" class="form-label">{{ _('Init screen layout') }}</label>
+                <div class="d-flex gap-2">
+                  <select class="form-select form-select-sm" id="initLayoutSelect">
+                    <option value="">{{ _('-- not selected --') }}</option>
+                    {% for l in (class_obj.config.common_layouts or []) %}
+                      <option value="{{ l.id }}">{{ l.id }}</option>
+                    {% endfor %}
+                  </select>
+                  <button type="button" class="btn btn-sm btn-outline-primary" id="initLayoutUseBtn">{{ _('Use') }}</button>
+                </div>
+                <div class="mt-2 mb-2 d-flex flex-wrap gap-1">
+                  <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('initScreenLayout')">{{ _('Format') }}</button>
+                  <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('initScreenLayout')">{{ _('Check') }}</button>
+                  <button type="button" class="btn btn-sm btn-purple text-white" onclick="openMarkupWizard('initScreenLayout', 'active')">{{ _('Wizard') }}</button>
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="generateInitLayoutFromStructure('initScreenLayout')">{{ _('Generate by data structure') }}</button>
+                  {% for t in (ui_tpl_buttons or []) %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('initScreenLayout', '{{ t.key }}')">{{ t.label }}</button>
+                  {% endfor %}
+                </div>
+                <textarea class="form-control" id="initScreenLayout" name="init_screen_layout"
+                          rows="4" placeholder="{{ _('^my_layout / row JSON-layout') }}">{{ class_obj.init_screen_layout }}</textarea>
+                <small class="text-muted">{{ _('^layout_id (from Common Markup) or JSON layout directly') }}</small>
+              </div>
+
+              <div class="mb-3">
+                <label for="plugIn" class="form-label">{{ _('PlugIn') }}</label>
+                <div class="mb-2 d-flex flex-wrap gap-1">
+                  {% for t in (plugin_tpl_buttons or []) %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertPluginTplIntoTextarea('plugIn', '{{ t.key }}')">{{ t.label }}</button>
+                  {% endfor %}
+                </div>
+                <textarea class="form-control" id="plugIn" name="plug_in" rows="3">{{ class_obj.plug_in }}</textarea>
+              </div>
+            </div>
+
+            <div class="tab-pane fade"
+                id="display-web-pane"
+                role="tabpanel"
+                aria-labelledby="display-web-tab">
+
+              <div class="mb-3">
+                <label for="displayImageWeb" class="form-label">{{ _('Cover web') }}</label>
+                <div class="mb-2 d-flex flex-wrap gap-1">
+                  <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('displayImageWeb')">{{ _('Format') }}</button>
+                  <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('displayImageWeb')">{{ _('Check') }}</button>
+                  <button type="button" class="btn btn-sm btn-purple text-white" onclick="openMarkupWizard('displayImageWeb', 'cover')">{{ _('Wizard') }}</button>
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="generateCoverFromStructure('displayImageWeb')">{{ _('Generate by data structure') }}</button>
+                  {% for t in (ui_tpl_buttons or []) %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('displayImageWeb', '{{ t.key }}')">{{ t.label }}</button>
+                  {% endfor %}
+                </div>
+                <textarea class="form-control" id="displayImageWeb" name="display_image_web" rows="4">{{ class_obj.display_image_web }}</textarea>
+                <small class="text-muted">{{ _('Stored in API as display_image_web') }}</small>
+              </div>
+
+              <div class="mb-3">
+                <label for="displayImageTable" class="form-label">{{ _('Cover for table') }}</label>
+                <textarea class="form-control" id="displayImageTable" name="display_image_table"
+                          rows="4">{{ class_obj.display_image_table }}</textarea>
+                <small class="text-muted">{{ _('Stored in API as display_image_table') }}</small>
+              </div>
+
+              <div class="mb-3">
+                <label for="initScreenLayoutWeb" class="form-label">{{ _('Init screen web') }}</label>
+                <div class="d-flex gap-2">
+                  <select class="form-select form-select-sm" id="initLayoutWebSelect">
+                    <option value="">{{ _('-- not selected --') }}</option>
+                    {% for l in (class_obj.config.common_layouts or []) %}
+                      <option value="{{ l.id }}">{{ l.id }}</option>
+                    {% endfor %}
+                  </select>
+                  <button type="button" class="btn btn-sm btn-outline-primary" id="initLayoutWebUseBtn">{{ _('Use') }}</button>
+                </div>
+                <div class="mt-2 mb-2 d-flex flex-wrap gap-1">
+                  <button type="button" class="btn btn-sm btn-success" onclick="formatLayoutJson('initScreenLayoutWeb')">{{ _('Format') }}</button>
+                  <button type="button" class="btn btn-sm btn-success" onclick="checkLayoutJson('initScreenLayoutWeb')">{{ _('Check') }}</button>
+                  <button type="button" class="btn btn-sm btn-purple text-white" onclick="openMarkupWizard('initScreenLayoutWeb', 'active')">{{ _('Wizard') }}</button>
+                  {% for t in (ui_tpl_buttons or []) %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTplIntoTextarea('initScreenLayoutWeb', '{{ t.key }}')">{{ t.label }}</button>
+                  {% endfor %}
+                </div>
+                <textarea class="form-control" id="initScreenLayoutWeb" name="init_screen_layout_web"
+                          rows="4" placeholder="{{ _('^my_layout / row JSON-layout') }}">{{ class_obj.init_screen_layout_web }}</textarea>
+                <small class="text-muted">{{ _('^layout_id (from Common Markup) or JSON layout directly') }}</small>
+              </div>
+
+              <div class="mb-3">
+                <label for="plugInWeb" class="form-label">{{ _('PlugIn web') }}</label>
+                <div class="mb-2 d-flex flex-wrap gap-1">
+                  {% for t in (plugin_tpl_buttons or []) %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertPluginTplIntoTextarea('plugInWeb', '{{ t.key }}')">{{ t.label }}</button>
+                  {% endfor %}
+                </div>
+                <textarea class="form-control" id="plugInWeb" name="plug_in_web" rows="3">{{ class_obj.plug_in_web }}</textarea>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+
+        <!-- API -->
+        <div class="tab-pane fade" id="api" role="tabpanel">
+          <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i>
+            {{ _('API endpoints for working with nodes of this class') }}
+          </div>
+
+          <div class="card bg-light">
+            <div class="card-body" id="apiEndpointsContainer">
+              <div class="text-center">
+                <div class="spinner-border" role="status">
+                  <span class="visually-hidden">Loading...</span>
+                </div>
+                <p>Loading API endpoints...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MIGRATION -->
+        <div class="tab-pane fade" id="migration" role="tabpanel">
+
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="includeInContract" name="include_in_contract"
+                   {% if class_obj.include_in_contract %}checked{% endif %}>
+            <label class="form-check-label" for="includeInContract">{{ _('Include in contract') }}</label>
+            <small class="text-muted d-block">{{ _('Automatically include this class in the configuration contract used by mobile devices and integrations.') }}</small>
+          </div>
+
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="migrationRegisterCommand" name="migration_register_command"
+                   {% if class_obj.migration_register_command %}checked{% endif %}>
+            <label class="form-check-label" for="migrationRegisterCommand">{{ _('Registration command') }} </label>
+            <small class="text-muted d-block">{{ _('Show the Register button in standard node commands.') }} </small>
+          </div>
+
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="migrationRegisterOnSave" name="migration_register_on_save"
+                   {% if class_obj.migration_register_on_save %}checked{% endif %}>
+            <label class="form-check-label" for="migrationRegisterOnSave">{{_('Register on save')}}</label>
+            <small class="text-muted d-block">{{_('After saving the node, register in the default room.')}}</small>
+          </div>
+
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="migrationSendViaQueue" name="migration_send_via_queue"
+                   {% if class_obj.migration_send_via_queue %}checked{% endif %}>
+            <label class="form-check-label" for="migrationSendViaQueue">{{ _('Send via a queue') }}</label>
+            <small class="text-muted d-block">{{ _('Send migration objects through the room delivery queue.') }}</small>
+          </div>
+
+          <div class="mb-3">
+            <label for="migrationDefaultRoomAlias" class="form-label">{{_('Default room alias')}}</label>
+            <input class="form-control" id="migrationDefaultRoomAlias" name="migration_default_room_alias"
+                   list="roomAliasList"
+                   value="{{ class_obj.migration_default_room_alias or '' }}"
+                   placeholder="for example: main_room">
+            <datalist id="roomAliasList">
+              {% for a in (room_aliases or []) %}
+                <option value="{{ a.alias }}"></option>
+              {% endfor %}
+            </datalist>
+            <small class="text-muted">{{_('The class stores an alias. The alias → room_uid mapping is set in the configuration (section "Rooms").')}} </small>
+          </div>
+
+          <div class="mb-3">
+            <label for="linkShareMode" class="form-label">{{ _('Link sharing mode') }}</label>
+            <select class="form-select" id="linkShareMode" name="link_share_mode">
+              <option value="">{{ _('-- Not specified --') }}</option>
+              <option value="share_link" {% if class_obj.link_share_mode == 'share_link' %}selected{% endif %}>{{ _('Share by link') }}</option>
+              <option value="package_class" {% if class_obj.link_share_mode == 'package_class' %}selected{% endif %}>{{ _('Package class') }}</option>
+            </select>
+            <small class="text-muted">{{ _('Choose how this class should be shared by link.') }}</small>
+          </div>
+
+          <div class="mb-3">
+            <a class="btn btn-outline-primary" href="{{ url_for('export_class_json', class_id=class_obj.id) }}">
+              <i class="bi bi-download"></i> {{ _('Export class JSON') }}
+            </a>
+            <small class="text-muted d-block mt-2">{{ _('Downloads only meaningful class fields. Empty fields are omitted.') }}</small>
+          </div>
+        </div>
+
+        <div class="tab-pane fade" id="indexes" role="tabpanel">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+              <div class="fw-semibold">{{ _('Class indexes') }}</div>
+              <div class="text-muted small">{{ _('Class indexes by _data fields. Use | to combine multiple keys.') }}</div>
+            </div>
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="btnRebuildAllIndexes">
+                <i class="bi bi-arrow-repeat"></i> {{ _('Rebuild indexes') }}
+              </button>
+              <button type="button" class="btn btn-sm btn-success" id="btnAddIndex">
+                <i class="bi bi-plus-circle"></i> {{ _('Add index') }}
+              </button>
+            </div>
+          </div>
+          <div id="indexRebuildStatus" class="alert alert-info py-2 small d-none"></div>
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>{{ _('Name') }}</th>
+                  <th>{{ _('Kind') }}</th>
+                  <th>{{ _('Keys') }}</th>
+                  <th>{{ _('Filter') }}</th>
+                  <th>{{ _('Options') }}</th>
+                  <th style="width: 230px;">{{ _('Actions') }}</th>
+                </tr>
+              </thead>
+              <tbody id="indexesTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- NGENIE -->
+        <div class="tab-pane fade" id="ngenie" role="tabpanel" aria-labelledby="ngenie-tab">
+          <div class="alert alert-light border small mb-3">
+            {{ _('These settings are used only by nGenie. They define the semantic role of the class and extra class-specific instructions for search, selection, stock display, and method usage.') }}
+          </div>
+
+          <div class="mb-3">
+            <label for="classNGenieRole" class="form-label">nGenie role</label>
+            <select class="form-select" id="classNGenieRole" name="ngenie_role">
+              <option value="" {% if not class_obj.ngenie_role %}selected{% endif %}>{{ _('Auto / not specified') }}</option>
+              <option value="catalog" {% if class_obj.ngenie_role == 'catalog' %}selected{% endif %}>{{ _('Catalog / reference') }}</option>
+              <option value="document" {% if class_obj.ngenie_role == 'document' %}selected{% endif %}>{{ _('Document') }}</option>
+              <option value="document_line" {% if class_obj.ngenie_role == 'document_line' %}selected{% endif %}>{{ _('Document line') }}</option>
+              <option value="register" {% if class_obj.ngenie_role == 'register' %}selected{% endif %}>{{ _('Register / movement') }}</option>
+              <option value="report" {% if class_obj.ngenie_role == 'report' %}selected{% endif %}>{{ _('Report / projection') }}</option>
+              <option value="service" {% if class_obj.ngenie_role == 'service' %}selected{% endif %}>{{ _('Service / technical') }}</option>
+            </select>
+            <div class="form-text">{{ _('Used by nGenie to decide what can be created automatically. Catalog/reference nodes are not auto-created unless the user enables catalog creation.') }}</div>
+          </div>
+
+          <div class="mb-3">
+            <label for="classNGenieDescription" class="form-label">nGenie description</label>
+            <textarea class="form-control" id="classNGenieDescription" name="ngenie_description" rows="3" placeholder="{{ _('Short business meaning of this class') }}">{{ class_obj.ngenie_description or '' }}</textarea>
+            <div class="form-text">{{ _('Used to generate user documentation and to explain why this class exists.') }}</div>
+          </div>
+
+          <div class="mb-3">
+            <label for="classNGeniePrompt" class="form-label">nGenie prompt</label>
+            <textarea class="form-control font-monospace" id="classNGeniePrompt" name="ngenie_prompt" rows="10" placeholder="{{ _('Additional nGenie skills/instructions for this class') }}">{{ class_obj.ngenie_prompt or '' }}</textarea>
+            <div class="form-text">{{ _('Example: stock can be calculated with Goods.getStock(); parent link field is parent_doc; preferred search fields and business rules.') }}</div>
+          </div>
+
+          <div class="small text-muted">
+            {{ _('Tip: for catalog classes such as Goods, describe strong fields like barcode/article/code/name and tell nGenie when to ask the user to choose between similar candidates.') }}
+          </div>
+        </div>
+
+      </div>
+
+      <button type="submit" class="btn btn-primary mt-3">
+        <i class="bi bi-save"></i> {{ _('Save') }}
+      </button>
+    </form>
+  </div>
+</div>
+
+<div class="modal fade" id="indexModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">{{ _('Index') }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="indexEditPos" value="">
+        <div class="mb-3">
+          <label class="form-label" for="idxName">{{ _('Name') }}</label>
+          <input type="text" class="form-control" id="idxName">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="idxKind">{{ _('Kind') }}</label>
+          <select class="form-select" id="idxKind">
+            <option value="hash_index">hash_index</option>
+            <option value="text_index">text_index</option>
+            <option value="text_index_full">text_index_full</option>
+            <option value="trigram_index">trigram_index</option>
+            <option value="semantic_index">semantic_index</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="idxKeys">{{ _('Keys') }}</label>
+          <input type="text" class="form-control" id="idxKeys" placeholder="field_a|field_b">
+          <small class="text-muted">{{ _('One or many _data fields separated by |') }}</small>
+        </div>
+        <div class="border rounded p-3 bg-light mb-3" id="idxSemanticBlock" style="display:none;">
+          <div class="fw-semibold mb-2">{{ _('Semantic index') }}</div>
+          <div class="mb-2">
+            <label class="form-label" for="idxModel">{{ _('Embedding model') }}</label>
+            <input type="text" class="form-control" id="idxModel" placeholder="intfloat/multilingual-e5-small">
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-md-7">
+              <label class="form-label" for="idxThreshold">{{ _('Similarity threshold') }}</label>
+              <input type="number" min="0" max="1" step="0.01" class="form-control" id="idxThreshold" placeholder="0.8">
+              <small class="text-muted" id="idxThresholdHint">{{ _('Default is 0.8 for multilingual-e5-small') }}</small>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label" for="idxResultLimit">{{ _('Maximum results') }}</label>
+              <input type="number" min="1" max="1000" step="1" class="form-control" id="idxResultLimit" placeholder="10">
+              <small class="text-muted" id="idxResultLimitHint">{{ _('Default is 10 for multilingual-e5-small') }}</small>
+            </div>
+            <div class="col-12">
+              <div class="small text-danger d-none" id="idxThresholdWarning">
+                {{ _('For multilingual-e5-small a low threshold usually accepts almost every item. Use about 0.8 and rebuild the index.') }}
+              </div>
+            </div>
+          </div>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label" for="idxEmbeddingWeight">{{ _('Embedding weight') }}</label>
+              <input type="number" min="0" max="1" step="0.05" class="form-control" id="idxEmbeddingWeight" placeholder="1">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="idxTokenWeight">{{ _('Technical token weight') }}</label>
+              <input type="number" min="0" max="1" step="0.05" class="form-control" id="idxTokenWeight" placeholder="0">
+            </div>
+            <div class="col-12">
+              <small class="text-muted">{{ _('Semantic score = weighted embedding similarity + weighted technical-token match. Use token weight 0 for pure embeddings.') }}</small>
+            </div>
+          </div>
+        </div>
+        <div class="border rounded p-3 bg-light mb-3">
+          <div class="form-check">
+            <input type="checkbox" class="form-check-input" id="idxServerOnly">
+            <label class="form-check-label" for="idxServerOnly">{{ _('Server only') }}</label>
+          </div>
+          <div class="form-check mt-2">
+            <input type="checkbox" class="form-check-input" id="idxNGenieServerSearch">
+            <label class="form-check-label" for="idxNGenieServerSearch">{{ _('nGenie searches this index on the server for client') }}</label>
+          </div>
+          <div class="form-check mt-2">
+            <input type="checkbox" class="form-check-input" id="idxAsyncWrite">
+            <label class="form-check-label" for="idxAsyncWrite">{{ _('Asynchronous write') }}</label>
+          </div>
+          <div class="form-text">{{ _('When enabled, node saving does not wait for this index. Index-based search may briefly return the previous state. After an abnormal server stop, rebuild the index; rebuilding always runs synchronously.') }}</div>
+        </div>
+        <div class="border rounded p-3 bg-light">
+          <div class="mb-2 form-check">
+            <input type="checkbox" class="form-check-input" id="idxFilterEnabled">
+            <label class="form-check-label" for="idxFilterEnabled">{{ _('Show in filter panel') }}</label>
+          </div>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label" for="idxFilterLabel">{{ _('Filter title') }}</label>
+              <input class="form-control" id="idxFilterLabel" placeholder="{{ _('For example: Barcode') }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="idxFilterType">{{ _('Filter type') }}</label>
+              <input class="form-control" id="idxFilterType" list="idxFilterTypeList">
+              <datalist id="idxFilterTypeList">
+                <option value="string"></option>
+                <option value="number"></option>
+                <option value="boolean"></option>
+              </datalist>
+              <small class="text-muted">{{ _('You can type string, number, boolean, Node(ClassName) or Dataset(DatasetName).') }}</small>
+            </div>
+          </div>
+          <div class="form-check mt-3">
+            <input type="checkbox" class="form-check-input" id="idxFilterListEnabled">
+            <label class="form-check-label" for="idxFilterListEnabled">{{ _('List available') }}</label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+        <button type="button" class="btn btn-primary" id="btnSaveIndex">{{ _('Save') }}</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const form = document.getElementById('classSettingsForm');
+  if (!form) return;
+  form.addEventListener('submit', async function (e) {
+    if (form.__ngenieSavingDone) return;
+    const saveUrl = document.getElementById('classNGenieSaveUrl')?.value || '';
+    if (!saveUrl) return;
+    e.preventDefault();
+    try {
+      const fd = new FormData();
+      fd.append('ngenie_role', document.getElementById('classNGenieRole')?.value || '');
+      fd.append('ngenie_prompt', document.getElementById('classNGeniePrompt')?.value || '');
+      fd.append('ngenie_description', document.getElementById('classNGenieDescription')?.value || '');
+      const resp = await fetch(saveUrl, {
+        method: 'POST',
+        body: fd,
+        credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      });
+      if (!resp.ok) {
+        let msg = 'nGenie settings were not saved';
+        try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch(_) {}
+        throw new Error(msg);
+      }
+    } catch (err) {
+      alert(String(err && err.message ? err.message : err));
+      return;
+    }
+    form.__ngenieSavingDone = true;
+    if (typeof form.submit === 'function') form.submit();
+    else HTMLFormElement.prototype.submit.call(form);
+  });
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const hidden = document.getElementById('indexesJson');
+  const tbody = document.getElementById('indexesTableBody');
+  const modalEl = document.getElementById('indexModal');
+  if (!hidden || !tbody || !modalEl || !window.bootstrap) return;
+
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  const form = hidden.form;
+  let items = [];
+  let quietSaveTimer = null;
+  let quietSaveInFlight = false;
+  let quietSaveQueued = false;
+  const DEFAULT_SEMANTIC_MODEL = 'intfloat/multilingual-e5-small';
+  let editorModelFamily = '';
+
+  function semanticModelFamily(modelValue){
+    const model = String(modelValue || DEFAULT_SEMANTIC_MODEL).trim().toLowerCase().replace(/\/+$/, '');
+    return model === DEFAULT_SEMANTIC_MODEL ? 'multilingual-e5-small' : 'other';
+  }
+
+  function semanticDefaults(modelValue){
+    const model = String(modelValue || DEFAULT_SEMANTIC_MODEL).trim() || DEFAULT_SEMANTIC_MODEL;
+    const isE5 = semanticModelFamily(model) === 'multilingual-e5-small';
+    return {
+      model,
+      threshold: isE5 ? 0.8 : 0.5,
+      embeddingWeight: isE5 ? 1.0 : 0.5,
+      tokenWeight: isE5 ? 0.0 : 0.5,
+      resultLimit: isE5 ? 10 : 50,
+    };
+  }
+
+  function refreshSemanticThresholdHint(){
+    const modelEl = document.getElementById('idxModel');
+    const thresholdEl = document.getElementById('idxThreshold');
+    const hintEl = document.getElementById('idxThresholdHint');
+    const warningEl = document.getElementById('idxThresholdWarning');
+    const limitHintEl = document.getElementById('idxResultLimitHint');
+    const family = semanticModelFamily(modelEl?.value || '');
+    const threshold = Number(String(thresholdEl?.value ?? '').replace(',', '.'));
+    const isE5 = family === 'multilingual-e5-small';
+    if (hintEl) hintEl.textContent = isE5
+      ? '{{ _('Default is 0.8 for multilingual-e5-small') }}'
+      : '{{ _('Default is 0.5 for other models') }}';
+    if (limitHintEl) limitHintEl.textContent = isE5
+      ? '{{ _('Default is 10 for multilingual-e5-small') }}'
+      : '{{ _('Default is 50 for other models') }}';
+    if (warningEl) warningEl.classList.toggle('d-none', !(isE5 && Number.isFinite(threshold) && threshold < 0.7));
+  }
+
+  function normalizeIndexItem(raw){
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const item = {...raw};
+    const name = String(item.name || item.index || item.id || '').trim();
+    if (!name) return null;
+    const kind = String(item.kind || item.type || 'hash_index').trim().toLowerCase() || 'hash_index';
+    let keys = item.keys;
+    if (keys === undefined || keys === null || keys === '' || (Array.isArray(keys) && !keys.length)) keys = item.field;
+    if (keys === undefined || keys === null || keys === '' || (Array.isArray(keys) && !keys.length)) keys = item.key;
+    if (keys === undefined || keys === null || keys === '' || (Array.isArray(keys) && !keys.length)) keys = item.fields;
+    if (Array.isArray(keys)) keys = keys.map(v => String(v || '').trim()).filter(Boolean).join('|');
+    else keys = String(keys || '').trim();
+    item.name = name;
+    item.kind = kind;
+    item.keys = keys;
+    if (!item.type) item.type = kind;
+    if (keys && !item.field && !keys.includes('|')) item.field = keys;
+    return item;
+  }
+
+  try {
+    items = JSON.parse(hidden.value || '[]');
+    if (!Array.isArray(items)) items = [];
+    items = items.map(normalizeIndexItem).filter(Boolean);
+  } catch(_) { items = []; }
+  const rebuildUrl = {{ (request.script_root ~ '/edit-class/' ~ class_obj.id ~ '/rebuild-indexes') | tojson }};
+  const rebuildStatus = document.getElementById('indexRebuildStatus');
+
+  function sync(){ hidden.value = JSON.stringify(items); }
+  function showRebuildStatus(message, kind){
+    if (!rebuildStatus) return;
+    rebuildStatus.className = 'alert py-2 small alert-' + (kind || 'info');
+    rebuildStatus.textContent = message || '';
+    rebuildStatus.classList.remove('d-none');
+  }
+  async function saveIndexesNow(){
+    if (!form) return;
+    sync();
+    const activeTabEl = form.querySelector('input[name="active_tab"]');
+    if (activeTabEl) activeTabEl.value = 'classes';
+    const resp = await fetch(form.action || window.location.href, {
+      method: 'POST',
+      body: new FormData(form),
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    });
+    if (!resp.ok) throw new Error('{{ _('Class was not saved') }}');
+  }
+  async function rebuildIndexes(indexName){
+    const buttons = Array.from(document.querySelectorAll('#btnRebuildAllIndexes, [data-act="rebuild"]'));
+    buttons.forEach(b => b.disabled = true);
+    try {
+      await saveIndexesNow();
+      showRebuildStatus(indexName
+        ? '{{ _('Preparing model if needed and rebuilding index...') }}'
+        : '{{ _('Preparing models if needed and rebuilding indexes...') }}', 'info');
+      const resp = await fetch(rebuildUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        body: JSON.stringify(indexName ? {index_name: indexName} : {})
+      });
+      const rawText = await resp.text();
+      let data = {};
+      try { data = rawText ? JSON.parse(rawText) : {}; } catch(_) { data = {}; }
+      if (!resp.ok || !data.ok) {
+        const detail = data.error || (Array.isArray(data.errors) ? data.errors.join('; ') : '') || rawText || '{{ _('Index rebuild failed') }}';
+        console.error('Index rebuild failed', {status: resp.status, statusText: resp.statusText, data, rawText});
+        throw new Error('HTTP ' + resp.status + ' ' + resp.statusText + ': ' + detail);
+      }
+      const models = Array.isArray(data.semantic_models) && data.semantic_models.length ? (' {{ _('Models') }}: ' + data.semantic_models.join(', ') + '.') : '';
+      const indexCounts = (data.index_nodes && typeof data.index_nodes === 'object')
+        ? Object.entries(data.index_nodes).map(([name, count]) => name + ': ' + count).join(', ')
+        : '';
+      const indexCountsText = indexCounts ? (' [' + indexCounts + ']') : '';
+      showRebuildStatus('{{ _('Indexes rebuilt') }}: ' + (data.indexes || 0) + ', {{ _('nodes') }}: ' + (data.nodes || 0) + '.' + indexCountsText + models, 'success');
+    } catch (err) {
+      showRebuildStatus(String(err && err.message ? err.message : err), 'danger');
+    } finally {
+      buttons.forEach(b => b.disabled = false);
+    }
+  }
+  async function saveQuietly(){
+    if (!form) return;
+    if (quietSaveInFlight) { quietSaveQueued = true; return; }
+    quietSaveInFlight = true;
+    try {
+      const activeTabEl = form.querySelector('input[name="active_tab"]');
+      if (activeTabEl) activeTabEl.value = 'classes';
+      await fetch(form.action || window.location.href, {
+        method: 'POST',
+        body: new FormData(form),
+        credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      });
+    } catch (_) {
+    } finally {
+      quietSaveInFlight = false;
+      if (quietSaveQueued) {
+        quietSaveQueued = false;
+        saveQuietly();
+      }
+    }
+  }
+  function queueQuietSave(){
+    clearTimeout(quietSaveTimer);
+    quietSaveTimer = setTimeout(saveQuietly, 150);
+  }
+  function badge(v, cls){ return `<span class="badge ${cls}">${String(v||'')}</span>`; }
+  function render(){
+    tbody.innerHTML = '';
+    if (!items.length){
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">{{ _('No indexes') }}</td></tr>`;
+      sync();
+      return;
+    }
+    items.forEach((it, idx) => {
+      const tr = document.createElement('tr');
+      const filterParts = [];
+      if (it.filter_enabled) filterParts.push(badge(it.filter_type || 'string', 'bg-primary'));
+      else filterParts.push(badge('{{ _('Disabled') }}', 'bg-secondary'));
+      if (it.filter_label) filterParts.push(badge(it.filter_label, 'bg-light text-dark border'));
+      if (it.filter_list_enabled) filterParts.push(badge('{{ _('List') }}', 'bg-info text-dark'));
+      const optionParts = [];
+      if (it.server_only) optionParts.push(badge('{{ _('Server only') }}', 'bg-warning text-dark'));
+      if (it.ngenie_server_search) optionParts.push(badge('{{ _('nGenie server') }}', 'bg-success'));
+      if (it.async_write) optionParts.push(badge('{{ _('Async write') }}', 'bg-info text-dark'));
+      if ((it.kind || '').toLowerCase() === 'semantic_index' || (it.kind || '').toLowerCase() === 'semanic_index' || (it.kind || '').toLowerCase() === 'semantic') {
+        const defaults = semanticDefaults(it.model);
+        optionParts.push(badge(it.model || defaults.model, 'bg-light text-dark border'));
+        optionParts.push(badge('≥ ' + (it.threshold ?? defaults.threshold), 'bg-dark'));
+        optionParts.push(badge('emb ' + (it.embedding_weight ?? it.semantic_weight ?? defaults.embeddingWeight), 'bg-light text-dark border'));
+        optionParts.push(badge('tok ' + (it.technical_token_weight ?? it.token_weight ?? defaults.tokenWeight), 'bg-light text-dark border'));
+        optionParts.push(badge('top ' + (it.limit ?? it.candidate_limit ?? it.max_candidates ?? defaults.resultLimit), 'bg-light text-dark border'));
+      }
+      tr.innerHTML = `
+        <td><strong>${it.name || ''}</strong></td>
+        <td>${it.kind || 'hash_index'}</td>
+        <td><code>${it.keys || ''}</code></td>
+        <td>${filterParts.join(' ')}</td>
+        <td>${optionParts.join(' ')}</td>
+        <td class="text-nowrap">
+          <div class="d-inline-flex gap-1">
+            <button type="button" class="btn btn-sm btn-outline-primary" data-act="edit" data-idx="${idx}">{{ _('Edit') }}</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-act="rebuild" data-idx="${idx}">{{ _('Rebuild') }}</button>
+            <button type="button" class="btn btn-sm btn-outline-danger" data-act="del" data-idx="${idx}">{{ _('Delete') }}</button>
+          </div>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+    sync();
+  }
+  function openEditor(idx){
+    const it = (idx >= 0 && items[idx]) ? items[idx] : {kind:'hash_index', filter_type:'string'};
+    document.getElementById('indexEditPos').value = (idx >= 0 ? String(idx) : '');
+    document.getElementById('idxName').value = it.name || '';
+    document.getElementById('idxKind').value = it.kind || 'hash_index';
+    document.getElementById('idxKeys').value = it.keys || '';
+    document.getElementById('idxFilterEnabled').checked = !!it.filter_enabled;
+    document.getElementById('idxFilterLabel').value = it.filter_label || '';
+    document.getElementById('idxFilterType').value = it.filter_type || 'string';
+    document.getElementById('idxFilterListEnabled').checked = !!it.filter_list_enabled;
+    document.getElementById('idxServerOnly').checked = !!it.server_only;
+    document.getElementById('idxNGenieServerSearch').checked = !!it.ngenie_server_search;
+    document.getElementById('idxAsyncWrite').checked = !!it.async_write;
+    const defaults = semanticDefaults(it.model);
+    document.getElementById('idxModel').value = it.model || defaults.model;
+    document.getElementById('idxThreshold').value = (it.threshold ?? defaults.threshold);
+    document.getElementById('idxEmbeddingWeight').value = (it.embedding_weight ?? it.semantic_weight ?? defaults.embeddingWeight);
+    document.getElementById('idxTokenWeight').value = (it.technical_token_weight ?? it.token_weight ?? defaults.tokenWeight);
+    document.getElementById('idxResultLimit').value = (it.limit ?? it.candidate_limit ?? it.max_candidates ?? defaults.resultLimit);
+    editorModelFamily = semanticModelFamily(document.getElementById('idxModel').value);
+    refreshSemanticThresholdHint();
+    toggleSemanticOptions();
+    modal.show();
+  }
+  function isSemanticKind(){
+    const k = (document.getElementById('idxKind')?.value || '').toLowerCase();
+    return k === 'semantic_index' || k === 'semanic_index' || k === 'semantic';
+  }
+  function toggleSemanticOptions(){
+    const block = document.getElementById('idxSemanticBlock');
+    if (block) block.style.display = isSemanticKind() ? '' : 'none';
+  }
+  document.getElementById('idxKind')?.addEventListener('change', toggleSemanticOptions);
+  document.getElementById('idxModel')?.addEventListener('change', () => {
+    const modelEl = document.getElementById('idxModel');
+    const nextFamily = semanticModelFamily(modelEl?.value || '');
+    if (editorModelFamily && nextFamily !== editorModelFamily) {
+      const defaults = semanticDefaults(modelEl?.value || '');
+      document.getElementById('idxThreshold').value = defaults.threshold;
+      document.getElementById('idxEmbeddingWeight').value = defaults.embeddingWeight;
+      document.getElementById('idxTokenWeight').value = defaults.tokenWeight;
+      document.getElementById('idxResultLimit').value = defaults.resultLimit;
+    }
+    editorModelFamily = nextFamily;
+    refreshSemanticThresholdHint();
+  });
+  document.getElementById('idxThreshold')?.addEventListener('input', refreshSemanticThresholdHint);
+  document.getElementById('btnAddIndex')?.addEventListener('click', () => openEditor(-1));
+  document.getElementById('btnRebuildAllIndexes')?.addEventListener('click', () => rebuildIndexes(''));
+  tbody.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const idx = parseInt(btn.getAttribute('data-idx') || '-1', 10);
+    if (btn.getAttribute('data-act') === 'edit') openEditor(idx);
+    if (btn.getAttribute('data-act') === 'rebuild' && idx >= 0){ rebuildIndexes(items[idx]?.name || ''); }
+    if (btn.getAttribute('data-act') === 'del' && idx >= 0){ items.splice(idx, 1); render(); queueQuietSave(); }
+  });
+  function parseIndexFloat01(value, defValue){
+    const raw = String(value ?? '').trim().replace(',', '.');
+    if (!raw) return defValue;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return defValue;
+    return Math.max(0, Math.min(1, n));
+  }
+  function parseIndexInt(value, defValue, minValue=1, maxValue=1000){
+    const raw = String(value ?? '').trim();
+    if (!raw) return defValue;
+    const n = Number.parseInt(raw, 10);
+    if (!Number.isFinite(n)) return defValue;
+    return Math.max(minValue, Math.min(maxValue, n));
+  }
+
+  document.getElementById('btnSaveIndex')?.addEventListener('click', () => {
+    const item = {
+      name: document.getElementById('idxName').value.trim(),
+      kind: document.getElementById('idxKind').value || 'hash_index',
+      keys: document.getElementById('idxKeys').value.trim(),
+      filter_enabled: document.getElementById('idxFilterEnabled').checked,
+      filter_label: document.getElementById('idxFilterLabel').value.trim(),
+      filter_type: document.getElementById('idxFilterType').value || 'string',
+      filter_list_enabled: document.getElementById('idxFilterListEnabled').checked,
+      server_only: document.getElementById('idxServerOnly').checked,
+      ngenie_server_search: document.getElementById('idxNGenieServerSearch').checked,
+      async_write: document.getElementById('idxAsyncWrite').checked,
+    };
+    if (isSemanticKind()) {
+      item.model = document.getElementById('idxModel').value.trim() || DEFAULT_SEMANTIC_MODEL;
+      const defaults = semanticDefaults(item.model);
+      item.threshold = parseIndexFloat01(document.getElementById('idxThreshold').value, defaults.threshold);
+      item.embedding_weight = parseIndexFloat01(document.getElementById('idxEmbeddingWeight').value, defaults.embeddingWeight);
+      item.technical_token_weight = parseIndexFloat01(document.getElementById('idxTokenWeight').value, defaults.tokenWeight);
+      item.limit = parseIndexInt(document.getElementById('idxResultLimit').value, defaults.resultLimit);
+    }
+    if (!item.name) return;
+    const pos = document.getElementById('indexEditPos').value;
+    if (pos === '') items.push(item);
+    else items[parseInt(pos, 10)] = item;
+    modal.hide();
+    render();
+    queueQuietSave();
+  });
+  render();
+});
+</script>
+
+
+    <!-- Methods and events -->
+<ul class="nav nav-tabs mb-3" id="classTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="methods-tab" data-bs-toggle="tab" data-bs-target="#methods" type="button" role="tab">
+            <i class="bi bi-code-slash"></i> {{ _('Methods') }} ({{ class_obj.methods|length }})
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="events-tab" data-bs-toggle="tab" data-bs-target="#events" type="button" role="tab">
+            <i class="bi bi-lightning"></i> {{ _('Events') }} ({{ class_obj.event_objs|length if class_obj.event_objs else 0 }})
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <!-- Methods -->
+    <div class="tab-pane fade show active" id="methods" role="tabpanel">
+        <div class="mb-4">
+            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addMethodModal">
+                <i class="bi bi-plus-circle"></i> {{ _('Add method') }}
+            </button>
+        </div>
+
+        {% if class_obj.methods %}
+        <div class="card">
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>{{ _('Method name') }}</th>
+                            <th>{{ _('Engine/Language') }}</th>
+                            <th class="text-end">{{ _('Actions') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for method in class_obj.methods %}
+                        <tr>
+                            <td><strong>{{ method.name }}</strong></td>
+                            <td>
+                                <span class="badge bg-{% if method.engine == 'android_python' %}success{% else %}warning{% endif %}">
+                                    {{ 'Android/Python' if method.engine == 'android_python' else 'Server/Python' }}
+                                </span>
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-primary edit-method-btn"
+                                        data-bs-toggle="modal" data-bs-target="#editMethodModal"
+                                        data-method-id="{{ method.id }}"
+                                        data-method-name="{{ method.name }}"
+                                        data-method-source="{{ method.source }}"
+                                        data-method-server="{{ method.server or '' }}"
+                                        data-method-engine="{{ method.engine }}"
+                                        data-class-id="{{ class_obj.id }}">
+                                    <i class="bi bi-pencil"></i> {{ _('Edit') }}
+                                </button>
+                                <a href="{{ url_for('delete_method', method_id=method.id) }}" 
+                                   class="btn btn-sm btn-outline-danger"
+                                   onclick="return confirm({{ _('Delete method')|tojson }} + ' ' + {{ method.name|tojson }} + '?')">
+                                    <i class="bi bi-trash"></i> {{ _('Delete') }}
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% else %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> {{ _('No methods added') }}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Event tab -->
+    <div class="tab-pane fade" id="events" role="tabpanel">
+        <div class="mb-4">
+            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#eventModal">
+                <i class="bi bi-plus-circle"></i> {{ _('Add event') }}
+            </button>
+        </div>
+
+        {% if class_obj.event_objs %}
+        <div class="card">
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>{{ _('Event') }}</th>
+                            <th>Listener</th>
+                            <th>{{ _('Actions') }}</th>
+                            <th class="text-end">{{ _('Actions') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for event in class_obj.event_objs %}
+                        <tr>
+                            <td>
+                                <span class="badge event-badge event-{{ event.event|lower }}">{{ event.event }}</span>
+                            </td>
+                            <td>{{ event.listener }}</td>
+
+                            <td>
+                                {% for action in event.actions %}
+                                    <div>
+                                        <strong>{{ action.method }}</strong>
+                                        <small class="text-muted"> ({{ action.action }}{% if action.post_execute_method %} → post: {{ action.post_execute_method }}{% endif %})</small>
+                                    </div>
+                                {% endfor %}
+                            </td>
+
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-primary edit-event-btn"
+                                        data-bs-toggle="modal" data-bs-target="#eventModal"
+                                        data-event-name="{{ event.event }}"
+                                        data-listener-name="{{ event.listener }}"
+                                        data-event-id="{{ event.id }}"
+                                        data-actions='{{ event.actions_as_dicts() | tojson | safe }}'>
+                                    <i class="bi bi-pencil"></i> {{ _('Edit') }}
+                                </button>
+
+                                <form method="POST" action="{{ url_for('delete_event', class_id=class_obj.id) }}" style="display:inline;">
+                                    <input type="hidden" name="event_name" value="{{ event.event }}">
+                                    <input type="hidden" name="listener" value="{{ event.listener }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this event?')">
+                                        <i class="bi bi-trash"></i> {{ _('Delete') }}
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% else %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> {{ _('No events added') }}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+
+<div class="modal fade" id="addMethodModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">{{ _('Add method') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="{{ url_for('add_method', class_id=class_obj.id) }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">{{ _('Method name') }}</label>
+                        <input type="text" class="form-control" name="name" required>
+                    </div>
+                    <input type="hidden" name="code" id="editMethodCodeHidden">
+                    <input type="hidden" name="source" value="internal">
+                    <div class="mb-3">
+                        <label class="form-label">{{ _('Engine/Language') }}</label>
+                        <select class="form-select" name="engine" required>
+                            <option value="android_python">Android/Python</option>
+                            <option value="server_python">Server/Python</option>
+                            
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">{{ _('Method body') }}</label>
+                        <div class="mb-2 d-flex flex-wrap gap-1">
+                          {% for t in (ui_tpl_buttons or []) %}
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-tpl="{{ t.key }}" data-target="#editMethodModal">{{ t.label }}</button>
+                          {% endfor %}
+                        </div>
+                        <code-input name="function_body" language="Python" >
+# self - {{ _('Node instance') }}
+# input_data=None - {{ _('Input data') }}
+
+# {{ _('Place your code here') }}
+
+return True,{}
+                        </code-input>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+                    <button type="submit" class="btn btn-primary">{{ _('Add') }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Edit method modal -->
+<div class="modal fade" id="editMethodModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">{{ _('Edit method') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="" id="editMethodForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">{{ _('Method name') }}</label>
+                        <input type="text" class="form-control" name="name" id="editMethodName" required>
+                    </div>
+                    <input type="hidden" name="code" id="editMethodCodeHidden">
+                    <input type="hidden" name="source" id="editMethodSource" value="internal">
+                    <div class="mb-3">
+                        <label class="form-label">{{ _('Engine/Language') }}</label>
+
+                        <select class="form-select" name="engine" id="editMethodEngine" required>
+                            <option value="android_python">Android/Python</option>
+                            <option value="server_python">Server/Python</option>
+                            <option value="server_python">Client/Python</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">{{ _('Method body') }}</label>
+                        <div class="mb-2 d-flex flex-wrap gap-1">
+                          {% for t in (ui_tpl_buttons or []) %}
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-tpl="{{ t.key }}" data-target="#editMethodModal">{{ t.label }}</button>
+                          {% endfor %}
+                        </div>
+                        <code-input name="function_body"   id="editMethodCodeInput" language="Python"></code-input>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+                    <button type="submit" class="btn btn-primary">{{ _('Save') }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Markup Wizard -->
+<div class="modal fade" id="markupWizardModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">{{ _('Markup Wizard') }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('Close') }}"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="markupWizardTarget">
+        <input type="hidden" id="markupWizardMode" value="active">
+
+        <div class="alert alert-info mb-3">
+          <div class="fw-semibold mb-1">{{ _('Example') }}</div>
+          <pre class="mb-0" id="markupWizardExample">{{ _('Date|date: date\nNumber|num: number\nPartner|partner: Node("Partner")\nClosed|closed: boolean\nlines:[Product|product: DataSet("goods"), Quantity|qty: number]\n_children: ChildNode("OrderPosition")|ChildNode("OrderPositionSpecial")\npositions:[ChildNode("OrderPosition")]\nlinked_lines:[Node("CommonLine")]') }}</pre>
+        </div>
+
+        <div class="mb-2 d-flex flex-wrap gap-1" id="wizardActiveHelpers">
+          {% for t in (wizard_active_buttons or []) %}
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    onclick='insertWizardSnippet({{ t.value|tojson }})'>{{ t.label }}</button>
+          {% endfor %}
+        </div>
+
+        <div class="mb-2 d-flex flex-wrap gap-1 d-none" id="wizardCoverHelpers">
+          {% for t in (wizard_cover_buttons or []) %}
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    onclick='insertWizardSnippet({{ t.value|tojson }})'>{{ t.label }}</button>
+          {% endfor %}
+        </div>
+
+        <textarea class="form-control"
+                  id="markupWizardInput"
+                  rows="14"
+                  placeholder="{{ _('One line = one row') }}"></textarea>
+        <small class="text-muted">{{ _('One line = one row. Named tabular parts use lines:[...]. Keywords are case-insensitive.') }}</small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+        <button type="button" class="btn btn-primary" onclick="applyMarkupWizard()">{{ _('Apply') }}</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal for events -->
+<div class="modal fade" id="eventModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="eventModalTitle">{{ _('Edit event') }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="POST" id="eventForm">
+        <input type="hidden" name="old_event_name" id="oldEventName">
+        <input type="hidden" name="old_listener" id="oldListener">
+        <input type="hidden" name="actions_json" id="actionsJson">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">{{ _('Event type') }}</label>
+            <select class="form-select" name="event_name" id="eventNameSelect" required>
+              <option value="onShow">onShow</option>
+              <option value="onResume">onResume</option>
+              <option value="onInput">onInput</option>
+              <option value="onShowWeb">onShowWeb</option>
+              <option value="onInputWeb">onInputWeb</option>
+              <option value="onAcceptServer">onAcceptServer</option>
+              <option value="onAfterAcceptServer">onAfterAcceptServer</option>
+              <option value="onAccept">onAccept</option>
+              <option value="onAfterAccept">onAfterAccept</option>
+              <option value="onInputServer">onInputServer</option>
+              
+
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Listener</label>
+            <input type="text" class="form-control" name="listener" id="listenerInput" placeholder="{{ _('Listener name (optional)') }}">
+          </div>
+
+          <hr>
+          <h6>{{ _('Actions') }}</h6>
+          <div id="actionsContainer"></div>
+          <div class="mt-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="addActionBtn">
+              <i class="bi bi-plus-circle"></i> {{ _('Add action') }}
+            </button>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+
+          <button type="submit" class="btn btn-primary" id="saveEventBtn">{{ _('Save') }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<!--Import Prism.js-->
+    <!--For a downloaded version of Prism.js: -->
+    <!--  1. Download Prism.js with the languages you need here: https://prismjs.com/download.html-->
+    <!--  2. Replace the JavaScript imports below with one import of prism.js (prism-core.js and prism-autoloader.js are designed for online CDNs like the one currently being used).-->
+    <!--  3. Ensure the file paths of imported CSS and JavaScript files are relative from this HTML file.-->
+    <!--Guide: https://prismjs.com/#basic-usage-->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css">
+    <!--You can also choose custom themes by changing "prism" above to something like "prism-dark" from https://prismjs.com/index.html-->
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+
+    <!-- Custom Prism language: NodaScript -->
+    <script>
+      (function(){
+        if (typeof Prism === 'undefined') return;
+
+        // Unicode-aware keyword boundaries (works for EN + RU keywords)
+        const kw = [
+  // EN
+  'if','else','while','for','in','try','except','throw',
+  'break','continue','return',
+  'true','false','null',
+  'and','or','not',
+
+  // RU
+  'если','иначе','пока',
+  'для','в','из',
+  'попытка','исключение','вызвать',
+  'прервать','продолжить',
+  'возврат',
+  'тогда','иначеесли','конецесли',
+  'цикл','конеццикла',
+  'каждого','по',
+  'новый','массив','структура',
+  'истина','ложь','неопределено',
+  'и','или','не'
+];
+
+      // было: 'u'  -> надо: 'iu' (case-insensitive)
+      const kwRe = new RegExp(
+        String.raw`(?<![\p{L}\p{N}_])(?:${kw.map(s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|')})(?![\p{L}\p{N}_])`,
+        'iu'
+      );
+
+        Prism.languages.nodascript = {
+          'comment': { pattern: /\/\/.*/, greedy: true, alias: 'comment' },
+          'string':  { pattern: /(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/, greedy: true },
+          'number':  { pattern: /\b\d+(?:\.\d+)?\b/ },
+          'keyword': { pattern: kwRe },
+          'operator': /[+\-*/%=<>!]+/,
+          'punctuation': /[{}\[\]();,.]/
+        };
+        Prism.languages.noda = Prism.languages.nodascript;
+      })();
+    </script>
+        
+    <!--Import code-input-->
+    <!--The same goes for downloaded versions.-->
+    <script src="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/code-input.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/code-input.min.css">
+    
+    <!--Import some code-input plugins-->
+    <!--The same goes for downloaded versions.-->
+    <!--Plugin files are here: https://github.com/WebCoder49/code-input/tree/main/plugins.-->
+    <script src="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/plugins/indent.min.js"></script>
+    
+    <!--Register code-input template-->
+    <script>
+      codeInput.registerTemplate("syntax-highlighted", 
+        codeInput.templates.prism(
+          Prism, 
+          [
+            // You can add or remove plugins in this list from https://github.com/WebCoder49/code-input/blob/main/plugins/README.md.
+            // All plugins used must be imported above.
+            new codeInput.plugins.Indent(true, 2) // Allow Tab-key indentation, with 2 spaces indentation
+          ]
+        )
+      );
+      // Register templates with different names here, if needed.
+    </script>
+
+<style>
+
+.code-input {
+  width: calc(100% - 40px); /* 100% - 2*margin */
+  margin: 20px;
+  --padding: 20px;
+}
+
+
+.code-input-editor {
+    min-height: 300px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+
+code-input {
+    --code-input-color: #333;
+    --code-input-background: #f8f9fa;
+    --code-input-border-color: #dee2e6;
+    --code-input-border-radius: 4px;
+    --code-input-padding: 10px;
+}
+
+
+.modal-lg .code-input-editor {
+    min-height: 300px;
+}
+</style>
+
+<script>
+
+document.addEventListener('DOMContentLoaded', function() {
+
+codeInput.registerTemplate("syntax-highlighted", 
+        codeInput.templates.prism(
+          Prism, 
+          [
+
+            new codeInput.plugins.Indent(true, 2) // Allow Tab-key indentation, with 2 spaces indentation
+          ]
+        )
+      );
+
+
+    const addMethodModal = document.getElementById('addMethodModal');
+    if (addMethodModal) {
+        addMethodModal.addEventListener('shown.bs.modal', function() {
+            const editor = document.querySelector('#addMethodModal code-input');
+            if (editor && !editor._codeInput) {
+                codeInput.register(editor);
+            }
+        });
+    }
+
+    document.querySelector('#addMethodModal form').addEventListener('submit', function(e) {
+    const methodName = this.querySelector('[name="name"]').value;
+
+    this.querySelector('[name="code"]').value = methodName;
+});
+
+
+    const editMethodModal = document.getElementById('editMethodModal');
+    if (editMethodModal) {
+        editMethodModal.addEventListener('shown.bs.modal', function() {
+            const editor = document.querySelector('#editMethodModal code-input');
+            if (editor && !editor._codeInput) {
+                codeInput.register(editor);
+            }
+        });
+    }
+    
+
+    document.querySelectorAll('.edit-method-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const methodId = this.dataset.methodId;
+            const methodName = this.dataset.methodName;
+            const methodSource = this.dataset.methodSource;
+            const methodServer = this.dataset.methodServer;
+            const methodEngine = this.dataset.methodEngine;
+            const classId = this.dataset.classId;
+            
+            document.getElementById('editMethodName').value = methodName;
+            document.getElementById('editMethodCodeHidden').value = methodName;
+            document.getElementById('editMethodSource').value = methodSource;
+            document.getElementById('editMethodEngine').value = methodEngine;
+            document.getElementById('editMethodForm').action = `/save-method/${methodId}`;
+            
+     
+            fetch(`/get-method-body?class_id=${classId}&method_name=${methodName}&engine=${methodEngine}`)
+                .then(r => r.json())
+                .then(data => {
+                    const editor = document.querySelector("#editMethodModal code-input");
+                    if (editor) {
+                        editor.value = data.body || '';
+                        if (editor._codeInput) {
+                            editor._codeInput.editor.setValue(data.body || '');
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading method body:', error);
+                });
+        });
+    });
+
+
+    const eventModal = document.getElementById('eventModal');
+    if (eventModal) {
+        eventModal.addEventListener('show.bs.modal', function(event) {
+            const button = event.relatedTarget;
+            const isEdit = button.classList.contains('edit-event-btn');
+            
+            const form = document.getElementById('eventForm');
+            const title = eventModal.querySelector('.modal-title');
+            const sourceSelect = document.getElementById('eventSource');
+            const serverField = document.getElementById('serverField');
+            
+            if (isEdit) {
+                title.textContent = "{{ _('Edit event') }}";
+                form.action = "{{ url_for('edit_event', class_id=class_obj.id) }}";
+                document.getElementById('oldEventName').value = button.getAttribute('data-event-name');
+                document.getElementById('oldListener').value = button.getAttribute('data-listener-name') || '';
+                document.getElementById('oldMethodName').value = button.getAttribute('data-method-name');
+                document.getElementById('oldSource').value = button.getAttribute('data-source') || 'internal';
+                document.getElementById('oldServer').value = button.getAttribute('data-server') || '';
+                
+                form.querySelector('[name="event_name"]').value = button.getAttribute('data-event-name');
+                form.querySelector('[name="listener"]').value = button.getAttribute('data-listener-name') || '';
+                form.querySelector('[name="method_name"]').value = button.getAttribute('data-method-name');
+                sourceSelect.value = button.getAttribute('data-source') || 'internal';
+                form.querySelector('[name="server"]').value = button.getAttribute('data-server') || '';
+            } else {
+                title.textContent = "{{ _('Add event') }}";
+                form.action = "{{ url_for('add_event', class_id=class_obj.id) }}";
+                document.getElementById('oldEventName').value = '';
+                document.getElementById('oldListener').value = '';
+                document.getElementById('oldMethodName').value = '';
+                document.getElementById('oldSource').value = '';
+                document.getElementById('oldServer').value = '';
+                
+                form.querySelector('[name="event_name"]').value = 'onShow';
+                form.querySelector('[name="listener"]').value = '';
+                form.querySelector('[name="method_name"]').value = '';
+                sourceSelect.value = 'internal';
+                form.querySelector('[name="server"]').value = '';
+            }
+            
+
+            if (sourceSelect.value === 'external') {
+                serverField.style.display = 'block';
+            } else {
+                serverField.style.display = 'none';
+            }
+        });
+        
+
+        const eventSourceEl = document.getElementById('eventSource');
+        if (eventSourceEl) {
+            eventSourceEl.addEventListener('change', function() {
+                const serverField = document.getElementById('serverField');
+                if (!serverField) return;
+                if (this.value === 'external') {
+                    serverField.style.display = 'block';
+                } else {
+                    serverField.style.display = 'none';
+                }
+            });
+        }
+    }
+
+  
+    if (window.location.hash === '#events') {
+        const eventsTab = new bootstrap.Tab(document.getElementById('events-tab'));
+        eventsTab.show();
+    }
+});
+</script>
+
+<script>
+
+const METHOD_LAYOUT_TEMPLATES = {{ (ui_tpl_map or {}) | tojson }};
+const PLUGIN_TEMPLATES = {{ (plugin_tpl_map or {}) | tojson }};
+
+function insertMethodTpl(modalId, name) {
+  const tpl = METHOD_LAYOUT_TEMPLATES[name];
+  if (!tpl) return;
+
+  const modal = document.getElementById(modalId);
+  const ci = modal ? modal.querySelector('code-input') : null;
+  if (!ci) return;
+
+  // ensure registered
+  if (!ci._codeInput) {
+    try { codeInput.register(ci); } catch(e) {}
+  }
+
+  // Best-effort: find underlying textarea to insert at cursor
+  let ta = null;
+  try {
+    // code-input keeps a textarea in its light DOM in current lib versions
+    ta = ci.querySelector('textarea');
+    // sometimes it is stored on internal object
+    if (!ta && ci._codeInput && ci._codeInput.textarea) ta = ci._codeInput.textarea;
+    if (!ta && ci._codeInput && ci._codeInput.textareaElement) ta = ci._codeInput.textareaElement;
+  } catch(e) {}
+
+  if (ta) {
+    const p = ta.selectionStart || 0;
+    ta.value = ta.value.slice(0, p) + tpl + ta.value.slice(p);
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    // sync highlighted editor if exists
+    try {
+      if (ci._codeInput && ci._codeInput.editor && ci._codeInput.editor.setValue) {
+        ci._codeInput.editor.setValue(ta.value);
+      } else {
+        ci.value = ta.value;
+      }
+    } catch(e) {}
+    return;
+  }
+
+  // Fallback: append if cursor insert not possible
+  const cur = (ci.value || '');
+  ci.value = cur + tpl;
+  try {
+    if (ci._codeInput && ci._codeInput.editor && ci._codeInput.editor.setValue) {
+      ci._codeInput.editor.setValue(ci.value);
+    }
+  } catch(e) {}
+}  
+
+const FORBIDDEN_METHOD_NAMES = ['Show', 'PlugIn'];
+
+
+function validateMethodName(name) {
+    if (FORBIDDEN_METHOD_NAMES.includes(name)) {
+        return _('Method name "%(name)s" is not allowed to be used.', name=name);
+    }
+    
+
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+        return _('The method name must begin with a letter or underscore and contain only letters, numbers, and underscores.');
+    }
+    
+    return null; 
+}
+
+// Insert UI component JSON into a plain textarea (Cover / Web cover / Layout)
+function insertTplIntoTextarea(textareaId, name) {
+  const tpl = (window.METHOD_LAYOUT_TEMPLATES || METHOD_LAYOUT_TEMPLATES || {})[name];
+  if (!tpl) return;
+  const ta = document.getElementById(textareaId);
+  if (!ta) return;
+  const p = ta.selectionStart || 0;
+  ta.value = ta.value.slice(0, p) + tpl + ta.value.slice(p);
+  ta.focus();
+  try { ta.selectionStart = ta.selectionEnd = p + tpl.length; } catch(e) {}
+}
+
+
+function insertPluginTplIntoTextarea(textareaId, name) {
+  const tpl = (window.PLUGIN_TEMPLATES || PLUGIN_TEMPLATES || {})[name];
+  if (!tpl) return;
+  const ta = document.getElementById(textareaId);
+  if (!ta) return;
+  const p = ta.selectionStart || 0;
+  ta.value = ta.value.slice(0, p) + tpl + ta.value.slice(p);
+  ta.focus();
+  try { ta.selectionStart = ta.selectionEnd = p + tpl.length; } catch(e) {}
+}
+
+// --- Layout JSON helpers (Cover / Web cover / Init layouts) ---
+// Expected format: Array<Array<Object>>
+function _parseLayoutJsonFromTextarea(textareaId) {
+  const ta = document.getElementById(textareaId);
+  if (!ta) throw new Error('Textarea not found: ' + textareaId);
+  const raw = (ta.value || '').trim();
+
+  if (!raw) throw new Error('Empty value');
+  if (raw.startsWith('^')) throw new Error('Not a JSON layout (starts with ^layout_id)');
+
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    throw new Error('Invalid JSON: ' + (e && e.message ? e.message : e));
+  }
+  return { ta, raw, data };
+}
+
+function _validateLayoutData(data) {
+  if (!Array.isArray(data)) {
+    throw new Error('Must be an array (top-level)');
+  }
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    if (!Array.isArray(row)) {
+      throw new Error(`Row #${i} must be an array`);
+    }
+    for (let j = 0; j < row.length; j++) {
+      const cell = row[j];
+      const isObj = cell && typeof cell === 'object' && !Array.isArray(cell);
+      if (!isObj) {
+        throw new Error(`Row #${i}, item #${j} must be an object`);
+      }
+    }
+  }
+}
+
+function formatLayoutJson(textareaId) {
+  try {
+    const { ta, data } = _parseLayoutJsonFromTextarea(textareaId);
+    _validateLayoutData(data);
+
+    const lines = [];
+    lines.push('[');
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      const objs = row.map(o => JSON.stringify(o)); // compact objects
+      const rowStr = `[ ${objs.join(', ')} ]`;
+      lines.push('  ' + rowStr + (i < data.length - 1 ? ',' : ''));
+    }
+    lines.push(']');
+    ta.value = lines.join('\n');
+    ta.focus();
+  } catch (e) {
+    alert(String(e && e.message ? e.message : e));
+  }
+}
+
+function checkLayoutJson(textareaId) {
+  try {
+    const { data } = _parseLayoutJsonFromTextarea(textareaId);
+    _validateLayoutData(data);
+    alert('OK');
+  } catch (e) {
+    alert(String(e && e.message ? e.message : e));
+  }
+}
+
+
+function showMethodNameError(input, message) {
+
+    const existingError = input.parentNode.querySelector('.method-name-error');
+    if (existingError) {
+        existingError.remove();
+    }
+    
+
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'text-danger mt-1 method-name-error';
+    errorDiv.innerHTML = `<i class="bi bi-exclamation-circle"></i> ${message}`;
+    input.parentNode.appendChild(errorDiv);
+    
+
+    input.classList.add('is-invalid');
+}
+
+
+function removeMethodNameError(input) {
+    const existingError = input.parentNode.querySelector('.method-name-error');
+    if (existingError) {
+        existingError.remove();
+    }
+    input.classList.remove('is-invalid');
+}
+
+
+document.addEventListener('DOMContentLoaded', function() {
+
+    const addMethodNameInput = document.querySelector('#addMethodModal [name="name"]');
+    if (addMethodNameInput) {
+        addMethodNameInput.addEventListener('blur', function() {
+            validateMethodNameInput(this);
+        });
+        
+        addMethodNameInput.addEventListener('input', function() {
+            removeMethodNameError(this);
+        });
+    }
+
+
+    const editMethodNameInput = document.querySelector('#editMethodModal [name="name"]');
+    if (editMethodNameInput) {
+        editMethodNameInput.addEventListener('blur', function() {
+            validateMethodNameInput(this);
+        });
+        
+        editMethodNameInput.addEventListener('input', function() {
+            removeMethodNameError(this);
+        });
+    }
+
+
+    document.querySelector('#addMethodModal form').addEventListener('submit', function(e) {
+        const methodName = this.querySelector('[name="name"]').value;
+        const error = validateMethodName(methodName);
+        
+        if (error) {
+            e.preventDefault();
+            validateMethodNameInput(this.querySelector('[name="name"]'));
+
+            this.querySelector('[name="name"]').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+            const methodName = this.querySelector('[name="name"]').value;
+
+            this.querySelector('[name="code"]').value = methodName;
+        }
+    });
+
+
+    document.querySelector('#editMethodModal form').addEventListener('submit', function(e) {
+        const methodName = this.querySelector('[name="name"]').value;
+        const error = validateMethodName(methodName);
+        
+        if (error) {
+            e.preventDefault();
+            validateMethodNameInput(this.querySelector('[name="name"]'));
+
+            this.querySelector('[name="name"]').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+            const methodName = this.querySelector('[name="name"]').value;
+
+            this.querySelector('[name="code"]').value = methodName;
+        }
+    });
+});
+
+
+function validateMethodNameInput(input) {
+    const error = validateMethodName(input.value);
+    if (error) {
+        showMethodNameError(input, error);
+        return false;
+    } else {
+        removeMethodNameError(input);
+        return true;
+    }
+}
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const METHODS = {{ class_obj.methods|map(attribute='name')|list|tojson|safe }};
+  const ACTION_TYPES = ['run','runprogress','runasync'];
+
+  function createActionRow(action = {}) {
+    const row = document.createElement('div');
+    row.className = 'action-row mb-2 p-2 border rounded';
+
+    row.innerHTML = `
+      <div class="d-flex gap-2 align-items-start flex-wrap">
+        <div style="width:150px">
+          <label class="form-label small">action</label>
+          <select class="form-select action-field" data-field="action">
+            ${ACTION_TYPES.map(a => `<option value="${a}" ${a===action.action?'selected':''}>${a}</option>`).join('')}
+          </select>
+        </div>
+        <div style="width:220px">
+          <label class="form-label small">method</label>
+          <select class="form-select action-field" data-field="method">
+            <option value="">-- (no) --</option>
+            ${METHODS.map(m => `<option value="${m}" ${m===action.method?'selected':''}>${m}</option>`).join('')}
+            <option value="NodaScript" ${action.method==='NodaScript'?'selected':''}>NodaScript</option>
+            <option value="HTTPRequest" ${(action.method==='HTTPRequest'||action.method==='HTTP Request')?'selected':''}>HTTPRequest</option>
+            <option value="PythonScript" ${action.method==='PythonScript'?'selected':''}>PythonScript</option>
+          </select>
+        </div>
+        <div style="width:160px">
+          <label class="form-label small">postExecuteMethod</label>
+          <select class="form-select action-field" data-field="postExecuteMethod">
+            <option value="">(no)</option>
+            ${METHODS.map(m => `<option value="${m}" ${m===action.postExecuteMethod?'selected':''}>${m}</option>`).join('')}
+            <option value="NodaScript" ${action.postExecuteMethod==='NodaScript'?'selected':''}>NodaScript</option>
+            <option value="HTTPRequest" ${(action.postExecuteMethod==='HTTPRequest'||action.postExecuteMethod==='HTTP Request')?'selected':''}>HTTPRequest</option>
+            <option value="PythonScript" ${action.postExecuteMethod==='PythonScript'?'selected':''}>PythonScript</option>
+          </select>
+        </div>
+        <div style="width:130px">
+          <label class="form-label small">source</label>
+          <select class="form-select action-field" data-field="source">
+            <option value="internal" ${action.source==='internal' || !action.source?'selected':''}>internal</option>
+            <option value="external" ${action.source==='external'?'selected':''}>external</option>
+          </select>
+        </div>
+        <div style="width:200px">
+          <label class="form-label small">server</label>
+          <input class="form-control action-field" data-field="server" value="${action.server || ''}" placeholder="{{ _('server alias') }}">
+        </div>
+        <div style="width:40px">
+          <label class="form-label small">&nbsp;</label>
+          <button type="button" class="btn btn-outline-danger btn-sm remove-action-btn">&times;</button>
+        </div>
+      </div>
+
+      <div class="mt-2 noda-script-block" style="display:none; width:100%">
+        <div class="row g-2">
+          <div class="col-12">
+            <div class="method-script" style="display:none;">
+              <label class="form-label small">NodaScript (method)</label>
+              <code-input class="action-field noda-script-editor" data-field="methodText" language="nodascript">${(action.methodText || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</code-input>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="method-http" style="display:none;">
+              <label class="form-label small">HTTPRequest function name (method)</label>
+              <input class="form-control action-field" data-field="httpFunctionName" value="${action.httpFunctionName || ""}" placeholder="sendInvoice">
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="method-python" style="display:none;">
+              <label class="form-label small">PythonScript URL (method)</label>
+              <div class="input-group input-group-sm mb-2">
+                <input class="form-control action-field python-url" data-field="methodText" value="${action.method === 'PythonScript' ? (action.methodText || '') : ''}" placeholder="https://.../script.py">
+                <button type="button" class="btn btn-outline-secondary load-python-btn" data-kind="method">Read</button>
+                <button type="button" class="btn btn-outline-primary save-python-btn" data-kind="method">Save to S3</button>
+              </div>
+              <code-input class="python-code-editor" data-python-kind="method" language="python">${action.method === 'PythonScript' ? '' : ''}</code-input>
+              
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="post-script" style="display:none;">
+              <label class="form-label small">NodaScript (postExecuteMethod)</label>
+              <code-input class="action-field noda-script-editor" data-field="postExecuteMethodText" language="nodascript">${(action.postExecuteMethodText || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</code-input>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="post-http" style="display:none;">
+              <label class="form-label small">HTTPRequest function name (postExecuteMethod)</label>
+              <input class="form-control action-field" data-field="postHttpFunctionName" value="${action.postHttpFunctionName || ""}" placeholder="afterSend">
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="post-python" style="display:none;">
+              <label class="form-label small">PythonScript URL (postExecuteMethod)</label>
+              <div class="input-group input-group-sm mb-2">
+                <input class="form-control action-field python-url" data-field="postExecuteMethodText" value="${action.postExecuteMethod === 'PythonScript' ? (action.postExecuteMethodText || '') : ''}" placeholder="https://.../script.py">
+                <button type="button" class="btn btn-outline-secondary load-python-btn" data-kind="post">Read</button>
+                <button type="button" class="btn btn-outline-primary save-python-btn" data-kind="post">Save to S3</button>
+              </div>
+              <code-input class="python-code-editor" data-python-kind="post" language="python"></code-input>
+              <div class="form-text">В JSON сохраняется только ссылка в postExecuteMethodText. При выборе PythonScript код автоматически загружается по ссылке; Save to S3 создает новый файл и удаляет старый.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const removeBtn = row.querySelector('.remove-action-btn');
+    removeBtn.addEventListener('click', () => row.remove());
+
+    const sourceSelect = row.querySelector('[data-field="source"]');
+    const serverInput = row.querySelector('[data-field="server"]');
+    function toggleServer() {
+      if (sourceSelect.value === 'external') serverInput.parentElement.style.display = '';
+      else serverInput.parentElement.style.display = 'none';
+    }
+    toggleServer();
+    sourceSelect.addEventListener('change', toggleServer);
+
+    // NodaScript UI
+    const methodSelect = row.querySelector('[data-field="method"]');
+    const postSelect = row.querySelector('[data-field="postExecuteMethod"]');
+    const nodaBlock = row.querySelector('.noda-script-block');
+    const methodBox = row.querySelector('.method-script');
+    const postBox = row.querySelector('.post-script');
+    const methodHttpBox = row.querySelector('.method-http');
+    const postHttpBox = row.querySelector('.post-http');
+    const methodPythonBox = row.querySelector('.method-python');
+    const postPythonBox = row.querySelector('.post-python');
+    const methodCi = row.querySelector('.method-script [data-field="methodText"]');
+    const postCi = row.querySelector('.post-script [data-field="postExecuteMethodText"]');
+    const methodPythonUrl = row.querySelector('.method-python [data-field="methodText"]');
+    const postPythonUrl = row.querySelector('.post-python [data-field="postExecuteMethodText"]');
+    const methodPythonCi = row.querySelector('[data-python-kind="method"]');
+    const postPythonCi = row.querySelector('[data-python-kind="post"]');
+    const methodHttpInput = row.querySelector('[data-field="httpFunctionName"]');
+    const postHttpInput = row.querySelector('[data-field="postHttpFunctionName"]');
+
+    function ensureCodeInput(ci) {
+      if (!ci) return;
+      try {
+        if (typeof codeInput !== 'undefined' && !ci._codeInput) {
+          codeInput.register(ci);
+        }
+      } catch(e) {}
+    }
+
+    function clearCodeInput(ci) {
+      if (!ci) return;
+      // If code-input isn't registered yet, touching .value can throw.
+      if (ci._codeInput) ci.value = '';
+      else ci.textContent = '';
+    }
+
+
+    function getInnerTextarea(ci) {
+      if (!ci) return null;
+      try {
+        let ta = ci.querySelector('textarea');
+        if (!ta && ci._codeInput && ci._codeInput.textarea) ta = ci._codeInput.textarea;
+        if (!ta && ci._codeInput && ci._codeInput.textareaElement) ta = ci._codeInput.textareaElement;
+        return ta;
+      } catch(e) { return null; }
+    }
+
+    function autoResize(ci) {
+      const ta = getInnerTextarea(ci);
+      if (!ta) return;
+      ta.style.height = 'auto';
+      ta.style.height = (ta.scrollHeight + 2) + 'px';
+    }
+
+    function setCodeInputValue(ci, value) {
+      if (!ci) return;
+      ensureCodeInput(ci);
+      try { ci.value = value || ''; } catch(e) { ci.textContent = value || ''; }
+      autoResize(ci);
+    }
+
+    function getCodeInputValue(ci) {
+      if (!ci) return '';
+      ensureCodeInput(ci);
+      try { return ci.value || ''; } catch(e) { return ci.textContent || ''; }
+    }
+
+    async function readJsonResponse(resp) {
+      const text = await resp.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : {}; }
+      catch (e) {
+        const shortText = (text || '').replace(/\s+/g, ' ').slice(0, 240);
+        throw new Error(`Server returned non-JSON (${resp.status}). ${shortText}`);
+      }
+      return data;
+    }
+
+
+    async function putTextToS3Presigned(filename, textValue, oldUrl) {
+      const resp = await fetch("{{ url_for('save_s3_text_via_upload_url') }}", {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          filename,
+          content_type: 'text/x-python',
+          text: textValue || '',
+          old_url: oldUrl || ''
+        })
+      });
+      const data = await readJsonResponse(resp);
+      if (!resp.ok || !data.ok) throw new Error(data.error || 'PythonScript S3 save failed');
+      return data.file_url;
+    }
+
+    async function savePython(kind) {
+      const ci = kind === 'post' ? postPythonCi : methodPythonCi;
+      const urlInput = kind === 'post' ? postPythonUrl : methodPythonUrl;
+      const filename = `${('{{ class_obj.name }}' || 'class')}_${kind}.py`;
+      const oldUrl = (urlInput.value || '').trim();
+      const codeValue = getCodeInputValue(ci);
+      const fileUrl = await putTextToS3Presigned(filename, codeValue, oldUrl);
+      urlInput.value = fileUrl;
+      if (ci) {
+        ci.dataset.loadedUrl = fileUrl || '';
+        ci.dataset.loadedText = codeValue || '';
+        ci.dataset.dirty = '';
+      }
+      return fileUrl;
+    }
+
+    async function loadPython(kind) {
+      const ci = kind === 'post' ? postPythonCi : methodPythonCi;
+      const urlInput = kind === 'post' ? postPythonUrl : methodPythonUrl;
+      const scriptUrl = (urlInput.value || '').trim();
+      if (!scriptUrl) return;
+      const resp = await fetch("{{ url_for('read_s3_text') }}" + '?url=' + encodeURIComponent(scriptUrl));
+      const data = await readJsonResponse(resp);
+      if (!resp.ok || !data.ok) throw new Error(data.error || 'S3 read failed');
+      const loadedText = data.text || '';
+      setCodeInputValue(ci, loadedText);
+      if (ci) {
+        ci.dataset.loadedUrl = scriptUrl;
+        ci.dataset.loadedText = loadedText;
+        ci.dataset.dirty = '';
+      }
+    }
+
+    async function autoLoadPython(kind) {
+      const ci = kind === 'post' ? postPythonCi : methodPythonCi;
+      const urlInput = kind === 'post' ? postPythonUrl : methodPythonUrl;
+      const scriptUrl = (urlInput && urlInput.value || '').trim();
+      if (!scriptUrl || !ci || ci.dataset.loadedUrl === scriptUrl) return;
+      try { await loadPython(kind); } catch(e) { console.warn('PythonScript autoload failed:', e); }
+    }
+
+    function toggleNoda() {
+      // make sure code-input is ready before reading/writing .value
+      ensureCodeInput(methodCi);
+      ensureCodeInput(postCi);
+
+      const isMethodScript = methodSelect.value === 'NodaScript';
+      const isPostScript = postSelect.value === 'NodaScript';
+      const isMethodHttp = methodSelect.value === 'HTTPRequest';
+      const isPostHttp = postSelect.value === 'HTTPRequest';
+      const isMethodPython = methodSelect.value === 'PythonScript';
+      const isPostPython = postSelect.value === 'PythonScript';
+
+      if (!isMethodScript) clearCodeInput(methodCi);
+      if (!isPostScript) clearCodeInput(postCi);
+      if (!isMethodHttp && methodHttpInput) methodHttpInput.value = '';
+      if (!isPostHttp && postHttpInput) postHttpInput.value = '';
+      if (!isMethodPython && methodPythonUrl) { methodPythonUrl.value = ''; setCodeInputValue(methodPythonCi, ''); }
+      if (!isPostPython && postPythonUrl) { postPythonUrl.value = ''; setCodeInputValue(postPythonCi, ''); }
+
+      methodBox.style.display = isMethodScript ? '' : 'none';
+      postBox.style.display = isPostScript ? '' : 'none';
+      methodHttpBox.style.display = isMethodHttp ? '' : 'none';
+      postHttpBox.style.display = isPostHttp ? '' : 'none';
+      methodPythonBox.style.display = isMethodPython ? '' : 'none';
+      postPythonBox.style.display = isPostPython ? '' : 'none';
+      nodaBlock.style.display = (isMethodScript || isPostScript || isMethodHttp || isPostHttp || isMethodPython || isPostPython) ? '' : 'none';
+
+      if (isMethodScript) autoResize(methodCi);
+      if (isPostScript) autoResize(postCi);
+      if (isMethodPython) { autoResize(methodPythonCi); autoLoadPython('method'); }
+      if (isPostPython) { autoResize(postPythonCi); autoLoadPython('post'); }
+    }
+
+    // register editors before first use
+    ensureCodeInput(methodCi);
+    ensureCodeInput(postCi);
+
+    toggleNoda();
+    methodSelect.addEventListener('change', toggleNoda);
+    postSelect.addEventListener('change', toggleNoda);
+
+    // Prism/code-input for NodaScript editors (dynamic rows)
+    [methodCi, postCi, methodPythonCi, postPythonCi].forEach(ci => {
+      if (!ci) return;
+      try { if (typeof codeInput !== 'undefined') codeInput.register(ci); } catch(e) {}
+      // best-effort autoresize while typing
+      const ta = getInnerTextarea(ci);
+      if (ta) {
+        ta.style.resize = 'vertical';
+        ta.addEventListener('input', () => {
+          ci.dataset.dirty = '1';
+          autoResize(ci);
+        });
+        setTimeout(() => autoResize(ci), 0);
+      }
+    });
+
+    row.querySelectorAll('.save-python-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        try { await savePython(btn.getAttribute('data-kind')); alert('Saved to S3'); }
+        catch(e) { alert(e.message || e); }
+      });
+    });
+    row.querySelectorAll('.load-python-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        try { await loadPython(btn.getAttribute('data-kind')); }
+        catch(e) { alert(e.message || e); }
+      });
+    });
+    [methodPythonUrl, postPythonUrl].forEach(inp => {
+      if (!inp) return;
+      inp.addEventListener('change', () => {
+        const kind = inp === postPythonUrl ? 'post' : 'method';
+        const ci = kind === 'post' ? postPythonCi : methodPythonCi;
+        if (ci) ci.dataset.dirty = '';
+        autoLoadPython(kind);
+      });
+      inp.addEventListener('blur', () => {
+        const kind = inp === postPythonUrl ? 'post' : 'method';
+        autoLoadPython(kind);
+      });
+    });
+
+    row._savePythonIfNeeded = async function(kind) {
+      const ci = kind === 'post' ? postPythonCi : methodPythonCi;
+      const urlInput = kind === 'post' ? postPythonUrl : methodPythonUrl;
+      if (!ci || !urlInput) return '';
+
+      const currentUrl = (urlInput.value || '').trim();
+      const codeValue = getCodeInputValue(ci);
+      const hasCode = (codeValue || '').trim() !== '';
+      const loadedUrl = (ci.dataset.loadedUrl || '').trim();
+      const loadedText = ci.dataset.loadedText || '';
+      const isDirty = ci.dataset.dirty === '1';
+
+      // Existing PythonScript URL with an empty editor means: keep the URL, do not upload empty text.
+      if (!hasCode && currentUrl) return currentUrl;
+      if (!hasCode && !currentUrl) return '';
+
+      // Existing URL and editor content is exactly what was loaded: keep the URL.
+      if (currentUrl && loadedUrl === currentUrl && !isDirty && codeValue === loadedText) {
+        return currentUrl;
+      }
+
+      // New or changed code: upload first, then methodText/postExecuteMethodText becomes the returned S3 URL.
+      return await savePython(kind);
+    };
+
+    return row;
+  }
+
+  const actionsContainer = document.getElementById('actionsContainer');
+  document.getElementById('addActionBtn').addEventListener('click', ()=> {
+    actionsContainer.appendChild(createActionRow({}));
+  });
+
+  // setup modal for add
+  const addEventBtn = document.querySelector('[data-bs-target="#eventModal"][data-bs-toggle="modal"]');
+  if (addEventBtn) {
+    addEventBtn.addEventListener('click', () => {
+      document.getElementById('oldEventName').value = '';
+      document.getElementById('oldListener').value = '';
+      document.getElementById('eventNameSelect').value = 'onShow';
+      document.getElementById('listenerInput').value = '';
+      actionsContainer.innerHTML = '';
+      actionsContainer.appendChild(createActionRow({}));
+      // form action -> add-event
+      document.getElementById('eventForm').action = "{{ url_for('add_event', class_id=class_obj.id) }}";
+    });
+  }
+
+  // setup modal for edit
+  document.querySelectorAll('.edit-event-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const eventName = btn.getAttribute('data-event-name');
+      const listener = btn.getAttribute('data-listener-name') || '';
+      const actions = JSON.parse(btn.getAttribute('data-actions'));
+
+      document.getElementById('oldEventName').value = eventName;
+      document.getElementById('oldListener').value = listener;
+      document.getElementById('eventNameSelect').value = eventName;
+      document.getElementById('listenerInput').value = listener;
+      actionsContainer.innerHTML = '';
+      if (actions && actions.length) {
+        actions.forEach(a => actionsContainer.appendChild(createActionRow(a)));
+      } else {
+        actionsContainer.appendChild(createActionRow({}));
+      }
+      // form action -> edit-event
+      document.getElementById('eventForm').action = "{{ url_for('edit_event', class_id=class_obj.id) }}";
+    });
+  });
+
+  function collectEventActions() {
+    const actions = [];
+    document.querySelectorAll('#actionsContainer .action-row').forEach(row => {
+      const action = {};
+      row.querySelectorAll('.action-field').forEach(field => {
+        if (field.offsetParent === null) return;
+        const key = field.getAttribute('data-field');
+        action[key] = field.value;
+        if (action[key] === '') delete action[key];
+      });
+      actions.push(action);
+    });
+    return actions;
+  }
+
+  // form submit: block native submit, save changed PythonScript code to S3, then submit with URL in actions_json.
+  document.getElementById('eventForm').addEventListener('submit', async (e) => {
+    const form = e.currentTarget;
+    e.preventDefault();
+
+    const saveBtn = document.getElementById('saveEventBtn');
+    const oldBtnText = saveBtn ? saveBtn.innerHTML : '';
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Saving...';
+    }
+
+    try {
+      const rows = Array.from(document.querySelectorAll('#actionsContainer .action-row'));
+      for (const row of rows) {
+        const methodSelect = row.querySelector('[data-field="method"]');
+        const postSelect = row.querySelector('[data-field="postExecuteMethod"]');
+        if (methodSelect && methodSelect.value === 'PythonScript' && typeof row._savePythonIfNeeded === 'function') {
+          await row._savePythonIfNeeded('method');
+        }
+        if (postSelect && postSelect.value === 'PythonScript' && typeof row._savePythonIfNeeded === 'function') {
+          await row._savePythonIfNeeded('post');
+        }
+      }
+      document.getElementById('actionsJson').value = JSON.stringify(collectEventActions());
+      HTMLFormElement.prototype.submit.call(form);
+    } catch (err) {
+      alert('PythonScript Save to S3 failed: ' + (err && err.message ? err.message : err));
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = oldBtnText;
+      }
+    }
+  });
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  function updateProjectionFields(){
+    const classType = document.getElementById('classType');
+    const projectionFields = document.getElementById('projectionFields');
+    const printFormFields = document.getElementById('printFormFields');
+    const dataNodeStructureFields = document.getElementById('dataNodeStructureFields');
+    const projectionType = document.getElementById('projectionType');
+    const kanbanFields = document.getElementById('kanbanProjectionFields');
+    const mobilePrintGroup = document.getElementById('mobilePrintEnabledGroup');
+    const mobilePrintInput = document.getElementById('mobilePrintEnabled');
+    if (!classType) return;
+    const isProjection = (classType.value === 'projection');
+    const isPrintForm = (classType.value === 'print_form');
+    const isDataNode = (classType.value === 'data_node');
+    if (projectionFields) projectionFields.style.display = isProjection ? '' : 'none';
+    if (printFormFields) printFormFields.style.display = isPrintForm ? '' : 'none';
+    if (mobilePrintGroup) mobilePrintGroup.style.display = isPrintForm ? 'none' : '';
+    if (mobilePrintInput) mobilePrintInput.disabled = isPrintForm;
+    if (dataNodeStructureFields) dataNodeStructureFields.style.display = isDataNode ? '' : 'none';
+    if (kanbanFields && projectionType) {
+      kanbanFields.style.display = (isProjection && projectionType.value === 'kanban_projection') ? '' : 'none';
+    }
+  }
+
+  async function renderPrintTemplatePreview(){
+    const frame = document.getElementById('printTemplatePreview');
+    const ta = document.getElementById('printHtmlTemplate');
+    if (!frame || !ta) return;
+    const sample = {
+      _id: 'print-form-sample-id',
+      number: '0001',
+      date: '2026-05-25',
+      customer: {
+        _id: 'customer-001',
+        name: 'Sample customer',
+        email: 'customer@example.com'
+      },
+      items: [
+        { _id: 'line-1', name: 'Item A', qty: 2, price: 10 },
+        { _id: 'line-2', name: 'Item B', qty: 1, price: 25 }
+      ],
+      _basement_data: { _id: 'base-id', _class: 'BaseClass', _view: 'Base record' }
+    };
+
+    function writePreview(html){
+      const doc = frame.contentDocument || frame.contentWindow.document;
+      doc.open();
+      doc.write(html || '');
+      doc.close();
+    }
+
+    function fallbackRender(){
+      let html = ta.value || '';
+      html = html.replace(new RegExp('\{\{\s*qr\(([^)]*)\)\s*\}\}', 'g'), '');
+      html = html.replace(new RegExp('\{\{\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\}\}', 'g'), function(_, path){
+        const parts = path.split('.');
+        let cur = sample;
+        for (const part of parts) {
+          if (cur && Object.prototype.hasOwnProperty.call(cur, part)) cur = cur[part];
+          else return '';
+        }
+        return (cur === null || cur === undefined || typeof cur === 'object') ? '' : String(cur);
+      });
+      writePreview(html);
+    }
+
+    try {
+      const resp = await fetch('{{ url_for('print_form_template_preview', class_id=class_obj.id) }}', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({ template: ta.value || '', data: sample })
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const payload = await resp.json();
+      if (payload && payload.ok) writePreview(payload.html || '');
+      else writePreview('<div style="padding:12px;color:#842029;background:#f8d7da;border:1px solid #f5c2c7;border-radius:6px;">' + ((payload && payload.error) || 'Preview error') + '</div>');
+    } catch (err) {
+      fallbackRender();
+    }
+  }
+
+  const classType = document.getElementById('classType');
+  const projectionType = document.getElementById('projectionType');
+  const previewBtn = document.getElementById('printTemplatePreviewBtn');
+  const printTpl = document.getElementById('printHtmlTemplate');
+  const printPreviewTab = document.getElementById('print-preview-tab');
+  if (classType) classType.addEventListener('change', updateProjectionFields);
+  if (projectionType) projectionType.addEventListener('change', updateProjectionFields);
+  if (previewBtn) previewBtn.addEventListener('click', renderPrintTemplatePreview);
+  if (printPreviewTab) printPreviewTab.addEventListener('shown.bs.tab', renderPrintTemplatePreview);
+  if (printTpl) printTpl.addEventListener('input', function(){ window.clearTimeout(window.__printTplPreviewTimer); window.__printTplPreviewTimer = window.setTimeout(renderPrintTemplatePreview, 350); });
+  updateProjectionFields();
+  renderPrintTemplatePreview();
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    function generateApiEndpoints() {
+        const baseUrl = window.location.protocol + '//' + window.location.host;
+        const configUid = '{{ class_obj.config.uid }}';
+        const className = '{{ class_obj.name }}';
+        
+        const apiEndpoints = `
+            <h6>{{ _('Adding/updating nodes') }}</h6>
+            <pre class="mb-3"><code><span class="badge bg-primary">POST</span> ${baseUrl}/api/config/${configUid}/node/${className}
+Content-Type: application/json
+
+[{"_id": "id1","field1": "value1","field2": "value2"},{...}]
+
+</code></pre>
+
+           
+            <h6>{{ _('Get all nodes') }}</h6>
+            <pre class="mb-3"><code><span class="badge bg-success">GET</span> ${baseUrl}/api/config/${configUid}/node/${className}</code></pre>
+
+            <h6>{{ _('Register all nodes in room for mobile devices') }}</h6>
+            <pre class="mb-3"><code><span class="badge bg-primary">POST</span> ${baseUrl}/api/config/${configUid}/node/${className}/register/&lt;room_uid&gt;</code></pre>
+
+            <h6>{{ _('Register specific nodes in room for mobile devices') }}</h6>
+            <pre class="mb-3"><code><span class="badge bg-primary">POST</span> ${baseUrl}/api/config/${configUid}/node/${className}/register/&lt;room_uid&gt;</code>
+Content-Type: application/json
+
+["id1","id2",...]
+              
+              </pre>
+
+
+            <h6>{{ _('Working with specific node') }}</h6>
+            <pre class="mb-3"><code>{{ _('Get specific node') }} : <span class="badge bg-success">GET</span>    ${baseUrl}/api/config/${configUid}/node/${className}/&lt;node_id&gt;
+{{ _('Update _data in specific node') }} : <span class="badge bg-primary">PUT</span>    ${baseUrl}/api/config/${configUid}/node/${className}/&lt;node_id&gt;
+{{ _('Delete specific node') }} :  <span class="badge bg-danger">DELETE</span> ${baseUrl}/api/config/${configUid}/node/${className}/&lt;node_id&gt;</code></pre>
+
+            <h6>{{ _('Execute node method') }}</h6>
+            <pre class="mb-3"><code><span class="badge bg-primary">POST</span> ${baseUrl}/api/config/${configUid}/node/${className}/&lt;node_id&gt;/&lt;method_name&gt;
+Content-Type: application/json
+
+{
+    "param1": "value1",
+    "param2": "value2"
+}</code></pre>
+
+            <h6>{{ _('Execute method on remote device via WebSocket') }}</h6>
+            <pre class="mb-3"><code><span class="badge bg-primary">POST</span> ${baseUrl}/api/&lt;room_uid&gt;/&lt;target_user&gt;/${configUid}/remote_node/${className}/&lt;node_id&gt;/&lt;method_name&gt;</code></pre>
+
+            <h6>{{ _('Get remote method execution result') }}</h6>
+            <pre><code><span class="badge bg-success">GET</span> ${baseUrl}/api/check-response/&lt;request_id&gt;</code></pre>
+        `;
+        
+        document.getElementById('apiEndpointsContainer').innerHTML = apiEndpoints;
+        
+        
+        if (typeof Prism !== 'undefined') {
+            Prism.highlightAllUnder(document.getElementById('apiEndpointsContainer'));
+        }
+    }
+    
+    
+    generateApiEndpoints();
+    
+    
+    const apiTab = document.getElementById('api-tab');
+    if (apiTab) {
+        apiTab.addEventListener('click', function() {
+            // A short delay to ensure the tab is active
+            setTimeout(generateApiEndpoints, 100);
+        });
+    }
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('initLayoutSelect');
+  const btn = document.getElementById('initLayoutUseBtn');
+  if (!sel || !btn) return;
+
+  btn.addEventListener('click', () => {
+    const v = (sel.value || '').trim();
+    if (!v) return;
+
+    
+    const ta = document.querySelector('textarea[name="init_screen_layout"]');
+    if (!ta) {
+      alert('textarea[name="init_screen_layout"] not found');
+      return;
+    }
+
+    ta.value = '^' + v;
+    ta.focus();
+  });
+});
+
+
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('initLayoutWebSelect');
+  const btn = document.getElementById('initLayoutWebUseBtn');
+  if (!sel || !btn) return;
+
+  btn.addEventListener('click', () => {
+    const v = (sel.value || '').trim();
+    if (!v) return;
+
+    const ta = document.querySelector('textarea[name="init_screen_layout_web"]');
+    if (!ta) {
+      alert('textarea[name="init_screen_layout_web"] not found');
+      return;
+    }
+
+    ta.value = '^' + v;
+    ta.focus();
+  });
+});
+
+
+window.LAYOUT_TEMPLATES = window.LAYOUT_TEMPLATES || METHOD_LAYOUT_TEMPLATES;
+
+
+document.addEventListener('mousedown', (e) => {
+  const b = e.target.closest('#addMethodModal button[data-tpl], #editMethodModal button[data-tpl]');
+  if (b) e.preventDefault();
+});
+
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-tpl][data-target]');
+  if (!b) return;
+
+  const key = b.getAttribute('data-tpl');
+  const targetSel = b.getAttribute('data-target'); // "#addMethodModal" или "#editMethodModal"
+  const modal = document.querySelector(targetSel);
+  if (!modal) return;
+
+  const tpl = (window.LAYOUT_TEMPLATES || {})[key];
+  if (!tpl) {
+    console.warn('Template not found:', key);
+    return;
+  }
+
+  const ci = modal.querySelector('code-input');
+  if (!ci) {
+    console.warn('code-input not found in modal', targetSel);
+    return;
+  }
+
+  if (!ci._codeInput) {
+    try { codeInput.register(ci); } catch(_) {}
+  }
+
+
+  let ta = null;
+  try {
+    ta = ci.querySelector('textarea');
+    if (!ta && ci._codeInput && ci._codeInput.textarea) ta = ci._codeInput.textarea;
+    if (!ta && ci._codeInput && ci._codeInput.textareaElement) ta = ci._codeInput.textareaElement;
+  } catch(_) {}
+
+  if (ta) {
+    const p = ta.selectionStart ?? ta.value.length;
+    ta.value = ta.value.slice(0, p) + tpl + ta.value.slice(p);
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+
+ 
+    try {
+      if (ci._codeInput && ci._codeInput.editor && ci._codeInput.editor.setValue) {
+        ci._codeInput.editor.setValue(ta.value);
+      } else {
+        
+        ci.value = ta.value;
+      }
+    } catch(_) {}
+
+    try { ci.focus(); } catch(_) {}
+    return;
+  }
+
+  // Fallback: append
+  ci.value = (ci.value || '') + tpl;
+  try {
+    if (ci._codeInput && ci._codeInput.editor && ci._codeInput.editor.setValue) {
+      ci._codeInput.editor.setValue(ci.value);
+    }
+  } catch(_) {}
+  try { ci.focus(); } catch(_) {}
+});
+
+
+
+</script>
+
+
+<style>
+
+.event-badge {
+    font-size: 0.85em;
+    padding: 0.35em 0.65em;
+}
+
+.event-onshow {
+    background-color: #0d6efd;
+    color: white;
+}
+
+.event-onshowweb {
+    background-color: #0d6efd;
+    color: white;
+}
+
+.event-onacceptserver {
+    background-color: #be0912;
+    color: white;
+}
+
+.event-onresume {
+    background-color: #198754;
+    color: white;
+}
+
+.event-oninput {
+    background-color: #ffc107;
+    color: black;
+}
+
+.event-oninputweb {
+    background-color: #ffc107;
+    color: black;
+}
+
+.event-onaccept {
+    background-color: #dc3545;
+    color: white;
+}
+
+.event-onafteraccept {
+    background-color: #ee077a;
+    color: white;
+}
+
+.event-onafteracceptserver {
+    background-color: #960b19;
+    color: white;
+}
+
+.event-oninputserver {
+    background-color: #500c12;
+    color: white;
+}
+
+
+.code-input {
+    width: calc(100% - 40px);
+    margin: 20px;
+    --padding: 20px;
+}
+
+.code-input-editor {
+    min-height: 300px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.code-input {
+    --code-input-color: #333;
+    --code-input-background: #f8f9fa;
+    --code-input-border-color: #dee2e6;
+    --code-input-border-radius: 4px;
+    --code-input-padding: 10px;
+}
+
+
+
+.modal-lg .code-input-editor {
+    min-height: 300px;
+}
+</style>
+
+<style>
+.btn-purple {
+  background:#6f42c1;
+  border-color:#6f42c1;
+}
+.btn-purple:hover {
+  background:#5e35b1;
+  border-color:#5e35b1;
+}
+</style>
+
+<script>
+function insertWizardSnippet(text) {
+  const ta = document.getElementById('markupWizardInput');
+  if (!ta) return;
+
+  const start = ta.selectionStart ?? ta.value.length;
+  const end = ta.selectionEnd ?? ta.value.length;
+  const prefix = ta.value && !ta.value.endsWith('\n') ? '\n' : '';
+  const insertText = (start === ta.value.length ? prefix : '') + text;
+
+  ta.value = ta.value.slice(0, start) + insertText + ta.value.slice(end);
+  ta.focus();
+
+  const pos = start + insertText.length;
+  ta.selectionStart = ta.selectionEnd = pos;
+}
+
+async function openMarkupWizard(textareaId, mode) {
+  const target = document.getElementById('markupWizardTarget');
+  const modeInput = document.getElementById('markupWizardMode');
+  const input = document.getElementById('markupWizardInput');
+  const example = document.getElementById('markupWizardExample');
+  const source = document.getElementById(textareaId);
+
+  if (!target || !modeInput || !input || !source) return;
+
+  target.value = textareaId;
+  modeInput.value = mode || 'active';
+  input.value = '';
+
+  document.getElementById('wizardActiveHelpers')?.classList.toggle('d-none', !(mode === 'active' || mode === 'structure'));
+  document.getElementById('wizardCoverHelpers')?.classList.toggle('d-none', mode !== 'cover');
+
+  if (example) {
+    if (mode === 'structure' || mode === 'active') {
+      example.textContent =
+`Date|date: date
+Number|num: number
+Partner|partner: Node("Partner")
+Closed|closed: boolean
+lines:[Product|product: DataSet("goods"), Quantity|qty: number]
+_children: ChildNode("OrderPosition")|ChildNode("OrderPositionSpecial")
+positions:[ChildNode("OrderPosition")]
+linked_lines:[Node("CommonLine")]`;
+    } else {
+      example.textContent =
+`Date|@date
+Number|@num
+Partner|partner: Node("Partner")
+[Product|@product, Quantity|@qty]`;
+    }
+  }
+
+  const raw = (source.value || '').trim();
+
+  if (raw) {
+    if (mode === 'structure') {
+      input.value = raw;
+    } else {
+    let asJson = null;
+    try {
+      asJson = JSON.parse(raw);
+    } catch (_) {}
+
+    if (asJson) {
+      try {
+        const resp = await fetch('{{ url_for("layout_wizard") }}', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            direction: 'to_simplified',
+            mode: mode,
+            layout: asJson
+          })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.ok) {
+          input.value = data.text || '';
+        } else {
+          input.value = '';
+        }
+      } catch (_) {
+        input.value = '';
+      }
+    } else {
+      input.value = raw;
+    }
+    }
+  }
+
+  const modalEl = document.getElementById('markupWizardModal');
+  if (!modalEl) return;
+  bootstrap.Modal.getOrCreateInstance(modalEl).show();
+}
+
+async function applyMarkupWizard() {
+  try {
+    const targetId = document.getElementById('markupWizardTarget')?.value;
+    const mode = document.getElementById('markupWizardMode')?.value || 'active';
+    const input = document.getElementById('markupWizardInput')?.value || '';
+    const target = document.getElementById(targetId);
+
+    if (!target) {
+      throw new Error({{ _('Target textarea not found')|tojson }});
+    }
+
+    if (mode === 'structure') {
+      target.value = input;
+      bootstrap.Modal.getInstance(document.getElementById('markupWizardModal'))?.hide();
+      target.focus();
+      return;
+    }
+
+    const resp = await fetch('{{ url_for("layout_wizard") }}', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        direction: 'to_json',
+        text: input,
+        mode: mode
+      })
+    });
+
+    const data = await resp.json();
+
+    if (!resp.ok || !data.ok) {
+      throw new Error(data.error || {{ _('Wizard conversion error')|tojson }});
+    }
+
+    target.value = JSON.stringify(data.layout, null, 2);
+    bootstrap.Modal.getInstance(document.getElementById('markupWizardModal'))?.hide();
+    target.focus();
+  } catch (e) {
+  alert(String(e && e.message ? e.message : e));
+}
+}
+
+async function generateCoverFromStructure(targetId) {
+  try {
+    const source = document.getElementById('dataStructure');
+    const target = document.getElementById(targetId || 'coverImage');
+    if (!source || !target) throw new Error({{ _('Data structure or target textarea not found')|tojson }});
+    const resp = await fetch('{{ url_for("layout_wizard") }}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ direction: 'to_json', text: source.value || '', mode: 'cover_structure' })
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) throw new Error(data.error || {{ _('Wizard conversion error')|tojson }});
+    target.value = JSON.stringify(data.layout, null, 2);
+    target.focus();
+  } catch(e) {
+    alert(String(e && e.message ? e.message : e));
+  }
+}
+
+async function generateInitLayoutFromStructure(targetId) {
+  try {
+    const source = document.getElementById('dataStructure');
+    const target = document.getElementById(targetId || 'initScreenLayout');
+    if (!source || !target) throw new Error({{ _('Data structure or target textarea not found')|tojson }});
+    const text = source.value || '';
+    const resp = await fetch('{{ url_for("layout_wizard") }}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ direction: 'to_json', text: text, mode: 'active' })
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) throw new Error(data.error || {{ _('Wizard conversion error')|tojson }});
+    target.value = JSON.stringify(data.layout, null, 2);
+    target.focus();
+  } catch(e) {
+    alert(String(e && e.message ? e.message : e));
+  }
+}
+
+</script>
+
+</div>
+
+<script>
+(function(){
+  function syncDashboardOptions(){
+    const enabled = document.getElementById('dashboardEnabled');
+    const opts = document.getElementById('dashboardOptions');
+    if (!enabled || !opts) return;
+    opts.style.opacity = enabled.checked ? '1' : '.45';
+    opts.querySelectorAll('select,input').forEach(el => { if (el.id !== 'dashboardEnabled') el.disabled = !enabled.checked; });
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    const enabled = document.getElementById('dashboardEnabled');
+    if (enabled) enabled.addEventListener('change', syncDashboardOptions);
+    syncDashboardOptions();
+  });
+})();
+</script>
+
+{% endblock %}

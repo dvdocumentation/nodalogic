@@ -1,0 +1,823 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Profile access') }}{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css">
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+
+<style>
+  .profile-code-editor{display:block;width:100%;min-height:220px;white-space:pre;tab-size:4;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;background:#f8f9fa;}
+  .profile-window{height:calc(100vh - 285px);min-height:420px;overflow:auto;}
+  .available-class-row{border-bottom:1px solid #f1f3f5;padding:.5rem .25rem;}
+  .available-class-row:last-child{border-bottom:0;}
+  .selected-class-card.d-none{display:none!important;}
+  .rls-table{table-layout:fixed;width:100%;min-width:720px;}
+  .rls-table th,.rls-table td{vertical-align:top;}
+  .rls-table input,.rls-table select{min-width:0;}
+  .rls-field-col{width:22%;}
+  .rls-op-col{width:13%;}
+  .rls-type-col{width:13%;}
+  .rls-actions-col{width:48px;}
+  .rls-values-cell{min-width:0;}
+  .rls-node-controls{display:none;border:1px solid #e9ecef;border-radius:.5rem;padding:.5rem;background:#fafafa;}
+  tr[data-value-type="node"] .rls-node-controls{display:block;}
+  tr[data-value-type="node"] .rls-manual-values-wrap{display:none;}
+  .rls-node-source{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:.5rem;margin-bottom:.5rem;}
+  .rls-node-single-wrap{display:none;}
+  tr[data-value-type="node"][data-single-op="1"] .rls-node-single-wrap{display:flex;}
+  tr[data-value-type="node"][data-single-op="1"] .rls-node-list-wrap{display:none;}
+  tr[data-value-type="node"][data-single-op="0"] .rls-node-single-wrap{display:none;}
+  tr[data-value-type="node"][data-single-op="0"] .rls-node-list-wrap{display:block;}
+  .rls-selected-values{display:flex;flex-wrap:wrap;gap:.35rem;min-height:32px;margin-bottom:.5rem;}
+  .rls-value-pill{display:inline-flex;align-items:center;gap:.35rem;max-width:100%;padding:.2rem .45rem;border:1px solid #ced4da;border-radius:999px;background:#fff;font-size:.8rem;}
+  .rls-value-pill span{display:inline-block;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .rls-node-pick-list{display:flex;flex-direction:column;gap:.5rem;}
+  .rls-node-pick-card{width:100%;text-align:left;}
+  .sticky-actions{position:sticky;bottom:0;background:#fff;border-top:1px solid #dee2e6;padding:.75rem;z-index:10;}
+</style>
+
+<div class="container-fluid mt-3">
+  <div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+      <h2 class="mb-1"><i class="bi bi-shield-lock"></i> {{ _('Profile access') }}</h2>
+      <div class="text-muted small">{{ profile.uid }}</div>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary" href="{{ url_for('users_manage') }}">{{ _('Back') }}</a>
+      <form method="POST" action="{{ url_for('profile_delete', profile_uid=profile.uid) }}" onsubmit="return confirm('{{ _('Delete profile?') }}');">
+        <button class="btn btn-outline-danger" type="submit">{{ _('Delete') }}</button>
+      </form>
+    </div>
+  </div>
+
+  <form method="POST" id="profileAccessForm">
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">{{ _('Name') }}</label>
+            <input class="form-control" name="name" value="{{ profile.name }}" required>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label">{{ _('Description') }}</label>
+            <input class="form-control" name="description" value="{{ profile.description or '' }}">
+          </div>
+        </div>
+        {% if profile.is_template_generated %}
+          <div class="alert alert-info mt-3 mb-0">
+            {{ _('This profile was created from a configuration template. You can edit it here; the next template import may update template fields again.') }}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-lg-7">
+        <div class="card h-100">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+              <b>{{ _('Selected configurations / classes') }}</b>
+              <div class="text-muted small">{{ _('These classes are included in the profile. Open a class to configure RLS.') }}</div>
+            </div>
+            <span class="badge text-bg-secondary" id="selectedCount">{{ selected_count }}</span>
+          </div>
+          <div class="card-body profile-window" id="selectedClassesWindow">
+            <div id="noSelectedClasses" class="text-muted {% if selected_count %}d-none{% endif %}">
+              {{ _('No classes selected yet. Choose a configuration on the right and add classes.') }}
+            </div>
+
+            <div class="accordion" id="profileClassesAccordion">
+              {% for row in class_rows %}
+                {% set access = row.access %}
+                {% set enabled = row.enabled %}
+                {% set key = row.key %}
+                <div class="selected-class-card accordion-item mb-2 border rounded {% if not enabled %}d-none{% endif %}" data-selected-card="{{ key }}" data-config-id="{{ row.config.id }}">
+                  <h2 class="accordion-header" id="h_{{ key }}">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#c_{{ key }}">
+                      <span class="me-3">
+                        <input class="form-check-input me-2 class-enabled" type="checkbox" name="class_enabled_{{ key }}" id="class_enabled_{{ key }}" {% if enabled %}checked{% endif %} onclick="event.stopPropagation();">
+                        <b>{{ row.class.display_name or row.class.name }}</b>
+                      </span>
+                      <span class="text-muted small">{{ row.config.name }} · {{ row.config.uid[:8] }} · {{ row.class.name }}</span>
+                      {% if access and access.rls_enabled %}<span class="badge text-bg-warning ms-2">RLS</span>{% endif %}
+                    </button>
+                  </h2>
+                  <div id="c_{{ key }}" class="accordion-collapse collapse" data-bs-parent="#profileClassesAccordion">
+                    <div class="accordion-body">
+                      <div class="d-flex justify-content-end mb-3">
+                        <button class="btn btn-sm btn-outline-danger" type="button" data-remove-class="{{ key }}">{{ _('Remove from profile') }}</button>
+                      </div>
+
+                      <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" name="rls_enabled_{{ key }}" id="rls_enabled_{{ key }}" {% if access and access.rls_enabled %}checked{% endif %}>
+                        <label class="form-check-label" for="rls_enabled_{{ key }}">{{ _('Enable row-level security for this class') }}</label>
+                      </div>
+
+                      <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                          <label class="form-label">{{ _('RLS mode') }}</label>
+                          <select class="form-select" name="rls_mode_{{ key }}">
+                            {% set mode = access.rls_mode if access else 'allow' %}
+                            <option value="allow" {% if mode != 'deny' %}selected{% endif %}>{{ _('Allow listed rows') }}</option>
+                            <option value="deny" {% if mode == 'deny' %}selected{% endif %}>{{ _('Deny listed rows') }}</option>
+                          </select>
+                        </div>
+                        <div class="col-md-8">
+                          <label class="form-label">{{ _('Table rules') }}</label>
+                          <div class="form-text mb-1">{{ _('Each row: field | operator | value type | values. All rows must match.') }}</div>
+                        </div>
+                      </div>
+
+                      <div class="table-responsive">
+                        <table class="table table-sm align-middle rls-table" data-rls-table="{{ key }}">
+                          <thead>
+                            <tr>
+                              <th class="rls-field-col">{{ _('Field') }}</th>
+                              <th class="rls-op-col">{{ _('Operator') }}</th>
+                              <th class="rls-type-col">{{ _('Value type') }}</th>
+                              <th>{{ _('Values') }}</th>
+                              <th class="rls-actions-col"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% set rules = row.rules if row.rules else [{}] %}
+                            {% for rule in rules %}
+                              {% set vtype = rule.get('value_type') or rule.get('type') or 'string' %}
+                              {% set op = rule.get('op') or 'in' %}
+                              {% set vals = rule.get('values') or [] %}
+                              <tr data-value-type="{{ vtype }}">
+                                <td>
+                                  <input class="form-control form-control-sm" list="fields_{{ key }}" name="rls_field_{{ key }}" value="{{ rule.get('field') or '' }}" data-rls-field>
+                                </td>
+                                <td>
+                                  <select class="form-select form-select-sm" name="rls_op_{{ key }}" data-operator-select>
+                                    <option value="in" {% if op in ['in','list','in_list'] %}selected{% endif %}>{{ _('in list') }}</option>
+                                    <option value="not_in" {% if op in ['not_in','not','not in'] %}selected{% endif %}>{{ _('not in list') }}</option>
+                                    <option value="=" {% if op in ['=','eq','equal','equals'] %}selected{% endif %}>=</option>
+                                    <option value="!=" {% if op in ['!=','<>','ne','neq','not_equal','not equal'] %}selected{% endif %}>!=</option>
+                                  </select>
+                                </td>
+                                <td>
+                                  <select class="form-select form-select-sm" name="rls_value_type_{{ key }}" data-value-type-select>
+                                    <option value="string" {% if vtype in ['string','str','text',''] %}selected{% endif %}>{{ _('String') }}</option>
+                                    <option value="number" {% if vtype in ['number','numeric','int','integer','float'] %}selected{% endif %}>{{ _('Number') }}</option>
+                                    <option value="boolean" {% if vtype in ['boolean','bool'] %}selected{% endif %}>{{ _('Boolean') }}</option>
+                                    <option value="date" {% if vtype in ['date','datetime'] %}selected{% endif %}>{{ _('Date') }}</option>
+                                    <option value="node" {% if vtype in ['node','nodelink','nodeinput'] %}selected{% endif %}>{{ _('Node class') }}</option>
+                                  </select>
+                                </td>
+                                <td class="rls-values-cell">
+                                  <input type="hidden" name="rls_values_{{ key }}" value="{{ vals|join(', ') }}" data-values-input>
+                                  <div class="rls-manual-values-wrap">
+                                    <input class="form-control form-control-sm rls-manual-values" value="{{ vals|join(', ') }}" data-manual-values>
+                                    <div class="form-text" data-values-hint></div>
+                                  </div>
+                                  <div class="rls-node-controls mt-1">
+                                    <div class="rls-node-source">
+                                      <select class="form-select form-select-sm" name="rls_ref_config_uid_{{ key }}" data-node-config>
+                                        <option value="">{{ _('Configuration') }}</option>
+                                        {% for c in value_source_configs %}<option value="{{ c.uid }}" {% if rule.get('ref_config_uid') == c.uid %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+                                      </select>
+                                      <select class="form-select form-select-sm" name="rls_ref_class_name_{{ key }}" data-node-class data-selected-class="{{ rule.get('ref_class_name') or '' }}">
+                                        <option value="">{{ _('Class') }}</option>
+                                      </select>
+                                    </div>
+                                    <div class="rls-node-single-wrap input-group input-group-sm mb-2">
+                                      <input class="form-control" readonly placeholder="{{ _('No node selected') }}" data-node-single-view>
+                                      <button class="btn btn-outline-secondary" type="button" data-open-node-picker>{{ _('Choose') }}</button>
+                                      <button class="btn btn-outline-secondary" type="button" data-clear-node-single>&times;</button>
+                                    </div>
+                                    <div class="rls-node-list-wrap">
+                                      <div class="rls-selected-values" data-selected-node-values></div>
+                                      <button class="btn btn-sm btn-outline-primary" type="button" data-open-node-picker>{{ _('Add node') }}</button>
+                                    </div>
+                                    <div class="form-text" data-node-values-hint></div>
+                                  </div>
+                                </td>
+                                <td><button class="btn btn-sm btn-outline-danger" type="button" data-remove-rule>&times;</button></td>
+                              </tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                      </div>
+                      <datalist id="fields_{{ key }}">
+                        {% for f in row.field_meta %}<option value="{{ f.name }}">{{ f.caption }} · {{ f.type }}</option>{% endfor %}
+                      </datalist>
+                      <button class="btn btn-sm btn-outline-secondary mb-3" type="button" data-add-rule="{{ key }}">{{ _('Add rule') }}</button>
+                      <button class="btn btn-sm btn-outline-primary mb-3" type="button" data-generate-code="{{ key }}">{{ _('Generate code from table') }}</button>
+
+                      <label class="form-label d-block">{{ _('RLS handler code') }}</label>
+                      <textarea class="form-control profile-code-editor language-python" name="rls_handler_{{ key }}" data-code-editor="{{ key }}" spellcheck="false">{{ row.handler_code }}</textarea>
+                      <div class="form-text">{{ _('The handler may set result=True/False, allow=True or deny=True. Empty code will be regenerated from the table on save.') }}</div>
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-5">
+        <div class="card h-100">
+          <div class="card-header">
+            <b>{{ _('Available classes') }}</b>
+            <div class="text-muted small">{{ _('Choose a configuration, then add classes to the profile.') }}</div>
+          </div>
+          <div class="card-body profile-window">
+            <label class="form-label">{{ _('Configuration') }}</label>
+            <select class="form-select mb-3" id="availableConfigSelect">
+              {% for group in config_groups %}
+                <option value="{{ group.config.id }}">{{ group.config.name }} · {{ group.config.uid[:8] }}</option>
+              {% endfor %}
+            </select>
+
+            {% for group in config_groups %}
+              <div class="available-config-block" data-available-config="{{ group.config.id }}" {% if not loop.first %}style="display:none"{% endif %}>
+                {% for row in group.rows %}
+                  <div class="available-class-row d-flex justify-content-between align-items-center gap-2" data-available-row="{{ row.key }}">
+                    <div>
+                      <div class="fw-semibold">{{ row.class.display_name or row.class.name }}</div>
+                      <div class="text-muted small">{{ row.class.name }}</div>
+                    </div>
+                    <button class="btn btn-sm {% if row.enabled %}btn-outline-secondary{% else %}btn-outline-primary{% endif %}" type="button" data-add-class="{{ row.key }}">
+                      {% if row.enabled %}{{ _('Selected') }}{% else %}{{ _('Add') }}{% endif %}
+                    </button>
+                  </div>
+                {% else %}
+                  <div class="text-muted">{{ _('No classes in this configuration') }}</div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="text-muted">{{ _('No configurations yet') }}</div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sticky-actions d-flex justify-content-end gap-2 mt-3">
+      <a class="btn btn-outline-secondary" href="{{ url_for('users_manage') }}">{{ _('Cancel') }}</a>
+      <button class="btn btn-primary" type="submit">{{ _('Save profile access') }}</button>
+    </div>
+  </form>
+</div>
+<style>
+.profile-loading-overlay{position:fixed;inset:0;z-index:20000;background:rgba(255,255,255,.72);display:none;align-items:center;justify-content:center;backdrop-filter:blur(1px);}
+.profile-loading-box{background:#fff;border:1px solid #dee2e6;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.14);padding:22px 28px;min-width:260px;text-align:center;}
+</style>
+<div class="profile-loading-overlay" id="profileSaveOverlay">
+  <div class="profile-loading-box">
+    <div class="spinner-border text-primary mb-3" role="status" aria-hidden="true"></div>
+    <div class="fw-semibold">{{ _('Saving profile...') }}</div>
+    <div class="text-muted small mt-1">{{ _('Please wait') }}</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const valueSources = {{ value_source_configs|tojson }};
+  const profileClassSources = [
+    {% for group in config_groups %}{
+      id: {{ group.config.id|tojson }},
+      uid: {{ group.config.uid|tojson }},
+      name: {{ (group.config.name or group.config.uid)|tojson }},
+      classes: [
+        {% for row in group.rows %}{name: {{ row.class.name|tojson }}, display_name: {{ (row.class.display_name or row.class.name)|tojson }}}{% if not loop.last %},{% endif %}
+        {% endfor %}
+      ]
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ];
+  const fieldMetaByKey = {
+    {% for row in class_rows %}"{{ row.key }}": {{ row.field_meta|tojson }}{% if not loop.last %},{% endif %}
+    {% endfor %}
+  };
+  const T = {
+    selected: {{ _('Selected')|tojson }},
+    add: {{ _('Add')|tojson }},
+    classLabel: {{ _('Class')|tojson }},
+    noNodesSelected: {{ _('No nodes selected')|tojson }},
+    noNodeSelected: {{ _('No node selected')|tojson }},
+    oneValue: {{ _('One value is used for this operator.')|tojson }},
+    severalValues: {{ _('Several values are allowed.')|tojson }},
+    search: {{ _('Search...')|tojson }},
+    selectNode: {{ _('Select node')|tojson }},
+    noNodesFound: {{ _('No nodes found')|tojson }},
+    choose: {{ _('Choose')|tojson }},
+    addNode: {{ _('Add node')|tojson }},
+    configuration: {{ _('Configuration')|tojson }}
+  };
+  const nodeLabelCache = {};
+  let activeNodePickRow = null;
+  let activeNodePickTimer = null;
+  let activeNodePickModal = null;
+
+  function esc(s){return String(s ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');}
+  function csvValues(s){return String(s || '').split(/[;,\n]/).map(x=>x.trim()).filter(Boolean);}
+  function sourceIsUseful(src){ return !!(src && Array.isArray(src.classes) && src.classes.length); }
+  function getSource(uid){
+    const raw = String(uid || '');
+    const primary = valueSources.find(c => String(c.uid) === raw || String(c.id) === raw);
+    if(sourceIsUseful(primary)) return primary;
+    const fallback = profileClassSources.find(c => String(c.uid) === raw || String(c.id) === raw);
+    return fallback || primary;
+  }
+  function getAllConfigSources(){
+    const byKey = new Map();
+    [...profileClassSources, ...valueSources].forEach(c => {
+      const key = String(c.uid || c.id || '');
+      if(!key) return;
+      const old = byKey.get(key);
+      if(!old || (!sourceIsUseful(old) && sourceIsUseful(c))) byKey.set(key, c);
+    });
+    return [...byKey.values()];
+  }
+  function isSingleOp(op){return ['=','eq','equal','equals','!=','<>','ne','neq','not_equal','not equal'].includes(String(op || '').toLowerCase());}
+  function isNotEqualOp(op){op=String(op||'').toLowerCase(); return ['!=','<>','ne','neq','not_equal','not equal'].includes(op);}
+  function opLabel(op){
+    op = String(op || 'in').toLowerCase();
+    if(isSingleOp(op)) return isNotEqualOp(op) ? '!=' : '=';
+    return ['not','not_in','not in'].includes(op) ? 'not in list' : 'in list';
+  }
+  function currentKey(row){ return row?.closest('[data-rls-table]')?.getAttribute('data-rls-table') || ''; }
+
+  function registerCodeEditors(){
+    // RLS code editor is a plain textarea now so saving is deterministic.
+  }
+
+  function updateSelectedCounter(){
+    const count = [...document.querySelectorAll('.selected-class-card')].filter(x => !x.classList.contains('d-none')).length;
+    document.getElementById('selectedCount').textContent = String(count);
+    document.getElementById('noSelectedClasses')?.classList.toggle('d-none', count > 0);
+  }
+
+  function setClassSelected(key, selected){
+    const cb = document.getElementById(`class_enabled_${key}`);
+    const card = document.querySelector(`[data-selected-card="${CSS.escape(key)}"]`);
+    const addBtn = document.querySelector(`[data-add-class="${CSS.escape(key)}"]`);
+    if(cb) cb.checked = !!selected;
+    if(card) card.classList.toggle('d-none', !selected);
+    if(addBtn){
+      addBtn.textContent = selected ? T.selected : T.add;
+      addBtn.classList.toggle('btn-outline-secondary', selected);
+      addBtn.classList.toggle('btn-outline-primary', !selected);
+    }
+    updateSelectedCounter();
+  }
+
+  function fillNodeClassSelect(row){
+    const cfgSel = row.querySelector('[data-node-config]');
+    const clsSel = row.querySelector('[data-node-class]');
+    if(!cfgSel || !clsSel) return;
+    const wanted = clsSel.getAttribute('data-selected-class') || clsSel.value || '';
+    const source = getSource(cfgSel.value);
+    clsSel.innerHTML = `<option value="">${esc(T.classLabel)}</option>`;
+    (source?.classes || []).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.name;
+      opt.textContent = c.display_name || c.name;
+      if(c.name === wanted) opt.selected = true;
+      clsSel.appendChild(opt);
+    });
+  }
+
+  function getRowValues(row){ return csvValues(row.querySelector('[data-values-input]')?.value || ''); }
+
+  function setRowValues(row, values){
+    if(!row) return;
+    const op = row.querySelector('[data-operator-select]')?.value || 'in';
+    let arr = [...new Set((values || []).map(v => String(v || '').trim()).filter(Boolean))];
+    if(isSingleOp(op) && arr.length > 1) arr = arr.slice(0, 1);
+    const hidden = row.querySelector('[data-values-input]');
+    const manual = row.querySelector('[data-manual-values]');
+    if(hidden) hidden.value = arr.join(',');
+    if(manual) manual.value = arr.join(isSingleOp(op) ? '' : ', ');
+    renderSelectedNodeValues(row);
+    syncHints(row);
+  }
+
+  function syncManualToHidden(row){
+    const manual = row.querySelector('[data-manual-values]');
+    if(manual) setRowValues(row, csvValues(manual.value || ''));
+  }
+
+  async function resolveNodeLabels(row){
+    const values = getRowValues(row).filter(v => !nodeLabelCache[v]);
+    if(!values.length) { renderSelectedNodeValues(row); return; }
+    const cfg = row.querySelector('[data-node-config]')?.value || '';
+    const cls = row.querySelector('[data-node-class]')?.value || '';
+    if(!cfg || !cls) { renderSelectedNodeValues(row); return; }
+    try{
+      const url = `{{ url_for('api_profile_value_options') }}?config_uid=${encodeURIComponent(cfg)}&class_name=${encodeURIComponent(cls)}&ids=${encodeURIComponent(values.join(','))}&limit=300`;
+      const response = await fetch(url, {credentials:'same-origin'});
+      const rows = await response.json();
+      if(Array.isArray(rows)) rows.forEach(item => {
+        const uid = String(item.uid || item.id || '');
+        if(uid) nodeLabelCache[uid] = item.text || item._view || uid;
+      });
+    }catch(e){ console.warn(e); }
+    renderSelectedNodeValues(row);
+  }
+
+  function renderSelectedNodeValues(row){
+    if(!row) return;
+    const values = getRowValues(row);
+    const single = isSingleOp(row.querySelector('[data-operator-select]')?.value || 'in');
+    row.setAttribute('data-single-op', single ? '1' : '0');
+
+    const singleInput = row.querySelector('[data-node-single-view]');
+    if(singleInput){
+      const v = values[0] || '';
+      singleInput.value = v ? (nodeLabelCache[v] || v) : '';
+      singleInput.title = v ? (nodeLabelCache[v] || v) : '';
+    }
+
+    const box = row.querySelector('[data-selected-node-values]');
+    if(!box) return;
+    box.innerHTML = '';
+    if(!values.length){
+      const empty = document.createElement('span');
+      empty.className = 'text-muted small';
+      empty.textContent = T.noNodesSelected;
+      box.appendChild(empty);
+      return;
+    }
+    values.forEach(v => {
+      const pill = document.createElement('span');
+      pill.className = 'rls-value-pill';
+      pill.setAttribute('data-node-pill', v);
+      pill.innerHTML = `<span title="${esc(nodeLabelCache[v] || v)}">${esc(nodeLabelCache[v] || v)}</span><button class="btn-close btn-close-sm" type="button" aria-label="Remove" data-remove-node-value="${esc(v)}"></button>`;
+      box.appendChild(pill);
+    });
+  }
+
+  function syncHints(row){
+    const op = row.querySelector('[data-operator-select]')?.value || 'in';
+    const manualHint = row.querySelector('[data-values-hint]');
+    const nodeHint = row.querySelector('[data-node-values-hint]');
+    const text = isSingleOp(op) ? T.oneValue : T.severalValues;
+    if(manualHint) manualHint.textContent = text;
+    if(nodeHint) nodeHint.textContent = text;
+  }
+
+  function syncRuleRow(row){
+    if(!row) return;
+    const typeSel = row.querySelector('[data-value-type-select]');
+    const valueType = typeSel?.value || 'string';
+    row.setAttribute('data-value-type', valueType);
+    row.setAttribute('data-single-op', isSingleOp(row.querySelector('[data-operator-select]')?.value || 'in') ? '1' : '0');
+    if(valueType === 'node'){
+      fillNodeClassSelect(row);
+      setRowValues(row, getRowValues(row));
+      resolveNodeLabels(row);
+    }else{
+      syncManualToHidden(row);
+    }
+  }
+
+  function applyFieldTypeFromMeta(row, key){
+    const field = row.querySelector('[data-rls-field]')?.value || '';
+    const meta = (fieldMetaByKey[key] || []).find(x => x.name === field);
+    if(!meta) return;
+    const typeSel = row.querySelector('[data-value-type-select]');
+    if(typeSel && meta.type){
+      typeSel.value = ['node','number','boolean','date'].includes(meta.type) ? meta.type : 'string';
+    }
+    if(meta.type === 'node' && meta.ref_class){
+      const cfgSel = row.querySelector('[data-node-config]');
+      const clsSel = row.querySelector('[data-node-class]');
+      if(cfgSel && !cfgSel.value){
+        const selectedCard = row.closest('[data-selected-card]');
+        const configId = selectedCard?.getAttribute('data-config-id');
+        const source = getSource(configId);
+        if(source) cfgSel.value = source.uid || source.id || '';
+      }
+      fillNodeClassSelect(row);
+      if(clsSel) { clsSel.value = meta.ref_class; clsSel.setAttribute('data-selected-class', meta.ref_class); }
+    }
+    syncRuleRow(row);
+  }
+
+  function operatorOptionsHtml(op){
+    op = String(op || 'in').toLowerCase();
+    return `<option value="in" ${op==='in'?'selected':''}>{{ _('in list') }}</option><option value="not_in" ${['not','not_in','not in'].includes(op)?'selected':''}>{{ _('not in list') }}</option><option value="=" ${['=','eq','equal','equals'].includes(op)?'selected':''}>=</option><option value="!=" ${['!=','<>','ne','neq','not_equal','not equal'].includes(op)?'selected':''}>!=</option>`;
+  }
+
+  function valueTypeOptionsHtml(valueType){
+    valueType = String(valueType || 'string').toLowerCase();
+    return `<option value="string" ${['string','str','text',''].includes(valueType)?'selected':''}>{{ _('String') }}</option><option value="number" ${['number','numeric','int','integer','float'].includes(valueType)?'selected':''}>{{ _('Number') }}</option><option value="boolean" ${['boolean','bool'].includes(valueType)?'selected':''}>{{ _('Boolean') }}</option><option value="date" ${['date','datetime'].includes(valueType)?'selected':''}>{{ _('Date') }}</option><option value="node" ${['node','nodelink','nodeinput'].includes(valueType)?'selected':''}>{{ _('Node class') }}</option>`;
+  }
+
+  function nodeControlsHtml(key, values, refClassName){
+    return `
+      <input type="hidden" name="rls_values_${esc(key)}" value="${esc(values || '')}" data-values-input>
+      <div class="rls-manual-values-wrap"><input class="form-control form-control-sm rls-manual-values" value="${esc(values || '')}" data-manual-values><div class="form-text" data-values-hint></div></div>
+      <div class="rls-node-controls mt-1">
+        <div class="rls-node-source"><select class="form-select form-select-sm" name="rls_ref_config_uid_${esc(key)}" data-node-config><option value="">${esc(T.configuration)}</option>${getAllConfigSources().map(c=>`<option value="${esc(c.uid || c.id || '')}">${esc(c.name)}</option>`).join('')}</select><select class="form-select form-select-sm" name="rls_ref_class_name_${esc(key)}" data-node-class data-selected-class="${esc(refClassName || '')}"><option value="">${esc(T.classLabel)}</option></select></div>
+        <div class="rls-node-single-wrap input-group input-group-sm mb-2"><input class="form-control" readonly placeholder="${esc(T.noNodeSelected)}" data-node-single-view><button class="btn btn-outline-secondary" type="button" data-open-node-picker>${esc(T.choose)}</button><button class="btn btn-outline-secondary" type="button" data-clear-node-single>&times;</button></div>
+        <div class="rls-node-list-wrap"><div class="rls-selected-values" data-selected-node-values></div><button class="btn btn-sm btn-outline-primary" type="button" data-open-node-picker>${esc(T.addNode)}</button></div>
+        <div class="form-text" data-node-values-hint></div>
+      </div>`;
+  }
+
+  function addRuleRow(key, field, op, valueType, values, refConfigUid, refClassName){
+    const table = document.querySelector(`[data-rls-table="${CSS.escape(key)}"] tbody`);
+    if(!table) return;
+    const tr = document.createElement('tr');
+    tr.setAttribute('data-value-type', valueType || 'string');
+    tr.setAttribute('data-single-op', isSingleOp(op) ? '1' : '0');
+    tr.innerHTML = `
+      <td><input class="form-control form-control-sm" list="fields_${esc(key)}" name="rls_field_${esc(key)}" value="${esc(field || '')}" data-rls-field></td>
+      <td><select class="form-select form-select-sm" name="rls_op_${esc(key)}" data-operator-select>${operatorOptionsHtml(op)}</select></td>
+      <td><select class="form-select form-select-sm" name="rls_value_type_${esc(key)}" data-value-type-select>${valueTypeOptionsHtml(valueType)}</select></td>
+      <td class="rls-values-cell">${nodeControlsHtml(key, values || '', refClassName || '')}</td>
+      <td><button class="btn btn-sm btn-outline-danger" type="button" data-remove-rule>&times;</button></td>`;
+    table.appendChild(tr);
+    const cfgSel = tr.querySelector('[data-node-config]');
+    if(cfgSel) cfgSel.value = refConfigUid || '';
+    setRowValues(tr, csvValues(values || ''));
+    syncRuleRow(tr);
+  }
+
+  function syncAllRows(){
+    document.querySelectorAll('[data-rls-table] tbody tr').forEach(row => {
+      if(row.getAttribute('data-value-type') !== 'node') syncManualToHidden(row);
+      setRowValues(row, getRowValues(row));
+    });
+  }
+
+  function readRules(key){
+    syncAllRows();
+    const table = document.querySelector(`[data-rls-table="${CSS.escape(key)}"] tbody`);
+    const rules = [];
+    if(!table) return rules;
+    table.querySelectorAll('tr').forEach(tr => {
+      const field = tr.querySelector(`[name="rls_field_${CSS.escape(key)}"]`)?.value?.trim() || '';
+      if(!field) return;
+      const op = tr.querySelector(`[name="rls_op_${CSS.escape(key)}"]`)?.value || 'in';
+      const value_type = tr.querySelector(`[name="rls_value_type_${CSS.escape(key)}"]`)?.value || 'string';
+      const ref_config_uid = tr.querySelector(`[name="rls_ref_config_uid_${CSS.escape(key)}"]`)?.value || '';
+      const ref_class_name = tr.querySelector(`[name="rls_ref_class_name_${CSS.escape(key)}"]`)?.value || '';
+      const values = getRowValues(tr);
+      rules.push({field, op, value_type, ref_config_uid, ref_class_name, values});
+    });
+    return rules;
+  }
+
+  function pyString(s){return JSON.stringify(String(s ?? ''));}
+  function pyList(arr){return JSON.stringify(arr || []);}
+
+  function generatedCode(rules){
+    const compact = (rules || []).filter(r => r.field).map(r => {
+      const op = r.op || 'in';
+      const vals = isSingleOp(op) ? (r.values || []).slice(0,1) : (r.values || []);
+      return {...r, values: vals};
+    });
+    const lines = [
+      '# Generated from the RLS table. You may edit this code.',
+      '# Context/signature:',
+      '#   data / _data  - current node data dict',
+      '#   node_id / _id  - current node id',
+      '#   config_uid, class_name, profile, _system_user',
+      '# Helpers: _rls_get(data, path), _rls_norm(value, type)',
+      'rules = ' + JSON.stringify(compact, null, 4),
+      '',
+      'result = True'
+    ];
+    compact.forEach((rule, idx) => {
+      const field = rule.field || '';
+      const vt = rule.value_type || 'string';
+      const op = String(rule.op || 'in').toLowerCase();
+      const vals = rule.values || [];
+      lines.push('');
+      lines.push(`# Rule ${idx + 1}: ${field} ${opLabel(op)} ${JSON.stringify(vals)}`);
+      lines.push(`actual = _rls_norm(_rls_get(data, ${pyString(field)}), ${pyString(vt)})`);
+      if(['=','eq','equal','equals'].includes(op)){
+        lines.push(`expected = _rls_norm(${pyString(vals[0] || '')}, ${pyString(vt)})`);
+        lines.push('if result and actual != expected:');
+        lines.push('    result = False');
+      }else if(['!=','<>','ne','neq','not_equal','not equal'].includes(op)){
+        lines.push(`forbidden = _rls_norm(${pyString(vals[0] || '')}, ${pyString(vt)})`);
+        lines.push('if result and actual == forbidden:');
+        lines.push('    result = False');
+      }else if(['not','not_in','not in'].includes(op)){
+        lines.push(`forbidden_values = [_rls_norm(x, ${pyString(vt)}) for x in ${pyList(vals)}]`);
+        lines.push('if result and actual in forbidden_values:');
+        lines.push('    result = False');
+      }else{
+        lines.push(`allowed_values = [_rls_norm(x, ${pyString(vt)}) for x in ${pyList(vals)}]`);
+        lines.push('if result and actual not in allowed_values:');
+        lines.push('    result = False');
+      }
+    });
+    return lines.join('\n') + '\n';
+  }
+
+  function setEditorValue(key, value){
+    const el = document.querySelector(`[data-code-editor="${CSS.escape(key)}"]`);
+    if(!el) return;
+    el.value = value;
+    try { el.textContent = value; } catch(e) {}
+  }
+
+  function ensureRlsNodePickModal(){
+    let m = document.getElementById('rlsNodePickModal');
+    if(m) return m;
+    const html = `
+<div class="modal fade" id="rlsNodePickModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">${esc(T.selectNode)}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <input id="rlsNodePickSearch" class="form-control" type="text" placeholder="${esc(T.search)}">
+        <div id="rlsNodePickList" class="rls-node-pick-list mt-3"></div>
+      </div>
+    </div>
+  </div>
+</div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    return document.getElementById('rlsNodePickModal');
+  }
+
+  async function fetchNodeOptions(row, q){
+    const cfg = row.querySelector('[data-node-config]')?.value || '';
+    const cls = row.querySelector('[data-node-class]')?.value || '';
+    if(!cfg || !cls) return [];
+    const url = `{{ url_for('api_profile_value_options') }}?config_uid=${encodeURIComponent(cfg)}&class_name=${encodeURIComponent(cls)}&q=${encodeURIComponent(q || '')}&limit=100`;
+    const response = await fetch(url, {credentials:'same-origin'});
+    const rows = await response.json();
+    if(!Array.isArray(rows)) return [];
+    rows.forEach(item => {
+      const uid = String(item.uid || item.id || '');
+      if(uid) nodeLabelCache[uid] = item.text || item._view || uid;
+    });
+    return rows;
+  }
+
+  function renderPickerItems(items){
+    const list = document.getElementById('rlsNodePickList');
+    if(!list) return;
+    list.innerHTML = '';
+    if(!items.length){
+      const div = document.createElement('div');
+      div.className = 'text-muted';
+      div.textContent = T.noNodesFound;
+      list.appendChild(div);
+      return;
+    }
+    items.forEach(item => {
+      const uid = String(item.uid || item.id || '');
+      if(!uid) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-outline-secondary rls-node-pick-card';
+      const cov = String(item.cover_html || '').trim();
+      if(cov) btn.innerHTML = cov;
+      else btn.textContent = item.text || item._view || uid;
+      btn.addEventListener('click', () => {
+        if(!activeNodePickRow) return;
+        const values = getRowValues(activeNodePickRow);
+        if(isSingleOp(activeNodePickRow.querySelector('[data-operator-select]')?.value)) setRowValues(activeNodePickRow, [uid]);
+        else { values.push(uid); setRowValues(activeNodePickRow, values); }
+        activeNodePickModal?.hide();
+      });
+      list.appendChild(btn);
+    });
+  }
+
+  async function openRlsNodePicker(row){
+    if(!row) return;
+    activeNodePickRow = row;
+    const modalEl = ensureRlsNodePickModal();
+    const search = document.getElementById('rlsNodePickSearch');
+    const cfg = row.querySelector('[data-node-config]')?.value || '';
+    const cls = row.querySelector('[data-node-class]')?.value || '';
+    const title = modalEl.querySelector('.modal-title');
+    if(title) title.textContent = cls ? `${T.selectNode}: ${cls}` : T.selectNode;
+    activeNodePickModal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    activeNodePickModal.show();
+    if(search){
+      search.value = '';
+      search.oninput = () => {
+        if(activeNodePickTimer) clearTimeout(activeNodePickTimer);
+        activeNodePickTimer = setTimeout(async () => renderPickerItems(await fetchNodeOptions(row, search.value || '')), 200);
+      };
+      setTimeout(() => search.focus(), 150);
+    }
+    renderPickerItems(await fetchNodeOptions(row, ''));
+  }
+
+  const form = document.getElementById('profileAccessForm');
+  if(form){
+    form.addEventListener('submit', function(){
+      syncAllRows();
+      form.querySelectorAll('textarea[data-code-editor]').forEach(el => {
+        el.value = String(el.value || '').replace(/^\s+/, '');
+      });
+    });
+  }
+
+  document.getElementById('availableConfigSelect')?.addEventListener('change', function(){
+    document.querySelectorAll('[data-available-config]').forEach(x => x.style.display = x.getAttribute('data-available-config') === this.value ? '' : 'none');
+  });
+
+  document.addEventListener('click', function(e){
+    const addClass = e.target.closest('[data-add-class]');
+    if(addClass){ setClassSelected(addClass.getAttribute('data-add-class'), true); }
+
+    const remClass = e.target.closest('[data-remove-class]');
+    if(remClass){ setClassSelected(remClass.getAttribute('data-remove-class'), false); }
+
+    const rem = e.target.closest('[data-remove-rule]');
+    if(rem){
+      const tbody = rem.closest('tbody');
+      rem.closest('tr')?.remove();
+      if(tbody && tbody.children.length === 0){
+        const table = tbody.closest('[data-rls-table]');
+        if(table) addRuleRow(table.getAttribute('data-rls-table'), '', 'in', 'string', '', '', '');
+      }
+    }
+    const add = e.target.closest('[data-add-rule]');
+    if(add){ addRuleRow(add.getAttribute('data-add-rule'), '', 'in', 'string', '', '', ''); }
+    const gen = e.target.closest('[data-generate-code]');
+    if(gen){
+      const key = gen.getAttribute('data-generate-code');
+      setEditorValue(key, generatedCode(readRules(key)));
+    }
+    const openPicker = e.target.closest('[data-open-node-picker]');
+    if(openPicker){ openRlsNodePicker(openPicker.closest('tr')); }
+    const clearSingle = e.target.closest('[data-clear-node-single]');
+    if(clearSingle){ setRowValues(clearSingle.closest('tr'), []); }
+    const removeNode = e.target.closest('[data-remove-node-value]');
+    if(removeNode){
+      const row = removeNode.closest('tr');
+      const val = removeNode.getAttribute('data-remove-node-value');
+      setRowValues(row, getRowValues(row).filter(x => x !== val));
+    }
+  });
+
+  document.addEventListener('change', function(e){
+    const cardCb = e.target.closest('.class-enabled');
+    if(cardCb){ setClassSelected(cardCb.id.replace('class_enabled_', ''), cardCb.checked); }
+
+    const opSel = e.target.closest('[data-operator-select]');
+    if(opSel){ setRowValues(opSel.closest('tr'), getRowValues(opSel.closest('tr'))); }
+
+    const typeSel = e.target.closest('[data-value-type-select]');
+    if(typeSel){ syncRuleRow(typeSel.closest('tr')); }
+
+    const fieldInput = e.target.closest('[data-rls-field]');
+    if(fieldInput){
+      const table = fieldInput.closest('[data-rls-table]');
+      if(table) applyFieldTypeFromMeta(fieldInput.closest('tr'), table.getAttribute('data-rls-table'));
+    }
+
+    const cfgSel = e.target.closest('[data-node-config]');
+    if(cfgSel){
+      const row = cfgSel.closest('tr');
+      const clsSel = row.querySelector('[data-node-class]');
+      if(clsSel) clsSel.setAttribute('data-selected-class', '');
+      setRowValues(row, []);
+      fillNodeClassSelect(row);
+      renderSelectedNodeValues(row);
+    }
+
+    const clsSel = e.target.closest('[data-node-class]');
+    if(clsSel){
+      clsSel.setAttribute('data-selected-class', clsSel.value || '');
+      setRowValues(clsSel.closest('tr'), []);
+    }
+
+    const manual = e.target.closest('[data-manual-values]');
+    if(manual){ syncManualToHidden(manual.closest('tr')); }
+  });
+
+  document.querySelectorAll('[data-manual-values]').forEach(el => el.addEventListener('input', () => syncManualToHidden(el.closest('tr'))));
+  document.querySelectorAll('[data-value-type-select]').forEach(sel => syncRuleRow(sel.closest('tr')));
+
+  const profileForm = document.querySelector('form[method="POST"]');
+  const saveOverlay = document.getElementById('profileSaveOverlay');
+  if(profileForm){
+    profileForm.addEventListener('submit', function(e){
+      if(profileForm.dataset.submitting === '1'){ e.preventDefault(); return false; }
+      profileForm.dataset.submitting = '1';
+      if(saveOverlay) saveOverlay.style.display = 'flex';
+      profileForm.querySelectorAll('button[type="submit"]').forEach(btn => {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>' + {{ _('Saving...')|tojson }};
+      });
+    });
+  }
+
+  updateSelectedCounter();
+  registerCodeEditors();
+})();
+</script>
+{% endblock %}

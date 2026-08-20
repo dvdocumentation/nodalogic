@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('Demo products') }} · NodaLogic{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+    <div>
+      <h2 class="mb-1">{{ _('Demo products') }}</h2>
+      <div class="text-muted">{{ _('Choose a ready configuration. It will be installed in Designer and added to your repository immediately.') }}</div>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('choose_mode') }}"><i class="bi bi-arrow-left"></i> {{ _('Back') }}</a>
+  </div>
+
+  <div class="row g-3">
+    {% for product in products %}
+      {% set product_key = product.content_uid or product.uid %}
+      {% set installed = (product_key|string) in installed_content_uids %}
+      <div class="col-12 col-lg-6">
+        <div class="card h-100 shadow-sm">
+          <div class="card-body d-flex flex-column">
+            <div class="d-flex justify-content-between align-items-start gap-3">
+              <div>
+                <h4 class="mb-1">{{ product.name }}</h4>
+                <div class="text-muted small">{{ product.vendor or '' }}</div>
+              </div>
+              <span class="badge text-bg-light border">{{ product.version or '' }}</span>
+            </div>
+            <div class="small text-muted mt-3"><code>{{ product.content_uid }}</code></div>
+            <div class="mt-auto pt-4 d-flex gap-2 align-items-center">
+              <form method="POST" action="{{ url_for('demo_products_install', source_uid=product.uid) }}">
+                <button class="btn btn-primary" type="submit">
+                  <i class="bi bi-box-arrow-in-down"></i>
+                  {{ _('Update product') if installed else _('Install product') }}
+                </button>
+              </form>
+              {% if installed %}<span class="text-success small"><i class="bi bi-check-circle"></i> {{ _('Installed') }}</span>{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    {% else %}
+      <div class="col-12"><div class="alert alert-info">{{ _('No demo products are published yet.') }}</div></div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

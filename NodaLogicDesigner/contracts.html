@@ -1,0 +1,470 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('Contracts') }} · NodaLogic{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="row justify-content-center">
+    <div class="col-xl-10 col-lg-11">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+        <div>
+          <h2 class="mb-1">{{ _('Contracts') }}</h2>
+          <div class="text-muted small">{{ _('Manage public contract links, delivery settings and QR codes.') }}</div>
+        </div>
+        <div class="d-flex gap-2">
+          <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> {{ _('Back') }}
+          </a>
+          <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#contractCreateModal">
+            <i class="bi bi-plus-circle"></i> {{ _('Create contract') }}
+          </button>
+        </div>
+      </div>
+
+      {% if contracts %}
+      <div class="list-group shadow-sm">
+        {% for contract_item in contracts %}
+        {% set contract = contract_item.model %}
+        <div class="list-group-item py-3">
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div class="flex-grow-1" style="min-width: 280px;">
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                <h5 class="mb-0">{{ contract.display_name or contract.name }}</h5>
+                <span class="badge text-bg-light border">{{ contract.source_type }}</span>
+                {% if contract_item.object_count is not none %}
+                <span class="badge text-bg-primary">{{ _("%(count)s objects", count=contract_item.object_count) }}</span>
+                {% else %}
+                <span class="badge text-bg-secondary">{{ _('Count on download') }}</span>
+                {% endif %}
+              </div>
+              <div class="text-muted small mb-2">{{ contract.name }}</div>
+              <div class="small mb-1"><strong>{{ _('Download URL') }}:</strong> <code class="text-break">{{ url_for('contract_download', contract_uid=contract.uid, _external=True) }}</code></div>
+             
+              <div class="small mb-2">
+  <strong>{{ _('Push URL') }}:</strong>
+  <code class="text-break">{{ url_for('contract_push', contract_uid=contract.uid, _external=True) }}</code>
+</div>
+
+              <div class="row row-cols-1 row-cols-md-2 g-2 small text-muted">
+                <div class="col-12"><strong>{{ _('Source classes') }}:</strong>
+                  {% set refs = contract.source_classes_json or ([{'config_uid': contract.source_config_uid, 'class_name': contract.class_name}] if contract.source_config_uid and contract.class_name else []) %}
+                  {% if refs %}
+                    {% for ref in refs %}<code>{{ ref.config_uid }}${{ ref.class_name }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+                  {% else %}—{% endif %}
+                </div>
+                <div class="col"><strong>{{ _('Global index name') }}:</strong> {{ contract.global_index_name or '—' }}</div>
+                <div class="col"><strong>{{ _('Global index value') }}:</strong> {{ contract.global_index_value or '—' }}</div>
+              </div>
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 justify-content-end">
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-primary"
+                data-bs-toggle="modal"
+                data-bs-target="#contractEditModal"
+                data-contract='{{ {
+                  "uid": contract.uid,
+                  "name": contract.name or "",
+                  "display_name": contract.display_name or "",
+                  "source_type": contract.source_type or "class",
+                  "source_config_uid": contract.source_config_uid or "",
+                  "class_name": contract.class_name or "",
+                  "source_classes": contract.source_classes_json or ([{"config_uid": contract.source_config_uid, "class_name": contract.class_name}] if contract.source_config_uid and contract.class_name else []),
+                  "global_index_name": contract.global_index_name or "",
+                  "global_index_value": contract.global_index_value or "",
+                  "download_url": url_for("contract_download", contract_uid=contract.uid, _external=True),
+                  "ack_url": url_for("contract_ack", contract_uid=contract.uid, _external=True),
+                  "add_url": url_for("contract_add_info", contract_uid=contract.uid, _external=True)
+                } | tojson | forceescape }}'>
+                <i class="bi bi-pencil"></i> {{ _('Edit') }}
+              </button>
+
+              {% if contract.source_type == 'class' %}
+              <form method="POST" action="{{ url_for('contracts_recreate_nodes', contract_uid=contract.uid) }}" class="d-inline" onsubmit="return confirm({{ _('Recreate nodes for this contract?') | tojson }});">
+                <button type="submit" class="btn btn-sm btn-outline-success">
+                  <i class="bi bi-arrow-repeat"></i> {{ _('Recreate nodes') }}
+                </button>
+              </form>
+              {% endif %}
+
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-secondary"
+                data-bs-toggle="modal"
+                data-bs-target="#contractQrModal"
+                data-contract='{{ {
+                  "uid": contract.uid,
+                  "name": contract.name or "",
+                  "display_name": contract.display_name or "",
+                  "download_url": url_for("contract_download", contract_uid=contract.uid, _external=True),
+                  "ack_url": url_for("contract_ack", contract_uid=contract.uid, _external=True),
+                  "add_url": url_for("contract_add_info", contract_uid=contract.uid, _external=True),
+                  "qr_url": url_for("contracts_qr", contract_uid=contract.uid)
+                } | tojson | forceescape }}'>
+                <i class="bi bi-qr-code"></i> QR
+              </button>
+
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-danger"
+                data-bs-toggle="modal"
+                data-bs-target="#contractDeleteModal"
+                data-contract='{{ {"uid": contract.uid, "name": contract.name or "", "display_name": contract.display_name or ""} | tojson | forceescape }}'>
+                <i class="bi bi-trash"></i> {{ _('Delete') }}
+              </button>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="alert alert-info text-center shadow-sm">
+        <i class="bi bi-info-circle"></i> {{ _('No contracts yet.') }}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% macro contract_form(modal_id, form_action, submit_label, contract=None) %}
+<form method="POST" action="{{ form_action }}" id="{{ modal_id }}Form">
+  <div class="modal fade" id="{{ modal_id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ submit_label }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">{{ _('Name') }}</label>
+              <input type="text" class="form-control" name="name" value="{{ contract.name if contract else '' }}" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">{{ _('Display name') }}</label>
+              <input type="text" class="form-control" name="display_name" value="{{ contract.display_name if contract else '' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">{{ _('Source type') }}</label>
+              <select class="form-select js-contract-source-type" name="source_type">
+                {% set source_type = contract.source_type if contract else 'class' %}
+                <option value="class" {% if source_type == 'class' %}selected{% endif %}>class</option>
+                <option value="global_index" {% if source_type == 'global_index' %}selected{% endif %}>global_index</option>
+                <option value="external_only" {% if source_type == 'external_only' %}selected{% endif %}>external_only</option>
+              </select>
+            </div>
+            <div class="col-12 js-contract-class-table-wrap">
+              <label class="form-label">{{ _('Source classes') }}</label>
+              <textarea class="d-none js-contract-source-classes-text" name="source_classes_text">{% if contract %}{% set refs = contract.source_classes_json or ([{'config_uid': contract.source_config_uid, 'class_name': contract.class_name}] if contract.source_config_uid and contract.class_name else []) %}{% for ref in refs %}{{ ref.config_uid }}${{ ref.class_name }}{% if not loop.last %}&#10;{% endif %}{% endfor %}{% endif %}</textarea>
+              <div class="table-responsive border rounded">
+                <table class="table table-sm align-middle mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th style="width: 48%;">{{ _('Configuration') }}</th>
+                      <th style="width: 42%;">{{ _('Class') }}</th>
+                      <th class="text-end" style="width: 10%;">{{ _('Actions') }}</th>
+                    </tr>
+                  </thead>
+                  <tbody class="js-contract-class-rows"></tbody>
+                </table>
+              </div>
+              <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+                <button type="button" class="btn btn-sm btn-outline-primary js-contract-add-class-row">
+                  <i class="bi bi-plus-circle"></i> {{ _('Add class') }}
+                </button>
+                <div class="form-text mb-0">{{ _('For source_type=class, push expands each incoming object to every selected class. For global_index, the first row is used.') }}</div>
+              </div>
+            </div>
+            <div class="col-md-3 js-contract-index-wrap">
+              <label class="form-label">{{ _('Global index name') }}</label>
+              <input type="text" class="form-control" name="global_index_name" value="{{ contract.global_index_name if contract else '' }}">
+            </div>
+            <div class="col-md-3 js-contract-index-wrap">
+              <label class="form-label">{{ _('Global index value') }}</label>
+              <input type="text" class="form-control" name="global_index_value" value="{{ contract.global_index_value if contract else '' }}">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+          <button type="submit" class="btn btn-primary">{{ submit_label }}</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</form>
+{% endmacro %}
+
+{{ contract_form('contractCreateModal', url_for('contracts_create'), _('Create contract')) }}
+{{ contract_form('contractEditModal', url_for('contracts_update', contract_uid='__UID__'), _('Save changes')) }}
+
+<div class="modal fade" id="contractDeleteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('contracts_delete', contract_uid='__UID__') }}" id="contractDeleteForm">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _('Delete contract') }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-0">{{ _('Delete contract') }} <strong id="contractDeleteName"></strong>?</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+          <button type="submit" class="btn btn-danger">{{ _('Delete') }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="contractQrModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">{{ _('Contract QR code') }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-4 align-items-start">
+          <div class="col-md-5 text-center">
+            <img id="contractQrImage" src="" alt="QR" class="img-fluid border rounded p-2 bg-white shadow-sm">
+          </div>
+          <div class="col-md-7">
+            <div class="mb-2"><strong>{{ _('Add URL') }}:</strong> <code id="contractQrAddUrl" class="text-break"></code></div>
+            <div class="mb-2"><strong>{{ _('Payload') }}:</strong></div>
+            <pre id="contractQrPayload" class="border rounded bg-light p-3 small mb-0" style="white-space: pre-wrap;"></pre>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _('Close') }}</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+const contractClassMap = {{ config_classes | tojson }};
+const contractConfigs = {{ configs | map(attribute='uid') | list | tojson }};
+const contractConfigOptions = [
+  {% for cfg in configs %}
+  {uid: {{ cfg.uid | tojson }}, label: {{ (cfg.name ~ ' (' ~ cfg.uid ~ ')') | tojson }}}{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
+
+function buildConfigSelect(select, currentValue) {
+  select.innerHTML = '';
+  const emptyOpt = document.createElement('option');
+  emptyOpt.value = '';
+  emptyOpt.textContent = {{ _('Select configuration') | tojson }};
+  select.appendChild(emptyOpt);
+  contractConfigOptions.forEach((cfg) => {
+    const opt = document.createElement('option');
+    opt.value = cfg.uid || '';
+    opt.textContent = cfg.label || cfg.uid || '';
+    if ((currentValue || '') === opt.value) opt.selected = true;
+    select.appendChild(opt);
+  });
+  if (currentValue && !contractConfigOptions.some((cfg) => cfg.uid === currentValue)) {
+    const opt = document.createElement('option');
+    opt.value = currentValue;
+    opt.textContent = currentValue;
+    opt.selected = true;
+    select.appendChild(opt);
+  }
+}
+
+function buildClassSelect(select, configUid, currentValue) {
+  const classes = Array.isArray(contractClassMap[configUid]) ? contractClassMap[configUid] : [];
+  select.innerHTML = '';
+  const emptyOpt = document.createElement('option');
+  emptyOpt.value = '';
+  emptyOpt.textContent = {{ _('Select class') | tojson }};
+  select.appendChild(emptyOpt);
+  classes.forEach((name) => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    if ((currentValue || '') === name) opt.selected = true;
+    select.appendChild(opt);
+  });
+  if (currentValue && !classes.includes(currentValue)) {
+    const opt = document.createElement('option');
+    opt.value = currentValue;
+    opt.textContent = currentValue;
+    opt.selected = true;
+    select.appendChild(opt);
+  }
+}
+
+function readRefsFromText(text) {
+  return (text || '')
+    .split(/[\r\n,;]+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const sep = line.includes('$') ? '$' : (line.includes(':') ? ':' : null);
+      if (!sep) return null;
+      const parts = line.split(sep);
+      return {config_uid: (parts[0] || '').trim(), class_name: (parts.slice(1).join(sep) || '').trim()};
+    })
+    .filter((ref) => ref && ref.config_uid && ref.class_name);
+}
+
+function addContractClassRow(formEl, ref = {}) {
+  const tbody = formEl.querySelector('.js-contract-class-rows');
+  if (!tbody) return null;
+  const tr = document.createElement('tr');
+  tr.className = 'js-contract-class-row';
+  tr.innerHTML = `
+    <td><select class="form-select form-select-sm js-contract-row-config"></select></td>
+    <td><select class="form-select form-select-sm js-contract-row-class"></select></td>
+    <td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger js-contract-remove-class-row" title="{{ _('Remove') }}"><i class="bi bi-x-lg"></i></button></td>
+  `;
+  const cfgSelect = tr.querySelector('.js-contract-row-config');
+  const classSelect = tr.querySelector('.js-contract-row-class');
+  buildConfigSelect(cfgSelect, ref.config_uid || ref.source_config_uid || '');
+  buildClassSelect(classSelect, cfgSelect.value || '', ref.class_name || ref.name || '');
+  cfgSelect.addEventListener('change', () => {
+    buildClassSelect(classSelect, cfgSelect.value || '', '');
+    syncContractClassRows(formEl);
+  });
+  classSelect.addEventListener('change', () => syncContractClassRows(formEl));
+  tr.querySelector('.js-contract-remove-class-row')?.addEventListener('click', () => {
+    tr.remove();
+    ensureContractClassRow(formEl);
+    syncContractClassRows(formEl);
+  });
+  tbody.appendChild(tr);
+  syncContractClassRows(formEl);
+  return tr;
+}
+
+function getContractClassRefs(formEl) {
+  const refs = [];
+  formEl.querySelectorAll('.js-contract-class-row').forEach((row) => {
+    const config_uid = (row.querySelector('.js-contract-row-config')?.value || '').trim();
+    const class_name = (row.querySelector('.js-contract-row-class')?.value || '').trim();
+    if (config_uid && class_name) refs.push({config_uid, class_name});
+  });
+  return refs;
+}
+
+function syncContractClassRows(formEl) {
+  const hidden = formEl.querySelector('textarea[name="source_classes_text"]');
+  if (!hidden) return;
+  const seen = new Set();
+  const lines = [];
+  getContractClassRefs(formEl).forEach((ref) => {
+    const key = `${ref.config_uid}$${ref.class_name}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    lines.push(key);
+  });
+  hidden.value = lines.join('\n');
+}
+
+function ensureContractClassRow(formEl) {
+  const tbody = formEl.querySelector('.js-contract-class-rows');
+  if (tbody && tbody.children.length === 0) addContractClassRow(formEl, {});
+}
+
+function setContractClassRows(formEl, refs) {
+  const tbody = formEl.querySelector('.js-contract-class-rows');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  const cleanRefs = Array.isArray(refs) ? refs.filter((ref) => (ref.config_uid || ref.source_config_uid) && (ref.class_name || ref.name)) : [];
+  if (cleanRefs.length) {
+    cleanRefs.forEach((ref) => addContractClassRow(formEl, ref));
+  } else {
+    const hidden = formEl.querySelector('textarea[name="source_classes_text"]');
+    readRefsFromText(hidden ? hidden.value : '').forEach((ref) => addContractClassRow(formEl, ref));
+    ensureContractClassRow(formEl);
+  }
+  syncContractClassRows(formEl);
+}
+
+function syncContractFormVisibility(formEl) {
+  const sourceType = (formEl.querySelector('.js-contract-source-type') || {}).value || 'class';
+  const classTableWrap = formEl.querySelector('.js-contract-class-table-wrap');
+  const indexWraps = formEl.querySelectorAll('.js-contract-index-wrap');
+  const useClassRefs = sourceType === 'class' || sourceType === 'global_index';
+  const useIndex = sourceType === 'global_index';
+
+  if (classTableWrap) classTableWrap.style.display = useClassRefs ? '' : 'none';
+  indexWraps.forEach((el) => { el.style.display = useIndex ? '' : 'none'; });
+  formEl.querySelectorAll('.js-contract-row-config, .js-contract-row-class, .js-contract-add-class-row, .js-contract-remove-class-row').forEach((el) => {
+    el.disabled = !useClassRefs;
+  });
+  formEl.querySelectorAll('input[name="global_index_name"], input[name="global_index_value"]').forEach((el) => {
+    el.disabled = !useIndex;
+  });
+  if (useClassRefs) ensureContractClassRow(formEl);
+  syncContractClassRows(formEl);
+}
+
+function initContractForm(formEl) {
+  if (!formEl) return;
+  setContractClassRows(formEl, []);
+  syncContractFormVisibility(formEl);
+  formEl.querySelector('.js-contract-add-class-row')?.addEventListener('click', () => addContractClassRow(formEl, {}));
+  const sourceType = formEl.querySelector('.js-contract-source-type');
+  if (sourceType) {
+    sourceType.addEventListener('change', () => syncContractFormVisibility(formEl));
+  }
+  formEl.addEventListener('submit', () => syncContractClassRows(formEl));
+}
+
+document.querySelectorAll('#contractCreateModalForm, #contractEditModalForm').forEach(initContractForm);
+
+document.getElementById('contractEditModal')?.addEventListener('show.bs.modal', function (event) {
+  const btn = event.relatedTarget;
+  if (!btn) return;
+  const raw = btn.getAttribute('data-contract');
+  if (!raw) return;
+  const data = JSON.parse(raw);
+  const form = document.getElementById('contractEditModalForm');
+  form.action = {{ url_for('contracts_update', contract_uid='__UID__') | tojson }}.replace('__UID__', data.uid);
+  form.querySelector('input[name="name"]').value = data.name || '';
+  form.querySelector('input[name="display_name"]').value = data.display_name || '';
+  form.querySelector('select[name="source_type"]').value = data.source_type || 'class';
+  const refs = Array.isArray(data.source_classes) && data.source_classes.length
+    ? data.source_classes
+    : ((data.source_config_uid && data.class_name) ? [{config_uid: data.source_config_uid, class_name: data.class_name}] : []);
+  setContractClassRows(form, refs);
+  form.querySelector('input[name="global_index_name"]').value = data.global_index_name || '';
+  form.querySelector('input[name="global_index_value"]').value = data.global_index_value || '';
+  syncContractFormVisibility(form);
+});
+
+document.getElementById('contractDeleteModal')?.addEventListener('show.bs.modal', function (event) {
+  const btn = event.relatedTarget;
+  if (!btn) return;
+  const data = JSON.parse(btn.getAttribute('data-contract') || '{}');
+  const form = document.getElementById('contractDeleteForm');
+  form.action = {{ url_for('contracts_delete', contract_uid='__UID__') | tojson }}.replace('__UID__', data.uid || '');
+  document.getElementById('contractDeleteName').textContent = data.display_name || data.name || '';
+});
+
+document.getElementById('contractQrModal')?.addEventListener('show.bs.modal', function (event) {
+  const btn = event.relatedTarget;
+  if (!btn) return;
+  const data = JSON.parse(btn.getAttribute('data-contract') || '{}');
+  const payload = {
+    name: data.name || '',
+    display_name: data.display_name || '',
+    download_url: data.download_url || '',
+    ack_url: data.ack_url || ''
+  };
+  document.getElementById('contractQrImage').src = data.qr_url || '';
+  document.getElementById('contractQrAddUrl').textContent = data.add_url || '';
+  document.getElementById('contractQrPayload').textContent = JSON.stringify(payload, null, 2);
+});
+</script>
+{% endblock %}

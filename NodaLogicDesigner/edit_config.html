@@ -1,0 +1,3659 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4" data-config-uid="{{ config.uid }}">
+   
+    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary mb-3">← {{ _('Home') }}</a>
+
+    <h2>{{ _('Edit configuration') }}</h2>
+
+
+    
+    {% set active_tab = request.args.get('tab', 'config') %}
+    {% set active_subtab = request.args.get('subtab', '') %}
+
+    {% if request.args.get("error") %}
+<script>
+    alert("{{ request.args.get('error')|tojson }}");
+</script>
+{% endif %}
+
+    <div class="row">
+        
+        <!-- Side tabs -->
+        <div class="col-md-3">
+            <div class="nav flex-column nav-pills me-3" id="v-pills-tab" role="tablist" aria-orientation="vertical">
+                <button class="nav-link {% if active_tab == 'config' %}active{% endif %}" 
+                        id="v-pills-config-tab" data-bs-toggle="pill" data-bs-target="#v-pills-config" type="button" role="tab">
+                    {{ _('Configurations') }}
+                </button>
+
+                <button class="nav-link {% if active_tab == 'ai-generator' %}active{% endif %}" 
+                        id="v-pills-ai-generator-tab" data-bs-toggle="pill" data-bs-target="#v-pills-ai-generator" type="button" role="tab"{% if ngenie_code_available %} style="background:{% if active_tab == 'ai-generator' %}#6f42c1{% else %}#f4efff{% endif %}; color:{% if active_tab == 'ai-generator' %}#fff{% else %}#4a267e{% endif %};"{% endif %}>
+                    {% if ngenie_code_available %}nGenie Code{% else %}{{ _('AI Generator') }}{% endif %}
+                </button>
+
+                <button class="nav-link {% if active_tab == 'classes' %}active{% endif %}" 
+                        id="v-pills-classes-tab" data-bs-toggle="pill" data-bs-target="#v-pills-classes" type="button" role="tab">
+                    {{ _('Classes') }}
+                </button>
+
+                <button class="nav-link {% if active_tab == 'handlers' %}active{% endif %}" 
+                        id="v-pills-handlers-tab" data-bs-toggle="pill" data-bs-target="#v-pills-handlers" type="button" role="tab">
+                    {{ _('Android/Python handlers') }}
+                </button>
+
+                <button class="nav-link {% if active_tab == 'handlers-server' %}active{% endif %}" 
+                        id="v-pills-handlers-server-tab" data-bs-toggle="pill" data-bs-target="#v-pills-handlers-server" type="button" role="tab">
+                    {{ _('Server/Python handlers') }}
+                </button>
+                <button class="nav-link {% if active_tab == 'datasets' %}active{% endif %}" 
+                    id="v-pills-datasets-tab" data-bs-toggle="pill" data-bs-target="#v-pills-datasets" type="button" role="tab">
+                {{ _('Datasets') }}
+            </button>
+            <button class="nav-link {% if active_tab == 'servers' %}active{% endif %}" 
+                    id="v-pills-servers-tab" data-bs-toggle="pill" 
+                    data-bs-target="#v-pills-servers" type="button" role="tab">
+                {{ _('Servers') }}
+            </button>
+
+            <button class="nav-link {% if active_tab == 'rooms' %}active{% endif %}" 
+                    id="v-pills-rooms-tab" data-bs-toggle="pill" 
+                    data-bs-target="#v-pills-rooms" type="button" role="tab">
+                {{ _('Rooms') }}
+            </button>
+            <button class="nav-link {% if active_tab == 'common-events' %}active{% endif %}" 
+                id="v-pills-common-events-tab" data-bs-toggle="pill" data-bs-target="#v-pills-common-events" type="button" role="tab">
+            {{ _('Common events') }}
+        </button>
+            <button class="nav-link {% if active_tab == 'timers' %}active{% endif %}" 
+                id="v-pills-timers-tab" data-bs-toggle="pill" data-bs-target="#v-pills-timers" type="button" role="tab">
+            {{ _('Timers') }}
+        </button>
+
+        <button class="nav-link {% if active_tab == 'common_layouts' %}active{% endif %}"
+        id="v-pills-common-layouts-tab"
+        data-bs-toggle="pill"
+        data-bs-target="#v-pills-common-layouts"
+        type="button" role="tab">
+  {{ _('Common layouts') }}
+</button>
+
+<button class="nav-link {% if active_tab == 'profile-templates' %}active{% endif %}"
+        id="v-pills-profile-templates-tab"
+        data-bs-toggle="pill"
+        data-bs-target="#v-pills-profile-templates"
+        type="button" role="tab">
+  {{ _('Profile templates') }}
+</button>
+
+
+            </div>
+        </div>
+        
+        <!-- Tab content -->
+        <div class="col-md-9">
+            <div class="tab-content" id="v-pills-tabContent">
+
+                <div class="tab-pane fade {% if active_tab == 'ai-generator' %}show active{% endif %}" 
+                    id="v-pills-ai-generator" role="tabpanel">
+
+                    {% if ngenie_code_available %}
+                    <style>
+                      .ngenie-code-card { border: 1px solid rgba(111,66,193,.35); }
+                      .ngenie-code-header { background: #6f42c1; color: #fff; }
+                      .ngenie-chat-box { min-height: 260px; max-height: 480px; overflow:auto; background:#fbfaff; border:1px solid #e5ddff; border-radius:.75rem; padding:1rem; }
+                      .ngenie-msg { margin-bottom:.75rem; padding:.65rem .8rem; border-radius:.7rem; max-width: 92%; white-space: pre-wrap; }
+                      .ngenie-msg-user { margin-left:auto; background:#ede7ff; }
+                      .ngenie-msg-bot { margin-right:auto; background:#fff; border:1px solid #e6e1f5; }
+                      .ngenie-msg-meta { display:block; margin-top:.25rem; color:#7a7485; font-size:.75rem; white-space:normal; }
+                      .ngenie-question-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:.75rem; margin-top:.6rem; white-space:normal; }
+                      .ngenie-question-card { border:1px solid #d8cdf8; border-radius:.75rem; padding:.75rem; background:#fff; }
+                      .ngenie-question-card-wide { grid-column: 1 / -1; }
+                      .ngenie-question-card h6 { margin:0 0 .35rem 0; }
+                      .ngenie-question-field { margin-top:.55rem; }
+                      .ngenie-choice-list { display:flex; flex-wrap:wrap; gap:.35rem; }
+                      .ngenie-choice-list .btn { white-space:normal; text-align:left; }
+                      .ngenie-working { border-left: 4px solid #6f42c1; box-shadow: 0 0 0 .15rem rgba(111,66,193,.08); }
+                      .ngenie-pulse-dot { display:inline-block; width:.55rem; height:.55rem; border-radius:50%; background:#6f42c1; margin-right:.35rem; animation: ngeniePulse 1s infinite alternate; }
+                      @keyframes ngeniePulse { from { opacity:.25; transform:scale(.9); } to { opacity:1; transform:scale(1.15); } }
+                    </style>
+                    <div class="card mb-4 ngenie-code-card">
+                        <div class="card-header ngenie-code-header d-flex justify-content-between align-items-center">
+                            <div>
+                              <h5 class="mb-0">nGenie Code</h5>
+                              <div class="small opacity-75">{{ _('Configuration coding assistant') }}</div>
+                            </div>
+                            {% if ngenie_code_lock_enabled and config.ngenie_code_locked %}<span class="badge bg-warning text-dark">{{ _('Locked') }}</span>{% endif %}
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-light border small">
+                              nGenie Code работает только с текущей конфигурацией. Блокировка обычного редактирования/выгрузки управляется константой NGENIE_CODE_LOCK_ENABLED в editor_routes.py.
+                            </div>
+
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                              <div class="small text-muted">История чата хранится для этой конфигурации.</div>
+                              <button type="button" class="btn btn-sm btn-outline-secondary" id="ngenieCodeNewChatBtn">Новый чат</button>
+                            </div>
+                            <div id="ngenieCodeChat" class="ngenie-chat-box mb-3">
+                              <div class="ngenie-msg ngenie-msg-bot">Загружаю историю чата...</div>
+                            </div>
+
+                            <form id="aiGeneratorForm" enctype="multipart/form-data">
+                                <input type="hidden" id="aiProvider" value="ngenie_code">
+                                <div class="mb-3">
+                                    <label for="aiPrompt" class="form-label">Prompt for nGenie Code</label>
+                                    <textarea class="form-control" id="aiPrompt" rows="6"
+                                            placeholder="Например: добавь документ Заказ с табличной частью товаров, заполни nGenie role/prompt/description и сделай обработчики проведения"></textarea>
+                                </div>
+                                <div class="mb-3">
+                                  <label for="ngenieCodeAttachments" class="form-label">{{ _('Attachments') }}</label>
+                                  <input type="file" class="form-control" id="ngenieCodeAttachments" name="attachments" multiple>
+                                  <div class="form-text">{{ _('Text, JSON, Markdown, Python and other small documents are added to the prompt.') }}</div>
+                                </div>
+                                <div class="form-check mb-3">
+                                  <input class="form-check-input" type="checkbox" id="ngenieCodeWriteInstruction">
+                                  <label class="form-check-label" for="ngenieCodeWriteInstruction">Написать инструкцию по полученной/текущей конфигурации</label>
+                                </div>
+
+                                <div class="d-flex flex-wrap gap-2 align-items-center ngenie-code-actions">
+                                  <button type="submit" class="btn text-white" style="background:#6f42c1" id="aiGenerateBtn">
+                                      <i class="bi bi-magic"></i> Run nGenie Code
+                                  </button>
+                                  <button type="button" class="btn btn-outline-secondary" id="ngenieCodeInstructionBtn">
+                                      <i class="bi bi-journal-text"></i> Написать инструкцию
+                                  </button>
+                                  <button type="button" class="btn btn-outline-secondary" id="ngenieCodeExampleBtn">
+                                      <i class="bi bi-lightbulb"></i> Сгенерировать пример
+                                  </button>
+
+                                  <button type="button" class="btn btn-outline-secondary" id="aiGenerateLayoutBtn">
+                                  <i class="bi bi-braces"></i> {{ _('Generate laout only') }}
+                                  </button>
+                                </div>
+
+                                <div class="mt-3">
+                                <label for="aiLayoutOutput" class="form-label mb-1">JSON layout</label>
+                                <textarea class="form-control" id="aiLayoutOutput" rows="10" spellcheck="false"
+                                            placeholder='[[{"type":"Text","text":"..."}], [{"type":"Input","code":"field"}]]'></textarea>
+                                </div>
+                            </form>
+
+                            <div class="mt-3">
+                                <div id="aiGeneratorStatus" class="small text-muted"></div>
+                                <pre id="aiGeneratorError" class="mt-2 text-danger" style="white-space: pre-wrap; display:none;"></pre>
+                            </div>
+                            <div class="mt-3 d-flex flex-wrap gap-2">
+                              {% if config.ngenie_code_instruction %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('ngenie_code_document', uid=config.uid, kind='instruction') }}" target="_blank">Открыть инструкцию</a>{% endif %}
+                              {% if config.ngenie_code_example %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('ngenie_code_document', uid=config.uid, kind='example') }}" target="_blank">Открыть пример</a>{% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mb-4 border-secondary">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">AI configuration generator (old)</h5>
+                            <span class="badge bg-secondary">old</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted">
+                                Старый AI-generator оставлен ниже для сравнения и отладки. Он не использует папку ngenie_code/instructions и работает по прежней схеме.
+                            </p>
+
+                            <form id="oldAiGeneratorForm">
+                                <div class="mb-3">
+                                    <label for="oldAiProvider" class="form-label">LLM</label>
+                                    <select class="form-select" id="oldAiProvider">
+                                        <option value="deepseek">DeepSeek (cloud)</option>
+                                        <option value="lmstudio">LM Studio (local)</option>
+                                    </select>
+                                    <div class="form-text">
+                                        Этот блок принудительно отправляет old_ai=1 и не подменяется nGenie Code.
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="oldAiPrompt" class="form-label">Prompt for old AI-generator</label>
+                                    <textarea class="form-control" id="oldAiPrompt" rows="5"
+                                            placeholder="Например: добавь класс Order с полями..."></textarea>
+                                </div>
+
+                                <button type="submit" class="btn btn-outline-primary" id="oldAiGenerateBtn">
+                                    <i class="bi bi-magic"></i> Run AI generator (old)
+                                </button>
+                            </form>
+
+                            <div class="mt-3">
+                                <div id="oldAiGeneratorStatus" class="small text-muted"></div>
+                                <pre id="oldAiGeneratorError" class="mt-2 text-danger" style="white-space: pre-wrap; display:none;"></pre>
+                            </div>
+                        </div>
+                    </div>
+
+                    {% else %}
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">AI configuration generator</h5>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted">
+                                Enter a request, and LLM will modify the current configuration (classes, events, handlers, etc.), 
+                                adding new objects and applying the necessary changes.
+                            </p>
+
+                            <form id="aiGeneratorForm">
+                                <div class="mb-3">
+                                    <label for="aiProvider" class="form-label">LLM</label>
+                                    <select class="form-select" id="aiProvider">
+                                        <option value="deepseek">DeepSeek (cloud)</option>
+                                        <option value="lmstudio">LM Studio (local)</option>
+                                    </select>
+                                    <div class="form-text">
+                                        For LM Studio: Run local server (usually http://127.0.0.1:1234) and select model in LM Studio.
+                                    </div>
+                                </div>    
+
+                                <div class="mb-3">
+                                    <label for="aiPrompt" class="form-label">Prompt for LLM</label>
+                                    <textarea class="form-control" id="aiPrompt" rows="6"
+                                            placeholder="For example: 'Add an Order class with the fields Order Date, Buyer (dataset), and comment (multi-line text) with the table section Product (string), Quantity, Price, Amount'"></textarea>
+                                </div>
+
+                                <button type="submit" class="btn btn-primary" id="aiGenerateBtn">
+                                    <i class="bi bi-magic"></i> Run the AI ​​generator
+                                </button>
+
+                                <button type="button" class="btn btn-outline-secondary ms-2" id="aiGenerateLayoutBtn">
+                                <i class="bi bi-braces"></i> {{ _('Generate laout only') }}
+                                </button>
+
+                                <div class="mt-3">
+                                <label for="aiLayoutOutput" class="form-label mb-1">JSON layout</label>
+                                <textarea class="form-control" id="aiLayoutOutput" rows="10" spellcheck="false"
+                                            placeholder='[[{"type":"Text","text":"..."}], [{"type":"Input","code":"field"}]]'></textarea>
+                                
+                                </div>
+                            </form>
+
+                            <div class="mt-3">
+                                <div id="aiGeneratorStatus" class="small text-muted"></div>
+                                <pre id="aiGeneratorError" class="mt-2 text-danger" style="white-space: pre-wrap; display:none;"></pre>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>    
+
+                <!-- Tab "Configuration" -->
+                <div class="tab-pane fade show {% if active_tab == 'config' %}show active{% endif %}" id="v-pills-config" role="tabpanel">
+                    
+                        <!-- General settings -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>{{ _('General settings') }}</h5>
+        </div>
+        <div class="card-body">
+            <div class="row align-items-start">
+                <!-- Left side -->
+                <div class="col-md-3 text-center">
+                    {% set api_url = '' %}
+                    <div class="mb-2" style="min-height: 150px; display: flex; justify-content: center; align-items: center;">
+                        <canvas id="qrcodeCanvas" width="150" height="150"></canvas>
+                    </div>
+                    <small class="text-muted">{{ _('Configuration API QR-code') }}</small>
+
+                    <input type="hidden" id="apiUrl" value="{{ api_url }}">
+                </div>
+                
+                <!-- R. side -->
+                <div class="col-md-9">
+                    <form method="POST" action="{{ url_for('update_config', uid=config.uid) }}">
+                        <input type="hidden" name="active_tab" id="activeTabField">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="configName" class="form-label">{{ _('Configuration name') }}</label>
+                                <input type="text" class="form-control" id="configName" name="name" value="{{ config.name }}" required>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="configVersion" class="form-label">{{ _('Version') }}</label>
+                                <input type="text" class="form-control" id="configVersion" name="version" value="{{ config.version }}" required>
+                            </div>
+
+                            <div class="col-md-3">
+                                <label for="serverName" class="form-label">{{ _('*Server name?') }}</label>
+                                <input type="text" class="form-control" id="serverName" name="server_name" value="{{ config.server_name }}">
+                            </div>
+                                                        
+                           <div class="col-md-6">
+                                <label for="configProvider" class="form-label">{{ _('Vendor') }}</label>
+                                <input type="text" class="form-control" id="configProvider" name="provider" 
+                                    value="{{ config.vendor }}" readonly>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label for="contentUid" class="form-label">{{ _('Content UID') }}</label>
+                                <input type="text" class="form-control" id="contentUid" value="{{ config.content_uid }}" readonly>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label">{{ _('Last modified') }}</label>
+                                <input type="text" class="form-control" value="{{ format_datetime(config.last_modified, format='medium') }}" readonly>
+                            </div>
+
+                            {% if can_publish_demo_product %}
+                            <div class="col-12">
+                                <input type="hidden" name="demo_product_present" value="1">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="demoProduct" name="demo_product" {% if config.demo_product %}checked{% endif %}>
+                                    <label class="form-check-label fw-semibold" for="demoProduct">{{ _('Demo product') }}</label>
+                                    <div class="form-text">{{ _('Publish this configuration on the Demo products page. Installed copies are not published again.') }}</div>
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            <div class="col-12">
+                                <label for="ngeniePrompt" class="form-label">nGenie prompt</label>
+                                <textarea class="form-control font-monospace" id="ngeniePrompt" name="ngenie_prompt" rows="4" placeholder="{{ _('Additional nGenie skills/instructions for this configuration') }}">{{ config.ngenie_prompt or '' }}</textarea>
+                                <div class="form-text">{{ _('Example: how to calculate stock balances, which classes are documents/directories, project-specific search rules.') }}</div>
+                            </div>
+                            {% if ngenie_code_available %}
+                            <div class="col-12">
+                                {% if ngenie_code_lock_enabled and config.ngenie_code_locked %}
+                                <div class="alert alert-warning mb-2">
+                                    <strong>nGenie Code:</strong> конфигурация заблокирована для обычного редактирования, импорта/экспорта и сохранения из репозитория. Изменения нужно делать через вкладку nGenie Code.
+                                </div>
+                                {% endif %}
+                                {% if config.ngenie_code_instruction or config.ngenie_code_example %}
+                                <div class="d-flex flex-wrap gap-2">
+                                    {% if config.ngenie_code_instruction %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('ngenie_code_document', uid=config.uid, kind='instruction') }}" target="_blank">Открыть инструкцию nGenie Code</a>{% endif %}
+                                    {% if config.ngenie_code_example %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('ngenie_code_document', uid=config.uid, kind='example') }}" target="_blank">Открыть пример nGenie Code</a>{% endif %}
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% if ngenie_code_lock_enabled and config.ngenie_code_locked %}
+                        <button type="button" class="btn btn-secondary mt-3" disabled><i class="bi bi-lock"></i> {{ _('Save disabled') }}</button>
+                        {% else %}
+                        <button type="submit" class="btn btn-primary mt-3">{{ _('Save') }}</button>
+                        {% endif %}
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+                    <!--Import/Export -->
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5>{{ _('Configuration uploading/downdloading') }}</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6>{{ _('Configuration download') }}</h6>
+                                    <p>{{ _('Download the full configuration in NOD format') }}</p>
+                                    {% if ngenie_code_lock_enabled and config.ngenie_code_locked %}
+                                    <button type="button" class="btn btn-secondary" disabled>
+                                        <i class="bi bi-lock"></i> {{ _('Download disabled') }}
+                                    </button>
+                                    <div class="form-text">nGenie Code запрещает выгрузку конфигурации.</div>
+                                    {% else %}
+                                    <a href="{{ url_for('export_config', uid=config.uid) }}" class="btn btn-primary">
+                                        <i class="bi bi-download"></i> {{ _('Download configuration') }}
+                                    </a>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6">
+                                    <h6>{{ _('Configuration uploading') }}</h6>
+                                    <p>{{ _('Load configuration from NOD file (existing data will be overwritten)') }}</p>
+                                    {% if ngenie_code_lock_enabled and config.ngenie_code_locked %}
+                                    <button type="button" class="btn btn-secondary" disabled>
+                                        <i class="bi bi-lock"></i> {{ _('Upload disabled') }}
+                                    </button>
+                                    <div class="form-text">nGenie Code запрещает перезапись через импорт.</div>
+                                    {% else %}
+                                    <form method="POST" action="{{ url_for('import_config', uid=config.uid) }}" enctype="multipart/form-data">
+                                        <input type="hidden" name="active_tab" id="activeTabImport">
+                                        <div class="mb-3">
+                                            <input class="form-control" type="file" name="config_file" accept=".nod" required>
+                                        </div>
+                                        <button type="submit" class="btn btn-warning">
+                                            <i class="bi bi-upload"></i> {{ _('Upload configuration') }}
+                                        </button>
+                                    </form>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sections -->
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">{{ _('Sections') }}</h5>
+                            <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#sectionModal">
+                                {{ _('Add section') }}
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>{{ _('ID') }}</th>
+                                        <th>{{ _('Title') }}</th>
+                                        <th>{{ _('Actions') }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for section in config.sections %}
+                                    <tr>
+                                        <td>{{ section.code }}</td>
+                                        <td>{{ section.name }}</td>
+                                        <td>
+                                            <button type="button" class="btn btn-sm btn-outline-primary me-2 edit-section-btn" 
+                                                    data-section-id="{{ section.id }}">
+                                                {{ _('Edit') }}
+                                            </button>
+                                            <a href="{{ url_for('delete_section', section_id=section.id) }}" 
+                                            class="btn btn-sm btn-outline-danger" 
+                                            onclick="return confirm('Delete section {{ section.name }}?')">
+                                                {{ _('Delete') }}
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Classes tab -->
+                <div class="tab-pane fade  {% if active_tab == 'classes' %}show active{% endif %}" id="v-pills-classes" role="tabpanel">
+                    <div class="card">
+                        <div class="card mb-4">
+                            <div class="card-header bg-light">
+                                <h5 class="mb-0"><i class="bi bi-plus-circle"></i> {{ _('Add class') }}</h5>
+                            </div>
+                            <div class="card-body">
+                                <form method="POST" action="{{ url_for('create_class', config_uid=config.uid) }}">
+                                    <input type="hidden" name="active_tab" id="activeTabField">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <div class="mb-3">
+                                                <label for="newClassName" class="form-label">{{ _('Class name') }}</label>
+                                                <input type="text" class="form-control" id="newClassName" name="name" 
+                                                    pattern="[a-zA-Z_][a-zA-Z0-9_]*" 
+                                                    title="{{ _('A class name must begin with a letter or underscore and contain only letters, numbers, and underscores.') }}"
+                                                    required>
+                                                <small class="text-muted">{{ _('Used to create a class in Python') }}</small>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="mb-3">
+                                                <label for="newClassType" class="form-label">{{ _('Class type') }}</label>
+                                                <select class="form-select" id="newClassType" name="class_type">
+                                                    <option value="custom_process">{{ _('Custom process') }}</option>
+                                                    <option value="projection">{{ _('Projection') }}</option>
+                                                    <option value="print_form">{{ _('PrintForm') }}</option>
+                                                    <option value="data_node">{{ _('Data node') }}</option>
+                                                    <option value="custom_task">{{ _('User task') }}</option>
+                                                    <option value="background_task">{{ _('Background task') }}</option>
+                                                    <option value="solo_object">{{ _('Solo Object') }}</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="mb-3">
+                                                <label class="form-label">&nbsp;</label>
+                                                {% if ngenie_code_lock_enabled and config.ngenie_code_locked %}
+                                                <button type="button" class="btn btn-secondary w-100" disabled>
+                                                    <i class="bi bi-lock"></i> {{ _('Create disabled') }}
+                                                </button>
+                                                {% else %}
+                                                <button type="submit" class="btn btn-primary w-100">
+                                                    <i class="bi bi-plus-circle"></i> {{ _('Create class') }}
+                                                </button>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>{{ _('Name') }}</th>
+                                        <th>{{ _('Type') }}</th>
+                                        <th>{{ _('Methods count') }}</th>
+                                        <th>{{ _('Actions') }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for class_obj in config.classes %}
+                                    <tr>
+                                        <td>{{ class_obj.name }}</td>
+                                        <td>{{ _(class_obj.class_type or 'custom_process') }}</td>
+                                        <td>{{ class_obj.methods|length }}</td>
+                                        <td>
+                                            <a href="{{ url_for('edit_class', class_id=class_obj.id) }}" class="btn btn-sm btn-outline-primary me-2">
+                                                {{ _('Edit') }}
+                                            </a>
+                                            <a href="{{ url_for('delete_class', class_id=class_obj.id) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete class {{ class_obj.name }}?')">
+                                                {{ _('Delete') }}
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab "Handlers" -->
+                <div class="tab-pane fade {% if active_tab == 'handlers' %}show active{% endif %}" id="v-pills-handlers" role="tabpanel">
+                    <ul class="nav nav-tabs mb-4" id="handlersTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link {% if active_subtab != 'code' %}active{% endif %}" id="handlers-upload-tab" data-bs-toggle="tab" data-bs-target="#handlers-upload" type="button" role="tab">{{ _('Handlers upload') }}</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link {% if active_subtab == 'code' %}active{% endif %}" id="handlers-code-tab" data-bs-toggle="tab" data-bs-target="#handlers-code" type="button" role="tab">{{ _('Code editor') }}</button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content">
+                        <!-- "Uppload handlers" -->
+                        <div class="tab-pane fade show {% if active_subtab != 'code' %}active{% endif %}" id="handlers-upload" role="tabpanel">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>{{ _('Upload handlers') }}</h5>
+                                </div>
+                                <div class="card-body">
+                                    <ul class="nav nav-tabs" id="uploadMethodTab" role="tablist">
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link active" id="file-tab" data-bs-toggle="tab" data-bs-target="#fileUpload" type="button" role="tab">{{ _('Upload py-file') }}</button>
+                                        </li>
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link" id="github-tab" data-bs-toggle="tab" data-bs-target="#githubUpload" type="button" role="tab">{{ _('GitHub link') }}</button>
+                                        </li>
+                                    </ul>
+                                    
+                                    <div class="tab-content mt-3" id="uploadMethodTabContent">
+                                        <div class="tab-pane fade show active" id="fileUpload" role="tabpanel">
+                                            <form method="POST" action="{{ url_for('upload_handlers', uid=config.uid) }}" enctype="multipart/form-data">
+                                                <input type="hidden" name="upload_type" value="file">
+                                                <input type="hidden" name="active_tab" id="activeTabUpload">
+                                                <div class="mb-3">
+                                                    <label for="pythonFile" class="form-label">{{ _('Select py-file :') }}</label>
+                                                    <input class="form-control" type="file" id="pythonFile" name="python_file" accept=".py" required>
+                                                </div>
+                                                <button type="submit" class="btn btn-primary">{{ _('Upload') }}</button>
+                                            </form>
+                                        </div>
+                                        <div class="tab-pane fade" id="githubUpload" role="tabpanel">
+                                            <form method="POST" action="{{ url_for('upload_handlers', uid=config.uid) }}">
+                                                <input type="hidden" name="upload_type" value="github">
+                                                <div class="mb-3">
+                                                    <label for="githubUrl" class="form-label">{{ _('GitHub raw URL:') }}</label>
+                                                    <input type="url" class="form-control" id="githubUrl" name="github_url" placeholder="https://raw.githubusercontent.com/user/repo/branch/file.py" required>
+                                                </div>
+                                                <button type="submit" class="btn btn-primary">{{ _('Upload') }}</button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                    
+                                    {% if config.nodes_handlers %}
+                                        <div class="mt-3">
+                                            <a href="{{ url_for('download_handlers', uid=config.uid) }}" class="btn btn-outline-primary me-2">
+                                                <i class="bi bi-download"></i> {{ _('Download file') }}
+                                            </a>
+                                            <form method="POST" action="{{ url_for('clear_handlers', uid=config.uid) }}" style="display: inline;">
+                                                <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Delete handlers code?')">
+                                                    <i class="bi bi-trash"></i> {{ _('Delete handlers code') }}
+                                                </button>
+                                            </form>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Handlers code tab -->
+                        <div class="tab-pane fade {% if active_subtab == 'code' %}show active{% endif %}" id="handlers-code" role="tabpanel">
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0">{{ _('Edit handlers code') }}</h5>
+                                    <button type="button" class="btn btn-primary" id="saveHandlersBtn">
+                                        <i class="bi bi-save"></i> {{ _('Save') }}
+                                    </button>
+                                </div>
+                                <div class="card-body p-0">
+                                    {% if config.nodes_handlers %}
+                                        <code-input name="handlers_code" id="handlersCodeInput" language="Python">{{ config.nodes_handlers|b64decode }}</code-input>
+                                    {% else %}
+                                        <div class="alert alert-info m-3">
+                                            <i class="bi bi-info-circle"></i> {{ _('No handlers code added') }}
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!--  Server/Python -->
+                <div class="tab-pane fade {% if active_tab == 'handlers-server' %}show active{% endif %}" id="v-pills-handlers-server" role="tabpanel">
+                    <ul class="nav nav-tabs mb-4" id="serverHandlersTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link {% if active_subtab != 'code' %}active{% endif %}" id="server-handlers-upload-tab" data-bs-toggle="tab" data-bs-target="#server-handlers-upload" type="button" role="tab">{{ _('Handlers upload') }}</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link {% if active_subtab == 'code' %}active{% endif %}" id="server-handlers-code-tab" data-bs-toggle="tab" data-bs-target="#server-handlers-code" type="button" role="tab">{{ _('Code editor') }}</button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content">
+                        <!--  "Upload handlers code" -->
+                        <div class="tab-pane fade show {% if active_subtab != 'code' %}show active{% endif %}" id="server-handlers-upload" role="tabpanel">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>{{ _('Upload handlers code') }}</h5>
+                                </div>
+                                <div class="card-body">
+                                    <ul class="nav nav-tabs" id="serverUploadMethodTab" role="tablist">
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link active" id="server-file-tab" data-bs-toggle="tab" data-bs-target="#server-fileUpload" type="button" role="tab">{{ _('Upload file') }}</button>
+                                        </li>
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link" id="server-github-tab" data-bs-toggle="tab" data-bs-target="#server-githubUpload" type="button" role="tab">{{ _('GitHab link') }}</button>
+                                        </li>
+                                    </ul>
+                                    
+                                    <div class="tab-content mt-3" id="serverUploadMethodTabContent">
+                                        <div class="tab-pane fade show active" id="server-fileUpload" role="tabpanel">
+                                            <form method="POST" action="{{ url_for('upload_server_handlers', uid=config.uid) }}" enctype="multipart/form-data">
+                                                <input type="hidden" name="upload_type" value="file">
+                                                <div class="mb-3">
+                                                    <label for="serverPythonFile" class="form-label">{{ _('Select py-file') }}</label>
+                                                    <input class="form-control" type="file" id="serverPythonFile" name="python_file" accept=".py" required>
+                                                </div>
+                                                <button type="submit" class="btn btn-primary">{{ _('Upload') }}</button>
+                                            </form>
+                                        </div>
+                                        <div class="tab-pane fade" id="server-githubUpload" role="tabpanel">
+                                            <form method="POST" action="{{ url_for('upload_server_handlers', uid=config.uid) }}">
+                                                <input type="hidden" name="upload_type" value="github">
+                                                <div class="mb-3">
+                                                    <label for="serverGithubUrl" class="form-label">{{ _('GitHub raw URL:') }}</label>
+                                                    <input type="url" class="form-control" id="serverGithubUrl" name="github_url" placeholder="https://raw.githubusercontent.com/user/repo/branch/file.py" required>
+                                                </div>
+                                                <button type="submit" class="btn btn-primary">{{ _('Upload') }}</button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                    
+                                    {% if config.nodes_server_handlers %}
+                                        <div class="mt-3">
+                                            <a href="{{ url_for('download_server_handlers', uid=config.uid) }}" class="btn btn-outline-primary me-2">
+                                             <input type="hidden" name="active_tab" id="activeTabField"> 
+                                                <i class="bi bi-download"></i> {{ _('Download file') }}
+                                            </a>
+                                            <form method="POST" action="{{ url_for('clear_server_handlers', uid=config.uid) }}" style="display: inline;">
+                                                <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Delete server handlers code?')">
+                                                    <i class="bi bi-trash"></i> {{ _('Delete') }}
+                                                </button>
+                                            </form>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Server handlers code -->
+                        <div class="tab-pane fade {% if active_subtab == 'code' %}show active{% endif %}" id="server-handlers-code" role="tabpanel">
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0">{{ _('Server handlers code editior') }}</h5>
+                                    <button type="button" class="btn btn-primary" id="saveServerHandlersBtn">
+                                        <i class="bi bi-save"></i> {{ _('Save') }}
+                                    </button>
+                                </div>
+                                <div class="card-body p-0">
+                                    {% if config.nodes_server_handlers %}
+                                        <code-input name="server_handlers_code" id="serverHandlersCodeInput" language="Python">{{ config.nodes_server_handlers|b64decode }}</code-input>
+                                    {% else %}
+                                        <div class="alert alert-info m-3">
+                                            <i class="bi bi-info-circle"></i> {{ _('No added handlers') }}
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Datasets -->
+                <div class="tab-pane fade {% if active_tab == 'datasets' %}show active{% endif %}" id="v-pills-datasets" role="tabpanel">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">{{ _('Datasets') }}</h5>
+                            <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#datasetModal">
+                                {{ _('Add dataset') }}
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>{{ _('Dataset name') }}</th>
+                                        <th>{{ _('Hash-indexes') }}</th>
+                                        <th>{{ _('Text-indexes') }}</th>
+                                        <th>{{ _('Records count') }}</th>
+                                        <th>{{ _('Actions') }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for dataset in config.datasets %}
+                                    <tr>
+                                        <td>{{ dataset.name }}</td>
+                                        <td>{{ dataset.hash_indexes }}</td>
+                                        <td>{{ dataset.text_indexes }}</td>
+                                        <td>{{ dataset.items|length }}</td>
+                                        <td>
+                                        <button type="button" class="btn btn-sm btn-outline-primary me-2 edit-dataset-btn" 
+                                                data-dataset-id="{{ dataset.id }}">
+                                            {{ _('Edit') }}
+                                        </button>
+                                        <a href="{{ url_for('delete_dataset', dataset_id=dataset.id) }}" 
+                                        class="btn btn-sm btn-outline-danger" 
+                                        onclick="return confirm('Delete dataset {{ dataset.name }}?')">
+                                            {{ _('Delete') }}
+                                        </a>
+                                    </td>
+                                                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+
+                            <div class="mt-4">
+                                <h5>{{ _('API for working with datasets') }}</h5>
+                               <div class="card bg-light">
+                                        <div class="card-body">
+                                            <h6>{{ _('Adding/updating records') }}</h6>
+                                            <pre class="mb-3"><code>POST <span class="api-url-base"></span>/dataset/&lt;dataset_name&gt;/items
+                                    Content-Type: application/json
+
+                                    [
+                                        {"_id": "1", "field1": "value1", "field2": "value2"},
+                                        {"_id": "2", "field1": "value3", "field2": "value4"}
+                                    ]</code></pre>
+
+                                            <h6>{{ _('Getting all records') }}</h6>
+                                            <pre><code>GET <span class="api-url-base"></span>/dataset/&lt;dataset_name&gt;/items</code></pre>
+
+                                            <h6>{{ _('Delete all records') }}</h6>
+                                            <pre><code>DELETE <span class="api-url-base"></span>/dataset/&lt;dataset_name&gt;/items</code></pre>
+
+                                            <h6>{{ _('Delete one record') }}</h6>
+                                            <pre><code>DELETE <span class="api-url-base"></span>/dataset/&lt;dataset_name&gt;/items/item_id</code></pre>
+                                        </div>
+                                    </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-pane fade {% if active_tab == 'servers' %}show active{% endif %}" 
+                    id="v-pills-servers" role="tabpanel">
+
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">{{ _('Servers') }}</h5>
+                            <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#serverModal">
+                               {{ _('Add server') }}
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>{{ _('Alias') }}</th>
+                                        <th>URL</th>
+                                        <th>{{ _('By default') }}</th>
+                                        <th>{{ _('Actions') }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for server in config.servers %}
+                                    <tr>
+                                        <td>{{ server.alias }}</td>
+                                        <td>{{ server.url }}</td>
+                                        <td>{% if server.is_default %}✔{% endif %}</td>
+                                        <td>
+                                            <button type="button" class="btn btn-sm btn-outline-primary me-2 edit-server-btn"
+                                                    data-server-id="{{ server.id }}">
+                                                {{ _('Edit') }}
+                                            </button>
+                                            <a href="{{ url_for('delete_server', server_id=server.id) }}" 
+                                            class="btn btn-sm btn-outline-danger" 
+                                            onclick="return confirm('Delete server {{ server.alias }}?')">
+                                                {{ _('Delete') }}
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab "Rooms" (room aliases) -->
+                <div class="tab-pane fade {% if active_tab == 'rooms' %}show active{% endif %}" 
+                    id="v-pills-rooms" role="tabpanel">
+
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">{{_("Rooms")}}</h5>
+                            <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#roomAliasModal">
+                               {{_("Add alias")}}
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted small mb-3">
+                                {{_('Here you can set room aliases. An alias is selected in the class (Migration tab), and upon registration it is resolved to room_uid.')}}
+                            </p>
+
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>{{_("Alias")}}</th>
+                                        <th>{{_("Room")}}</th>
+                                        <th>room_uid</th>
+                                        <th>{{ _('Actions') }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for a in (config.room_aliases or []) %}
+                                    <tr>
+                                        <form method="POST" action="{{ url_for('update_room_alias', alias_id=a.id) }}">
+                                            <input type="hidden" name="active_tab" value="rooms">
+                                            <td>
+                                                <input class="form-control form-control-sm" name="alias" value="{{ a.alias }}" required>
+                                            </td>
+                                            <td>
+                                                <select class="form-select form-select-sm" name="room_uid" required>
+                                                    <option value="">-- select --</option>
+                                                    {% for r in (rooms or []) %}
+                                                        <option value="{{ r.uid }}" {% if (a.room_uid or '') == (r.uid or '') %}selected{% endif %}>
+                                                            {{ r.name }}
+                                                        </option>
+                                                    {% endfor %}
+                                                </select>
+                                            </td>
+                                            <td class="text-muted small">{{ a.room_uid }}</td>
+                                            <td>
+                                                <button type="submit" class="btn btn-sm btn-outline-primary me-2">{{ _('Save') }}</button>
+                                                <a href="{{ url_for('delete_room_alias', alias_id=a.id) }}" 
+                                                   class="btn btn-sm btn-outline-danger"
+                                                   onclick="return confirm('Delete alias {{ a.alias }}?')">{{ _('Delete') }}</a>
+                                            </td>
+                                        </form>
+                                    </tr>
+                                    {% endfor %}
+                                    {% if not (config.room_aliases or []) %}
+                                    <tr>
+                                        <td colspan="4" class="text-muted">{{_("There are no aliases yet")}}</td>
+                                    </tr>
+                                    {% endif %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-pane fade {% if active_tab == 'common_layouts' %}show active{% endif %}"
+     id="v-pills-common-layouts" role="tabpanel">
+
+  <h4>{{_("Common layout")}}</h4>
+
+  <div class="d-flex gap-2 align-items-center mb-2">
+    <button type="button" class="btn btn-sm btn-primary" onclick="openCommonLayoutEditor()">
+      {{ _('Add') }}
+    </button>
+
+
+  </div>
+
+  <table class="table table-sm mt-2">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th style="width:120px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in config.common_layouts or [] %}
+      <tr>
+        <td>{{ l.id }}</td>
+        <td class="text-end">
+        <div class="btn-group btn-group-sm" role="group">
+            <button type="button" class="btn btn-outline-primary"
+                    onclick="editCommonLayout({{ loop.index0 }})">
+            <i class="bi bi-pencil"></i> {{ _('Edit') }}
+            </button>
+            <button type="button" class="btn btn-outline-danger"
+                    onclick="deleteCommonLayout({{ loop.index0 }})">
+            <i class="bi bi-trash"></i> {{ _('Delete') }}
+            </button>
+        </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- hidden storage -->
+  <input type="hidden" id="common_layouts_json"
+         value='{{ (config.common_layouts or []) | tojson }}'>
+
+  <script>
+    window._COMMON_LAYOUTS = {{ (config.common_layouts or []) | tojson }};
+  </script>
+
+
+
+<div class="tab-pane fade {% if active_tab == 'profile-templates' %}show active{% endif %}" id="v-pills-profile-templates" role="tabpanel">
+  <h4>{{ _('Profile templates') }}</h4>
+  <p class="text-muted small">{{ _('These templates are stored inside the configuration JSON. On configuration import/load they are materialized into editable profiles.') }}</p>
+  <form method="POST" action="{{ url_for('update_config', uid=config.uid) }}">
+    <input type="hidden" name="active_tab" value="profile-templates">
+    <input type="hidden" name="name" value="{{ config.name }}">
+    <input type="hidden" name="version" value="{{ config.version }}">
+    <input type="hidden" name="server_name" value="{{ config.server_name }}">
+    <textarea class="form-control font-monospace" name="profile_templates_json" rows="18" spellcheck="false">{{ (config.profile_templates or []) | tojson(indent=2) }}</textarea>
+    <div class="form-text mt-2">
+      {{ _('Example') }}: [{"uid":"sales","name":"Sales","classes":[{"class_name":"Order","visible":true,"rls":{"enabled":true,"mode":"allow","rules":[{"field":"manager","op":"in","values":["ivan"]}]}}]}]
+    </div>
+    <button class="btn btn-primary mt-3" type="submit">{{ _('Save templates and create/update profiles') }}</button>
+  </form>
+</div>
+
+</div>
+
+
+                <!-- Tab "Common Events" -->
+<div class="tab-pane fade {% if active_tab == 'common-events' %}show active{% endif %}" id="v-pills-common-events" role="tabpanel">
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">{{ _('Common events') }}</h5>
+            <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#commonEventModal">
+                {{ _('Add common event') }}
+            </button>
+        </div>
+        <div class="card-body">
+            {% if config.config_events %}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>{{ _('Event') }}</th>
+                        <th>{{ _('Listener') }}</th>
+                        <th>{{ _('Actions') }}</th>
+                        <th class="text-end">{{ _('Actions') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in config.config_events %}
+                    <tr>
+                        <td>
+                            <span class="badge event-badge event-{{ event.event|lower }}">{{ event.event }}</span>
+                        </td>
+                        <td>{{ event.listener }}</td>
+                        <td>
+                            {% for action in event.actions %}
+                                <div>
+                                    <strong>{{ action.method }}</strong>
+                                    <small class="text-muted"> ({{ action.action }}{% if action.post_execute_method %} → post: {{ action.post_execute_method }}{% endif %})</small>
+                                </div>
+                            {% endfor %}
+                        </td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-outline-primary me-2 edit-common-event-btn"
+                                    data-bs-toggle="modal" data-bs-target="#commonEventModal"
+                                    data-event-id="{{ event.id }}"
+                                    data-event-name="{{ event.event }}"
+                                    data-listener-name="{{ event.listener }}"
+                                    data-actions='{{ event.actions_as_dicts() | tojson | safe }}'>
+                                <i class="bi bi-pencil"></i> {{ _('Edit') }}
+                            </button>
+                            <form method="POST" action="{{ url_for('delete_config_event', config_uid=config.uid) }}" style="display:inline;">
+                                <input type="hidden" name="event_name" value="{{ event.event }}">
+                                <input type="hidden" name="listener" value="{{ event.listener }}">
+                                <button type="button" class="btn btn-sm btn-outline-danger delete-common-event-btn"
+                                        data-event-name="{{ event.event }}"
+                                        data-listener="{{ event.listener }}">
+                                    <i class="bi bi-trash"></i> {{ _('Delete') }}
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> {{ _('No common events added') }}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Tab "Timers" -->
+<div class="tab-pane fade {% if active_tab == 'timers' %}show active{% endif %}" id="v-pills-timers" role="tabpanel">
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">{{ _('Timers') }}</h5>
+            <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#timerModal">
+                {{ _('Add timer') }}
+            </button>
+        </div>
+        <div class="card-body">
+            {% if config.config_timers %}
+            <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th>{{ _('ID') }}</th>
+                        <th>{{ _('Period seconds') }}</th>
+                        <th>{{ _('Runtime') }}</th>
+                        <th>{{ _('Active') }}</th>
+                        <th>{{ _('Worker') }}</th>
+                        <th>{{ _('Actions') }}</th>
+                        <th class="text-end">{{ _('Actions') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for timer in config.config_timers %}
+                    <tr>
+                        <td><code>{{ timer.timer_id }}</code></td>
+                        <td>{{ timer.period_seconds }}</td>
+                        <td>
+                            {% if (timer.runtime or 'server') == 'client' %}
+                                <span class="badge bg-secondary">{{ _('Client') }}</span>
+                            {% else %}
+                                <span class="badge bg-primary">{{ _('Server') }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if timer.active %}
+                                <span class="badge bg-success">{{ _('Active') }}</span>
+                            {% else %}
+                                <span class="badge bg-secondary">{{ _('Inactive') }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if timer.worker %}
+                                <span class="badge bg-info text-dark">{{ _('Worker') }}</span>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% for action in timer.actions %}
+                                <div>
+                                    <strong>{{ action.method }}</strong>
+                                    <small class="text-muted"> ({{ action.action }}{% if action.post_execute_method %} → post: {{ action.post_execute_method }}{% endif %})</small>
+                                </div>
+                            {% endfor %}
+                        </td>
+                        <td class="text-end text-nowrap">
+                          <div class="d-inline-flex flex-nowrap gap-1">
+                            <button class="btn btn-sm btn-outline-primary edit-timer-btn"
+                                    data-bs-toggle="modal" data-bs-target="#timerModal"
+                                    data-timer-id="{{ timer.timer_id }}"
+                                    data-period-seconds="{{ timer.period_seconds }}"
+                                    data-active="{{ 1 if timer.active else 0 }}"
+                                    data-worker="{{ 1 if timer.worker else 0 }}"
+                                    data-runtime="{{ timer.runtime or 'server' }}"
+                                    data-actions='{{ timer.actions_as_dicts() | tojson | safe }}'>
+                                <i class="bi bi-pencil"></i> {{ _('Edit') }}
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-danger delete-timer-btn"
+                                    data-timer-id="{{ timer.timer_id }}">
+                                <i class="bi bi-trash"></i> {{ _('Delete') }}
+                            </button>
+                          </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            </div>
+            {% else %}
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> {{ _('No timers added') }}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- Common Events Modal -->
+<div class="modal fade" id="commonEventModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="commonEventModalTitle">{{ _('Add common event') }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="POST" id="commonEventForm">
+        <input type="hidden" name="old_event_name" id="oldCommonEventName">
+        <input type="hidden" name="old_listener" id="oldCommonListener">
+        <input type="hidden" name="actions_json" id="commonActionsJson">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">{{ _('Event type') }}</label>
+            <select class="form-select" name="event_name" id="commonEventNameSelect" required>
+              <option value="onLaunch">onLaunch</option>
+              <option value="onBarcode">onBarcode</option>
+              <option value="onStartMenuCommand">onStartMenuCommand</option>
+              <option value="onTimer">onTimer</option>
+              <option value="onDialogResult">onDialogResult</option>
+              <option value="onJSONFile">onJSONFile</option>
+              <option value="onTextFile">onTextFile</option>
+              <option value="onStartMenuCommandWeb">onStartMenuCommandWeb</option>
+              <option value="onClassCommand">onClassCommand</option>
+              <option value="onDataMessage">onDataMessage</option>
+              <option value="onIncomingNodes">onIncomingNodes</option>
+              <option value="onContractReceived">onContractReceived</option>
+              
+
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _('Listener') }}</label>
+            <input type="text" class="form-control" name="listener" id="commonListenerInput" placeholder="{{ _('Listener name (optional)') }}">
+          </div>
+
+          <hr>
+          <h6>{{ _('Actions') }}</h6>
+          <div id="commonActionsContainer"></div>
+          <div class="mt-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="addCommonActionBtn">
+              <i class="bi bi-plus-circle"></i> {{ _('Add action') }}
+            </button>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+          <button type="submit" class="btn btn-primary" id="saveCommonEventBtn">{{ _('Save') }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Timers Modal -->
+<div class="modal fade" id="timerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="timerModalTitle">{{ _('Add timer') }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="POST" id="timerForm">
+        <input type="hidden" name="old_timer_id" id="oldTimerId">
+        <input type="hidden" name="actions_json" id="timerActionsJson">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label">{{ _('ID') }}</label>
+              <input type="text" class="form-control" name="timer_id" id="timerIdInput" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">{{ _('Period seconds') }}</label>
+              <input type="number" class="form-control" name="period_seconds" id="timerPeriodInput" min="1" step="1" value="900" required>
+              <div class="form-text" id="timerPeriodHelp">{{ _('Server and Worker timers under 900 seconds are saved as 900 seconds. Client non-worker timers may use shorter periods.') }}</div>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">{{ _('Runtime') }}</label>
+              <select class="form-select" name="runtime" id="timerRuntimeInput">
+                <option value="server">{{ _('Server') }}</option>
+                <option value="client">{{ _('Client') }}</option>
+              </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" name="active" id="timerActiveInput" checked>
+                <label class="form-check-label" for="timerActiveInput">{{ _('Active') }}</label>
+              </div>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" name="worker" id="timerWorkerInput">
+                <label class="form-check-label" for="timerWorkerInput">{{ _('Worker') }}</label>
+              </div>
+            </div>
+          </div>
+
+          <hr>
+          <h6>{{ _('Actions') }}</h6>
+          <div id="timerActionsContainer"></div>
+          <div class="mt-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="addTimerActionBtn">
+              <i class="bi bi-plus-circle"></i> {{ _('Add action') }}
+            </button>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+          <button type="submit" class="btn btn-primary" id="saveTimerBtn">{{ _('Save') }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!--Servers modal-->
+<div class="modal fade" id="serverModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="POST" action="{{ url_for('create_server', config_uid=config.uid) }}">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _('Add server') }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="active_tab" value="servers">
+          <div class="mb-3">
+            <label class="form-label">{{ _('Alias') }}</label>
+            <input type="text" class="form-control" name="alias" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">URL</label>
+
+            <input type="url" class="form-control" name="url" id="serverUrlInput" required>
+          </div>
+          <div class="form-check">
+            <input type="checkbox" class="form-check-input" name="is_default" id="isDefault">
+            <label class="form-check-label" for="isDefault">{{ _('By default') }}</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-primary">{{ _('Save') }}</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Room alias modal -->
+<div class="modal fade" id="roomAliasModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="POST" action="{{ url_for('create_room_alias', config_uid=config.uid) }}">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">{{_("Add alias")}}/h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="active_tab" value="rooms">
+          <div class="mb-3">
+            <label class="form-label">{{_("Alias")}}</label>
+            <input type="text" class="form-control" name="alias" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{_("Room")}}</label>
+            <select class="form-select" name="room_uid" required>
+              <option value="">-- select --</option>
+              {% for r in (rooms or []) %}
+                <option value="{{ r.uid }}">{{ r.name }} ({{ r.uid }})</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-primary">{{ _('Save') }}</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Sections modal -->
+<div class="modal fade" id="sectionModal" tabindex="-1" aria-labelledby="sectionModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="sectionModalTitle">{{ _('Add section') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="sectionForm" method="POST">
+                <input type="hidden" id="section_id" name="section_id">
+                <input type="hidden" name="active_tab" id="activeTabField">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="sectionCode" class="form-label">{{ _('ID') }}</label>
+                        <input type="text" class="form-control" id="sectionCode" name="code" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="sectionName" class="form-label">{{ _('Name') }}</label>
+                        <input type="text" class="form-control" id="sectionName" name="name" required>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-md-6 form-check ps-5">
+                            <input type="checkbox" class="form-check-input" id="sectionHideMobileClient" name="hide_mobile_client">
+                            <label class="form-check-label" for="sectionHideMobileClient">{{ _('Hide mobile client') }}</label>
+                        </div>
+                        <div class="col-12 col-md-6 form-check ps-5">
+                            <input type="checkbox" class="form-check-input" id="sectionHideWebClient" name="hide_web_client">
+                            <label class="form-check-label" for="sectionHideWebClient">{{ _('Hide web client') }}</label>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="sectionCommands" class="form-label">{{ _('Commands') }}</label>
+                        <textarea class="form-control" id="sectionCommands" name="commands" rows="4" 
+                                  placeholder="{{ _('Enter commands in the format Title|Variable') }}"></textarea>
+                        <div class="form-text">{{ _('Enter commands in the format Title|Variable') }}</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+                    <button type="submit" class="btn btn-primary">{{ _('Save') }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+
+<!-- Common layout modal -->
+<div class="modal fade" id="commonLayoutModal">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+
+      <div class="modal-header">
+        <h5 class="modal-title">{{_("Common layout")}}</h5>
+      </div>
+
+      <div class="modal-body">
+
+        <label>ID</label>
+        <input id="cl_id" class="form-control mb-2">
+
+        <div class="mb-2 d-flex flex-wrap gap-1">
+          {% for t in (ui_tpl_buttons or []) %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="insertTpl('{{ t.key }}')">{{ t.label }}</button>
+          {% endfor %}
+        </div>
+
+        <textarea id="cl_layout" rows="16" style="width:100%; font-family:monospace"></textarea>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" onclick="saveCommonLayoutAndPersist()">OK</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{_("Cancel")}}</button>
+       </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- Dataset modal -->
+<div class="modal fade" id="datasetModal" tabindex="-1" aria-labelledby="datasetModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="datasetModalTitle">{{ _('Add dataset') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="datasetForm" method="POST">
+                
+                <input type="hidden" id="dataset_id" name="dataset_id">
+                
+                <input type="hidden" name="active_tab" id="datasetActiveTab">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="datasetName" class="form-label">{{ _('Dataset name') }}</label>
+                        <input type="text" class="form-control" id="datasetName" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="hashIndexes" class="form-label">{{ _('Hash-indexes') }}</label>
+                        <input type="text" class="form-control" id="hashIndexes" name="hash_indexes" placeholder="field1,field2">
+                        <div class="form-text">{{ _('Fields for exact search separated by commas') }}</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="textIndexes" class="form-label">{{ _('Text-indexes') }}</label>
+                        <input type="text" class="form-control" id="textIndexes" name="text_indexes" placeholder="field3,field4">
+                        <div class="form-text">{{ _('Full-text search fields (comma separated)') }}</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="viewTemplate" class="form-label">{{ _('Record template') }}</label>
+                        <textarea class="form-control" id="viewTemplate" name="view_template" rows="3"></textarea>
+                        <div class="form-text">{{ _('HTML template for displaying dataset element in input fields. For example: {name} , {_id}') }}</div>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="autoload" name="autoload">
+                        <label class="form-check-label" for="autoload">{{ _('Autoload?*') }}</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+                    <button type="submit" class="btn btn-primary">{{ _('Save') }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!--Import Prism.js-->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css">
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+    
+<!--Import code-input-->
+<script src="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/code-input.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/code-input.min.css">
+
+<!--Import some code-input plugins-->
+<script src="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/plugins/indent.min.js"></script>
+
+<!--Register code-input template-->
+<script>
+  codeInput.registerTemplate("syntax-highlighted", 
+    codeInput.templates.prism(
+      Prism, 
+      [
+        new codeInput.plugins.Indent(true, 2)
+      ]
+    )
+  );
+</script>
+
+<style>
+
+#v-pills-tabContent {
+    min-height: 600px;
+}
+
+
+#v-pills-handlers .code-input-editor,
+#v-pills-handlers-server .code-input-editor {
+    min-height: 500px !important;
+    height: 500px !important;
+}
+
+
+#v-pills-handlers code-input,
+#v-pills-handlers-server code-input {
+    height: 500px !important;
+}
+
+
+.modal-lg .code-input-editor {
+    min-height: 400px !important;
+    height: 400px !important;
+}
+    
+.code-input {
+  width: calc(100% - 40px);
+  margin: 20px;
+  --padding: 20px;
+}
+
+.code-input-editor {
+    min-height: 500px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+code-input {
+    --code-input-color: #333;
+    --code-input-background: #f8f9fa;
+    --code-input-border-color: #dee2e6;
+    --code-input-border-radius: 4px;
+    --code-input-padding: 10px;
+}
+
+.modal-lg .code-input-editor {
+    min-height: 300px;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+
+    codeInput.registerTemplate("syntax-highlighted", 
+        codeInput.templates.prism(
+            Prism, 
+            [new codeInput.plugins.Indent(true, 2)]
+        )
+    );
+
+    const tabButtons = document.querySelectorAll('[data-bs-toggle="pill"]');
+    tabButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const tabId = this.id.replace('-tab', '');
+            const tabName = tabId.replace('v-pills-', '');
+            
+
+            document.querySelectorAll('input[name="active_tab"]').forEach(input => {
+                input.value = tabName;
+            });
+            
+
+            const url = new URL(window.location);
+            url.searchParams.set('tab', tabName);
+            window.history.replaceState({}, '', url);
+        });
+    });
+
+
+    
+
+    const currentTab = new URLSearchParams(window.location.search).get('tab') || 'config';
+    document.querySelectorAll('input[name="active_tab"]').forEach(input => {
+        input.value = currentTab;
+    });
+    
+
+    document.getElementById('saveHandlersBtn').addEventListener('click', function() {
+    const editor = document.getElementById('handlersCodeInput');
+    const formData = new FormData();
+    formData.append('handlers_code', editor.value);
+    formData.append('active_tab', 'handlers');
+    formData.append('active_subtab', 'code');
+    
+    fetch("{{ url_for('update_handlers_code', uid=config.uid) }}", {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === "error") {
+           
+            alert(data.message);
+        } else {
+            window.location.href = "{{ url_for('edit_config', uid=config.uid) }}?tab=handlers&subtab=code";
+        }
+    })
+    .catch(error => alert('Error: ' + error));
+});
+
+
+    document.getElementById('saveServerHandlersBtn').addEventListener('click', function() {
+    const editor = document.getElementById('serverHandlersCodeInput');
+    const formData = new FormData();
+    formData.append('handlers_code', editor.value);
+    formData.append('active_tab', 'handlers-server');
+    formData.append('active_subtab', 'code');
+    
+    fetch("{{ url_for('update_server_handlers_code', uid=config.uid) }}", {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === "error") {
+            alert(data.message);
+        } else {
+            window.location.href = "{{ url_for('edit_config', uid=config.uid) }}?tab=handlers-server&subtab=code";
+        }
+    })
+    .catch(error => alert('Error: ' + error));
+});
+
+
+    const datasetModal = new bootstrap.Modal(document.getElementById('datasetModal'));
+    const datasetForm = document.getElementById('datasetForm');
+    const modalTitle = document.getElementById('datasetModalTitle');
+
+    document.querySelector('[data-bs-target="#datasetModal"]').addEventListener('click', function() {
+        modalTitle.textContent = "{{ _('Add dataset') }}";
+        datasetForm.reset();
+        document.getElementById('dataset_id').value = '';
+        datasetForm.action = "{{ url_for('add_dataset', config_uid=config.uid) }}";
+    });
+
+    document.querySelectorAll('.edit-dataset-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const datasetId = this.getAttribute('data-dataset-id');
+            
+            fetch(`/get-dataset-json?dataset_id=${datasetId}`)
+                .then(response => {
+                    if (!response.ok) throw new Error('Error dataset data loading');
+                    return response.json();
+                })
+                .then(data => {
+                    modalTitle.textContent = "{{ _('Edit dataset') }}";
+                    document.getElementById('dataset_id').value = datasetId;
+                    document.getElementById('datasetName').value = data.name || '';
+                    document.getElementById('hashIndexes').value = data.hash_indexes || '';
+                    document.getElementById('textIndexes').value = data.text_indexes || '';
+                    document.getElementById('viewTemplate').value = data.view_template || '';
+                    document.getElementById('autoload').checked = data.autoload || false;
+                    
+                    datasetForm.action = "{{ url_for('update_dataset', dataset_id='') }}" + datasetId;
+                    datasetModal.show();
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Failed to load dataset data: ' + error.message);
+                });
+        });
+    });
+
+    datasetForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const currentTab = new URLSearchParams(window.location.search).get('tab') || 'datasets';
+    formData.append('active_tab', currentTab);
+
+    fetch(this.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'Accept': 'application/json'
+        }
+    })
+    .then(async response => {
+        if (response.status === 401) {
+            window.location.href = "{{ url_for('index') }}";
+            return;
+        }
+        
+        const data = await response.json();
+        if (data.status === "success") {
+
+            if (data.redirect_url) {
+                window.location.href = data.redirect_url;
+            } else {
+
+                window.location.href = "{{ url_for('edit_config', uid=config.uid) }}?tab=" + currentTab;
+            }
+        } else {
+            alert('Error: ' + (data.message || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Request failed: ' + error.message);
+    });
+});
+
+
+  
+
+
+    const sectionModal = new bootstrap.Modal(document.getElementById('sectionModal'));
+    const sectionForm = document.getElementById('sectionForm');
+    const sectionModalTitle = document.getElementById('sectionModalTitle');
+
+    document.querySelector('[data-bs-target="#sectionModal"]').addEventListener('click', function() {
+        sectionModalTitle.textContent = "{{ _('Add section') }}";
+        sectionForm.reset();
+        document.getElementById('section_id').value = '';
+        sectionForm.action = "{{ url_for('add_section', config_uid=config.uid) }}";
+    });
+
+    document.querySelectorAll('.edit-section-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const sectionId = this.getAttribute('data-section-id');
+        const sectionRow = this.closest('tr');
+        
+
+        fetch(`/get-section-json?section_id=${sectionId}`)
+            .then(response => {
+                if (!response.ok) throw new Error('Error sections loading');
+                return response.json();
+            })
+            .then(data => {
+                sectionModalTitle.textContent = "{{ _('Edit section') }}";
+                document.getElementById('section_id').value = sectionId;
+                document.getElementById('sectionCode').value = data.code || '';
+                document.getElementById('sectionName').value = data.name || '';
+                document.getElementById('sectionCommands').value = data.commands || '';
+                document.getElementById('sectionHideMobileClient').checked = !!data.hide_mobile_client;
+                document.getElementById('sectionHideWebClient').checked = !!data.hide_web_client;
+                
+                sectionForm.action = "{{ url_for('update_section', section_id='') }}" + sectionId;
+                sectionModal.show();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+
+                sectionModalTitle.textContent = "{{ _('Edit section') }}";
+                document.getElementById('section_id').value = sectionId;
+                document.getElementById('sectionCode').value = sectionRow.cells[0].textContent;
+                document.getElementById('sectionName').value = sectionRow.cells[1].textContent;
+                document.getElementById('sectionCommands').value = '';
+                
+                sectionForm.action = "{{ url_for('update_section', section_id='') }}" + sectionId;
+                sectionModal.show();
+            });
+    });
+    });
+
+    sectionForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        fetch(this.action, {
+            method: 'POST',
+            body: new FormData(this),
+            headers: {
+                'Accept': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === "success") {
+                window.location.reload();
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+        });
+    });
+});
+</script>    
+
+
+
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+
+<script>
+
+document.addEventListener('DOMContentLoaded', function() {
+    const currentProtocol = window.location.protocol;
+    const currentHost = window.location.host;
+    const apiPath = "{{ url_for('get_config', uid=config.uid, _external=False) }}";
+    const apiUrl = currentProtocol + '//' + currentHost + apiPath;
+    const canvas = document.getElementById('qrcodeCanvas');
+
+     const baseUrl = window.location.protocol + "//" + window.location.host + "{{ url_for('get_config', uid=config.uid, _external=False) }}";
+    
+
+    document.getElementById('apiUrl').value = baseUrl;
+    
+
+    document.querySelectorAll('.api-url-base').forEach(el => {
+        el.textContent = baseUrl;
+    });
+
+   
+    QRCode.toCanvas(canvas, apiUrl, {
+        width: 150,
+        height: 150,
+        margin: 1,
+        color: {
+            dark: '#000000',
+            light: '#ffffff'
+        }
+    }, function(error) {
+        if (error) {
+            console.error('QR code generation error:', error);
+    
+            canvas.getContext('2d').fillText('QR Error', 10, 10);
+        }
+    });
+});
+
+function copyApiUrl() {
+    const apiUrl = document.getElementById('apiUrl').value;
+    navigator.clipboard.writeText(apiUrl).then(() => {
+        const btn = event.currentTarget;
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-check"></i> copied!';
+        
+        setTimeout(() => {
+            btn.innerHTML = originalHtml;
+        }, 2000);
+    }).catch(err => {
+        console.error('Failed to copy: ', err);
+
+        const tempInput = document.createElement('input');
+        tempInput.value = apiUrl;
+        document.body.appendChild(tempInput);
+        tempInput.select();
+        document.execCommand('copy');
+        document.body.removeChild(tempInput);
+        
+        const btn = event.currentTarget;
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-check"></i> copied!';
+        
+        setTimeout(() => {
+            btn.innerHTML = originalHtml;
+        }, 2000);
+    });
+}
+
+function initializeActiveTabs() {
+    const currentTab = new URLSearchParams(window.location.search).get('tab') || 'config';
+    
+
+    document.querySelectorAll('input[name="active_tab"]').forEach(input => {
+        input.value = currentTab;
+    });
+    
+
+    document.querySelectorAll('[id^="activeTab"]').forEach(element => {
+        element.value = currentTab;
+    });
+}
+
+document.addEventListener('DOMContentLoaded', initializeActiveTabs);
+
+document.addEventListener('DOMContentLoaded', function() {
+    const currentTab = new URLSearchParams(window.location.search).get('tab') || 'datasets';
+    document.getElementById('datasetActiveTab').value = currentTab;
+});
+
+
+
+document.addEventListener('DOMContentLoaded', () => {
+  const container = document.querySelector('[data-config-uid]');
+  if (!container) return;
+    const configUid = container.dataset.configUid;
+
+    const isLocalhost = window.location.hostname === 'localhost' || 
+                       window.location.hostname === '127.0.0.1';
+    const currentProtocol = window.location.protocol;
+    const defaultUrl = `${currentProtocol}//${window.location.host}`;
+    
+   
+    document.getElementById('serverUrlInput').value = defaultUrl;
+
+
+
+  const serverModalEl = document.getElementById('serverModal');
+  let serverModal;
+  if (serverModalEl) serverModal = new bootstrap.Modal(serverModalEl);
+
+
+  function openServerModal({ id, alias, url, is_default }) {
+    if (!serverModalEl) {
+      console.warn('serverModal not found');
+      return;
+    }
+
+
+    if (!id) {
+      alert('Not allow editing');
+      return;
+    }
+
+    document.getElementById('server_id').value = id;
+    document.getElementById('serverAlias').value = alias || '';
+    document.getElementById('serverUrl').value = url || '';
+    document.getElementById('serverIsDefault').checked = !!is_default;
+
+    serverModal.show();
+  }
+
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.edit-server-btn');
+    if (!btn) return;
+
+
+    const id = btn.dataset.serverId || btn.getAttribute('data-server-id') || null;
+    const alias = btn.dataset.serverAlias || btn.getAttribute('data-server-alias') || null;
+    const url = btn.dataset.serverUrl || btn.getAttribute('data-server-url') || null;
+    const is_default = btn.dataset.serverDefault === '1' || btn.dataset.serverDefault === 'true';
+
+
+    if (!alias || !url) {
+      const tr = btn.closest('tr');
+      if (tr) {
+        alias = alias || (tr.querySelector('.server-alias') && tr.querySelector('.server-alias').textContent.trim());
+        url = url || (tr.querySelector('.server-url') && tr.querySelector('.server-url').textContent.trim());
+      }
+    }
+
+    openServerModal({ id, alias, url, is_default });
+  });
+
+
+  const serverForm = document.getElementById('serverForm');
+  if (!serverForm) {
+    console.warn('serverForm not found');
+    return;
+  }
+
+  serverForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const id = document.getElementById('server_id').value || '';
+    const payload = {
+      alias: document.getElementById('serverAlias').value.trim(),
+      url: document.getElementById('serverUrl').value.trim(),
+      is_default: document.getElementById('serverIsDefault').checked
+    };
+
+
+    if (!payload.alias || !payload.url) {
+      alert("{{ _('Put alias and ULR') }}");
+      return;
+    }
+
+    const method = id ? 'PUT' : 'POST';
+    const endpoint = id
+      ? `/api/config/${configUid}/servers/${id}`
+      : `/api/config/${configUid}/servers`;
+
+    fetch(endpoint, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(async res => {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || err.message || `HTTP ${res.status}`);
+      }
+      return res.json();
+    })
+    .then(data => {
+
+      window.location.reload();
+    })
+    .catch(err => {
+      console.error(err);
+      alert('Error: ' + err.message);
+    });
+  });
+});
+
+// Common Events functionality
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Handling a click on the delete button
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('.delete-common-event-btn')) {
+            const btn = e.target.closest('.delete-common-event-btn');
+            const eventName = btn.getAttribute('data-event-name');
+            const listener = btn.getAttribute('data-listener');
+            
+            if (confirm('Delete this event?')) {
+                deleteCommonEvent(eventName, listener);
+            }
+        }
+    });
+    
+    function deleteCommonEvent(eventName, listener) {
+        const configUid = document.querySelector('[data-config-uid]').dataset.configUid;
+        const activeTab = new URLSearchParams(window.location.search).get('tab') || 'common-events';
+        
+        const formData = new FormData();
+        formData.append('event_name', eventName);
+        formData.append('listener', listener);
+        formData.append('active_tab', activeTab);
+        
+        fetch(`/config/${configUid}/delete-event`, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'Accept': 'application/json'
+            }
+        })
+        .then(async response => {
+            if (response.status === 401) {
+                window.location.href = "{{ url_for('index') }}";
+                return;
+            }
+            
+            const data = await response.json();
+            if (data.status === "success") {
+                if (data.redirect_url) {
+                    window.location.href = data.redirect_url;
+                } else {
+                    window.location.reload();
+                }
+            } else {
+                alert('Error: ' + (data.message || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Request failed: ' + error.message);
+        });
+    }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('.delete-timer-btn')) {
+            const btn = e.target.closest('.delete-timer-btn');
+            const timerId = btn.getAttribute('data-timer-id');
+            if (confirm('Delete this timer?')) {
+                deleteTimer(timerId);
+            }
+        }
+    });
+
+    function deleteTimer(timerId) {
+        const configUid = document.querySelector('[data-config-uid]').dataset.configUid;
+        const activeTab = new URLSearchParams(window.location.search).get('tab') || 'timers';
+        const formData = new FormData();
+        formData.append('timer_id', timerId);
+        formData.append('active_tab', activeTab);
+
+        fetch(`/config/${configUid}/delete-timer`, {
+            method: 'POST',
+            body: formData,
+            headers: { 'Accept': 'application/json' }
+        })
+        .then(async response => {
+            if (response.status === 401) {
+                window.location.href = "{{ url_for('index') }}";
+                return;
+            }
+            const data = await response.json();
+            if (data.status === "success") {
+                if (data.redirect_url) window.location.href = data.redirect_url;
+                else window.location.reload();
+            } else {
+                alert('Error: ' + (data.message || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Request failed: ' + error.message);
+        });
+    }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+  const COMMON_EVENT_TYPES = ['onLaunch', 'onBarcode', 'onStartMenuCommand', 'onTimer', 'onDialogResult','onJSONFile','onTextFile','onClassCommand','onStartMenuCommandWeb','onDataMessage','onIncomingNodes','onContractReceived'];
+  const ACTION_TYPES = ['run','runprogress','runasync'];
+
+ 
+    
+    // Make sure the active tab is passed correctly
+    const currentTab = new URLSearchParams(window.location.search).get('tab') || 'common-events';
+    document.querySelectorAll('input[name="active_tab"]').forEach(input => {
+        input.value = currentTab;
+    });
+
+  // Function for loading methods from handlers
+  function loadConfigMethods() {
+    const configUid = document.querySelector('[data-config-uid]').dataset.configUid;
+    return fetch(`/get-config-methods?config_uid=${configUid}`)
+      .then(response => response.json())
+      .then(data => data.methods || [])
+      .catch(error => {
+        console.error('Error loading config methods:', error);
+        return [];
+      });
+  }
+
+  function createCommonActionRow(action = {}, methods = []) {
+    const row = document.createElement('div');
+    row.className = 'common-action-row mb-2 p-2 border rounded';
+
+    row.innerHTML = `
+      <div class="d-flex gap-2 align-items-start flex-wrap">
+        <div style="width:150px">
+          <label class="form-label small">action</label>
+          <select class="form-select common-action-field" data-field="action">
+            ${ACTION_TYPES.map(a => `<option value="${a}" ${a===action.action?'selected':''}>${a}</option>`).join('')}
+          </select>
+        </div>
+        <div style="width:220px">
+          <label class="form-label small">method</label>
+          <select class="form-select common-action-field" data-field="method">
+            <option value="">-- {{ _('none') }} --</option>
+            ${methods.map(m => `<option value="${m}" ${m===action.method?'selected':''}>${m}</option>`).join('')}
+            <option value="NodaScript" ${action.method==='NodaScript'?'selected':''}>NodaScript</option>
+            <option value="HTTPRequest" ${(action.method==='HTTPRequest'||action.method==='HTTP Request')?'selected':''}>HTTPRequest</option>
+          </select>
+        </div>
+        <div style="width:160px">
+          <label class="form-label small">postExecuteMethod</label>
+          <select class="form-select common-action-field" data-field="postExecuteMethod">
+            <option value="">({{ _('none') }})</option>
+            ${methods.map(m => `<option value="${m}" ${m===action.postExecuteMethod?'selected':''}>${m}</option>`).join('')}
+            <option value="NodaScript" ${action.postExecuteMethod==='NodaScript'?'selected':''}>NodaScript</option>
+            <option value="HTTPRequest" ${(action.postExecuteMethod==='HTTPRequest'||action.postExecuteMethod==='HTTP Request')?'selected':''}>HTTPRequest</option>
+          </select>
+        </div>
+        <div style="width:130px">
+          <label class="form-label small">source</label>
+          <select class="form-select common-action-field" data-field="source">
+            <option value="internal" ${action.source==='internal' || !action.source?'selected':''}>internal</option>
+            <option value="external" ${action.source==='external'?'selected':''}>external</option>
+          </select>
+        </div>
+        <div style="width:200px">
+          <label class="form-label small">server</label>
+          <input class="form-control common-action-field" data-field="server" value="${action.server || ''}" placeholder="{{ _('server alias') }}">
+        </div>
+        <div style="width:40px">
+          <label class="form-label small">&nbsp;</label>
+          <button type="button" class="btn btn-outline-danger btn-sm remove-common-action-btn">&times;</button>
+        </div>
+      </div>
+
+      <div class="mt-2 noda-script-block" style="display:none; width:100%">
+        <div class="row g-2">
+          <div class="col-12">
+            <div class="method-script" style="display:none;">
+              <label class="form-label small">NodaScript (method)</label>
+              <textarea class="form-control common-action-field noda-script-textarea" data-field="methodText" rows="4" placeholder="// NodaScript for method">${action.methodText || ''}</textarea>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="method-http" style="display:none;">
+              <label class="form-label small">HTTPRequest function name (method)</label>
+              <input class="form-control common-action-field" data-field="httpFunctionName" value="${action.httpFunctionName || ""}" placeholder="sendInvoice">
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="post-script" style="display:none;">
+              <label class="form-label small">NodaScript (postExecuteMethod)</label>
+              <textarea class="form-control common-action-field noda-script-textarea" data-field="postExecuteMethodText" rows="4" placeholder="// NodaScript for postExecuteMethod">${action.postExecuteMethodText || ''}</textarea>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="post-http" style="display:none;">
+              <label class="form-label small">HTTPRequest function name (postExecuteMethod)</label>
+              <input class="form-control common-action-field" data-field="postHttpFunctionName" value="${action.postHttpFunctionName || ""}" placeholder="afterSend">
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const removeBtn = row.querySelector('.remove-common-action-btn');
+    removeBtn.addEventListener('click', () => row.remove());
+
+    const sourceSelect = row.querySelector('[data-field="source"]');
+    const serverInput = row.querySelector('[data-field="server"]');
+    function toggleServer() {
+      if (sourceSelect.value === 'external') {
+        serverInput.parentElement.style.display = '';
+      } else {
+        serverInput.parentElement.style.display = 'none';
+      }
+    }
+    toggleServer();
+    sourceSelect.addEventListener('change', toggleServer);
+
+    // NodaScript UI
+    const methodSelect = row.querySelector('[data-field="method"]');
+    const postSelect = row.querySelector('[data-field="postExecuteMethod"]');
+    const nodaBlock = row.querySelector('.noda-script-block');
+    const methodBox = row.querySelector('.method-script');
+    const postBox = row.querySelector('.post-script');
+    const methodHttpBox = row.querySelector('.method-http');
+    const postHttpBox = row.querySelector('.post-http');
+    const methodTa = row.querySelector('[data-field="methodText"]');
+    const postTa = row.querySelector('[data-field="postExecuteMethodText"]');
+    const methodHttpInput = row.querySelector('[data-field="httpFunctionName"]');
+    const postHttpInput = row.querySelector('[data-field="postHttpFunctionName"]');
+
+    function autoResize(ta) {
+      if (!ta) return;
+      ta.style.height = 'auto';
+      ta.style.height = (ta.scrollHeight + 2) + 'px';
+    }
+    [methodTa, postTa].forEach(ta => {
+      if (!ta) return;
+      ta.style.resize = 'vertical';
+      ta.addEventListener('input', () => autoResize(ta));
+      setTimeout(() => autoResize(ta), 0);
+    });
+
+    function toggleNoda() {
+      const isMethodScript = methodSelect.value === 'NodaScript';
+      const isPostScript = postSelect.value === 'NodaScript';
+      const isMethodHttp = methodSelect.value === 'HTTPRequest';
+      const isPostHttp = postSelect.value === 'HTTPRequest';
+
+      if (!isMethodScript) methodTa.value = '';
+      if (!isPostScript) postTa.value = '';
+      if (!isMethodHttp && methodHttpInput) methodHttpInput.value = '';
+      if (!isPostHttp && postHttpInput) postHttpInput.value = '';
+
+      methodBox.style.display = isMethodScript ? '' : 'none';
+      postBox.style.display = isPostScript ? '' : 'none';
+      methodHttpBox.style.display = isMethodHttp ? '' : 'none';
+      postHttpBox.style.display = isPostHttp ? '' : 'none';
+      nodaBlock.style.display = (isMethodScript || isPostScript || isMethodHttp || isPostHttp) ? '' : 'none';
+
+      if (isMethodScript) autoResize(methodTa);
+      if (isPostScript) autoResize(postTa);
+    }
+    toggleNoda();
+    methodSelect.addEventListener('change', toggleNoda);
+    postSelect.addEventListener('change', toggleNoda);
+
+    return row;
+  }
+
+  const commonActionsContainer = document.getElementById('commonActionsContainer');
+  
+  // Initialize the add action button
+  document.getElementById('addCommonActionBtn').addEventListener('click', () => {
+    loadConfigMethods().then(methods => {
+      commonActionsContainer.appendChild(createCommonActionRow({}, methods));
+    });
+  });
+
+  // Setting up a modal window for adding
+  const addCommonEventBtn = document.querySelector('[data-bs-target="#commonEventModal"][data-bs-toggle="modal"]');
+  if (addCommonEventBtn) {
+    addCommonEventBtn.addEventListener('click', () => {
+      document.getElementById('oldCommonEventName').value = '';
+      document.getElementById('oldCommonListener').value = '';
+      document.getElementById('commonEventNameSelect').value = 'onLaunch';
+      document.getElementById('commonListenerInput').value = '';
+      commonActionsContainer.innerHTML = '';
+      
+      loadConfigMethods().then(methods => {
+        commonActionsContainer.appendChild(createCommonActionRow({}, methods));
+      });
+      
+      document.getElementById('commonEventForm').action = "{{ url_for('add_config_event', config_uid=config.uid) }}";
+    });
+  }
+
+  // Setting up a modal window for editing
+  document.querySelectorAll('.edit-common-event-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const eventId = btn.getAttribute('data-event-id');
+      const eventName = btn.getAttribute('data-event-name');
+      const listener = btn.getAttribute('data-listener-name') || '';
+      const actions = JSON.parse(btn.getAttribute('data-actions'));
+
+      document.getElementById('oldCommonEventName').value = eventName;
+      document.getElementById('oldCommonListener').value = listener;
+      document.getElementById('commonEventNameSelect').value = eventName;
+      document.getElementById('commonListenerInput').value = listener;
+      commonActionsContainer.innerHTML = '';
+      
+      loadConfigMethods().then(methods => {
+        if (actions && actions.length) {
+          actions.forEach(a => commonActionsContainer.appendChild(createCommonActionRow(a, methods)));
+        } else {
+          commonActionsContainer.appendChild(createCommonActionRow({}, methods));
+        }
+      });
+      
+      document.getElementById('commonEventForm').action = "{{ url_for('edit_config_event', config_uid=config.uid) }}";
+    });
+  });
+
+  
+  // Handling form submission of common events
+document.getElementById('commonEventForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    
+    const actions = [];
+    commonActionsContainer.querySelectorAll('.common-action-row').forEach(row => {
+        const action = {};
+        row.querySelectorAll('.common-action-field').forEach(field => {
+            const key = field.getAttribute('data-field');
+            action[key] = field.value;
+            if (action[key] === '') delete action[key];
+        });
+        actions.push(action);
+    });
+    document.getElementById('commonActionsJson').value = JSON.stringify(actions);
+    
+    // Add an active tab to the form
+    const activeTab = new URLSearchParams(window.location.search).get('tab') || 'common-events';
+    const activeTabInput = document.createElement('input');
+    activeTabInput.type = 'hidden';
+    activeTabInput.name = 'active_tab';
+    activeTabInput.value = activeTab;
+    e.target.appendChild(activeTabInput);
+    
+    const formData = new FormData(e.target);
+    
+    fetch(e.target.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'Accept': 'application/json'
+        }
+    })
+    .then(async response => {
+        if (response.status === 401) {
+            window.location.href = "{{ url_for('index') }}";
+            return;
+        }
+        
+        const data = await response.json();
+        if (data.status === "success") {
+            if (data.redirect_url) {
+                window.location.href = data.redirect_url;
+            } else {
+                window.location.reload();
+            }
+        } else {
+            alert('Error: ' + (data.message || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Request failed: ' + error.message);
+    });
+});
+
+  // Timers use the same action rows/function list as CommonEvents.
+  const timerActionsContainer = document.getElementById('timerActionsContainer');
+  const timerForm = document.getElementById('timerForm');
+  const addTimerActionBtn = document.getElementById('addTimerActionBtn');
+
+  function updateTimerPeriodLimit() {
+    const timerPeriodInput = document.getElementById('timerPeriodInput');
+    const timerRuntimeInput = document.getElementById('timerRuntimeInput');
+    const timerWorkerInput = document.getElementById('timerWorkerInput');
+    const timerPeriodHelp = document.getElementById('timerPeriodHelp');
+    if (!timerPeriodInput) return;
+    const runtime = timerRuntimeInput ? timerRuntimeInput.value : 'server';
+    const worker = timerWorkerInput ? timerWorkerInput.checked : false;
+    const minPeriod = (runtime === 'server' || worker) ? 900 : 1;
+    timerPeriodInput.min = String(minPeriod);
+    if (timerPeriodHelp) {
+      timerPeriodHelp.textContent = (minPeriod === 900)
+        ? "{{ _('Server and Worker timers under 900 seconds are saved as 900 seconds.') }}"
+        : "{{ _('Client non-worker timers may use periods under 900 seconds.') }}";
+    }
+  }
+
+  if (timerActionsContainer && timerForm && addTimerActionBtn) {
+    addTimerActionBtn.addEventListener('click', () => {
+      loadConfigMethods().then(methods => {
+        timerActionsContainer.appendChild(createCommonActionRow({}, methods));
+      });
+    });
+
+    const addTimerBtn = document.querySelector('[data-bs-target="#timerModal"][data-bs-toggle="modal"]');
+    if (addTimerBtn) {
+      addTimerBtn.addEventListener('click', () => {
+        document.getElementById('timerModalTitle').textContent = "{{ _('Add timer') }}";
+        document.getElementById('oldTimerId').value = '';
+        document.getElementById('timerIdInput').value = '';
+        document.getElementById('timerPeriodInput').value = '900';
+        document.getElementById('timerActiveInput').checked = true;
+        document.getElementById('timerWorkerInput').checked = false;
+        document.getElementById('timerRuntimeInput').value = 'server';
+        updateTimerPeriodLimit();
+        timerActionsContainer.innerHTML = '';
+        loadConfigMethods().then(methods => {
+          timerActionsContainer.appendChild(createCommonActionRow({}, methods));
+        });
+        timerForm.action = "{{ url_for('add_config_timer', config_uid=config.uid) }}";
+      });
+    }
+
+    document.querySelectorAll('.edit-timer-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const timerId = btn.getAttribute('data-timer-id') || '';
+        const periodSeconds = btn.getAttribute('data-period-seconds') || '60';
+        const active = btn.getAttribute('data-active') === '1';
+        const worker = btn.getAttribute('data-worker') === '1';
+        const runtime = (btn.getAttribute('data-runtime') || 'server').toLowerCase() === 'client' ? 'client' : 'server';
+        let actions = [];
+        try { actions = JSON.parse(btn.getAttribute('data-actions') || '[]'); } catch(_) { actions = []; }
+
+        document.getElementById('timerModalTitle').textContent = "{{ _('Edit timer') }}";
+        document.getElementById('oldTimerId').value = timerId;
+        document.getElementById('timerIdInput').value = timerId;
+        document.getElementById('timerPeriodInput').value = periodSeconds;
+        document.getElementById('timerActiveInput').checked = active;
+        document.getElementById('timerWorkerInput').checked = worker;
+        document.getElementById('timerRuntimeInput').value = runtime;
+        updateTimerPeriodLimit();
+        timerActionsContainer.innerHTML = '';
+
+        loadConfigMethods().then(methods => {
+          if (actions && actions.length) actions.forEach(a => timerActionsContainer.appendChild(createCommonActionRow(a, methods)));
+          else timerActionsContainer.appendChild(createCommonActionRow({}, methods));
+        });
+        timerForm.action = "{{ url_for('edit_config_timer', config_uid=config.uid) }}";
+      });
+    });
+
+    const timerRuntimeInput = document.getElementById('timerRuntimeInput');
+    const timerWorkerInput = document.getElementById('timerWorkerInput');
+    if (timerRuntimeInput) timerRuntimeInput.addEventListener('change', updateTimerPeriodLimit);
+    if (timerWorkerInput) timerWorkerInput.addEventListener('change', updateTimerPeriodLimit);
+
+    timerForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const actions = [];
+      timerActionsContainer.querySelectorAll('.common-action-row').forEach(row => {
+        const action = {};
+        row.querySelectorAll('.common-action-field').forEach(field => {
+          const key = field.getAttribute('data-field');
+          action[key] = field.value;
+          if (action[key] === '') delete action[key];
+        });
+        actions.push(action);
+      });
+      document.getElementById('timerActionsJson').value = JSON.stringify(actions);
+
+      const timerPeriodInput = document.getElementById('timerPeriodInput');
+      const timerRuntimeInput = document.getElementById('timerRuntimeInput');
+      const timerWorkerInput = document.getElementById('timerWorkerInput');
+      if (timerPeriodInput) {
+        const periodSeconds = parseInt(timerPeriodInput.value || '0', 10);
+        const runtime = timerRuntimeInput ? timerRuntimeInput.value : 'server';
+        const worker = timerWorkerInput ? timerWorkerInput.checked : false;
+        const minPeriod = (runtime === 'server' || worker) ? 900 : 1;
+        if (!Number.isFinite(periodSeconds) || periodSeconds < minPeriod) {
+          timerPeriodInput.value = String(minPeriod);
+        }
+      }
+
+      const activeTabInput = document.createElement('input');
+      activeTabInput.type = 'hidden';
+      activeTabInput.name = 'active_tab';
+      activeTabInput.value = new URLSearchParams(window.location.search).get('tab') || 'timers';
+      e.target.appendChild(activeTabInput);
+
+      fetch(e.target.action, {
+        method: 'POST',
+        body: new FormData(e.target),
+        headers: { 'Accept': 'application/json' }
+      })
+      .then(async response => {
+        if (response.status === 401) {
+          window.location.href = "{{ url_for('index') }}";
+          return;
+        }
+        const data = await response.json();
+        if (data.status === "success") {
+          if (data.redirect_url) window.location.href = data.redirect_url;
+          else window.location.reload();
+        } else {
+          alert('Error: ' + (data.message || 'Unknown error'));
+        }
+      })
+      .catch(error => {
+        console.error('Error:', error);
+        alert('Request failed: ' + error.message);
+      });
+    });
+  }
+});
+
+
+
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const container = document.querySelector('[data-config-uid]');
+    if (!container) return;
+    const configUid = container.dataset.configUid;
+    const aiGenerateUrl = {{ url_for('ai_generate', uid=config.uid)|tojson }};
+    const ngenieInstructionUrl = {{ url_for('ngenie_code_write_instruction', uid=config.uid)|tojson }};
+    const ngenieExampleUrl = {{ url_for('ngenie_code_generate_example', uid=config.uid)|tojson }};
+    const ngenieChatUrl = {{ url_for('ngenie_code_chat', uid=config.uid)|tojson }};
+    const ngenieNewChatUrl = {{ url_for('ngenie_code_chat_new', uid=config.uid)|tojson }};
+    const ngenieChatAddUrl = {{ url_for('ngenie_code_chat', uid=config.uid)|tojson }};
+    const ngenieQuestionAnswerUrl = {{ ('/config/%s/ngenie-code-question-answers' % config.uid)|tojson }};
+
+    const form = document.getElementById('aiGeneratorForm');
+    if (!form) return;
+
+    const isNGenieCode = {{ 'true' if ngenie_code_available else 'false' }};
+
+    try {
+        const saved = localStorage.getItem('nl_ai_provider');
+        const sel = document.getElementById('aiProvider');
+        if (sel && saved && !isNGenieCode) sel.value = saved;
+    } catch (e) {}
+    
+    const promptInput = document.getElementById('aiPrompt');
+    const statusEl = document.getElementById('aiGeneratorStatus');
+    const errorEl = document.getElementById('aiGeneratorError');
+    const chatBox = document.getElementById('ngenieCodeChat');
+    const generateBtn = document.getElementById('aiGenerateBtn');
+    const layoutBtn = document.getElementById('aiGenerateLayoutBtn');
+    const instructionBtn = document.getElementById('ngenieCodeInstructionBtn');
+    const exampleBtn = document.getElementById('ngenieCodeExampleBtn');
+    const attachmentsInput = document.getElementById('ngenieCodeAttachments');
+    const newChatBtn = document.getElementById('ngenieCodeNewChatBtn');
+
+    let aiRequestInProgress = false;
+    let aiProgressTimer = null;
+    let aiProgressStartedAt = 0;
+
+    function appendNGenieMessage(kind, text, metaText) {
+        if (!chatBox) return null;
+        const div = document.createElement('div');
+        div.className = 'ngenie-msg ' + (kind === 'user' ? 'ngenie-msg-user' : 'ngenie-msg-bot');
+        div.textContent = text || '';
+        if (metaText) {
+            const meta = document.createElement('span');
+            meta.className = 'ngenie-msg-meta';
+            meta.textContent = metaText;
+            div.appendChild(meta);
+        }
+        chatBox.appendChild(div);
+        chatBox.scrollTop = chatBox.scrollHeight;
+        return div;
+    }
+
+    function normalizeQuestionField(field, index) {
+        if (field && typeof field === 'object' && !Array.isArray(field)) {
+            return Object.assign({ id: field.id || ('field_' + (index + 1)), type: 'text' }, field);
+        }
+        const raw = String(field || '').trim();
+        let left = raw, type = 'text';
+        if (raw.includes(':')) {
+            const parts = raw.split(/:(.+)/);
+            left = (parts[0] || '').trim();
+            type = (parts[1] || 'text').trim().toLowerCase();
+        }
+        let caption = left || ('Поле ' + (index + 1));
+        let id = 'field_' + (index + 1);
+        if (left.includes('|')) {
+            const parts = left.split('|');
+            caption = (parts[0] || caption).trim();
+            id = (parts[1] || id).trim();
+        }
+        id = id.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || ('field_' + (index + 1));
+        const aliases = { integet: 'integer', int: 'integer', string: 'text', bool: 'boolean', single: 'single_choice', multi: 'multi_choice' };
+        return { id, caption, type: aliases[type] || type || 'text' };
+    }
+
+    function getFieldValue(container, field) {
+        const id = field.id;
+        const type = String(field.type || 'text').toLowerCase();
+        if (type === 'boolean') {
+            const el = container.querySelector(`[data-q-field="${CSS.escape(id)}"]`);
+            return !!(el && el.checked);
+        }
+        if (type === 'single_choice') {
+            const el = container.querySelector(`input[data-q-field="${CSS.escape(id)}"]:checked`);
+            return el ? el.value : '';
+        }
+        if (type === 'multi_choice') {
+            return Array.from(container.querySelectorAll(`input[data-q-field="${CSS.escape(id)}"]:checked`)).map(x => x.value);
+        }
+        const el = container.querySelector(`[data-q-field="${CSS.escape(id)}"]`);
+        return el ? el.value : '';
+    }
+
+    function isAnswered(value, field) {
+        const required = field.required !== false;
+        if (!required) return true;
+        if (Array.isArray(value)) return value.length > 0;
+        if (typeof value === 'boolean') return true;
+        return String(value ?? '').trim() !== '';
+    }
+
+    function collectQuestionAnswers(root, questions) {
+        const answers = {};
+        let allDone = true;
+        (questions || []).forEach((q, qi) => {
+            const qid = q.id || ('q_' + (qi + 1));
+            const card = root.querySelector(`[data-q-id="${CSS.escape(qid)}"]`);
+            const qAnswers = {};
+            (q.fields || []).forEach((rawField, fi) => {
+                const field = normalizeQuestionField(rawField, fi);
+                const value = card ? getFieldValue(card, field) : '';
+                qAnswers[field.id] = value;
+                if (!isAnswered(value, field)) allDone = false;
+            });
+            answers[qid] = qAnswers;
+        });
+        return { answers, allDone };
+    }
+
+    function renderQuestionField(card, qid, rawField, index, onChange, savedValue) {
+        const field = normalizeQuestionField(rawField, index);
+        const type = String(field.type || 'text').toLowerCase();
+        const hasSaved = savedValue !== undefined && savedValue !== null;
+        const initialValue = hasSaved ? savedValue : field.default;
+        const wrap = document.createElement('div');
+        wrap.className = 'ngenie-question-field';
+        if (field.caption) {
+            const label = document.createElement('label');
+            label.className = 'form-label small mb-1';
+            label.textContent = field.caption;
+            wrap.appendChild(label);
+        }
+
+        const options = Array.isArray(field.options) ? field.options : [];
+        if (type === 'single_choice' || type === 'multi_choice') {
+            const list = document.createElement('div');
+            list.className = 'ngenie-choice-list';
+            options.forEach((opt, oi) => {
+                const val = String((opt && typeof opt === 'object') ? (opt.value ?? opt.id ?? opt.text ?? oi) : opt);
+                const text = String((opt && typeof opt === 'object') ? (opt.text ?? opt.caption ?? opt.value ?? oi) : opt);
+                const inputId = 'ngq_' + qid + '_' + field.id + '_' + oi + '_' + Math.random().toString(36).slice(2);
+                const inp = document.createElement('input');
+                inp.type = type === 'single_choice' ? 'radio' : 'checkbox';
+                inp.className = 'btn-check';
+                inp.name = 'ngq_' + qid + '_' + field.id;
+                inp.id = inputId;
+                inp.value = val;
+                inp.dataset.qField = field.id;
+                if (initialValue !== undefined) {
+                    if (Array.isArray(initialValue)) inp.checked = initialValue.map(String).includes(val);
+                    else inp.checked = String(initialValue) === val;
+                }
+                inp.addEventListener('change', onChange);
+                const btn = document.createElement('label');
+                btn.className = 'btn btn-sm btn-outline-primary';
+                btn.setAttribute('for', inputId);
+                btn.textContent = text;
+                if (opt && typeof opt === 'object' && opt.description) btn.title = opt.description;
+                list.appendChild(inp);
+                list.appendChild(btn);
+            });
+            wrap.appendChild(list);
+        } else if (type === 'select') {
+            const sel = document.createElement('select');
+            sel.className = 'form-select form-select-sm';
+            sel.dataset.qField = field.id;
+            const empty = document.createElement('option');
+            empty.value = '';
+            empty.textContent = 'Выберите...';
+            sel.appendChild(empty);
+            options.forEach((opt, oi) => {
+                const o = document.createElement('option');
+                o.value = String((opt && typeof opt === 'object') ? (opt.value ?? opt.id ?? opt.text ?? oi) : opt);
+                o.textContent = String((opt && typeof opt === 'object') ? (opt.text ?? opt.caption ?? opt.value ?? oi) : opt);
+                if (initialValue !== undefined && String(initialValue) === o.value) o.selected = true;
+                sel.appendChild(o);
+            });
+            sel.addEventListener('change', onChange);
+            wrap.appendChild(sel);
+        } else if (type === 'boolean') {
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.className = 'form-check-input ms-1';
+            box.dataset.qField = field.id;
+            box.checked = initialValue !== undefined ? !!initialValue : false;
+            box.addEventListener('change', onChange);
+            wrap.appendChild(box);
+        } else {
+            const inp = document.createElement('input');
+            inp.className = 'form-control form-control-sm';
+            inp.dataset.qField = field.id;
+            inp.type = (type === 'integer' || type === 'number') ? 'number' : 'text';
+            if (type === 'integer') inp.step = '1';
+            if (field.placeholder) inp.placeholder = field.placeholder;
+            if (initialValue !== undefined && initialValue !== null) inp.value = initialValue;
+            if (field.min !== undefined) inp.min = field.min;
+            if (field.max !== undefined) inp.max = field.max;
+            inp.addEventListener('input', onChange);
+            inp.addEventListener('change', onChange);
+            inp.addEventListener('blur', onChange);
+            wrap.appendChild(inp);
+        }
+        card.appendChild(wrap);
+    }
+
+    function appendNGenieQuestions(text, questions, metaText, savedAnswers) {
+        const div = appendNGenieMessage('bot', text || '', metaText);
+        if (!div) return null;
+        const qs = Array.isArray(questions) ? questions : [];
+        const answerState = (savedAnswers && typeof savedAnswers === 'object') ? savedAnswers : {};
+        const grid = document.createElement('div');
+        grid.className = 'ngenie-question-grid';
+        div.appendChild(grid);
+
+        const questionAction = () => {
+            const actions = qs.map(q => { const a = String((q && q.action) || 'if_all').toLowerCase(); return (a === 'none' || a === 'silent' || a === 'save_only') ? 'nothing' : a; });
+            if (actions.includes('straight')) return 'straight';
+            if (actions.includes('if_all')) return 'if_all';
+            return 'nothing';
+        };
+        const action = questionAction();
+
+        const onQuestionChange = () => {
+            const state = collectQuestionAnswers(div, qs);
+            const shouldResume = (action === 'straight' && state.allDone) || (action === 'if_all' && state.allDone);
+            if (shouldResume) {
+                if (div.__ngenieResumeSent) return;
+                div.__ngenieResumeSent = true;
+                sendQuestionAnswers(qs, state.answers, action, true);
+            } else {
+                scheduleQuestionAnswersSave(div, qs, state.answers, action);
+            }
+        };
+
+        qs.forEach((q, qi) => {
+            const qid = q.id || ('q_' + (qi + 1));
+            const card = document.createElement('div');
+            card.className = 'ngenie-question-card' + (String(q.layout || '').toLowerCase() === 'wide' ? ' ngenie-question-card-wide' : '');
+            card.dataset.qId = qid;
+            if (q.text_html) {
+                const titleHtml = document.createElement('div');
+                titleHtml.innerHTML = q.text_html;
+                card.appendChild(titleHtml);
+            } else if (q.text || q.question) {
+                const title = document.createElement('h6');
+                title.textContent = q.text || q.question;
+                card.appendChild(title);
+            }
+            if (q.description_html) {
+                const desc = document.createElement('div');
+                desc.className = 'small text-muted';
+                desc.innerHTML = q.description_html;
+                card.appendChild(desc);
+            } else if (q.description) {
+                const desc = document.createElement('div');
+                desc.className = 'small text-muted';
+                desc.textContent = q.description;
+                card.appendChild(desc);
+            }
+            const qSaved = (answerState && typeof answerState === 'object') ? (answerState[qid] || {}) : {};
+            (q.fields || ['Ответ|answer: text']).forEach((field, fi) => {
+                const nf = normalizeQuestionField(field, fi);
+                renderQuestionField(card, qid, field, fi, onQuestionChange, qSaved[nf.id]);
+            });
+            grid.appendChild(card);
+        });
+
+        // No generic submit button here. Question action is controlled only by
+        // the question schema: nothing saves silently, straight resumes on answer,
+        // if_all resumes when the whole question array is complete. If a template
+        // needs a visible submit, it should define it as a single_choice button.
+        setTimeout(() => {
+            const state = collectQuestionAnswers(div, qs);
+            if (state.allDone && (action === 'straight' || action === 'if_all')) {
+                // Do not auto-resume merely because historical answers were prefilled;
+                // resume is triggered by a real user change on the current card.
+                return;
+            }
+            if (Object.keys(state.answers || {}).length) {
+                scheduleQuestionAnswersSave(div, qs, state.answers, action);
+            }
+        }, 0);
+        chatBox.scrollTop = chatBox.scrollHeight;
+        return div;
+    }
+
+    function renderNGenieHistory(messages) {
+        if (!chatBox) return;
+        chatBox.innerHTML = '';
+        const rawRows = Array.isArray(messages) ? messages : [];
+        const seenQuestionKeys = new Set();
+        const rows = [];
+        for (let i = rawRows.length - 1; i >= 0; i--) {
+            const m = rawRows[i] || {};
+            const meta = m.meta || {};
+            if ((m.role !== 'user') && meta.kind === 'questions' && Array.isArray(meta.questions)) {
+                const ids = meta.questions.map((q, qi) => String((q && q.id) || ('q_' + (qi + 1)))).join('|');
+                const qKey = String(meta.question_key || ids);
+                if (seenQuestionKeys.has(qKey)) continue;
+                seenQuestionKeys.add(qKey);
+            }
+            rows.push(m);
+        }
+        rows.reverse();
+        if (!rows.length) {
+            appendNGenieMessage('bot', 'Опишите, что нужно изменить в текущей конфигурации. Можно приложить документы с требованиями.');
+            return;
+        }
+        rows.forEach(m => {
+            const role = (m.role === 'user') ? 'user' : 'bot';
+            let metaText = '';
+            if (m.created_at) {
+                try { metaText = new Date(m.created_at).toLocaleString(); } catch (e) { metaText = m.created_at; }
+            }
+            const meta = m.meta || {};
+            if (role === 'bot' && meta.kind === 'questions' && Array.isArray(meta.questions)) {
+                appendNGenieQuestions(m.content || '', meta.questions, metaText, meta.answers || {});
+            } else {
+                appendNGenieMessage(role, m.content || '', metaText);
+            }
+        });
+    }
+
+    function loadNGenieHistory() {
+        if (!isNGenieCode || !chatBox) return;
+        fetch(ngenieChatUrl, { headers: { 'Accept': 'application/json' } })
+            .then(async res => ({ ok: res.ok, data: await readJsonResponse(res) }))
+            .then(({ ok, data }) => {
+                if (ok && data.status === 'ok') renderNGenieHistory(data.messages || []);
+                else renderNGenieHistory([]);
+            })
+            .catch(() => renderNGenieHistory([]));
+    }
+
+    function formatElapsed(ms) {
+        const total = Math.max(0, Math.floor(ms / 1000));
+        const m = Math.floor(total / 60);
+        const s = total % 60;
+        return m > 0 ? (m + ' мин ' + String(s).padStart(2, '0') + ' сек') : (s + ' сек');
+    }
+
+    function stopProgress() {
+        if (aiProgressTimer) {
+            clearInterval(aiProgressTimer);
+            aiProgressTimer = null;
+        }
+        if (statusEl) statusEl.classList.remove('ngenie-working');
+    }
+
+    function startProgress(messageEl, baseText, statusText) {
+        stopProgress();
+        aiProgressStartedAt = Date.now();
+        if (statusEl) {
+            statusEl.classList.add('ngenie-working');
+            statusEl.innerHTML = '<span class="ngenie-pulse-dot"></span>' + (statusText || baseText || 'nGenie Code работает...');
+        }
+        const update = () => {
+            const elapsed = formatElapsed(Date.now() - aiProgressStartedAt);
+            const text = (baseText || 'nGenie Code работает...') + '\nПрошло: ' + elapsed + '. Окно можно не трогать, запрос еще выполняется.';
+            if (messageEl) messageEl.textContent = text;
+            if (statusEl) statusEl.innerHTML = '<span class="ngenie-pulse-dot"></span>' + (statusText || 'nGenie Code работает...') + ' · ' + elapsed;
+        };
+        update();
+        aiProgressTimer = setInterval(update, 10000);
+    }
+
+    function setBusy(isBusy, label) {
+        aiRequestInProgress = !!isBusy;
+        [generateBtn, layoutBtn, instructionBtn, exampleBtn].forEach(btn => {
+            if (btn) btn.disabled = !!isBusy;
+        });
+        if (generateBtn) {
+            if (isBusy) {
+                generateBtn.dataset.originalHtml = generateBtn.dataset.originalHtml || generateBtn.innerHTML;
+                if (!generateBtn.dataset.originalWidth) {
+                    generateBtn.dataset.originalWidth = String(Math.ceil(generateBtn.getBoundingClientRect().width));
+                }
+                generateBtn.style.width = generateBtn.dataset.originalWidth + 'px';
+                generateBtn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span><span class="visually-hidden">' + (label || 'Выполняется...') + '</span>';
+            } else if (generateBtn.dataset.originalHtml) {
+                generateBtn.innerHTML = generateBtn.dataset.originalHtml;
+                generateBtn.style.width = '';
+                delete generateBtn.dataset.originalWidth;
+            }
+        }
+        if (!isBusy) stopProgress();
+    }
+
+    async function readJsonResponse(res) {
+        const text = await res.text();
+        if (!text) return {};
+        try {
+            return JSON.parse(text);
+        } catch (e) {
+            return {
+                status: 'error',
+                message: text.slice(0, 4000) || ('HTTP ' + res.status)
+            };
+        }
+    }
+
+    function showError(text, prefix) {
+        stopProgress();
+        statusEl.textContent = prefix || 'Request error';
+        errorEl.style.display = 'block';
+        errorEl.textContent = text || '';
+        appendNGenieMessage('bot', text || 'Ошибка запроса');
+    }
+
+    function questionAnswersToText(questions, answers) {
+        const lines = ['Ответы на уточняющие вопросы:'];
+        (questions || []).forEach((q, qi) => {
+            const qid = q.id || ('q_' + (qi + 1));
+            lines.push('- ' + (q.text || q.question || qid));
+            const ans = (answers || {})[qid] || {};
+            (q.fields || []).forEach((rawField, fi) => {
+                const field = normalizeQuestionField(rawField, fi);
+                const val = ans[field.id];
+                lines.push('  - ' + (field.caption || field.id) + ': ' + (Array.isArray(val) ? val.join(', ') : val));
+            });
+        });
+        return lines.join('\n');
+    }
+
+    function scheduleQuestionAnswersSave(container, questions, answers, action) {
+        if (!container) return;
+        const payloadHash = JSON.stringify({ answers, action });
+        if (container.__ngenieLastSaveHash === payloadHash) return;
+        container.__ngenieLastSaveHash = payloadHash;
+        clearTimeout(container.__ngenieSaveTimer);
+        container.__ngenieSaveTimer = setTimeout(() => {
+            sendQuestionAnswers(questions, answers, action, false);
+        }, 350);
+    }
+
+    function handleQuestionAnswerResponse(data, pendingMsg, resume) {
+        if (Array.isArray(data.ngenie_code_questions) && data.ngenie_code_questions.length) {
+            if (pendingMsg) pendingMsg.textContent = data.message || 'Нужно уточнить еще несколько данных';
+            appendNGenieQuestions(data.message || 'Нужно уточнить еще несколько данных', data.ngenie_code_questions, '', data.answers || {});
+            return;
+        }
+        const ptype = String(data.plan_type || data.type || '').toLowerCase();
+        if (ptype === 'generate' && data.generate_prompt) {
+            if (pendingMsg) {
+                pendingMsg.__ngenieGenerationStarted = true;
+                pendingMsg.textContent = data.message || 'Начинаю генерацию конфигурации по утвержденному решению.';
+            }
+            fetch(aiGenerateUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({
+                    prompt: data.generate_prompt,
+                    llm: 'ngenie_code',
+                    solution_plan_generate: true
+                })
+            })
+            .then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }))
+            .then(({ ok, status, data }) => {
+                if (!ok || data.status !== 'ok') {
+                    if (pendingMsg) pendingMsg.remove();
+                    showError(data.message || `HTTP ${status}`, 'nGenie Code error');
+                    return;
+                }
+                stopProgress();
+                const msg = data.message || 'Configuration updated';
+                statusEl.textContent = msg;
+                if (pendingMsg) pendingMsg.textContent = msg;
+                if (Array.isArray(data.ngenie_code_questions) && data.ngenie_code_questions.length) {
+                    appendNGenieQuestions(msg, data.ngenie_code_questions);
+                    return;
+                }
+                setTimeout(() => {
+                    const url = new URL(window.location);
+                    url.searchParams.set('tab', 'ai-generator');
+                    window.location.href = url.toString();
+                }, 2200);
+            })
+            .catch(err => {
+                if (pendingMsg) pendingMsg.remove();
+                showError(err.message, 'Request error');
+            })
+            .finally(() => setBusy(false));
+            return;
+        }
+        if (resume) {
+            stopProgress();
+            const msg = data.message || 'План решения обновлен.';
+            statusEl.textContent = msg;
+            if (pendingMsg) pendingMsg.textContent = msg;
+        }
+    }
+
+    function sendQuestionAnswers(questions, answers, action, resume) {
+        resume = !!resume;
+        if (resume && aiRequestInProgress) return;
+        const prompt = questionAnswersToText(questions, answers);
+        let pendingMsg = null;
+        if (resume) {
+            appendNGenieMessage('user', prompt);
+            errorEl.style.display = 'none';
+            errorEl.textContent = '';
+            pendingMsg = appendNGenieMessage('bot', 'Ответы сохранены. Продолжаю план решения.');
+            setBusy(true, 'nGenie Code работает...');
+            startProgress(pendingMsg, 'Ответы сохранены. Выполняю следующую строку plan.py.', 'nGenie Code работает');
+        }
+        function postQuestionAnswersTo(url, asChatFallback) {
+            const body = asChatFallback ? {
+                role: 'user',
+                content: prompt,
+                meta: {
+                    kind: 'question_answers',
+                    question_answers: { questions, answers, action },
+                    resume_plan: resume
+                }
+            } : {
+                questions,
+                answers,
+                action,
+                resume,
+                content: prompt
+            };
+            return fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify(body)
+            }).then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }));
+        }
+
+        postQuestionAnswersTo(ngenieQuestionAnswerUrl, false)
+        .then(result => {
+            if ((result.status === 404 || result.status === 405) && resume) {
+                return postQuestionAnswersTo(ngenieChatAddUrl, true);
+            }
+            return result;
+        })
+        .then(({ ok, status, data }) => {
+            if (!ok || data.status !== 'ok') {
+                if (pendingMsg) pendingMsg.remove();
+                if (resume) showError(data.message || `HTTP ${status}`, 'nGenie Code error');
+                return;
+            }
+            handleQuestionAnswerResponse(data, pendingMsg, resume);
+        })
+        .catch(err => {
+            if (pendingMsg) pendingMsg.remove();
+            if (resume) showError(err.message, 'Request error');
+        })
+        .finally(() => {
+            if (resume && !(pendingMsg && pendingMsg.__ngenieGenerationStarted)) {
+                setBusy(false);
+            }
+        });
+    }
+
+    loadNGenieHistory();
+
+    if (newChatBtn) {
+        newChatBtn.addEventListener('click', function () {
+            if (aiRequestInProgress) return;
+            if (!confirm('Очистить историю nGenie Code для этой конфигурации?')) return;
+            fetch(ngenieNewChatUrl, { method: 'POST', headers: { 'Accept': 'application/json' } })
+                .then(async res => ({ ok: res.ok, data: await readJsonResponse(res) }))
+                .then(({ ok, data }) => {
+                    if (ok && data.status === 'ok') renderNGenieHistory(data.messages || []);
+                    else showError(data.message || 'Не удалось очистить чат', 'nGenie Code error');
+                })
+                .catch(err => showError(err.message, 'Request error'));
+        });
+    }
+
+    form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (aiRequestInProgress) return;
+
+        const prompt = (promptInput.value || '').trim();
+        if (!prompt) {
+            alert('Enter prompt for LLM');
+            return;
+        }
+
+        statusEl.textContent = isNGenieCode ? 'nGenie Code выполняет запрос...' : 'Submitting a request to LLM...';
+        errorEl.style.display = 'none';
+        errorEl.textContent = '';
+
+        const providerSelect = document.getElementById('aiProvider');
+        const llm = isNGenieCode ? 'ngenie_code' : ((providerSelect && providerSelect.value) ? providerSelect.value : 'deepseek');
+
+        try { if (!isNGenieCode) localStorage.setItem('nl_ai_provider', llm); } catch (e) {}
+
+        appendNGenieMessage('user', prompt);
+        const pendingMsg = appendNGenieMessage('bot', isNGenieCode
+            ? 'Запрос отправлен. nGenie Code анализирует конфигурацию и инструкции. Это может занять некоторое время.'
+            : 'Запрос отправлен. Жду ответ LLM...');
+
+        // Очищаем поле сразу после переноса запроса в чат, чтобы было видно, что сообщение принято.
+        promptInput.value = '';
+        promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+        setBusy(true, isNGenieCode ? 'nGenie Code работает...' : 'Generating...');
+        startProgress(pendingMsg, isNGenieCode
+            ? 'Запрос отправлен. nGenie Code анализирует конфигурацию, инструкции, генерирует patch и валидирует результат.'
+            : 'Запрос отправлен. Жду ответ LLM...',
+            isNGenieCode ? 'nGenie Code работает' : 'AI generator работает');
+
+        let fetchOptions;
+        if (isNGenieCode) {
+            const fd = new FormData();
+            fd.append('prompt', prompt);
+            fd.append('llm', 'ngenie_code');
+            const writeInstruction = document.getElementById('ngenieCodeWriteInstruction');
+            if (writeInstruction && writeInstruction.checked) fd.append('write_instruction', '1');
+            if (attachmentsInput && attachmentsInput.files) {
+                Array.from(attachmentsInput.files).forEach(file => fd.append('attachments', file));
+            }
+            fetchOptions = { method: 'POST', body: fd, headers: { 'Accept': 'application/json' } };
+        } else {
+            fetchOptions = {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ prompt, llm })
+            };
+        }
+
+        fetch(aiGenerateUrl, fetchOptions)
+        .then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }))
+        .then(({ ok, status, data }) => {
+            if (!ok || data.status !== 'ok') {
+                if (pendingMsg) pendingMsg.remove();
+                showError(data.message || `HTTP ${status}`, isNGenieCode ? 'nGenie Code error' : 'Error generating configuration');
+                return;
+            }
+
+            stopProgress();
+            const msg = data.message || 'Configuration updated';
+            statusEl.textContent = msg;
+            if (pendingMsg) {
+                pendingMsg.textContent = msg + (data.instruction_url ? '\nИнструкция создана и прикреплена к конфигурации.' : '');
+            } else {
+                appendNGenieMessage('bot', msg + (data.instruction_url ? '\nИнструкция создана и прикреплена к конфигурации.' : ''));
+            }
+            if (attachmentsInput) attachmentsInput.value = '';
+            if (Array.isArray(data.ngenie_code_questions) && data.ngenie_code_questions.length) {
+                appendNGenieQuestions(msg, data.ngenie_code_questions);
+                return;
+            }
+            if (data.ngenie_code_feature_request) {
+                // The configuration was intentionally not changed; keep the chat visible.
+                return;
+            }
+
+            setTimeout(() => {
+                const url = new URL(window.location);
+                url.searchParams.set('tab', isNGenieCode ? 'ai-generator' : 'config');
+                window.location.href = url.toString();
+            }, isNGenieCode ? 2200 : 1000);
+        })
+        .catch(err => {
+            if (pendingMsg) pendingMsg.remove();
+            showError(err.message, 'Request error');
+        })
+        .finally(() => {
+            setBusy(false);
+        });
+    });
+
+    function runNGenieDocEndpoint(kind) {
+        if (aiRequestInProgress) return;
+        const prompt = (promptInput.value || '').trim();
+        statusEl.textContent = kind === 'instruction' ? 'nGenie Code пишет инструкцию...' : 'nGenie Code генерирует пример...';
+        errorEl.style.display = 'none';
+        errorEl.textContent = '';
+        const url = kind === 'instruction' ? ngenieInstructionUrl : ngenieExampleUrl;
+        setBusy(true, kind === 'instruction' ? 'Пишу инструкцию...' : 'Генерирую пример...');
+        const pendingMsg = appendNGenieMessage('bot', kind === 'instruction'
+            ? 'Пишу инструкцию по текущей конфигурации...'
+            : 'Генерирую пример по текущей конфигурации...');
+        startProgress(pendingMsg, kind === 'instruction'
+            ? 'nGenie Code пишет инструкцию по текущей конфигурации.'
+            : 'nGenie Code генерирует пример по текущей конфигурации.',
+            kind === 'instruction' ? 'Пишу инструкцию' : 'Генерирую пример');
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ prompt })
+        })
+        .then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }))
+        .then(({ ok, status, data }) => {
+            if (!ok || data.status !== 'ok') {
+                if (pendingMsg) pendingMsg.remove();
+                showError(data.message || `HTTP ${status}`, 'nGenie Code error');
+                return;
+            }
+            stopProgress();
+            const msg = data.message || 'Done';
+            statusEl.textContent = msg;
+            if (pendingMsg) pendingMsg.textContent = msg;
+            else appendNGenieMessage('bot', msg);
+            setTimeout(() => {
+                const url = new URL(window.location);
+                url.searchParams.set('tab', 'ai-generator');
+                window.location.href = url.toString();
+            }, 700);
+        })
+        .catch(err => {
+            if (pendingMsg) pendingMsg.remove();
+            showError(err.message, 'Request error');
+        })
+        .finally(() => setBusy(false));
+    }
+
+    if (instructionBtn) instructionBtn.addEventListener('click', () => runNGenieDocEndpoint('instruction'));
+    if (exampleBtn) exampleBtn.addEventListener('click', () => runNGenieDocEndpoint('example'));
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const container = document.querySelector('[data-config-uid]');
+    if (!container) return;
+    const oldForm = document.getElementById('oldAiGeneratorForm');
+    if (!oldForm) return;
+
+    const aiGenerateUrl = {{ url_for('ai_generate', uid=config.uid)|tojson }};
+    const promptInput = document.getElementById('oldAiPrompt');
+    const providerSelect = document.getElementById('oldAiProvider');
+    const statusEl = document.getElementById('oldAiGeneratorStatus');
+    const errorEl = document.getElementById('oldAiGeneratorError');
+    const btn = document.getElementById('oldAiGenerateBtn');
+    let busy = false;
+
+    async function readJsonResponse(res) {
+        const text = await res.text();
+        if (!text) return {};
+        try { return JSON.parse(text); }
+        catch (e) { return { status: 'error', message: text.slice(0, 4000) || ('HTTP ' + res.status) }; }
+    }
+
+    oldForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (busy) return;
+        const prompt = (promptInput.value || '').trim();
+        if (!prompt) { alert('Enter prompt for LLM'); return; }
+        const llm = (providerSelect && providerSelect.value) ? providerSelect.value : 'deepseek';
+
+        busy = true;
+        if (btn) {
+            btn.dataset.originalHtml = btn.dataset.originalHtml || btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>AI generator (old) работает...';
+        }
+        if (statusEl) statusEl.textContent = 'Old AI-generator отправил запрос...';
+        if (errorEl) { errorEl.style.display = 'none'; errorEl.textContent = ''; }
+        promptInput.value = '';
+
+        fetch(aiGenerateUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ prompt, llm, old_ai: '1' })
+        })
+        .then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }))
+        .then(({ ok, status, data }) => {
+            if (!ok || data.status !== 'ok') {
+                if (statusEl) statusEl.textContent = 'Old AI-generator error';
+                if (errorEl) { errorEl.style.display = 'block'; errorEl.textContent = data.message || ('HTTP ' + status); }
+                return;
+            }
+            if (statusEl) statusEl.textContent = data.message || 'Configuration updated';
+            setTimeout(() => {
+                const url = new URL(window.location);
+                url.searchParams.set('tab', 'ai-generator');
+                window.location.href = url.toString();
+            }, 1000);
+        })
+        .catch(err => {
+            if (statusEl) statusEl.textContent = 'Request error';
+            if (errorEl) { errorEl.style.display = 'block'; errorEl.textContent = err.message; }
+        })
+        .finally(() => {
+            busy = false;
+            if (btn) {
+                btn.disabled = false;
+                if (btn.dataset.originalHtml) btn.innerHTML = btn.dataset.originalHtml;
+            }
+        });
+    });
+});
+</script>
+
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const container = document.querySelector('[data-config-uid]');
+    if (!container) return;
+    const configUid = container.dataset.configUid;
+
+    const form = document.getElementById('aiGeneratorForm');
+    if (!form) return;
+
+    const promptInput = document.getElementById('aiPrompt');
+    const statusEl = document.getElementById('aiGeneratorStatus');
+    const errorEl = document.getElementById('aiGeneratorError');
+
+    const layoutBtn = document.getElementById('aiGenerateLayoutBtn');
+    const layoutOut = document.getElementById('aiLayoutOutput');
+
+    if (layoutBtn && layoutOut) {
+        layoutBtn.addEventListener('click', function () {
+            const prompt = (promptInput.value || '').trim();
+            if (!prompt) {
+                alert('Enter prompt for LLM');
+                return;
+            }
+
+            statusEl.textContent = 'Generating layout JSON...';
+            errorEl.style.display = 'none';
+            errorEl.textContent = '';
+
+            const providerSelect = document.getElementById('aiProvider');
+            const llm = (providerSelect && providerSelect.value) ? providerSelect.value : 'deepseek';
+
+            fetch(`/config/${configUid}/ai-generate-layout`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt, llm })
+            })
+            .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
+            .then(({ ok, status, data }) => {
+                if (!ok || data.status !== 'ok') {
+                    statusEl.textContent = 'Error generating layout';
+                    errorEl.style.display = 'block';
+                    errorEl.textContent = data.message || `HTTP ${status}`;
+                    return;
+                }
+
+                layoutOut.value = data.layout_pretty || JSON.stringify(data.layout || [], null, 2);
+                statusEl.textContent = 'Layout generated (configuration was not changed).';
+
+                // удобно для Ctrl+C
+                try { layoutOut.focus(); layoutOut.select(); } catch (e) {}
+            })
+            .catch(err => {
+                statusEl.textContent = 'Request error';
+                errorEl.style.display = 'block';
+                errorEl.textContent = err.message;
+            });
+        });
+    }
+});
+</script>
+
+<script>
+/*** CommonLayouts editor ***/
+let _cl_edit_index = null;
+
+/*document.addEventListener('DOMContentLoaded', function () {
+  const ok = document.getElementById('cl_ok_btn');
+  if (ok) ok.addEventListener('click', () => {
+    try {
+      saveCommonLayout();
+    } catch (e) {
+      console.error('saveCommonLayout error:', e);
+      alert('saveCommonLayout error: ' + (e && e.message ? e.message : e));
+    }
+  });
+});*/
+
+function saveCommonLayoutAndPersist() {
+  
+  const id = (document.getElementById("cl_id").value || "").trim();
+  if (!id) { alert("It is necessary to specify ID"); return; }
+
+  let layout;
+  const raw = document.getElementById("cl_layout").value || "[]";
+  try { layout = JSON.parse(raw); }
+  catch (e) { alert("layout must be valid JSON"); return; }
+
+  
+  const arr = window._COMMON_LAYOUTS || [];
+  const item = { id: id, layout: layout };
+
+  if (_cl_edit_index === null) {
+    const dup = arr.find(x => (x.id || "").trim() === id);
+    if (dup) { alert("This ID already exists: " + id); return; }
+    arr.push(item);
+  } else {
+    const dup = arr.find((x, i) => i !== _cl_edit_index && (x.id || "").trim() === id);
+    if (dup) { alert("This ID already exists: " + id); return; }
+    arr[_cl_edit_index] = item;
+  }
+
+  window._COMMON_LAYOUTS = arr;
+
+  
+  fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ common_layouts: arr })
+  })
+  .then(res => res.json().then(data => ({ ok: res.ok, data })))
+  .then(({ ok, data }) => {
+    if (!ok || data.status !== 'success') {
+      alert(data.message || 'Error saving common layouts');
+      return;
+    }
+
+    
+    const modalEl = document.getElementById("commonLayoutModal");
+    const inst = bootstrap.Modal.getInstance(modalEl);
+    if (inst) inst.hide();
+
+    
+    const url = new URL(window.location);
+    url.searchParams.set('tab', 'common_layouts');
+    window.location.href = url.toString();
+  })
+  .catch(err => {
+    console.error(err);
+    alert('Error: ' + err.message);
+  });
+}
+
+
+const LAYOUT_TEMPLATES = {{ (ui_tpl_map or {}) | tojson }};
+
+function insertTpl(name) {
+  const ta = document.getElementById("cl_layout");
+  if (!ta) return;
+  const tpl = LAYOUT_TEMPLATES[name];
+  if (!tpl) return;
+  const p = ta.selectionStart || 0;
+  ta.value = ta.value.slice(0, p) + tpl + ta.value.slice(p);
+  ta.focus();
+  ta.selectionStart = ta.selectionEnd = p + tpl.length;
+}
+
+function openCommonLayoutEditor() {
+  _cl_edit_index = null;
+  document.getElementById("cl_id").value = "";
+  document.getElementById("cl_layout").value = "[]";
+  new bootstrap.Modal(document.getElementById("commonLayoutModal")).show();
+}
+
+function editCommonLayout(idx) {
+  _cl_edit_index = idx;
+
+  // config.common_layouts from server rendered into JS
+  const arr = window._COMMON_LAYOUTS || [];
+  const it = arr[idx];
+  if (!it) return;
+
+  document.getElementById("cl_id").value = it.id || "";
+  document.getElementById("cl_layout").value = JSON.stringify(it.layout ?? [], null, 2);
+  new bootstrap.Modal(document.getElementById("commonLayoutModal")).show();
+}
+
+function deleteCommonLayout(idx) {
+  const arr = window._COMMON_LAYOUTS || [];
+  if (!arr[idx]) return;
+
+  if (!confirm("Delete layout: " + (arr[idx].id || "") + " ?")) return;
+
+  arr.splice(idx, 1);
+  window._COMMON_LAYOUTS = arr;
+
+  fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ common_layouts: arr })
+  })
+  .then(res => res.json().then(data => ({ ok: res.ok, data })))
+  .then(({ ok, data }) => {
+    if (!ok || data.status !== 'success') {
+      alert(data.message || 'Error saving common layouts');
+      return;
+    }
+    const url = new URL(window.location);
+    url.searchParams.set('tab', 'common_layouts');
+    window.location.href = url.toString();
+  })
+  .catch(err => alert('Error: ' + err.message));
+}
+
+function saveCommonLayout() {
+  const id = (document.getElementById("cl_id").value || "").trim();
+  if (!id) {
+    alert("ID not specified");
+    return;
+  }
+
+  let layout;
+  const raw = document.getElementById("cl_layout").value || "[]";
+  try {
+    layout = JSON.parse(raw);
+  } catch (e) {
+    alert("layout must be valid JSON");
+    return;
+  }
+
+  const arr = window._COMMON_LAYOUTS || [];
+  const item = { id: id, layout: layout };
+
+  if (_cl_edit_index === null) {
+    
+    const dup = arr.find(x => (x.id || "").trim() === id);
+    if (dup) {
+      alert("Such ID already exists: " + id);
+      return;
+    }
+    arr.push(item);
+  } else {
+    
+    const old = arr[_cl_edit_index];
+    if (!old) return;
+    const dup = arr.find((x, i) => i !== _cl_edit_index && (x.id || "").trim() === id);
+    if (dup) {
+      alert("This ID already exists.: " + id);
+      return;
+    }
+    arr[_cl_edit_index] = item;
+  }
+
+  syncCommonLayoutsToForm(arr);
+  bootstrap.Modal.getInstance(document.getElementById("commonLayoutModal")).hide();
+
+  
+  //document.getElementById("configForm").submit();
+  //renderCommonLayoutsTable();
+}
+
+function syncCommonLayoutsToForm(arr) {
+  window._COMMON_LAYOUTS = arr;
+  
+  const inp = document.getElementById("common_layouts_json");
+  if (inp) inp.value = JSON.stringify(arr);
+}
+
+function renderCommonLayoutsTable() {
+  
+  const url = new URL(window.location);
+  url.searchParams.set('tab', 'common_layouts');
+  window.history.replaceState({}, '', url);
+  window.location.reload();
+}
+
+function saveCommonLayoutsToServer() {
+  const container = document.querySelector('[data-config-uid]');
+  if (!container) return;
+  const configUid = container.dataset.configUid;
+
+  const arr = window._COMMON_LAYOUTS || [];
+  
+  syncCommonLayoutsToForm(arr);
+
+fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ common_layouts: arr })
+  })
+  .then(res => res.json().then(data => ({ ok: res.ok, data })))
+  .then(({ ok, data }) => {
+    if (!ok || data.status !== 'success') {
+      alert(data.message || 'Error saving common layouts');
+      return;
+    }
+    
+    const url = new URL(window.location);
+    url.searchParams.set('tab', 'common_layouts');
+    window.location.href = url.toString();
+  })
+  .catch(err => alert('Error: ' + err.message));
+}
+
+
+</script>
+
+
+<style>
+#qrcodeCanvas {
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+    padding: 5px;
+    background: white;
+}
+
+
+.event-onlaunch {
+    background-color: #6f42c1;
+    color: white;
+}
+
+.event-onbarcode {
+    background-color: #fd7e14;
+    color: white;
+}
+
+.event-onstartmenucommand {
+    background-color: #20c997;
+    color: rgb(0, 0, 0);
+}
+
+.event-onstartmenucommandweb {
+    background-color: #0b815e;
+    color: white;
+}
+
+.event-ontimer {
+    background-color: #ffd95b;
+    color: rgb(0, 0, 0);
+}
+
+.event-ondialogresult {
+    background-color: #6c757d;
+    color: white;
+}
+
+.event-onjsonfile {
+    background-color: #17a2b8; 
+    color: white;
+}
+
+.event-ontextfile {
+    background-color: #28a745; 
+    color: white;
+}
+
+.event-onclasscommand {
+    background-color: #801237;
+    color: white;
+}
+
+.event-ondatamessage {
+    background-color: #128065;
+    color: white;
+}
+
+.event-onincomingnodes {
+    background-color: #f1239b;
+    color: white;
+}
+
+.event-oncontractreceived {
+    background-color: #2d0647;
+    color: white;
+}
+
+</style>
+
+
+
+
+{% endblock %}
