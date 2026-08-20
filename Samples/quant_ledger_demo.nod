@@ -1,0 +1,375 @@
+{
+  "name": "Quant Ledger Demo",
+  "server_name": "Quant Ledger Demo",
+  "uid": "8dd6f71f-07b1-4e7e-a73e-86bdffb0617e",
+  "content_uid": "58299d70-4a9d-4f73-bf17-d5a91e943f67",
+  "version": "00.00.01",
+  "vendor": "NodaLogic",
+  "NodaLogicFormat": "NODALOGIC",
+  "NodaLogicType": "ANDROID_SERVER",
+  "nodes_handlers": "ZnJvbSBub2RlcyBpbXBvcnQgTm9kZQoKY2xhc3MgUHJvZHVjdChOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSkKCmNsYXNzIFdhcmVob3VzZShOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSkKCmNsYXNzIExvY2F0aW9uKE5vZGUpOgogICAgZGVmIF9faW5pdF9fKHNlbGYsIG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKToKICAgICAgICBzdXBlcigpLl9faW5pdF9fKG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKQoKY2xhc3MgTG90KE5vZGUpOgogICAgZGVmIF9faW5pdF9fKHNlbGYsIG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKToKICAgICAgICBzdXBlcigpLl9faW5pdF9fKG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKQoKY2xhc3MgUmVjZWlwdChOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSkKCmNsYXNzIEV4cGVuc2UoTm9kZSk6CiAgICBkZWYgX19pbml0X18oc2VsZiwgbW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpOgogICAgICAgIHN1cGVyKCkuX19pbml0X18obW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpCgpjbGFzcyBUcmFuc2ZlcihOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSkKCmNsYXNzIEJhbGFuY2VSZXBvcnQoTm9kZSk6CiAgICBkZWYgX19pbml0X18oc2VsZiwgbW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpOgogICAgICAgIHN1cGVyKCkuX19pbml0X18obW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpCgpjbGFzcyBGZWZvUmVwb3J0KE5vZGUpOgogICAgZGVmIF9faW5pdF9fKHNlbGYsIG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKToKICAgICAgICBzdXBlcigpLl9faW5pdF9fKG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKQoKY2xhc3MgRGVtb1NldHVwKE5vZGUpOgogICAgZGVmIF9faW5pdF9fKHNlbGYsIG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKToKICAgICAgICBzdXBlcigpLl9faW5pdF9fKG1vZHVsZXMsIGpOb2RlLCBtb2R1bGVuYW1lLCB1aWQsIF9kYXRhKQo=",
+  "nodes_server_handlers": "ZnJvbSBub2RlcyBpbXBvcnQgTm9kZQpmcm9tIHF1YW50X2xlZGdlciBpbXBvcnQgcXVhbnQsIG1vdmUsIHRyYW5zYWN0aW9uLCBiYWxhbmNlcywgc3RhdGVtZW50LCBOZWdhdGl2ZUJhbGFuY2VFcnJvciwgT3BlcmF0aW9uQ29uZmxpY3RFcnJvciwgUXVhbnRMZWRnZXJFcnJvcgpmcm9tIGh0bWwgaW1wb3J0IGVzY2FwZQpmcm9tIGRlY2ltYWwgaW1wb3J0IERlY2ltYWwKClNUT0NLX1NQQUNFID0gImRlbW8uc3RvY2suZGV0YWlsIgoKCmRlZiBfbnVtKHZhbHVlLCBkZWZhdWx0PTApOgogICAgdHJ5OgogICAgICAgIGlmIHZhbHVlIGlzIE5vbmUgb3IgdmFsdWUgPT0gIiI6CiAgICAgICAgICAgIHJldHVybiBEZWNpbWFsKHN0cihkZWZhdWx0KSkKICAgICAgICByZXR1cm4gRGVjaW1hbChzdHIodmFsdWUpKQogICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICByZXR1cm4gRGVjaW1hbChzdHIoZGVmYXVsdCkpCgoKZGVmIF9ub2Rlc19ieV9pZChjbHMpOgogICAgcmVzdWx0ID0ge30KICAgIGZvciBub2RlIGluIChjbHMuZ2V0X2FsbCgpIG9yIHt9KS52YWx1ZXMoKToKICAgICAgICByZXN1bHRbc3RyKGdldGF0dHIobm9kZSwgIl9pZCIsICIiKSBvciAiIildID0gbm9kZQogICAgcmV0dXJuIHJlc3VsdAoKCmRlZiBfbm9kZV9uYW1lKG5vZGUsIGZhbGxiYWNrPSIiKToKICAgIGlmIG5vZGUgaXMgTm9uZToKICAgICAgICByZXR1cm4gZmFsbGJhY2sKICAgIGRhdGEgPSBnZXRhdHRyKG5vZGUsICJfZGF0YSIsIHt9KSBvciB7fQogICAgcmV0dXJuIHN0cihkYXRhLmdldCgibmFtZSIpIG9yIGRhdGEuZ2V0KCJudW1iZXIiKSBvciBkYXRhLmdldCgiY29kZSIpIG9yIGZhbGxiYWNrIG9yIGdldGF0dHIobm9kZSwgIl9pZCIsICIiKSkKCgpkZWYgX3N0b2NrX2tleXMoZGF0YSk6CiAgICB3YXJlaG91c2UgPSBzdHIoZGF0YS5nZXQoIndhcmVob3VzZSIpIG9yICIiKQogICAgcHJvZHVjdCA9IHN0cihkYXRhLmdldCgicHJvZHVjdCIpIG9yICIiKQogICAgbG90ID0gc3RyKGRhdGEuZ2V0KCJsb3QiKSBvciAiIikKICAgIGxvY2F0aW9uID0gc3RyKGRhdGEuZ2V0KCJsb2NhdGlvbiIpIG9yICIiKQogICAgaWYgbm90IHdhcmVob3VzZSBvciBub3QgcHJvZHVjdCBvciBub3QgbG90IG9yIG5vdCBsb2NhdGlvbjoKICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCLQndGD0LbQvdC+INC30LDQv9C+0LvQvdC40YLRjCDRgdC60LvQsNC0LCDRgtC+0LLQsNGALCDQv9Cw0YDRgtC40Y4g0Lgg0Y/Rh9C10LnQutGDIikKICAgIHJldHVybiAoCiAgICAgICAgcXVhbnQod2FyZWhvdXNlLCBwcm9kdWN0LCBsb3QsIGxvY2F0aW9uKSwKICAgICAgICBxdWFudCh3YXJlaG91c2UsIHByb2R1Y3QpLAogICAgKQoKCmRlZiBfZG9jdW1lbnRfZGV0YWlscyhub2RlLCBraW5kKToKICAgIGRhdGEgPSBub2RlLl9kYXRhIG9yIHt9CiAgICByZXR1cm4gewogICAgICAgICJkb2N1bWVudCI6IHN0cihnZXRhdHRyKG5vZGUsICJfaWQiLCAiIikgb3IgIiIpLAogICAgICAgICJraW5kIjoga2luZCwKICAgICAgICAiZW1wbG95ZWUiOiBzdHIoZGF0YS5nZXQoImVtcGxveWVlIikgb3IgIiIpLAogICAgICAgICJjb21tZW50Ijogc3RyKGRhdGEuZ2V0KCJjb21tZW50Iikgb3IgIiIpLAogICAgfQoKCmRlZiBfaHRtbF9wYWdlKHRpdGxlLCBib2R5KToKICAgIHJldHVybiAiIiI8IWRvY3R5cGUgaHRtbD48aHRtbD48aGVhZD48bWV0YSBjaGFyc2V0PVwidXRmLThcIj48c3R5bGU+CmJvZHl7Zm9udC1mYW1pbHk6QXJpYWwsc2Fucy1zZXJpZjtwYWRkaW5nOjE2cHg7Y29sb3I6IzIyMn1oMnttYXJnaW46MCAwIDE0cHh9CnRhYmxle2JvcmRlci1jb2xsYXBzZTpjb2xsYXBzZTt3aWR0aDoxMDAlfXRoLHRke2JvcmRlcjoxcHggc29saWQgI2RkZDtwYWRkaW5nOjdweDt0ZXh0LWFsaWduOmxlZnR9CnRoe2JhY2tncm91bmQ6I2Y0ZjRmNH0ubnVte3RleHQtYWxpZ246cmlnaHR9Lm11dGVke2NvbG9yOiM3Nzd9LmVycm9ye2NvbG9yOiNhMDB9Cjwvc3R5bGU+PC9oZWFkPjxib2R5PjxoMj4iIiIgKyBlc2NhcGUodGl0bGUpICsgIjwvaDI+IiArIGJvZHkgKyAiPC9ib2R5PjwvaHRtbD4iCgoKY2xhc3MgUHJvZHVjdChOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQoKCmNsYXNzIFdhcmVob3VzZShOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQoKCmNsYXNzIExvY2F0aW9uKE5vZGUpOgogICAgZGVmIF9faW5pdF9fKHNlbGYsIG5vZGVfaWQ9Tm9uZSwgY29uZmlnX3VpZD1Ob25lKToKICAgICAgICBzdXBlcigpLl9faW5pdF9fKG5vZGVfaWQsIGNvbmZpZ191aWQpCgoKY2xhc3MgTG90KE5vZGUpOgogICAgZGVmIF9faW5pdF9fKHNlbGYsIG5vZGVfaWQ9Tm9uZSwgY29uZmlnX3VpZD1Ob25lKToKICAgICAgICBzdXBlcigpLl9faW5pdF9fKG5vZGVfaWQsIGNvbmZpZ191aWQpCgoKY2xhc3MgUmVjZWlwdChOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQoKICAgIGRlZiBDb25kdWN0KHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgIiIi0J/RgNC+0LLQvtC00LjRgiDQv9GA0LjRhdC+0LQg0LIgU1FMLdC+0YHRgtCw0YLQvtC6INC/0L4g0L/QvtC70L3QvtC80YMg0Lgg0L7RgtCx0L7RgNC+0YfQvdC+0LzRgyDQutCy0LDQvdGC0LDQvC4iIiIKICAgICAgICBpZiBzZWxmLl9kYXRhLmdldCgiX29uX2xvYWQiKToKICAgICAgICAgICAgcmV0dXJuIFRydWUsIHNlbGYuX2RhdGEKICAgICAgICB0cnk6CiAgICAgICAgICAgIHF0eSA9IF9udW0oc2VsZi5fZGF0YS5nZXQoInF1YW50aXR5IikpCiAgICAgICAgICAgIGFtb3VudCA9IF9udW0oc2VsZi5fZGF0YS5nZXQoImFtb3VudCIpKQogICAgICAgICAgICBpZiBxdHkgPD0gMDoKICAgICAgICAgICAgICAgIHJldHVybiBGYWxzZSwgeyJlcnJvciI6ICLQmtC+0LvQuNGH0LXRgdGC0LLQviDQv9GA0LjRhdC+0LTQsCDQtNC+0LvQttC90L4g0LHRi9GC0Ywg0LHQvtC70YzRiNC1INC90YPQu9GPIn0KICAgICAgICAgICAgZnVsbF9xdWFudCwgc2VsZWN0b3IgPSBfc3RvY2tfa2V5cyhzZWxmLl9kYXRhKQogICAgICAgICAgICByZXN1bHQgPSBtb3ZlKAogICAgICAgICAgICAgICAgU1RPQ0tfU1BBQ0UsCiAgICAgICAgICAgICAgICBmdWxsX3F1YW50LAogICAgICAgICAgICAgICAgc2VsZi5fZGF0YS5nZXQoImRhdGUiKSwKICAgICAgICAgICAgICAgIGYie3NlbGYuX2lkfTpyZWNlaXB0IiwKICAgICAgICAgICAgICAgIF9kb2N1bWVudF9kZXRhaWxzKHNlbGYsICJyZWNlaXB0IiksCiAgICAgICAgICAgICAgICBbcXR5LCBhbW91bnRdLAogICAgICAgICAgICAgICAgc2VsZWN0b3JfcXVhbnQ9c2VsZWN0b3IsCiAgICAgICAgICAgICAgICBhbGxvd19uZWdhdGl2ZT1GYWxzZSwKICAgICAgICAgICAgKQogICAgICAgICAgICBzZWxmLl9kYXRhWyJwb3N0ZWQiXSA9IFRydWUKICAgICAgICAgICAgc2VsZi5fZGF0YVsicG9zdF9zdGF0dXMiXSA9ICLQn9C+0LLRgtC+0YAg0YPQttC1INGD0YfRgtC10L0iIGlmIHJlc3VsdC5hbHJlYWR5X2FwcGxpZWQgZWxzZSAi0J/RgNC+0LLQtdC00LXQvdC+IgogICAgICAgICAgICByZXR1cm4gVHJ1ZSwgc2VsZi5fZGF0YQogICAgICAgIGV4Y2VwdCAoVmFsdWVFcnJvciwgUXVhbnRMZWRnZXJFcnJvcikgYXMgZXhjOgogICAgICAgICAgICByZXR1cm4gRmFsc2UsIHsiZXJyb3IiOiBzdHIoZXhjKX0KCgpjbGFzcyBFeHBlbnNlKE5vZGUpOgogICAgZGVmIF9faW5pdF9fKHNlbGYsIG5vZGVfaWQ9Tm9uZSwgY29uZmlnX3VpZD1Ob25lKToKICAgICAgICBzdXBlcigpLl9faW5pdF9fKG5vZGVfaWQsIGNvbmZpZ191aWQpCgogICAgZGVmIENvbmR1Y3Qoc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKICAgICAgICAiIiLQn9GA0L7QstC+0LTQuNGCINGA0LDRgdGF0L7QtCDQuCDQt9Cw0L/RgNC10YnQsNC10YIg0L7RgtGA0LjRhtCw0YLQtdC70YzQvdGL0Lkg0L7RgdGC0LDRgtC+0Log0YDQtdGB0YPRgNGB0LAg0LrQvtC70LjRh9C10YHRgtCy0LAuIiIiCiAgICAgICAgaWYgc2VsZi5fZGF0YS5nZXQoIl9vbl9sb2FkIik6CiAgICAgICAgICAgIHJldHVybiBUcnVlLCBzZWxmLl9kYXRhCiAgICAgICAgdHJ5OgogICAgICAgICAgICBxdHkgPSBfbnVtKHNlbGYuX2RhdGEuZ2V0KCJxdWFudGl0eSIpKQogICAgICAgICAgICBhbW91bnQgPSBfbnVtKHNlbGYuX2RhdGEuZ2V0KCJhbW91bnQiKSkKICAgICAgICAgICAgaWYgcXR5IDw9IDA6CiAgICAgICAgICAgICAgICByZXR1cm4gRmFsc2UsIHsiZXJyb3IiOiAi0JrQvtC70LjRh9C10YHRgtCy0L4g0YDQsNGB0YXQvtC00LAg0LTQvtC70LbQvdC+INCx0YvRgtGMINCx0L7Qu9GM0YjQtSDQvdGD0LvRjyJ9CiAgICAgICAgICAgIGZ1bGxfcXVhbnQsIHNlbGVjdG9yID0gX3N0b2NrX2tleXMoc2VsZi5fZGF0YSkKICAgICAgICAgICAgcmVzdWx0ID0gbW92ZSgKICAgICAgICAgICAgICAgIFNUT0NLX1NQQUNFLAogICAgICAgICAgICAgICAgZnVsbF9xdWFudCwKICAgICAgICAgICAgICAgIHNlbGYuX2RhdGEuZ2V0KCJkYXRlIiksCiAgICAgICAgICAgICAgICBmIntzZWxmLl9pZH06ZXhwZW5zZSIsCiAgICAgICAgICAgICAgICBfZG9jdW1lbnRfZGV0YWlscyhzZWxmLCAiZXhwZW5zZSIpLAogICAgICAgICAgICAgICAgWy1xdHksIC1hbW91bnRdLAogICAgICAgICAgICAgICAgc2VsZWN0b3JfcXVhbnQ9c2VsZWN0b3IsCiAgICAgICAgICAgICAgICBhbGxvd19uZWdhdGl2ZT1GYWxzZSwKICAgICAgICAgICAgKQogICAgICAgICAgICBzZWxmLl9kYXRhWyJwb3N0ZWQiXSA9IFRydWUKICAgICAgICAgICAgc2VsZi5fZGF0YVsicG9zdF9zdGF0dXMiXSA9ICLQn9C+0LLRgtC+0YAg0YPQttC1INGD0YfRgtC10L0iIGlmIHJlc3VsdC5hbHJlYWR5X2FwcGxpZWQgZWxzZSAi0J/RgNC+0LLQtdC00LXQvdC+IgogICAgICAgICAgICByZXR1cm4gVHJ1ZSwgc2VsZi5fZGF0YQogICAgICAgIGV4Y2VwdCBOZWdhdGl2ZUJhbGFuY2VFcnJvciBhcyBleGM6CiAgICAgICAgICAgIHJldHVybiBGYWxzZSwgeyJlcnJvciI6ICLQndC10LTQvtGB0YLQsNGC0L7Rh9C90L4g0L7RgdGC0LDRgtC60LAuINCf0L7RgdC70LUg0L7Qv9C10YDQsNGG0LjQuCDQsdGL0LvQviDQsdGLOiAiICsgc3RyKGV4Yy5hdHRlbXB0ZWQpfQogICAgICAgIGV4Y2VwdCAoVmFsdWVFcnJvciwgUXVhbnRMZWRnZXJFcnJvcikgYXMgZXhjOgogICAgICAgICAgICByZXR1cm4gRmFsc2UsIHsiZXJyb3IiOiBzdHIoZXhjKX0KCgpjbGFzcyBUcmFuc2ZlcihOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQoKICAgIGRlZiBDb25kdWN0KHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgIiIi0J/QtdGA0LXQvNC10YnQsNC10YIg0L7RgdGC0LDRgtC+0Log0LzQtdC20LTRgyDRj9GH0LXQudC60LDQvNC4INC00LLRg9C80Y8g0YHQstGP0LfQsNC90L3Ri9C80LggU1FMLdC00LLQuNC20LXQvdC40Y/QvNC4LiIiIgogICAgICAgIGlmIHNlbGYuX2RhdGEuZ2V0KCJfb25fbG9hZCIpOgogICAgICAgICAgICByZXR1cm4gVHJ1ZSwgc2VsZi5fZGF0YQogICAgICAgIHRyeToKICAgICAgICAgICAgcXR5ID0gX251bShzZWxmLl9kYXRhLmdldCgicXVhbnRpdHkiKSkKICAgICAgICAgICAgYW1vdW50ID0gX251bShzZWxmLl9kYXRhLmdldCgiYW1vdW50IikpCiAgICAgICAgICAgIGlmIHF0eSA8PSAwOgogICAgICAgICAgICAgICAgcmV0dXJuIEZhbHNlLCB7ImVycm9yIjogItCa0L7Qu9C40YfQtdGB0YLQstC+INC/0LXRgNC10LzQtdGJ0LXQvdC40Y8g0LTQvtC70LbQvdC+INCx0YvRgtGMINCx0L7Qu9GM0YjQtSDQvdGD0LvRjyJ9CiAgICAgICAgICAgIHdhcmVob3VzZSA9IHN0cihzZWxmLl9kYXRhLmdldCgid2FyZWhvdXNlIikgb3IgIiIpCiAgICAgICAgICAgIHByb2R1Y3QgPSBzdHIoc2VsZi5fZGF0YS5nZXQoInByb2R1Y3QiKSBvciAiIikKICAgICAgICAgICAgbG90ID0gc3RyKHNlbGYuX2RhdGEuZ2V0KCJsb3QiKSBvciAiIikKICAgICAgICAgICAgc291cmNlID0gc3RyKHNlbGYuX2RhdGEuZ2V0KCJzb3VyY2VfbG9jYXRpb24iKSBvciAiIikKICAgICAgICAgICAgdGFyZ2V0ID0gc3RyKHNlbGYuX2RhdGEuZ2V0KCJ0YXJnZXRfbG9jYXRpb24iKSBvciAiIikKICAgICAgICAgICAgaWYgbm90IHdhcmVob3VzZSBvciBub3QgcHJvZHVjdCBvciBub3QgbG90IG9yIG5vdCBzb3VyY2Ugb3Igbm90IHRhcmdldDoKICAgICAgICAgICAgICAgIHJldHVybiBGYWxzZSwgeyJlcnJvciI6ICLQl9Cw0L/QvtC70L3QuNGC0LUg0YHQutC70LDQtCwg0YLQvtCy0LDRgCwg0L/QsNGA0YLQuNGOINC4INC+0LHQtSDRj9GH0LXQudC60LgifQogICAgICAgICAgICBpZiBzb3VyY2UgPT0gdGFyZ2V0OgogICAgICAgICAgICAgICAgcmV0dXJuIEZhbHNlLCB7ImVycm9yIjogItCv0YfQtdC50LrQuCDQvtGC0L/RgNCw0LLQu9C10L3QuNGPINC4INC90LDQt9C90LDRh9C10L3QuNGPINGB0L7QstC/0LDQtNCw0Y7RgiJ9CiAgICAgICAgICAgIHNlbGVjdG9yID0gcXVhbnQod2FyZWhvdXNlLCBwcm9kdWN0KQogICAgICAgICAgICBzb3VyY2VfcXVhbnQgPSBxdWFudCh3YXJlaG91c2UsIHByb2R1Y3QsIGxvdCwgc291cmNlKQogICAgICAgICAgICB0YXJnZXRfcXVhbnQgPSBxdWFudCh3YXJlaG91c2UsIHByb2R1Y3QsIGxvdCwgdGFyZ2V0KQogICAgICAgICAgICBkZXRhaWxzID0gX2RvY3VtZW50X2RldGFpbHMoc2VsZiwgInRyYW5zZmVyIikKICAgICAgICAgICAgd2l0aCB0cmFuc2FjdGlvbigpIGFzIHR4OgogICAgICAgICAgICAgICAgdHgubW92ZSgKICAgICAgICAgICAgICAgICAgICBTVE9DS19TUEFDRSwKICAgICAgICAgICAgICAgICAgICBzb3VyY2VfcXVhbnQsCiAgICAgICAgICAgICAgICAgICAgc2VsZi5fZGF0YS5nZXQoImRhdGUiKSwKICAgICAgICAgICAgICAgICAgICBmIntzZWxmLl9pZH06c291cmNlIiwKICAgICAgICAgICAgICAgICAgICBkZXRhaWxzLAogICAgICAgICAgICAgICAgICAgIFstcXR5LCAtYW1vdW50XSwKICAgICAgICAgICAgICAgICAgICBzZWxlY3Rvcl9xdWFudD1zZWxlY3RvciwKICAgICAgICAgICAgICAgICAgICBhbGxvd19uZWdhdGl2ZT1GYWxzZSwKICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgICAgIHR4Lm1vdmUoCiAgICAgICAgICAgICAgICAgICAgU1RPQ0tfU1BBQ0UsCiAgICAgICAgICAgICAgICAgICAgdGFyZ2V0X3F1YW50LAogICAgICAgICAgICAgICAgICAgIHNlbGYuX2RhdGEuZ2V0KCJkYXRlIiksCiAgICAgICAgICAgICAgICAgICAgZiJ7c2VsZi5faWR9OnRhcmdldCIsCiAgICAgICAgICAgICAgICAgICAgZGV0YWlscywKICAgICAgICAgICAgICAgICAgICBbcXR5LCBhbW91bnRdLAogICAgICAgICAgICAgICAgICAgIHNlbGVjdG9yX3F1YW50PXNlbGVjdG9yLAogICAgICAgICAgICAgICAgICAgIGFsbG93X25lZ2F0aXZlPUZhbHNlLAogICAgICAgICAgICAgICAgKQogICAgICAgICAgICBzZWxmLl9kYXRhWyJwb3N0ZWQiXSA9IFRydWUKICAgICAgICAgICAgc2VsZi5fZGF0YVsicG9zdF9zdGF0dXMiXSA9ICLQn9GA0L7QstC10LTQtdC90L4iCiAgICAgICAgICAgIHJldHVybiBUcnVlLCBzZWxmLl9kYXRhCiAgICAgICAgZXhjZXB0IE5lZ2F0aXZlQmFsYW5jZUVycm9yIGFzIGV4YzoKICAgICAgICAgICAgcmV0dXJuIEZhbHNlLCB7ImVycm9yIjogItCd0LAg0LjRgdGF0L7QtNC90L7QuSDRj9GH0LXQudC60LUg0L3QtdC00L7RgdGC0LDRgtC+0YfQvdC+INC+0YHRgtCw0YLQutCwLiDQn9C+0YHQu9C1INC+0L/QtdGA0LDRhtC40Lgg0LHRi9C70L4g0LHRizogIiArIHN0cihleGMuYXR0ZW1wdGVkKX0KICAgICAgICBleGNlcHQgKFZhbHVlRXJyb3IsIE9wZXJhdGlvbkNvbmZsaWN0RXJyb3IsIFF1YW50TGVkZ2VyRXJyb3IpIGFzIGV4YzoKICAgICAgICAgICAgcmV0dXJuIEZhbHNlLCB7ImVycm9yIjogc3RyKGV4Yyl9CgoKY2xhc3MgQmFsYW5jZVJlcG9ydChOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQoKICAgIGRlZiBvblJ1blByb2plY3Rpb24oc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKICAgICAgICAiIiLQodGC0YDQvtC40YIg0LLQtdC00L7QvNC+0YHRgtGMOiDQvdCw0YfQsNC70YzQvdGL0Lkg0L7RgdGC0LDRgtC+0LosINC/0YDQuNGF0L7QtCwg0YDQsNGB0YXQvtC0INC4INC60L7QvdC10YfQvdGL0Lkg0L7RgdGC0LDRgtC+0LouIiIiCiAgICAgICAgaW5wdXRfZGF0YSA9IGlucHV0X2RhdGEgb3Ige30KICAgICAgICBmdWxsX2RhdGEgPSBpbnB1dF9kYXRhLmdldCgiZnVsbF9kYXRhIikgaWYgaXNpbnN0YW5jZShpbnB1dF9kYXRhLCBkaWN0KSBlbHNlIHt9CiAgICAgICAgaWYgbm90IGlzaW5zdGFuY2UoZnVsbF9kYXRhLCBkaWN0KToKICAgICAgICAgICAgZnVsbF9kYXRhID0ge30KICAgICAgICBkYXRhID0gZGljdChzZWxmLl9kYXRhIG9yIHt9KQogICAgICAgIGlmIGlzaW5zdGFuY2UoaW5wdXRfZGF0YSwgZGljdCk6CiAgICAgICAgICAgIGRhdGEudXBkYXRlKHtrOiB2IGZvciBrLCB2IGluIGlucHV0X2RhdGEuaXRlbXMoKSBpZiBrICE9ICJmdWxsX2RhdGEifSkKICAgICAgICBkYXRhLnVwZGF0ZShmdWxsX2RhdGEpCiAgICAgICAgd2FyZWhvdXNlX2ZpbHRlciA9IHN0cihkYXRhLmdldCgid2FyZWhvdXNlIikgb3IgIiIpCiAgICAgICAgcHJvZHVjdF9maWx0ZXIgPSBzdHIoZGF0YS5nZXQoInByb2R1Y3QiKSBvciAiIikKICAgICAgICBzZWxlY3RvciA9IHF1YW50KHdhcmVob3VzZV9maWx0ZXIsIHByb2R1Y3RfZmlsdGVyKSBpZiB3YXJlaG91c2VfZmlsdGVyIGFuZCBwcm9kdWN0X2ZpbHRlciBlbHNlIE5vbmUKICAgICAgICByb3dzID0gc3RhdGVtZW50KAogICAgICAgICAgICBTVE9DS19TUEFDRSwKICAgICAgICAgICAgcGVyaW9kX2Zyb209ZGF0YS5nZXQoImRhdGVfZnJvbSIpIG9yIE5vbmUsCiAgICAgICAgICAgIHBlcmlvZF90bz1kYXRhLmdldCgiZGF0ZV90byIpIG9yIE5vbmUsCiAgICAgICAgICAgIHNlbGVjdG9yX3F1YW50PXNlbGVjdG9yLAogICAgICAgICkKICAgICAgICBwcm9kdWN0cyA9IF9ub2Rlc19ieV9pZChQcm9kdWN0KQogICAgICAgIHdhcmVob3VzZXMgPSBfbm9kZXNfYnlfaWQoV2FyZWhvdXNlKQogICAgICAgIGxvdHMgPSBfbm9kZXNfYnlfaWQoTG90KQogICAgICAgIGxvY2F0aW9ucyA9IF9ub2Rlc19ieV9pZChMb2NhdGlvbikKICAgICAgICBodG1sX3Jvd3MgPSBbXQogICAgICAgIHRvdGFsX29wZW4gPSBEZWNpbWFsKDApCiAgICAgICAgdG90YWxfaW4gPSBEZWNpbWFsKDApCiAgICAgICAgdG90YWxfb3V0ID0gRGVjaW1hbCgwKQogICAgICAgIHRvdGFsX2Nsb3NlID0gRGVjaW1hbCgwKQogICAgICAgIGZvciByb3cgaW4gcm93czoKICAgICAgICAgICAgcGFydHMgPSByb3cucGFydHMKICAgICAgICAgICAgaWYgbGVuKHBhcnRzKSA8IDQ6CiAgICAgICAgICAgICAgICBjb250aW51ZQogICAgICAgICAgICB3YXJlaG91c2VfaWQsIHByb2R1Y3RfaWQsIGxvdF9pZCwgbG9jYXRpb25faWQgPSBtYXAoc3RyLCBwYXJ0c1s6NF0pCiAgICAgICAgICAgIGlmIHdhcmVob3VzZV9maWx0ZXIgYW5kIHdhcmVob3VzZV9pZCAhPSB3YXJlaG91c2VfZmlsdGVyOgogICAgICAgICAgICAgICAgY29udGludWUKICAgICAgICAgICAgaWYgcHJvZHVjdF9maWx0ZXIgYW5kIHByb2R1Y3RfaWQgIT0gcHJvZHVjdF9maWx0ZXI6CiAgICAgICAgICAgICAgICBjb250aW51ZQogICAgICAgICAgICBvcGVuaW5nID0gcm93Lm9wZW5pbmdbMF0KICAgICAgICAgICAgaW5jb21lID0gcm93LmluY29tZVswXQogICAgICAgICAgICBleHBlbnNlID0gcm93LmV4cGVuc2VbMF0KICAgICAgICAgICAgY2xvc2luZyA9IHJvdy5jbG9zaW5nWzBdCiAgICAgICAgICAgIHRvdGFsX29wZW4gKz0gb3BlbmluZwogICAgICAgICAgICB0b3RhbF9pbiArPSBpbmNvbWUKICAgICAgICAgICAgdG90YWxfb3V0ICs9IGV4cGVuc2UKICAgICAgICAgICAgdG90YWxfY2xvc2UgKz0gY2xvc2luZwogICAgICAgICAgICBodG1sX3Jvd3MuYXBwZW5kKAogICAgICAgICAgICAgICAgIjx0cj48dGQ+IiArIGVzY2FwZShfbm9kZV9uYW1lKHdhcmVob3VzZXMuZ2V0KHdhcmVob3VzZV9pZCksIHdhcmVob3VzZV9pZCkpICsKICAgICAgICAgICAgICAgICI8L3RkPjx0ZD4iICsgZXNjYXBlKF9ub2RlX25hbWUocHJvZHVjdHMuZ2V0KHByb2R1Y3RfaWQpLCBwcm9kdWN0X2lkKSkgKwogICAgICAgICAgICAgICAgIjwvdGQ+PHRkPiIgKyBlc2NhcGUoX25vZGVfbmFtZShsb3RzLmdldChsb3RfaWQpLCBsb3RfaWQpKSArCiAgICAgICAgICAgICAgICAiPC90ZD48dGQ+IiArIGVzY2FwZShfbm9kZV9uYW1lKGxvY2F0aW9ucy5nZXQobG9jYXRpb25faWQpLCBsb2NhdGlvbl9pZCkpICsKICAgICAgICAgICAgICAgICI8L3RkPjx0ZCBjbGFzcz0nbnVtJz4iICsgZXNjYXBlKHN0cihvcGVuaW5nKSkgKwogICAgICAgICAgICAgICAgIjwvdGQ+PHRkIGNsYXNzPSdudW0nPiIgKyBlc2NhcGUoc3RyKGluY29tZSkpICsKICAgICAgICAgICAgICAgICI8L3RkPjx0ZCBjbGFzcz0nbnVtJz4iICsgZXNjYXBlKHN0cihleHBlbnNlKSkgKwogICAgICAgICAgICAgICAgIjwvdGQ+PHRkIGNsYXNzPSdudW0nPiIgKyBlc2NhcGUoc3RyKGNsb3NpbmcpKSArICI8L3RkPjwvdHI+IgogICAgICAgICAgICApCiAgICAgICAgYm9keSA9ICI8dGFibGU+PHRoZWFkPjx0cj48dGg+0KHQutC70LDQtDwvdGg+PHRoPtCi0L7QstCw0YA8L3RoPjx0aD7Qn9Cw0YDRgtC40Y88L3RoPjx0aD7Qr9GH0LXQudC60LA8L3RoPjx0aD7QndCw0YcuPC90aD48dGg+0J/RgNC40YXQvtC0PC90aD48dGg+0KDQsNGB0YXQvtC0PC90aD48dGg+0JrQvtC9LjwvdGg+PC90cj48L3RoZWFkPjx0Ym9keT4iCiAgICAgICAgYm9keSArPSAiIi5qb2luKGh0bWxfcm93cykgb3IgIjx0cj48dGQgY29sc3Bhbj0nOCcgY2xhc3M9J211dGVkJz7QlNCy0LjQttC10L3QuNC5INC90LXRgjwvdGQ+PC90cj4iCiAgICAgICAgYm9keSArPSAiPHRyPjx0aCBjb2xzcGFuPSc0Jz7QmNGC0L7Qs9C+PC90aD48dGggY2xhc3M9J251bSc+IiArIGVzY2FwZShzdHIodG90YWxfb3BlbikpICsgIjwvdGg+PHRoIGNsYXNzPSdudW0nPiIgKyBlc2NhcGUoc3RyKHRvdGFsX2luKSkgKyAiPC90aD48dGggY2xhc3M9J251bSc+IiArIGVzY2FwZShzdHIodG90YWxfb3V0KSkgKyAiPC90aD48dGggY2xhc3M9J251bSc+IiArIGVzY2FwZShzdHIodG90YWxfY2xvc2UpKSArICI8L3RoPjwvdHI+IgogICAgICAgIGJvZHkgKz0gIjwvdGJvZHk+PC90YWJsZT4iCiAgICAgICAgc2VsZi5fZGF0YS51cGRhdGUoZGF0YSkKICAgICAgICBzZWxmLl9kYXRhWyJfcHJvamVjdGlvbl90eXBlIl0gPSAiaHRtbF9wcm9qZWN0aW9uIgogICAgICAgIHNlbGYuX2RhdGFbIl9wcm9qZWN0aW9uX2hlYWRlciJdID0gItCS0LXQtNC+0LzQvtGB0YLRjCDQv9C+INC60LLQsNC90YLQsNC8IgogICAgICAgIHNlbGYuX2RhdGFbIl9wcm9qZWN0aW9uX2h0bWwiXSA9IF9odG1sX3BhZ2UoItCS0LXQtNC+0LzQvtGB0YLRjCDQv9C+INC60LLQsNC90YLQsNC8IiwgYm9keSkKICAgICAgICByZXR1cm4gVHJ1ZSwgc2VsZi5fZGF0YQoKCmNsYXNzIEZlZm9SZXBvcnQoTm9kZSk6CiAgICBkZWYgX19pbml0X18oc2VsZiwgbm9kZV9pZD1Ob25lLCBjb25maWdfdWlkPU5vbmUpOgogICAgICAgIHN1cGVyKCkuX19pbml0X18obm9kZV9pZCwgY29uZmlnX3VpZCkKCiAgICBkZWYgb25SdW5Qcm9qZWN0aW9uKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgIiIi0JjQvNC40YLQuNGA0YPQtdGCIEZFRk86INCy0YvQsdC40YDQsNC10YIg0L7RgdGC0LDRgtC60Lgg0L/QviBzZWxlY3Rvcl9xdWFudCDQuCDRgdC+0YDRgtC40YDRg9C10YIg0L/QviDRg9C30LvQsNC8INC/0LDRgNGC0LjQuS4iIiIKICAgICAgICBpbnB1dF9kYXRhID0gaW5wdXRfZGF0YSBvciB7fQogICAgICAgIGZ1bGxfZGF0YSA9IGlucHV0X2RhdGEuZ2V0KCJmdWxsX2RhdGEiKSBpZiBpc2luc3RhbmNlKGlucHV0X2RhdGEsIGRpY3QpIGVsc2Uge30KICAgICAgICBpZiBub3QgaXNpbnN0YW5jZShmdWxsX2RhdGEsIGRpY3QpOgogICAgICAgICAgICBmdWxsX2RhdGEgPSB7fQogICAgICAgIGRhdGEgPSBkaWN0KHNlbGYuX2RhdGEgb3Ige30pCiAgICAgICAgaWYgaXNpbnN0YW5jZShpbnB1dF9kYXRhLCBkaWN0KToKICAgICAgICAgICAgZGF0YS51cGRhdGUoe2s6IHYgZm9yIGssIHYgaW4gaW5wdXRfZGF0YS5pdGVtcygpIGlmIGsgIT0gImZ1bGxfZGF0YSJ9KQogICAgICAgIGRhdGEudXBkYXRlKGZ1bGxfZGF0YSkKICAgICAgICB3YXJlaG91c2VfaWQgPSBzdHIoZGF0YS5nZXQoIndhcmVob3VzZSIpIG9yICIiKQogICAgICAgIHByb2R1Y3RfaWQgPSBzdHIoZGF0YS5nZXQoInByb2R1Y3QiKSBvciAiIikKICAgICAgICBpZiBub3Qgd2FyZWhvdXNlX2lkIG9yIG5vdCBwcm9kdWN0X2lkOgogICAgICAgICAgICBib2R5ID0gIjxwIGNsYXNzPSdlcnJvcic+0JLRi9Cx0LXRgNC40YLQtSDRgdC60LvQsNC0INC4INGC0L7QstCw0YAuPC9wPiIKICAgICAgICBlbHNlOgogICAgICAgICAgICBzZWxlY3RlZCA9IGJhbGFuY2VzKAogICAgICAgICAgICAgICAgU1RPQ0tfU1BBQ0UsCiAgICAgICAgICAgICAgICBzZWxlY3Rvcl9xdWFudD1xdWFudCh3YXJlaG91c2VfaWQsIHByb2R1Y3RfaWQpLAogICAgICAgICAgICAgICAgcG9zaXRpdmVfcmVzb3VyY2U9MCwKICAgICAgICAgICAgKQogICAgICAgICAgICBsb3RzID0gX25vZGVzX2J5X2lkKExvdCkKICAgICAgICAgICAgbG9jYXRpb25zID0gX25vZGVzX2J5X2lkKExvY2F0aW9uKQogICAgICAgICAgICBkZWYgc29ydF9rZXkocm93KToKICAgICAgICAgICAgICAgIHBhcnRzID0gcm93LnBhcnRzCiAgICAgICAgICAgICAgICBsb3RfaWQgPSBzdHIocGFydHNbMl0pIGlmIGxlbihwYXJ0cykgPiAyIGVsc2UgIiIKICAgICAgICAgICAgICAgIGxvY2F0aW9uX2lkID0gc3RyKHBhcnRzWzNdKSBpZiBsZW4ocGFydHMpID4gMyBlbHNlICIiCiAgICAgICAgICAgICAgICBsb3QgPSBsb3RzLmdldChsb3RfaWQpCiAgICAgICAgICAgICAgICBsb2NhdGlvbiA9IGxvY2F0aW9ucy5nZXQobG9jYXRpb25faWQpCiAgICAgICAgICAgICAgICBleHBpcmUgPSBzdHIoKGdldGF0dHIobG90LCAiX2RhdGEiLCB7fSkgb3Ige30pLmdldCgiZXhwaXJlX2RhdGUiKSBvciAiOTk5OS0xMi0zMSIpCiAgICAgICAgICAgICAgICBwcmlvcml0eSA9IF9udW0oKGdldGF0dHIobG9jYXRpb24sICJfZGF0YSIsIHt9KSBvciB7fSkuZ2V0KCJwcmlvcml0eSIpLCA5OTk5OTkpCiAgICAgICAgICAgICAgICByZXR1cm4gZXhwaXJlLCBwcmlvcml0eSwgbG90X2lkLCBsb2NhdGlvbl9pZAogICAgICAgICAgICBzZWxlY3RlZC5zb3J0KGtleT1zb3J0X2tleSkKICAgICAgICAgICAgaHRtbF9yb3dzID0gW10KICAgICAgICAgICAgZm9yIGluZGV4LCByb3cgaW4gZW51bWVyYXRlKHNlbGVjdGVkLCBzdGFydD0xKToKICAgICAgICAgICAgICAgIHBhcnRzID0gcm93LnBhcnRzCiAgICAgICAgICAgICAgICBsb3RfaWQgPSBzdHIocGFydHNbMl0pIGlmIGxlbihwYXJ0cykgPiAyIGVsc2UgIiIKICAgICAgICAgICAgICAgIGxvY2F0aW9uX2lkID0gc3RyKHBhcnRzWzNdKSBpZiBsZW4ocGFydHMpID4gMyBlbHNlICIiCiAgICAgICAgICAgICAgICBsb3QgPSBsb3RzLmdldChsb3RfaWQpCiAgICAgICAgICAgICAgICBsb2NhdGlvbiA9IGxvY2F0aW9ucy5nZXQobG9jYXRpb25faWQpCiAgICAgICAgICAgICAgICBleHBpcmUgPSBzdHIoKGdldGF0dHIobG90LCAiX2RhdGEiLCB7fSkgb3Ige30pLmdldCgiZXhwaXJlX2RhdGUiKSBvciAiIikKICAgICAgICAgICAgICAgIGh0bWxfcm93cy5hcHBlbmQoCiAgICAgICAgICAgICAgICAgICAgIjx0cj48dGQgY2xhc3M9J251bSc+IiArIHN0cihpbmRleCkgKwogICAgICAgICAgICAgICAgICAgICI8L3RkPjx0ZD4iICsgZXNjYXBlKF9ub2RlX25hbWUobG90LCBsb3RfaWQpKSArCiAgICAgICAgICAgICAgICAgICAgIjwvdGQ+PHRkPiIgKyBlc2NhcGUoZXhwaXJlKSArCiAgICAgICAgICAgICAgICAgICAgIjwvdGQ+PHRkPiIgKyBlc2NhcGUoX25vZGVfbmFtZShsb2NhdGlvbiwgbG9jYXRpb25faWQpKSArCiAgICAgICAgICAgICAgICAgICAgIjwvdGQ+PHRkIGNsYXNzPSdudW0nPiIgKyBlc2NhcGUoc3RyKHJvdy5yZXNvdXJjZXNbMF0pKSArCiAgICAgICAgICAgICAgICAgICAgIjwvdGQ+PHRkIGNsYXNzPSdudW0nPiIgKyBlc2NhcGUoc3RyKHJvdy5yZXNvdXJjZXNbMV0pKSArICI8L3RkPjwvdHI+IgogICAgICAgICAgICAgICAgKQogICAgICAgICAgICBib2R5ID0gIjxwIGNsYXNzPSdtdXRlZCc+U1FMINC+0YLQvtCx0YDQsNC7INGB0YLRgNC+0LrQuCDRgtC+0LvRjNC60L4g0L/QviBzZWxlY3Rvcl9xdWFudCA9INGB0LrQu9Cw0LQgKyDRgtC+0LLQsNGALiDQodGA0L7QuiDQs9C+0LTQvdC+0YHRgtC4INC/0YDQvtGH0LjRgtCw0L0g0LjQtyBMb3Qg0L/QvtGB0LvQtSDQstGL0LHQvtGA0LrQuC48L3A+IgogICAgICAgICAgICBib2R5ICs9ICI8dGFibGU+PHRoZWFkPjx0cj48dGg+4oSWPC90aD48dGg+0J/QsNGA0YLQuNGPPC90aD48dGg+0KHRgNC+0Log0LPQvtC00L3QvtGB0YLQuDwvdGg+PHRoPtCv0YfQtdC50LrQsDwvdGg+PHRoPtCa0L7Qu9C40YfQtdGB0YLQstC+PC90aD48dGg+0KHRg9C80LzQsDwvdGg+PC90cj48L3RoZWFkPjx0Ym9keT4iCiAgICAgICAgICAgIGJvZHkgKz0gIiIuam9pbihodG1sX3Jvd3MpIG9yICI8dHI+PHRkIGNvbHNwYW49JzYnIGNsYXNzPSdtdXRlZCc+0J/QvtC70L7QttC40YLQtdC70YzQvdGL0YUg0L7RgdGC0LDRgtC60L7QsiDQvdC10YI8L3RkPjwvdHI+IgogICAgICAgICAgICBib2R5ICs9ICI8L3Rib2R5PjwvdGFibGU+IgogICAgICAgIHNlbGYuX2RhdGEudXBkYXRlKGRhdGEpCiAgICAgICAgc2VsZi5fZGF0YVsiX3Byb2plY3Rpb25fdHlwZSJdID0gImh0bWxfcHJvamVjdGlvbiIKICAgICAgICBzZWxmLl9kYXRhWyJfcHJvamVjdGlvbl9oZWFkZXIiXSA9ICJGRUZPLdC60LDQvdC00LjQtNCw0YLRiyIKICAgICAgICBzZWxmLl9kYXRhWyJfcHJvamVjdGlvbl9odG1sIl0gPSBfaHRtbF9wYWdlKCJGRUZPLdC60LDQvdC00LjQtNCw0YLRiyIsIGJvZHkpCiAgICAgICAgcmV0dXJuIFRydWUsIHNlbGYuX2RhdGEKCgpjbGFzcyBEZW1vU2V0dXAoTm9kZSk6CiAgICBkZWYgX19pbml0X18oc2VsZiwgbm9kZV9pZD1Ob25lLCBjb25maWdfdWlkPU5vbmUpOgogICAgICAgIHN1cGVyKCkuX19pbml0X18obm9kZV9pZCwgY29uZmlnX3VpZCkKCiAgICBkZWYgQ3JlYXRlRGVtbyhzZWxmLCBpbnB1dF9kYXRhPU5vbmUpOgogICAgICAgICIiItCh0L7Qt9C00LDQtdGCINC80LjQvdC40LzQsNC70YzQvdGL0LUg0YHQv9GA0LDQstC+0YfQvdC40LrQuCDQuCDQv9GA0L7QstC+0LTQuNGCINC00LLQsCDQv9GA0LjRhdC+0LTQsCDQuCDQvtC00LjQvSDRgNCw0YHRhdC+0LQuIiIiCiAgICAgICAgaWYgc2VsZi5fZGF0YS5nZXQoImNyZWF0ZWQiKToKICAgICAgICAgICAgc2VsZi5NZXNzYWdlKCLQlNC10LzQvi3QtNCw0L3QvdGL0LUg0YPQttC1INGB0L7Qt9C00LDQvdGLIiwgImluZm8iKQogICAgICAgICAgICByZXR1cm4gVHJ1ZSwgc2VsZi5fZGF0YQogICAgICAgIHRyeToKICAgICAgICAgICAgd2FyZWhvdXNlID0gV2FyZWhvdXNlLmNyZWF0ZSh7Im5hbWUiOiAi0J7RgdC90L7QstC90L7QuSDRgdC60LvQsNC0In0pCiAgICAgICAgICAgIHdhcmVob3VzZS5fc2F2ZSgpCiAgICAgICAgICAgIGNlbGxfYSA9IExvY2F0aW9uLmNyZWF0ZSh7Im5hbWUiOiAiQS0wMSIsICJ3YXJlaG91c2UiOiB3YXJlaG91c2UuX2lkLCAicHJpb3JpdHkiOiAxfSkKICAgICAgICAgICAgY2VsbF9hLl9zYXZlKCkKICAgICAgICAgICAgY2VsbF9iID0gTG9jYXRpb24uY3JlYXRlKHsibmFtZSI6ICJBLTAyIiwgIndhcmVob3VzZSI6IHdhcmVob3VzZS5faWQsICJwcmlvcml0eSI6IDJ9KQogICAgICAgICAgICBjZWxsX2IuX3NhdmUoKQogICAgICAgICAgICBwcm9kdWN0ID0gUHJvZHVjdC5jcmVhdGUoeyJuYW1lIjogItCi0LXRgdGC0L7QstGL0Lkg0YLQvtCy0LDRgCJ9KQogICAgICAgICAgICBwcm9kdWN0Ll9zYXZlKCkKICAgICAgICAgICAgbG90X2Vhcmx5ID0gTG90LmNyZWF0ZSh7Im5hbWUiOiAi0J/QsNGA0YLQuNGPINGA0LDQvdC90Y/RjyIsICJwcm9kdWN0IjogcHJvZHVjdC5faWQsICJleHBpcmVfZGF0ZSI6ICIyMDI2LTA5LTAxIn0pCiAgICAgICAgICAgIGxvdF9lYXJseS5fc2F2ZSgpCiAgICAgICAgICAgIGxvdF9sYXRlID0gTG90LmNyZWF0ZSh7Im5hbWUiOiAi0J/QsNGA0YLQuNGPINC/0L7Qt9C00L3Rj9GPIiwgInByb2R1Y3QiOiBwcm9kdWN0Ll9pZCwgImV4cGlyZV9kYXRlIjogIjIwMjYtMTItMDEifSkKICAgICAgICAgICAgbG90X2xhdGUuX3NhdmUoKQoKICAgICAgICAgICAgcmVjZWlwdDEgPSBSZWNlaXB0LmNyZWF0ZSh7CiAgICAgICAgICAgICAgICAibnVtYmVyIjogItCf0KAtMDAxIiwgImRhdGUiOiAiMjAyNi0wNy0wMSIsICJ3YXJlaG91c2UiOiB3YXJlaG91c2UuX2lkLAogICAgICAgICAgICAgICAgImxvY2F0aW9uIjogY2VsbF9hLl9pZCwgInByb2R1Y3QiOiBwcm9kdWN0Ll9pZCwgImxvdCI6IGxvdF9lYXJseS5faWQsCiAgICAgICAgICAgICAgICAicXVhbnRpdHkiOiA1MCwgImFtb3VudCI6IDUwMDAsICJjb21tZW50IjogItCU0LXQvNC+LdC/0YDQuNGF0L7QtCDRgNCw0L3QvdC10Lkg0L/QsNGA0YLQuNC4IiwKICAgICAgICAgICAgfSkKICAgICAgICAgICAgb2ssIGRhdGEgPSByZWNlaXB0MS5Db25kdWN0KCkKICAgICAgICAgICAgaWYgbm90IG9rOgogICAgICAgICAgICAgICAgcmFpc2UgUnVudGltZUVycm9yKGRhdGEuZ2V0KCJlcnJvciIpIG9yICLQntGI0LjQsdC60LAg0L/QtdGA0LLQvtCz0L4g0L/RgNC40YXQvtC00LAiKQogICAgICAgICAgICByZWNlaXB0MS5fc2F2ZSgpCgogICAgICAgICAgICByZWNlaXB0MiA9IFJlY2VpcHQuY3JlYXRlKHsKICAgICAgICAgICAgICAgICJudW1iZXIiOiAi0J/QoC0wMDIiLCAiZGF0ZSI6ICIyMDI2LTA3LTEwIiwgIndhcmVob3VzZSI6IHdhcmVob3VzZS5faWQsCiAgICAgICAgICAgICAgICAibG9jYXRpb24iOiBjZWxsX2IuX2lkLCAicHJvZHVjdCI6IHByb2R1Y3QuX2lkLCAibG90IjogbG90X2xhdGUuX2lkLAogICAgICAgICAgICAgICAgInF1YW50aXR5IjogMzAsICJhbW91bnQiOiAzNjAwLCAiY29tbWVudCI6ICLQlNC10LzQvi3Qv9GA0LjRhdC+0LQg0L/QvtC30LTQvdC10Lkg0L/QsNGA0YLQuNC4IiwKICAgICAgICAgICAgfSkKICAgICAgICAgICAgb2ssIGRhdGEgPSByZWNlaXB0Mi5Db25kdWN0KCkKICAgICAgICAgICAgaWYgbm90IG9rOgogICAgICAgICAgICAgICAgcmFpc2UgUnVudGltZUVycm9yKGRhdGEuZ2V0KCJlcnJvciIpIG9yICLQntGI0LjQsdC60LAg0LLRgtC+0YDQvtCz0L4g0L/RgNC40YXQvtC00LAiKQogICAgICAgICAgICByZWNlaXB0Mi5fc2F2ZSgpCgogICAgICAgICAgICBleHBlbnNlID0gRXhwZW5zZS5jcmVhdGUoewogICAgICAgICAgICAgICAgIm51bWJlciI6ICLQoNChLTAwMSIsICJkYXRlIjogIjIwMjYtMDctMTUiLCAid2FyZWhvdXNlIjogd2FyZWhvdXNlLl9pZCwKICAgICAgICAgICAgICAgICJsb2NhdGlvbiI6IGNlbGxfYS5faWQsICJwcm9kdWN0IjogcHJvZHVjdC5faWQsICJsb3QiOiBsb3RfZWFybHkuX2lkLAogICAgICAgICAgICAgICAgInF1YW50aXR5IjogMTAsICJhbW91bnQiOiAxMDAwLCAiY29tbWVudCI6ICLQlNC10LzQvi3RgNCw0YHRhdC+0LQiLAogICAgICAgICAgICB9KQogICAgICAgICAgICBvaywgZGF0YSA9IGV4cGVuc2UuQ29uZHVjdCgpCiAgICAgICAgICAgIGlmIG5vdCBvazoKICAgICAgICAgICAgICAgIHJhaXNlIFJ1bnRpbWVFcnJvcihkYXRhLmdldCgiZXJyb3IiKSBvciAi0J7RiNC40LHQutCwINGA0LDRgdGF0L7QtNCwIikKICAgICAgICAgICAgZXhwZW5zZS5fc2F2ZSgpCgogICAgICAgICAgICBzZWxmLl9kYXRhLnVwZGF0ZSh7CiAgICAgICAgICAgICAgICAiY3JlYXRlZCI6IFRydWUsCiAgICAgICAgICAgICAgICAid2FyZWhvdXNlIjogd2FyZWhvdXNlLl9pZCwKICAgICAgICAgICAgICAgICJwcm9kdWN0IjogcHJvZHVjdC5faWQsCiAgICAgICAgICAgICAgICAibG90X2Vhcmx5IjogbG90X2Vhcmx5Ll9pZCwKICAgICAgICAgICAgICAgICJsb3RfbGF0ZSI6IGxvdF9sYXRlLl9pZCwKICAgICAgICAgICAgICAgICJjZWxsX2EiOiBjZWxsX2EuX2lkLAogICAgICAgICAgICAgICAgImNlbGxfYiI6IGNlbGxfYi5faWQsCiAgICAgICAgICAgIH0pCiAgICAgICAgICAgIHNlbGYuTWVzc2FnZSgi0JTQtdC80L4g0YHQvtC30LTQsNC90L46INC+0YHRgtCw0YLQutC4IDQwINC4IDMwINC/0L4g0LTQstGD0Lwg0L/QsNGA0YLQuNGP0LwiLCAic3VjY2VzcyIpCiAgICAgICAgICAgIHJldHVybiBUcnVlLCBzZWxmLl9kYXRhCiAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBleGM6CiAgICAgICAgICAgIHJldHVybiBGYWxzZSwgeyJlcnJvciI6IHN0cihleGMpfQo=",
+  "nodes_handlers_meta": {},
+  "nodes_server_handlers_meta": {},
+  "ngenie_prompt": "Демо optional quant_ledger: полный quant, selector_quant, движения, остатки, транзакционное перемещение и FEFO-сортировка после загрузки Lot.",
+  "classes": [
+    {
+      "name": "Product",
+      "display_name": "Товары",
+      "class_type": "data_node",
+      "projection_type": "",
+      "has_storage": true,
+      "hidden": false,
+      "section": "Quant Ledger Demo",
+      "section_code": "quant_ledger_demo",
+      "record_view": "{name}",
+      "cover_image": "[[{\"type\":\"Text\",\"value\":\"@name\",\"bold\":true,\"size\":18}]]",
+      "init_screen_layout": "[[{\"type\":\"Input\",\"caption\":\"Наименование\",\"id\":\"name\",\"value\":\"@name\"}]]",
+      "init_screen_layout_web": "[[{\"type\":\"Input\",\"caption\":\"Наименование\",\"id\":\"name\",\"value\":\"@name\"}]]",
+      "data_structure": "Наименование|name: string",
+      "ngenie_role": "catalog",
+      "ngenie_prompt": "",
+      "ngenie_description": "Товары",
+      "use_standard_commands": true,
+      "methods": [],
+      "events": [],
+      "indexes": []
+    },
+    {
+      "name": "Warehouse",
+      "display_name": "Склады",
+      "class_type": "data_node",
+      "projection_type": "",
+      "has_storage": true,
+      "hidden": false,
+      "section": "Quant Ledger Demo",
+      "section_code": "quant_ledger_demo",
+      "record_view": "{name}",
+      "cover_image": "[[{\"type\":\"Text\",\"value\":\"@name\",\"bold\":true,\"size\":18}]]",
+      "init_screen_layout": "[[{\"type\":\"Input\",\"caption\":\"Наименование\",\"id\":\"name\",\"value\":\"@name\"}]]",
+      "init_screen_layout_web": "[[{\"type\":\"Input\",\"caption\":\"Наименование\",\"id\":\"name\",\"value\":\"@name\"}]]",
+      "data_structure": "Наименование|name: string",
+      "ngenie_role": "catalog",
+      "ngenie_prompt": "",
+      "ngenie_description": "Склады",
+      "use_standard_commands": true,
+      "methods": [],
+      "events": [],
+      "indexes": []
+    },
+    {
+      "name": "Location",
+      "display_name": "Ячейки",
+      "class_type": "data_node",
+      "projection_type": "",
+      "has_storage": true,
+      "hidden": false,
+      "section": "Quant Ledger Demo",
+      "section_code": "quant_ledger_demo",
+      "record_view": "{name}",
+      "cover_image": "[[{\"type\":\"Text\",\"value\":\"@name\",\"bold\":true,\"size\":18}]]",
+      "init_screen_layout": "[[{\"type\":\"Input\",\"caption\":\"Наименование\",\"id\":\"name\",\"value\":\"@name\"}],[{\"type\":\"NodeInput\",\"caption\":\"Склад\",\"id\":\"warehouse\",\"dataset\":\"Warehouse\",\"value\":\"@warehouse\"}],[{\"type\":\"Input\",\"caption\":\"Приоритет\",\"id\":\"priority\",\"value\":\"@priority\",\"input_type\":\"NUMBER\"}]]",
+      "init_screen_layout_web": "[[{\"type\":\"Input\",\"caption\":\"Наименование\",\"id\":\"name\",\"value\":\"@name\"}],[{\"type\":\"NodeInput\",\"caption\":\"Склад\",\"id\":\"warehouse\",\"dataset\":\"Warehouse\",\"value\":\"@warehouse\"}],[{\"type\":\"Input\",\"caption\":\"Приоритет\",\"id\":\"priority\",\"value\":\"@priority\",\"input_type\":\"NUMBER\"}]]",
+      "data_structure": "Наименование|name: string\nСклад|warehouse: Node(\"Warehouse\")\nПриоритет|priority: number",
+      "ngenie_role": "catalog",
+      "ngenie_prompt": "",
+      "ngenie_description": "Ячейки",
+      "use_standard_commands": true,
+      "methods": [],
+      "events": [],
+      "indexes": []
+    },
+    {
+      "name": "Lot",
+      "display_name": "Партии",
+      "class_type": "data_node",
+      "projection_type": "",
+      "has_storage": true,
+      "hidden": false,
+      "section": "Quant Ledger Demo",
+      "section_code": "quant_ledger_demo",
+      "record_view": "{name}",
+      "cover_image": "[[{\"type\":\"Text\",\"value\":\"@name\",\"bold\":true,\"size\":18}]]",
+      "init_screen_layout": "[[{\"type\":\"Input\",\"caption\":\"Наименование\",\"id\":\"name\",\"value\":\"@name\"}],[{\"type\":\"NodeInput\",\"caption\":\"Товар\",\"id\":\"product\",\"dataset\":\"Product\",\"value\":\"@product\"}],[{\"type\":\"Input\",\"caption\":\"Срок годности\",\"id\":\"expire_date\",\"value\":\"@expire_date\",\"input_type\":\"DATE\"}]]",
+      "init_screen_layout_web": "[[{\"type\":\"Input\",\"caption\":\"Наименование\",\"id\":\"name\",\"value\":\"@name\"}],[{\"type\":\"NodeInput\",\"caption\":\"Товар\",\"id\":\"product\",\"dataset\":\"Product\",\"value\":\"@product\"}],[{\"type\":\"Input\",\"caption\":\"Срок годности\",\"id\":\"expire_date\",\"value\":\"@expire_date\",\"input_type\":\"DATE\"}]]",
+      "data_structure": "Наименование|name: string\nТовар|product: Node(\"Product\")\nСрок годности|expire_date: date",
+      "ngenie_role": "catalog",
+      "ngenie_prompt": "",
+      "ngenie_description": "Партии",
+      "use_standard_commands": true,
+      "methods": [],
+      "events": [],
+      "indexes": []
+    },
+    {
+      "name": "Receipt",
+      "display_name": "Приходы",
+      "class_type": "data_node",
+      "projection_type": "",
+      "has_storage": true,
+      "hidden": false,
+      "section": "Quant Ledger Demo",
+      "section_code": "quant_ledger_demo",
+      "record_view": "{number}",
+      "cover_image": "[[{\"type\":\"Text\",\"value\":\"@number\",\"bold\":true,\"size\":18}]]",
+      "init_screen_layout": "[[{\"type\":\"Input\",\"caption\":\"Номер\",\"id\":\"number\",\"value\":\"@number\"},{\"type\":\"Input\",\"caption\":\"Дата\",\"id\":\"date\",\"value\":\"@date\",\"input_type\":\"DATE\"}],[{\"type\":\"NodeInput\",\"caption\":\"Склад\",\"id\":\"warehouse\",\"dataset\":\"Warehouse\",\"value\":\"@warehouse\"}],[{\"type\":\"NodeInput\",\"caption\":\"Товар\",\"id\":\"product\",\"dataset\":\"Product\",\"value\":\"@product\"}],[{\"type\":\"NodeInput\",\"caption\":\"Партия\",\"id\":\"lot\",\"dataset\":\"Lot\",\"value\":\"@lot\"}],[{\"type\":\"NodeInput\",\"caption\":\"Ячейка\",\"id\":\"location\",\"dataset\":\"Location\",\"value\":\"@location\"}],[{\"type\":\"Input\",\"caption\":\"Количество\",\"id\":\"quantity\",\"value\":\"@quantity\",\"input_type\":\"NUMBER\"},{\"type\":\"Input\",\"caption\":\"Сумма\",\"id\":\"amount\",\"value\":\"@amount\",\"input_type\":\"NUMBER\"}],[{\"type\":\"Input\",\"caption\":\"Комментарий\",\"id\":\"comment\",\"value\":\"@comment\"}],[{\"type\":\"Text\",\"caption\":\"Статус\",\"value\":\"@post_status\"}]]",
+      "init_screen_layout_web": "[[{\"type\":\"Input\",\"caption\":\"Номер\",\"id\":\"number\",\"value\":\"@number\"},{\"type\":\"Input\",\"caption\":\"Дата\",\"id\":\"date\",\"value\":\"@date\",\"input_type\":\"DATE\"}],[{\"type\":\"NodeInput\",\"caption\":\"Склад\",\"id\":\"warehouse\",\"dataset\":\"Warehouse\",\"value\":\"@warehouse\"}],[{\"type\":\"NodeInput\",\"caption\":\"Товар\",\"id\":\"product\",\"dataset\":\"Product\",\"value\":\"@product\"}],[{\"type\":\"NodeInput\",\"caption\":\"Партия\",\"id\":\"lot\",\"dataset\":\"Lot\",\"value\":\"@lot\"}],[{\"type\":\"NodeInput\",\"caption\":\"Ячейка\",\"id\":\"location\",\"dataset\":\"Location\",\"value\":\"@location\"}],[{\"type\":\"Input\",\"caption\":\"Количество\",\"id\":\"quantity\",\"value\":\"@quantity\",\"input_type\":\"NUMBER\"},{\"type\":\"Input\",\"caption\":\"Сумма\",\"id\":\"amount\",\"value\":\"@amount\",\"input_type\":\"NUMBER\"}],[{\"type\":\"Input\",\"caption\":\"Комментарий\",\"id\":\"comment\",\"value\":\"@comment\"}],[{\"type\":\"Text\",\"caption\":\"Статус\",\"value\":\"@post_status\"}]]",
+      "data_structure": "Номер|number: string\nДата|date: date\nСклад|warehouse: Node(\"Warehouse\")\nТовар|product: Node(\"Product\")\nПартия|lot: Node(\"Lot\")\nЯчейка|location: Node(\"Location\")\nКоличество|quantity: number\nСумма|amount: number\nКомментарий|comment: string\nСтатус|post_status: string",
+      "ngenie_role": "document",
+      "ngenie_prompt": "Проведение выполняется серверным quant_ledger; не изменять остатки полями узла.",
+      "ngenie_description": "Приходы",
+      "use_standard_commands": true,
+      "methods": [
+        {
+          "name": "Conduct",
+          "source": "internal",
+          "engine": "server_python",
+          "code": "Conduct"
+        }
+      ],
+      "events": [
+        {
+          "event": "onAcceptServer",
+          "listener": "",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "Conduct",
+              "order": 1
+            }
+          ]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "Expense",
+      "display_name": "Расходы",
+      "class_type": "data_node",
+      "projection_type": "",
+      "has_storage": true,
+      "hidden": false,
+      "section": "Quant Ledger Demo",
+      "section_code": "quant_ledger_demo",
+      "record_view": "{number}",
+      "cover_image": "[[{\"type\":\"Text\",\"value\":\"@number\",\"bold\":true,\"size\":18}]]",
+      "init_screen_layout": "[[{\"type\":\"Input\",\"caption\":\"Номер\",\"id\":\"number\",\"value\":\"@number\"},{\"type\":\"Input\",\"caption\":\"Дата\",\"id\":\"date\",\"value\":\"@date\",\"input_type\":\"DATE\"}],[{\"type\":\"NodeInput\",\"caption\":\"Склад\",\"id\":\"warehouse\",\"dataset\":\"Warehouse\",\"value\":\"@warehouse\"}],[{\"type\":\"NodeInput\",\"caption\":\"Товар\",\"id\":\"product\",\"dataset\":\"Product\",\"value\":\"@product\"}],[{\"type\":\"NodeInput\",\"caption\":\"Партия\",\"id\":\"lot\",\"dataset\":\"Lot\",\"value\":\"@lot\"}],[{\"type\":\"NodeInput\",\"caption\":\"Ячейка\",\"id\":\"location\",\"dataset\":\"Location\",\"value\":\"@location\"}],[{\"type\":\"Input\",\"caption\":\"Количество\",\"id\":\"quantity\",\"value\":\"@quantity\",\"input_type\":\"NUMBER\"},{\"type\":\"Input\",\"caption\":\"Сумма\",\"id\":\"amount\",\"value\":\"@amount\",\"input_type\":\"NUMBER\"}],[{\"type\":\"Input\",\"caption\":\"Комментарий\",\"id\":\"comment\",\"value\":\"@comment\"}],[{\"type\":\"Text\",\"caption\":\"Статус\",\"value\":\"@post_status\"}]]",
+      "init_screen_layout_web": "[[{\"type\":\"Input\",\"caption\":\"Номер\",\"id\":\"number\",\"value\":\"@number\"},{\"type\":\"Input\",\"caption\":\"Дата\",\"id\":\"date\",\"value\":\"@date\",\"input_type\":\"DATE\"}],[{\"type\":\"NodeInput\",\"caption\":\"Склад\",\"id\":\"warehouse\",\"dataset\":\"Warehouse\",\"value\":\"@warehouse\"}],[{\"type\":\"NodeInput\",\"caption\":\"Товар\",\"id\":\"product\",\"dataset\":\"Product\",\"value\":\"@product\"}],[{\"type\":\"NodeInput\",\"caption\":\"Партия\",\"id\":\"lot\",\"dataset\":\"Lot\",\"value\":\"@lot\"}],[{\"type\":\"NodeInput\",\"caption\":\"Ячейка\",\"id\":\"location\",\"dataset\":\"Location\",\"value\":\"@location\"}],[{\"type\":\"Input\",\"caption\":\"Количество\",\"id\":\"quantity\",\"value\":\"@quantity\",\"input_type\":\"NUMBER\"},{\"type\":\"Input\",\"caption\":\"Сумма\",\"id\":\"amount\",\"value\":\"@amount\",\"input_type\":\"NUMBER\"}],[{\"type\":\"Input\",\"caption\":\"Комментарий\",\"id\":\"comment\",\"value\":\"@comment\"}],[{\"type\":\"Text\",\"caption\":\"Статус\",\"value\":\"@post_status\"}]]",
+      "data_structure": "Номер|number: string\nДата|date: date\nСклад|warehouse: Node(\"Warehouse\")\nТовар|product: Node(\"Product\")\nПартия|lot: Node(\"Lot\")\nЯчейка|location: Node(\"Location\")\nКоличество|quantity: number\nСумма|amount: number\nКомментарий|comment: string\nСтатус|post_status: string",
+      "ngenie_role": "document",
+      "ngenie_prompt": "Проведение выполняется серверным quant_ledger; не изменять остатки полями узла.",
+      "ngenie_description": "Расходы",
+      "use_standard_commands": true,
+      "methods": [
+        {
+          "name": "Conduct",
+          "source": "internal",
+          "engine": "server_python",
+          "code": "Conduct"
+        }
+      ],
+      "events": [
+        {
+          "event": "onAcceptServer",
+          "listener": "",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "Conduct",
+              "order": 1
+            }
+          ]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "Transfer",
+      "display_name": "Перемещения",
+      "class_type": "data_node",
+      "projection_type": "",
+      "has_storage": true,
+      "hidden": false,
+      "section": "Quant Ledger Demo",
+      "section_code": "quant_ledger_demo",
+      "record_view": "{number}",
+      "cover_image": "[[{\"type\":\"Text\",\"value\":\"@number\",\"bold\":true,\"size\":18}]]",
+      "init_screen_layout": "[[{\"type\":\"Input\",\"caption\":\"Номер\",\"id\":\"number\",\"value\":\"@number\"},{\"type\":\"Input\",\"caption\":\"Дата\",\"id\":\"date\",\"value\":\"@date\",\"input_type\":\"DATE\"}],[{\"type\":\"NodeInput\",\"caption\":\"Склад\",\"id\":\"warehouse\",\"dataset\":\"Warehouse\",\"value\":\"@warehouse\"}],[{\"type\":\"NodeInput\",\"caption\":\"Товар\",\"id\":\"product\",\"dataset\":\"Product\",\"value\":\"@product\"}],[{\"type\":\"NodeInput\",\"caption\":\"Партия\",\"id\":\"lot\",\"dataset\":\"Lot\",\"value\":\"@lot\"}],[{\"type\":\"NodeInput\",\"caption\":\"Из ячейки\",\"id\":\"source_location\",\"dataset\":\"Location\",\"value\":\"@source_location\"}],[{\"type\":\"NodeInput\",\"caption\":\"В ячейку\",\"id\":\"target_location\",\"dataset\":\"Location\",\"value\":\"@target_location\"}],[{\"type\":\"Input\",\"caption\":\"Количество\",\"id\":\"quantity\",\"value\":\"@quantity\",\"input_type\":\"NUMBER\"},{\"type\":\"Input\",\"caption\":\"Сумма\",\"id\":\"amount\",\"value\":\"@amount\",\"input_type\":\"NUMBER\"}],[{\"type\":\"Input\",\"caption\":\"Комментарий\",\"id\":\"comment\",\"value\":\"@comment\"}],[{\"type\":\"Text\",\"caption\":\"Статус\",\"value\":\"@post_status\"}]]",
+      "init_screen_layout_web": "[[{\"type\":\"Input\",\"caption\":\"Номер\",\"id\":\"number\",\"value\":\"@number\"},{\"type\":\"Input\",\"caption\":\"Дата\",\"id\":\"date\",\"value\":\"@date\",\"input_type\":\"DATE\"}],[{\"type\":\"NodeInput\",\"caption\":\"Склад\",\"id\":\"warehouse\",\"dataset\":\"Warehouse\",\"value\":\"@warehouse\"}],[{\"type\":\"NodeInput\",\"caption\":\"Товар\",\"id\":\"product\",\"dataset\":\"Product\",\"value\":\"@product\"}],[{\"type\":\"NodeInput\",\"caption\":\"Партия\",\"id\":\"lot\",\"dataset\":\"Lot\",\"value\":\"@lot\"}],[{\"type\":\"NodeInput\",\"caption\":\"Из ячейки\",\"id\":\"source_location\",\"dataset\":\"Location\",\"value\":\"@source_location\"}],[{\"type\":\"NodeInput\",\"caption\":\"В ячейку\",\"id\":\"target_location\",\"dataset\":\"Location\",\"value\":\"@target_location\"}],[{\"type\":\"Input\",\"caption\":\"Количество\",\"id\":\"quantity\",\"value\":\"@quantity\",\"input_type\":\"NUMBER\"},{\"type\":\"Input\",\"caption\":\"Сумма\",\"id\":\"amount\",\"value\":\"@amount\",\"input_type\":\"NUMBER\"}],[{\"type\":\"Input\",\"caption\":\"Комментарий\",\"id\":\"comment\",\"value\":\"@comment\"}],[{\"type\":\"Text\",\"caption\":\"Статус\",\"value\":\"@post_status\"}]]",
+      "data_structure": "Номер|number: string\nДата|date: date\nСклад|warehouse: Node(\"Warehouse\")\nТовар|product: Node(\"Product\")\nПартия|lot: Node(\"Lot\")\nЯчейка отправления|source_location: Node(\"Location\")\nЯчейка назначения|target_location: Node(\"Location\")\nКоличество|quantity: number\nСумма|amount: number\nКомментарий|comment: string\nСтатус|post_status: string",
+      "ngenie_role": "document",
+      "ngenie_prompt": "Проведение выполняется серверным quant_ledger; не изменять остатки полями узла.",
+      "ngenie_description": "Перемещения",
+      "use_standard_commands": true,
+      "methods": [
+        {
+          "name": "Conduct",
+          "source": "internal",
+          "engine": "server_python",
+          "code": "Conduct"
+        }
+      ],
+      "events": [
+        {
+          "event": "onAcceptServer",
+          "listener": "",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "Conduct",
+              "order": 1
+            }
+          ]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "BalanceReport",
+      "display_name": "Ведомость по квантам",
+      "class_type": "projection",
+      "projection_type": "html_projection",
+      "has_storage": false,
+      "hidden": false,
+      "section": "Quant Ledger Demo",
+      "section_code": "quant_ledger_demo",
+      "record_view": "@_projection_header",
+      "cover_image": "[[{\"type\":\"Text\",\"value\":\"Ведомость по квантам\",\"bold\":true,\"size\":18}]]",
+      "init_screen_layout": "[[{\"type\":\"Input\",\"caption\":\"Дата начала\",\"id\":\"date_from\",\"value\":\"@date_from\",\"input_type\":\"DATE\"},{\"type\":\"Input\",\"caption\":\"Дата окончания\",\"id\":\"date_to\",\"value\":\"@date_to\",\"input_type\":\"DATE\"}],[{\"type\":\"NodeInput\",\"caption\":\"Склад\",\"id\":\"warehouse\",\"dataset\":\"Warehouse\",\"value\":\"@warehouse\"}],[{\"type\":\"NodeInput\",\"caption\":\"Товар\",\"id\":\"product\",\"dataset\":\"Product\",\"value\":\"@product\"}]]",
+      "init_screen_layout_web": "[[{\"type\":\"Input\",\"caption\":\"Дата начала\",\"id\":\"date_from\",\"value\":\"@date_from\",\"input_type\":\"DATE\"},{\"type\":\"Input\",\"caption\":\"Дата окончания\",\"id\":\"date_to\",\"value\":\"@date_to\",\"input_type\":\"DATE\"}],[{\"type\":\"NodeInput\",\"caption\":\"Склад\",\"id\":\"warehouse\",\"dataset\":\"Warehouse\",\"value\":\"@warehouse\"}],[{\"type\":\"NodeInput\",\"caption\":\"Товар\",\"id\":\"product\",\"dataset\":\"Product\",\"value\":\"@product\"}]]",
+      "data_structure": "Дата начала|date_from: date\nДата окончания|date_to: date\nСклад|warehouse: Node(\"Warehouse\")\nТовар|product: Node(\"Product\")",
+      "ngenie_role": "report",
+      "ngenie_prompt": "Использовать quant_ledger.statement; отчет серверный HTML projection.",
+      "ngenie_description": "Ведомость по квантам",
+      "use_standard_commands": true,
+      "methods": [
+        {
+          "name": "onRunProjection",
+          "source": "internal",
+          "engine": "server_python",
+          "code": "onRunProjection"
+        }
+      ],
+      "events": [
+        {
+          "event": "onInputWeb",
+          "listener": "onRunProjection",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "onRunProjection",
+              "order": 1
+            }
+          ]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "FefoReport",
+      "display_name": "FEFO-кандидаты",
+      "class_type": "projection",
+      "projection_type": "html_projection",
+      "has_storage": false,
+      "hidden": false,
+      "section": "Quant Ledger Demo",
+      "section_code": "quant_ledger_demo",
+      "record_view": "@_projection_header",
+      "cover_image": "[[{\"type\":\"Text\",\"value\":\"FEFO-кандидаты\",\"bold\":true,\"size\":18}]]",
+      "init_screen_layout": "[[{\"type\":\"NodeInput\",\"caption\":\"Склад\",\"id\":\"warehouse\",\"dataset\":\"Warehouse\",\"value\":\"@warehouse\"}],[{\"type\":\"NodeInput\",\"caption\":\"Товар\",\"id\":\"product\",\"dataset\":\"Product\",\"value\":\"@product\"}]]",
+      "init_screen_layout_web": "[[{\"type\":\"NodeInput\",\"caption\":\"Склад\",\"id\":\"warehouse\",\"dataset\":\"Warehouse\",\"value\":\"@warehouse\"}],[{\"type\":\"NodeInput\",\"caption\":\"Товар\",\"id\":\"product\",\"dataset\":\"Product\",\"value\":\"@product\"}]]",
+      "data_structure": "Склад|warehouse: Node(\"Warehouse\")\nТовар|product: Node(\"Product\")",
+      "ngenie_role": "report",
+      "ngenie_prompt": "Отобрать balances по selector_quant склад+товар, пакетно получить Lot и сортировать по expire_date в Python.",
+      "ngenie_description": "FEFO-кандидаты",
+      "use_standard_commands": true,
+      "methods": [
+        {
+          "name": "onRunProjection",
+          "source": "internal",
+          "engine": "server_python",
+          "code": "onRunProjection"
+        }
+      ],
+      "events": [
+        {
+          "event": "onInputWeb",
+          "listener": "onRunProjection",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "onRunProjection",
+              "order": 1
+            }
+          ]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "DemoSetup",
+      "display_name": "Создание демо",
+      "class_type": "data_node",
+      "projection_type": "",
+      "has_storage": true,
+      "hidden": false,
+      "section": "Quant Ledger Demo",
+      "section_code": "quant_ledger_demo",
+      "record_view": "Демо Quant Ledger",
+      "cover_image": "[[{\"type\":\"Text\",\"value\":\"Создание демо\",\"bold\":true,\"size\":18}]]",
+      "init_screen_layout": "[[{\"type\":\"Button\",\"id\":\"create_demo\",\"caption\":\"Создать демо-данные\"}],[{\"type\":\"Text\",\"value\":\"Создаст склад, две ячейки, товар, две партии, два прихода и один расход.\"}]]",
+      "init_screen_layout_web": "[[{\"type\":\"Button\",\"id\":\"create_demo\",\"caption\":\"Создать демо-данные\"}],[{\"type\":\"Text\",\"value\":\"Создаст склад, две ячейки, товар, две партии, два прихода и один расход.\"}]]",
+      "data_structure": "Создано|created: boolean",
+      "ngenie_role": "process",
+      "ngenie_prompt": "Однократно создать тестовые данные и движения quant_ledger.",
+      "ngenie_description": "Создание демо",
+      "use_standard_commands": true,
+      "methods": [
+        {
+          "name": "CreateDemo",
+          "source": "internal",
+          "engine": "server_python",
+          "code": "CreateDemo"
+        }
+      ],
+      "events": [
+        {
+          "event": "onInputWeb",
+          "listener": "create_demo",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "CreateDemo",
+              "order": 1
+            }
+          ]
+        }
+      ],
+      "indexes": []
+    }
+  ],
+  "datasets": [],
+  "sections": [
+    {
+      "name": "Quant Ledger Demo",
+      "code": "quant_ledger_demo",
+      "commands": ""
+    }
+  ],
+  "servers": [],
+  "rooms": [],
+  "CommonEvents": [],
+  "Timers": []
+}
