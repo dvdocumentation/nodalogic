@@ -11,6 +11,23 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 Layout = Union[str, List[List[Dict[str, Any]]]]
 
+# Canonical list of element names understood by the WEB NodaLayout renderer.
+#
+# Keep this next to the renderer itself: editor/nGenie validators used to keep a
+# second hand-written list and eventually rejected perfectly valid layouts such
+# as Tabs/Tab and CodeFrame.  Android-only PlugIn elements are intentionally not
+# included here; editor_routes adds those separately when validating a complete
+# generated configuration.
+NODALAYOUT_WEB_ELEMENT_TYPES = frozenset({
+    "Text", "Picture", "HTML", "Button", "Input", "TextInput", "Switch", "CheckBox",
+    "Table", "Parameters", "NodeChildren", "Spinner",
+    "DatasetField", "DatasetInput", "DatasetLink", "DataSetLink",
+    "NodeInput", "NodeLink",
+    "VerticalLayout", "HorizontalLayout", "VerticalScroll", "HorizontalScroll", "Card",
+    "Tabs", "Tab", "CodeFrame", "ImageSlider", "PictureGallery",
+    "gauge", "pie", "bar", "line", "Gauge", "Pie", "Bar", "Line",
+})
+
 _VAR_RE = re.compile(r"@([\w.]+)", re.UNICODE)
 _HEX_COLOR_RE = re.compile(r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$")
 

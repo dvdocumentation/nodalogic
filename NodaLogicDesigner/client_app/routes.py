@@ -4163,93 +4163,11 @@ def _ngenie_parse_field_spec(spec: Any) -> Optional[Dict[str, Any]]:
 
 
 def _ngenie_parse_data_structure(text: Any) -> Dict[str, Any]:
-    fields: List[Dict[str, Any]] = []
-    tables: List[Dict[str, Any]] = []
-    virtual_tables: List[Dict[str, Any]] = []
-
-    raw = str(text or "").strip()
-    if not raw:
-        return {"fields": fields, "tables": tables, "virtual_tables": virtual_tables}
-
-    lines: List[str] = []
-    for line in raw.replace(";", "\n").splitlines():
-        line = line.strip().strip(",")
-        if not line or line.startswith("#") or line.startswith("//"):
-            continue
-        lines.extend(_ngenie_split_top_level(line, ","))
-
-    for item in lines:
-        item = str(item or "").strip()
-        if not item:
-            continue
-
-        # Named inline table / tabular part:
-        # lines:[Product|product: Node("Goods"), Quantity|qty: number]
-        # Unlike positions:[Node("OrderLine")], the bracket contains field
-        # declarations, not node classes. Preserve its explicit field name so
-        # generators and nGenie can address several tabular parts independently.
-        table_left, table_type = _ngenie_split_once_top_level(item, ":")
-        if table_left and table_type.startswith("[") and table_type.endswith("]"):
-            inner = table_type[1:-1].strip()
-            inner_parts = _ngenie_split_top_level(inner, ",")
-            has_field_declarations = any(bool(_ngenie_split_once_top_level(part, ":")[1]) for part in inner_parts)
-            if has_field_declarations:
-                row_fields = []
-                for part in inner_parts:
-                    fld = _ngenie_parse_field_spec(part)
-                    if fld:
-                        row_fields.append(fld)
-                if row_fields:
-                    table_label, table_name = _ngenie_split_once_top_level(table_left, "|")
-                    if not table_name:
-                        table_name = re.sub(r"[^a-zA-Z0-9_]+", "_", table_label.strip()).strip("_") or table_label.strip()
-                    tables.append({
-                        "name": str(table_name or "").strip(),
-                        "label": str(table_label or table_name or "").strip(),
-                        "kind": "inline_table",
-                        "relation": "inline",
-                        "row_class": "",
-                        "fields": row_fields,
-                        "inline": True,
-                        "raw": item,
-                    })
-                    continue
-
-        # Wizard inline table:
-        # [Product|product: DataSet("goods"), Quantity|qty: number]
-        # Это НЕ отдельный Node-класс, а табличные данные внутри текущего узла/формы.
-        if item.startswith("[") and item.endswith("]"):
-            inner = item[1:-1].strip()
-            row_fields = []
-            for part in _ngenie_split_top_level(inner, ","):
-                fld = _ngenie_parse_field_spec(part)
-                if fld:
-                    row_fields.append(fld)
-            if row_fields:
-                virtual_tables.append({
-                    "name": f"_table_{len(virtual_tables) + 1}",
-                    "fields": row_fields,
-                    "raw": item,
-                })
-            continue
-
-        fld = _ngenie_parse_field_spec(item)
-        if not fld:
-            continue
-
-        if fld.get("kind") == "list":
-            item_type = fld.get("item_type") or {}
-            fld["row_class"] = item_type.get("target") or fld.get("target") or ""
-            fld["relation"] = item_type.get("kind") or fld.get("relation") or "node"
-            tables.append(fld)
-        else:
-            fields.append(fld)
-
-    return {
-        "fields": fields,
-        "tables": tables,
-        "virtual_tables": virtual_tables,
-    }
+    # One canonical parser is shared with Solutions validators.  Keeping this
+    # wrapper preserves all existing routes call-sites while preventing the
+    # validator and Wizard/runtime grammars from drifting apart.
+    from .data_structure import parse_data_structure
+    return parse_data_structure(text)
 
 
 def _ngenie_legacy_inline_table_bindings(parsed: Dict[str, Any], data: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -12710,6 +12628,31 @@ def _parse_display_image_table(spec: str, data: Dict[str, Any]) -> Tuple[List[st
 
 # ---------- API ----------
 
+def _client_section_json_safe(value: Any) -> Any:
+    """Normalize values that are valid Node/runtime values but not stdlib JSON values.
+
+    The application uses a custom JSON provider backed by ``json.dumps``.  Some
+    generated/runtime handlers legitimately return ``Decimal`` (quantities,
+    capacities, ledger values).  Keep this fix local to the section payload so
+    one Decimal cannot break the whole client section refresh.
+    """
+    try:
+        from decimal import Decimal
+        if isinstance(value, Decimal):
+            # Match Flask's normal Decimal behavior: preserve exact decimal text
+            # instead of silently losing precision via float().
+            return str(value)
+    except Exception:
+        pass
+    if isinstance(value, dict):
+        return {key: _client_section_json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_client_section_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_client_section_json_safe(item) for item in value]
+    return value
+
+
 @client_bp.route("/api/dashboard_layout", methods=["GET", "POST"])
 @login_required
 def api_dashboard_layout():
@@ -12769,13 +12712,13 @@ def api_section_data():
 
     if section_code == RAW_NODES_SECTION_CODE:
         items, meta = _build_raw_node_items(q=q)
-        return jsonify({
+        return jsonify(_client_section_json_safe({
             "ok": True,
             "items": items,
             "count": len(items),
             "nl_css": DEFAULT_NL_CSS,
             "meta": meta,
-        })
+        }))
 
     repos = models.Repo.query.filter_by(user_id=_ngenie_effective_user_id()).all()
     is_dashboard = section_code == DASHBOARD_SECTION_CODE
@@ -13233,7 +13176,7 @@ def api_section_data():
     elif not ranked_search_active:
         merged.sort(key=sort_key, reverse=any_desc)
 
-    return jsonify({
+    return jsonify(_client_section_json_safe({
         "ok": True,
         "items": merged,
         "count": len(merged),
@@ -13248,7 +13191,7 @@ def api_section_data():
             "selected_tag": tag_filter,
             "is_dashboard": bool(is_dashboard),
         }
-    })
+    }))
 
 
 
@@ -14171,6 +14114,7 @@ def node_form(config_uid: str, class_name: str, node_id: str):
                 m = (a.get("method") or "").strip()
                 if not m:
                     continue
+                runtime_method_name = m
                 r = _api_post_remote(
                     repo,
                     f"/api/config/{repo.config_uid}/node/{class_name}/{node_id}/{m}",
@@ -15670,6 +15614,7 @@ def api_node_event_web():
     ui_close = None
     ui_run_projection = None
     patches: list[dict] = []
+    runtime_method_name = ""
 
     try:
         # -------- REMOTE --------
@@ -15777,6 +15722,7 @@ def api_node_event_web():
                 ns_only = bool(payload.get("__nodascript_only"))
                 for a in actions:
                     m = (a.get("method") or "").strip()
+                    runtime_method_name = m or runtime_method_name
                     if m.lower() == "nodascript":
                         if ns_fallback and not ns_post_fallback:
                             code = a.get("methodText") or a.get("method_text") or a.get("text") or a.get("code") or ""
@@ -15934,7 +15880,22 @@ def api_node_event_web():
 
 
     except Exception as e:
-        
+        try:
+            import traceback as _tb
+            from solutions.runtime_errors import record_runtime_error
+            record_runtime_error(
+                repo.config_uid, exception=e, traceback_text=_tb.format_exc(), source="web_event",
+                class_name=eff_class, node_id=eff_id, event_name=str(event or ""),
+                method_name=runtime_method_name, input_data=payload,
+                context={
+                    "listener": str(listener or ""),
+                    "request_path": request.path,
+                    "action_modes": action_modes,
+                    "background": bool(internal_job_execution),
+                },
+            )
+        except Exception:
+            pass
         return jsonify({
             "ok": False,
             "error": str(e),
