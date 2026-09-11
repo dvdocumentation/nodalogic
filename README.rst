@@ -82,8 +82,6 @@ Documentation (en): https://nodatxt.readthedocs.io/en/latest/
 
 Documentation (ru): https://nodalogic-txt-ru.readthedocs.io/ru/latest/
 
-Android app (apk file): https://disk.yandex.ru/d/jlMVqF9hIea_ig
-
 Android app (store): https://play.google.com/store/apps/details?id=com.dv.noda&pcampaignid=web_share and https://www.rustore.ru/catalog/app/com.dv.noda
 
 What's in this repository and installation:
