@@ -1178,6 +1178,7 @@
               <option value="onDataMessage">onDataMessage</option>
               <option value="onIncomingNodes">onIncomingNodes</option>
               <option value="onContractReceived">onContractReceived</option>
+              <option value="onRecognitionListenerResult">onRecognitionListenerResult</option>
               
 
             </select>
@@ -1363,6 +1364,11 @@
                             <input type="checkbox" class="form-check-input" id="sectionHideWebClient" name="hide_web_client">
                             <label class="form-check-label" for="sectionHideWebClient">{{ _('Hide web client') }}</label>
                         </div>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="sectionAllowClientExtensions" name="allow_client_extensions" checked>
+                        <label class="form-check-label" for="sectionAllowClientExtensions">{{ _('Allow client extensions') }}</label>
+                        <small class="text-muted d-block">{{ _('Allow mobile users to add local classes and documents to this section.') }}</small>
                     </div>
                     <div class="mb-3">
                         <label for="sectionCommands" class="form-label">{{ _('Commands') }}</label>
@@ -1712,6 +1718,7 @@ document.addEventListener('DOMContentLoaded', function() {
         sectionModalTitle.textContent = "{{ _('Add section') }}";
         sectionForm.reset();
         document.getElementById('section_id').value = '';
+        document.getElementById('sectionAllowClientExtensions').checked = true;
         sectionForm.action = "{{ url_for('add_section', config_uid=config.uid) }}";
     });
 
@@ -1734,6 +1741,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('sectionCommands').value = data.commands || '';
                 document.getElementById('sectionHideMobileClient').checked = !!data.hide_mobile_client;
                 document.getElementById('sectionHideWebClient').checked = !!data.hide_web_client;
+                document.getElementById('sectionAllowClientExtensions').checked = data.allow_client_extensions !== false;
                 
                 sectionForm.action = "{{ url_for('update_section', section_id='') }}" + sectionId;
                 sectionModal.show();
@@ -3648,6 +3656,11 @@ fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
 
 .event-oncontractreceived {
     background-color: #2d0647;
+    color: white;
+}
+
+.event-onrecognitionlistenerresult {
+    background-color: #740bbb;
     color: white;
 }
 
