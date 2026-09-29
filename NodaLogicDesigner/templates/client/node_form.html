@@ -17,6 +17,202 @@
   }
   .btn-save-close:hover{filter:brightness(0.95);}
 
+
+  /* Client-extension document editor.  Extension fields deliberately look like
+     a note/document rather than a database form (same idea as Android). */
+  #webRoot.nl-extension-editor-root{position:relative;padding:2px 78px 20px 2px;max-height:calc(100vh - 175px);overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;}
+  #webRoot .nl-extension-row{
+    position:relative;
+    padding:8px;
+    margin:1px -8px;
+    border-radius:12px;
+    transition:background-color .12s ease,box-shadow .12s ease;
+    align-items:stretch;
+    flex-wrap:nowrap;
+  }
+  #webRoot .nl-extension-row.nl-extension-active{
+    background:rgba(25,135,84,.055);
+    box-shadow:inset 0 0 0 1px rgba(25,135,84,.10);
+  }
+  #webRoot .nl-extension-row > .nl-extension-cell{
+    flex:var(--nl-extension-weight,1) 1 0!important;
+    max-width:none!important;
+    min-width:0!important;
+    width:auto!important;
+  }
+  #webRoot .nl-extension-cell .nl-field,
+  #webRoot .nl-extension-cell .nl-nodeinput{min-width:0;width:100%;}
+  #webRoot .nl-extension-cell .nl-input,
+  #webRoot .nl-extension-cell .nl-nodeinput-text{
+    min-width:0;
+    width:100%;
+    border:0!important;
+    border-bottom:1px solid transparent!important;
+    border-radius:0!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    padding:.58rem .38rem;
+  }
+  #webRoot .nl-extension-cell .nl-input:focus,
+  #webRoot .nl-extension-cell .nl-nodeinput-text:focus{
+    outline:0!important;
+    border-bottom-color:rgba(25,135,84,.42)!important;
+  }
+  #webRoot .nl-extension-cell .nl-label{
+    flex:0 0 auto;
+    max-width:100%;
+    font-size:.76rem;
+    opacity:.62;
+    padding:0 .38rem;
+  }
+  #webRoot .nl-extension-cell .nl-field-row{
+    flex-direction:column;
+    align-items:stretch;
+    gap:1px;
+  }
+  #webRoot .nl-extension-cell .nl-check{
+    display:flex;
+    gap:8px;
+    align-items:center;
+    min-height:42px;
+    padding:.48rem .38rem;
+  }
+  #webRoot .nl-extension-cell .nl-nodeinput-btn,
+  #webRoot .nl-extension-cell .nl-nodeinput-clear{
+    border:0;
+    background:transparent;
+    opacity:.6;
+  }
+  #webRoot .nl-extension-cell .nl-nodeinput-btn:hover,
+  #webRoot .nl-extension-cell .nl-nodeinput-clear:hover{background:rgba(25,135,84,.08);opacity:1;}
+  #webRoot .nl-extension-input-line{
+    display:flex;align-items:center;gap:3px;width:100%;min-width:0;
+  }
+  #webRoot .nl-extension-input-line>.nl-input{flex:1 1 auto;min-width:0;}
+  #webRoot .nl-extension-inline-open{
+    flex:0 0 auto;width:30px;height:30px;padding:0;border:0;border-radius:999px;
+    display:inline-flex;align-items:center;justify-content:center;
+    background:transparent;color:#198754;font-size:17px;line-height:1;text-decoration:none;
+    opacity:.68;cursor:pointer;
+  }
+  #webRoot .nl-extension-inline-open:hover{background:rgba(25,135,84,.09);opacity:1;color:#146c43;}
+  #webRoot .nl-extension-inline-open:disabled{opacity:.22;cursor:default;background:transparent;}
+  .nl-extension-row-controls{
+    position:absolute;
+    right:-72px;
+    top:50%;
+    transform:translateY(-50%);
+    display:flex;
+    align-items:center;
+    gap:2px;
+    z-index:4;
+  }
+  .nl-extension-tool-btn,.nl-extension-bootstrap-plus{
+    width:34px;height:34px;padding:0;border:0;border-radius:999px;
+    display:inline-flex;align-items:center;justify-content:center;
+    background:transparent;color:#198754;font-size:25px;line-height:1;
+    user-select:none;
+  }
+  .nl-extension-tool-btn:hover,.nl-extension-bootstrap-plus:hover{background:rgba(25,135,84,.10);}
+  .nl-extension-tool-btn.nl-extension-delete-row{font-size:19px;color:#6c757d;}
+  .nl-extension-tool-btn.nl-extension-delete-row:hover{background:rgba(220,53,69,.08);color:#b02a37;}
+  .nl-extension-insert-bar{
+    display:flex;align-items:center;justify-content:flex-start;
+    min-height:38px;padding:0 0 0 8px;margin-top:-5px;margin-bottom:2px;
+  }
+  .nl-extension-bootstrap{
+    display:flex;align-items:center;justify-content:flex-start;
+    min-height:42px;padding:4px 0;
+  }
+  .nl-extension-bootstrap-plus{margin-left:2px;}
+  .nl-extension-picture{
+    min-height:128px;border-radius:12px;background:rgba(0,0,0,.018);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+    overflow:hidden;padding:8px;
+  }
+  .nl-extension-picture:hover{background:rgba(25,135,84,.05);}
+  .nl-ext-tags{display:flex;align-items:flex-start;gap:6px;min-height:37px;width:100%;}
+  .nl-ext-tags-list{display:flex;align-items:center;gap:5px;flex-wrap:wrap;flex:1;min-width:0;}
+  .nl-ext-tag-pill{display:inline-flex;align-items:center;border-radius:16px;padding:4px 10px;
+    font-size:13px;background:rgba(25,135,84,.11);color:#146c43;cursor:context-menu;touch-action:pan-y;user-select:none;}
+  .nl-ext-tag-add{flex:0 0 32px;width:32px;height:32px;border:0;border-radius:50%;background:transparent;
+    color:#198754;display:inline-flex;align-items:center;justify-content:center;position:relative;}
+  .nl-ext-tag-add:hover{background:rgba(25,135,84,.09);}
+  .nl-ext-tag-plus{font-size:13px;position:absolute;bottom:-1px;right:0;font-weight:700;}
+
+  .nl-extension-geotag{width:100%;min-width:0;}
+  .nl-extension-geotag-value{
+    display:block;width:100%;min-height:42px;padding:9px 11px;text-align:left;
+    border:1px solid rgba(25,135,84,.20);border-radius:9px;
+    background:rgba(25,135,84,.035);color:inherit;
+    font:inherit;overflow-wrap:anywhere;cursor:pointer;
+  }
+  .nl-extension-geotag-value:hover:not(:disabled){border-color:#198754;background:rgba(25,135,84,.07);}
+  .nl-extension-geotag-value:disabled{cursor:default;opacity:1;}
+  .nl-ext-geotag-editor{min-width:min(290px,calc(100vw - 24px));}
+  .nl-ext-geotag-editor .nl-ext-geotag-inputs{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .nl-ext-geotag-editor .nl-ext-geotag-inputs label{display:block;font-size:12px;color:#667085;}
+  .nl-ext-geotag-editor .nl-ext-geotag-inputs input{width:100%;min-width:0;}
+  .nl-ext-geotag-editor .nl-ext-geotag-error{min-height:19px;color:#b02a37;font-size:12px;}
+
+  .nl-extension-picture-empty{
+    align-items:center;justify-content:center;width:52px;height:52px;
+    border-radius:999px;background:rgba(25,135,84,.09);color:#198754;font-size:30px;
+  }
+
+  .nl-ext-popover{
+    position:fixed;z-index:10950;min-width:190px;max-width:min(340px,calc(100vw - 24px));
+    background:#fff;border:1px solid rgba(0,0,0,.10);border-radius:12px;
+    box-shadow:0 10px 30px rgba(0,0,0,.16);padding:6px;
+    font-size:.92rem;
+  }
+  .nl-ext-popover.nl-ext-options{min-width:auto;display:flex;gap:3px;align-items:center;padding:5px;}
+  .nl-ext-menu-item{
+    position:relative;display:flex;align-items:center;justify-content:space-between;gap:12px;
+    width:100%;padding:8px 10px;border:0;border-radius:8px;background:transparent;
+    color:inherit;text-align:left;white-space:nowrap;
+  }
+  .nl-ext-menu-item:hover,.nl-ext-menu-item:focus{background:rgba(25,135,84,.08);outline:0;}
+  .nl-ext-menu-arrow{opacity:.55;font-size:.82rem;}
+  .nl-ext-submenu{
+    display:none;position:absolute;left:calc(100% - 2px);top:-6px;min-width:185px;
+    background:#fff;border:1px solid rgba(0,0,0,.10);border-radius:12px;
+    box-shadow:0 10px 30px rgba(0,0,0,.15);padding:6px;
+  }
+  .nl-ext-menu-item:hover>.nl-ext-submenu,
+  .nl-ext-menu-item:focus-within>.nl-ext-submenu{display:block;}
+  .nl-ext-option-btn{
+    min-width:38px;height:38px;padding:0 10px;border:0;border-radius:8px;background:transparent;
+    display:inline-flex;align-items:center;justify-content:center;font-size:1rem;
+  }
+  .nl-ext-option-btn:hover{background:rgba(25,135,84,.08);}
+  .nl-ext-option-btn.active{background:rgba(25,135,84,.13);color:#146c43;}
+  .nl-ext-option-btn.nl-ext-delete{color:#b02a37;font-size:18px;}
+  .nl-ext-name-editor{min-width:260px;padding:8px;}
+  .nl-ext-name-editor .form-control{
+    border:0;border-bottom:1px solid rgba(0,0,0,.2);border-radius:0;box-shadow:none;padding:.45rem .25rem;
+  }
+  .nl-ext-name-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:8px;}
+  .nl-ext-table-column-add{
+    min-width:34px;height:34px;padding:0 9px;border:0;border-radius:999px;
+    background:transparent;color:#198754;font-size:20px;line-height:1;
+    display:inline-flex;align-items:center;justify-content:center;
+  }
+  .nl-ext-table-column-add:hover{background:rgba(25,135,84,.10);}
+  .nl-ext-table-header-editable{cursor:context-menu;user-select:none;}
+  .nl-ext-table-header-editable:hover{background:rgba(25,135,84,.07);}
+  .nl-ext-column-editor{min-width:270px;padding:8px;}
+  .nl-ext-column-editor .form-control{
+    border:0;border-bottom:1px solid rgba(0,0,0,.2);border-radius:0;box-shadow:none;padding:.45rem .25rem;
+  }
+  @media (max-width:700px){
+    #webRoot.nl-extension-editor-root{padding-right:66px;}
+    #webRoot .nl-extension-row{padding:8px;gap:6px;}
+    #webRoot .nl-extension-row > .nl-extension-cell{min-width:0!important;}
+    .nl-extension-row-controls{right:-62px;}
+    .nl-ext-submenu{left:auto;right:calc(100% - 2px);}
+  }
+
   /* Read-only mode for the form (when _data._read_only is set)
      We only gray out / disable the main form area (left pane);
      standard command buttons remain active. */
@@ -547,12 +743,15 @@
       {% if p and p.type == 'MediaGallery' %}{% set ns.has_media = true %}{% endif %}
     {% endfor %}
 
-    <ul class="nav nav-tabs mb-2" id="nlTopTabs" role="tablist">
+    <ul class="nav nav-tabs mb-2 flex-nowrap overflow-auto" id="nlTopTabs" role="tablist" data-movements-ui="2">
       <li class="nav-item" role="presentation">
         <button class="nav-link active" id="tab-form" data-bs-toggle="tab" data-bs-target="#pane-form" type="button" role="tab">{{ _('Form') }}</button>
       </li>
       <li class="nav-item" role="presentation">
         <button class="nav-link" id="tab-chat" data-bs-toggle="tab" data-bs-target="#pane-chat" type="button" role="tab">{{ _('Chat') }}</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-movements" data-bs-toggle="tab" data-bs-target="#pane-movements" type="button" role="tab">{{ _('Movements') }}</button>
       </li>
       {% if ns.has_files %}
       <li class="nav-item" role="presentation">
@@ -576,6 +775,10 @@
         {% if layout_html %}
           <!-- onShowWeb / onShow layout -->
           <div id="webRoot">{{ layout_html | safe }}</div>
+        {% elif extension_managed|default(false) %}
+          {# A client-added class is itself the form definition.  An empty
+             layout therefore means "empty extensible form", not "edit JSON". #}
+          <div id="webRoot"></div>
         {% else %}
           <!-- raw _data editor (fallback / when no layout) -->
           <div class="mb-2 text-muted small">_data (JSON)</div>
@@ -597,6 +800,35 @@
         <div class="text-muted small mt-2">{{ _('Admin JSON editor. Ctrl+S saves this JSON to the node.') }}</div>
       </div>
       {% endif %}
+
+      <div class="tab-pane fade" id="pane-movements" role="tabpanel">
+        <div class="card mb-3">
+          <div class="card-header d-flex justify-content-between align-items-center gap-2 py-2">
+            <div>
+              <div class="fw-semibold">{{ _('Node movements') }}</div>
+              <div class="text-muted small">{{ _('Accounting movements related to this node are loaded only when this tab is opened.') }}</div>
+            </div>
+            <button id="nlMovementsRefresh" class="btn btn-sm btn-outline-secondary" type="button">{{ _('Refresh') }}</button>
+          </div>
+          <div class="card-body">
+            <div id="nlMovementsStatus" class="text-muted small mb-3">{{ _('Open this tab to load movements.') }}</div>
+            <div class="mb-4">
+              <div class="d-flex align-items-center gap-2 mb-2">
+                <h6 class="mb-0">{{ _('QuantLedger') }}</h6>
+                <span id="nlQuantLedgerCount" class="badge text-bg-light border">0</span>
+              </div>
+              <div id="nlQuantLedgerMovements"></div>
+            </div>
+            <div>
+              <div class="d-flex align-items-center gap-2 mb-2">
+                <h6 class="mb-0">{{ _('Transactions') }}</h6>
+                <span id="nlTransactionCount" class="badge text-bg-light border">0</span>
+              </div>
+              <div id="nlTransactionMovements"></div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div class="tab-pane fade" id="pane-chat" role="tabpanel">
         <div class="card nl-chat-panel">
@@ -714,7 +946,7 @@
         {% if (use_standard_commands or is_projection) and not is_print_form %}
           <button id="btnSaveClose" class="btn btn-sm btn-save-close" type="button">{{_('Save and close')}}</button>
           <button id="btnSave" class="btn btn-sm btn-outline-secondary" type="button">{{_('Save')}}</button>
-
+          {% if extension_managed|default(false) %}<button id="btnNrawExport" class="btn btn-sm btn-outline-success" type="button" title="Save or share .nraw">{{ _('Save / share') }} .nraw</button>{% endif %}
           {% if use_standard_commands and show_register_command %}
             <button id="btnRegister" class="btn btn-sm btn-outline-primary" type="button"
                     {% if not default_room_uid %}disabled title="No Room specified"{% endif %}>
@@ -775,8 +1007,16 @@ const API_CODEFRAME_SAVE = {{ (api_codeframe_save|default(''))|tojson }};
 const CURRENT_USER_IS_ADMIN = {{ (current_user_is_admin|default(false))|tojson }};
 const SHOW_NODE_JSON = {{ (show_node_json|default(false))|tojson }};
 const API_NODE_CREATE = "/client/api/node/create";
+const API_NODE_MOVEMENTS = "/client/api/node/movements";
 const API_EVENT_WEB = {{ api_event_web|tojson }};
 const API_SAVE = {{ api_save_url|tojson }};
+const CAN_EXTEND_NODE = {{ (can_extend_node|default(false))|tojson }};
+const EXTENSION_MANAGED = {{ (extension_managed|default(false))|tojson }};
+const EXTENSION_NODE_CLASSES = {{ (extension_node_classes|default([]))|tojson }};
+const API_EXT_GRAPH_EXPORT = {{ url_for('client.api_extension_graph_export',raw_node_id='__ID__')|tojson }};
+const API_EXT_SECTION_TAGS = {{ url_for('client.api_extension_section_tags')|tojson }};
+const EXT_NODE_FORM_TEMPLATE = {{ url_for('client.node_form', config_uid='__CFG__', class_name='__CLASS__', node_id='__ID__')|tojson }};
+const EXT_RAW_NODE_FORM_TEMPLATE = {{ url_for('client.raw_node_form', raw_node_id='__ID__')|tojson }};
 const API_DISCUSSION_MESSAGES = `/client/api/node-discussion/by-node/${encodeURIComponent(DISCUSSION_NODE_ID)}/messages`;
 
 const NL_RUNPROGRESS_DEFAULT_TEXT = {{ _('Operation is running...')|tojson }};
@@ -947,13 +1187,40 @@ function s3CachedImageUrl(url){
   const raw = String(url || '').trim();
   return raw ? `/client/api/s3/cached-image?url=${encodeURIComponent(raw)}` : '';
 }
+function nlBase64ImageUrl(value){
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(raw)) return raw;
+
+  let body = raw;
+  if (/^base64:/i.test(body)) body = body.replace(/^base64:/i, '').trim();
+  body = body.replace(/\s+/g, '');
+  if (body.length < 16 || !/^[A-Za-z0-9+/=_-]+$/.test(body)) return '';
+
+  // Android currently emits ordinary Base64, but accepting URL-safe Base64
+  // here costs nothing and makes synced extension pictures more tolerant.
+  body = body.replace(/-/g, '+').replace(/_/g, '/');
+  while (body.length % 4) body += '=';
+
+  let mime = '';
+  if (body.startsWith('/9j/')) mime = 'image/jpeg';
+  else if (body.startsWith('iVBORw0KGgo')) mime = 'image/png';
+  else if (body.startsWith('R0lGOD')) mime = 'image/gif';
+  else if (body.startsWith('UklGR')) mime = 'image/webp';
+  if (!mime) return '';
+  return `data:${mime};base64,${body}`;
+}
 function userfilesRawUrl(filename){
   const raw = String(filename || '').trim();
+  const embedded = nlBase64ImageUrl(raw);
+  if (embedded) return embedded;
   if (isExternalHttpUrl(raw)) return raw;
   return `/client/api/userfiles/${REPO_ID}/raw/${encodeURIComponent(raw)}`;
 }
 function userfilesImageUrl(filename){
   const raw = String(filename || '').trim();
+  const embedded = nlBase64ImageUrl(raw);
+  if (embedded) return embedded;
   if (isExternalHttpUrl(raw)) return s3CachedImageUrl(raw);
   return userfilesRawUrl(raw);
 }
@@ -1141,6 +1408,176 @@ document.addEventListener('shown.bs.tab', () => {
     if (frame.__nl_activate) frame.__nl_activate();
   });
 });
+
+
+// ---------------- Accounting movements ----------------
+const NL_MOVEMENTS_I18N = {
+  loading: {{ _('Loading movements...')|tojson }},
+  preparing: {{ _('Preparing node...')|tojson }},
+  quant: {{ _('Reading QuantLedger...')|tojson }},
+  transactions: {{ _('Reading transactions...')|tojson }},
+  finishing: {{ _('Preparing results...')|tojson }},
+  none: {{ _('No related movements found.')|tojson }},
+  unavailable: {{ _('This accounting mechanism is not available for this node.')|tojson }},
+  loadError: {{ _('Could not load movements')|tojson }},
+  period: {{ _('Period')|tojson }},
+  space: {{ _('Space')|tojson }},
+  operation: {{ _('Operation')|tojson }},
+  analytics: {{ _('Analytics')|tojson }},
+  selector: {{ _('Selector')|tojson }},
+  changes: {{ _('Changes')|tojson }},
+  balanceAfter: {{ _('Balance after')|tojson }},
+  details: {{ _('Details')|tojson }},
+  owner: {{ _('Balance owner')|tojson }},
+  scheme: {{ _('Scheme')|tojson }},
+  type: {{ _('Type')|tojson }},
+  metadata: {{ _('Metadata')|tojson }},
+  sum: {{ _('Sum transaction')|tojson }},
+  state: {{ _('State transaction')|tojson }}
+};
+let nlMovementsLoaded = false;
+let nlMovementsLoading = false;
+
+function nlMovementPretty(value){
+  if (value === null || value === undefined || value === '') return '';
+  if (Array.isArray(value)) return value.map(nlMovementPretty).filter(Boolean).join(' · ');
+  if (typeof value === 'object') {
+    try { return JSON.stringify(value, null, 2); } catch(_) { return String(value); }
+  }
+  return String(value);
+}
+
+function nlMovementKV(label, value, pre=false){
+  const text = nlMovementPretty(value);
+  if (!text) return '';
+  return `<div class="row g-1 mb-1"><div class="col-md-3 text-muted small">${escapeHtml(label)}</div><div class="col-md-9 ${pre ? 'font-monospace small' : ''}" style="white-space:${pre ? 'pre-wrap' : 'normal'}; overflow-wrap:anywhere;">${escapeHtml(text)}</div></div>`;
+}
+
+function nlRenderQuantMovements(section){
+  const host = document.getElementById('nlQuantLedgerMovements');
+  const count = document.getElementById('nlQuantLedgerCount');
+  if (!host) return;
+  const rows = Array.isArray(section && section.movements) ? section.movements : [];
+  if (count) count.textContent = String(rows.length);
+  if (!section || section.available === false) {
+    host.innerHTML = `<div class="text-muted small">${escapeHtml((section && section.error) || NL_MOVEMENTS_I18N.unavailable)}</div>`;
+    return;
+  }
+  if (section.error) {
+    host.innerHTML = `<div class="alert alert-warning py-2 mb-2">${escapeHtml(section.error)}</div>`;
+    return;
+  }
+  if (!rows.length) {
+    host.innerHTML = `<div class="text-muted small">${escapeHtml(NL_MOVEMENTS_I18N.none)}</div>`;
+    return;
+  }
+  host.innerHTML = rows.map(row => {
+    const changes = (Array.isArray(row.resources) ? row.resources : []).map(r => `R${r.index}: ${String(r.value).startsWith('-') ? '' : '+'}${r.value}`).join(', ');
+    return `<div class="border rounded p-2 mb-2 bg-body-tertiary">
+      ${nlMovementKV(NL_MOVEMENTS_I18N.period, row.period)}
+      ${nlMovementKV(NL_MOVEMENTS_I18N.space, row.space)}
+      ${nlMovementKV(NL_MOVEMENTS_I18N.operation, row.operation_id)}
+      ${nlMovementKV(NL_MOVEMENTS_I18N.analytics, row.quant)}
+      ${nlMovementKV(NL_MOVEMENTS_I18N.selector, row.selector)}
+      ${nlMovementKV(NL_MOVEMENTS_I18N.changes, changes)}
+      ${nlMovementKV(NL_MOVEMENTS_I18N.details, row.details, true)}
+    </div>`;
+  }).join('');
+}
+
+function nlRenderTransactionMovements(section){
+  const host = document.getElementById('nlTransactionMovements');
+  const count = document.getElementById('nlTransactionCount');
+  if (!host) return;
+  const rows = Array.isArray(section && section.movements) ? section.movements : [];
+  if (count) count.textContent = String(rows.length);
+  if (!section || section.available === false) {
+    host.innerHTML = `<div class="text-muted small">${escapeHtml((section && section.error) || NL_MOVEMENTS_I18N.unavailable)}</div>`;
+    return;
+  }
+  if (section.error) {
+    host.innerHTML = `<div class="alert alert-warning py-2 mb-2">${escapeHtml(section.error)}</div>`;
+    return;
+  }
+  if (!rows.length) {
+    host.innerHTML = `<div class="text-muted small">${escapeHtml(NL_MOVEMENTS_I18N.none)}</div>`;
+    return;
+  }
+  host.innerHTML = rows.map(row => {
+    const kind = row.kind === 'state' ? NL_MOVEMENTS_I18N.state : NL_MOVEMENTS_I18N.sum;
+    const changeText = nlMovementPretty(row.values);
+    return `<div class="border rounded p-2 mb-2 bg-body-tertiary">
+      ${nlMovementKV(NL_MOVEMENTS_I18N.period, row.period)}
+      ${nlMovementKV(NL_MOVEMENTS_I18N.owner, row.owner)}
+      ${nlMovementKV(NL_MOVEMENTS_I18N.scheme, row.scheme)}
+      ${nlMovementKV(NL_MOVEMENTS_I18N.type, kind)}
+      ${nlMovementKV(NL_MOVEMENTS_I18N.analytics, row.keys)}
+      ${nlMovementKV(NL_MOVEMENTS_I18N.changes, changeText)}
+      ${nlMovementKV(NL_MOVEMENTS_I18N.balanceAfter, row.result)}
+      ${nlMovementKV(NL_MOVEMENTS_I18N.metadata, row.meta, true)}
+    </div>`;
+  }).join('');
+}
+
+async function nlLoadMovements(force=true){
+  if (nlMovementsLoading) return;
+  if (!force && nlMovementsLoaded) return;
+  nlMovementsLoading = true;
+  const status = document.getElementById('nlMovementsStatus');
+  const refresh = document.getElementById('nlMovementsRefresh');
+  const pane = document.getElementById('pane-movements');
+  if (status) status.textContent = NL_MOVEMENTS_I18N.loading;
+  if (refresh) refresh.disabled = true;
+  if (pane) pane.setAttribute('aria-busy', 'true');
+  nlRunProgressStart();
+  nlRunProgressUpdate({progress:0, text:NL_MOVEMENTS_I18N.loading});
+  try {
+    const resp = await fetch(API_NODE_MOVEMENTS, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      credentials:'same-origin',
+      body:JSON.stringify({
+        repo_id:REPO_ID,
+        class_name:CLASS_NAME,
+        node_id:NODE_ID,
+        is_raw_node:IS_RAW_NODE,
+        raw_node_id: IS_RAW_NODE ? DISCUSSION_NODE_ID : '',
+        progress_labels:{
+          loading:NL_MOVEMENTS_I18N.loading,
+          preparing:NL_MOVEMENTS_I18N.preparing,
+          quant:NL_MOVEMENTS_I18N.quant,
+          transactions:NL_MOVEMENTS_I18N.transactions,
+          finishing:NL_MOVEMENTS_I18N.finishing
+        }
+      })
+    });
+    let data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    if (data.job) data = await nlResolveBackgroundEventResponse(data);
+    if (!data || data.ok !== true) throw new Error((data && data.error) || NL_MOVEMENTS_I18N.loadError);
+    nlRenderQuantMovements(data.quant_ledger || {});
+    nlRenderTransactionMovements(data.transactions || {});
+    nlMovementsLoaded = true;
+    if (status) status.textContent = '';
+  } catch (e) {
+    if (status) status.textContent = `${NL_MOVEMENTS_I18N.loadError}: ${e && e.message ? e.message : e}`;
+  } finally {
+    nlMovementsLoading = false;
+    if (refresh) refresh.disabled = false;
+    if (pane) pane.removeAttribute('aria-busy');
+    nlRunProgressStop();
+  }
+}
+
+(function initMovementsTab(){
+  const tab = document.getElementById('tab-movements');
+  const refresh = document.getElementById('nlMovementsRefresh');
+  // Re-run the report every time the user returns to Movements. Opening the
+  // document itself never triggers this request.
+  if (tab) tab.addEventListener('shown.bs.tab', () => nlLoadMovements(true));
+  if (refresh) refresh.addEventListener('click', () => nlLoadMovements(true));
+})();
+
 
 // ---------------- Node discussion chat ----------------
 const nlChatState = {
@@ -1827,6 +2264,18 @@ function nlResolveTemplateString(tpl){
   // context is the embedded row; outside it this resolves to the parent node.
   if (s.includes('@')) {
     const dataCtx = nlGetDataCtx();
+
+    // Extension field ids are human captions and may contain spaces.  If the
+    // whole template is one @reference, prefer an exact top-level key before
+    // falling back to the legacy inline-token parser.
+    if (st.startsWith('@') && st.indexOf('@', 1) < 0) {
+      const exactKey = st.slice(1);
+      if (dataCtx && typeof dataCtx === 'object' && Object.prototype.hasOwnProperty.call(dataCtx, exactKey)) {
+        const exact = dataCtx[exactKey];
+        return (exact == null) ? '' : String(exact);
+      }
+    }
+
     return s.replace(/@([^\s@{}\[\](),;:<>"'/]+)/g, (_, key) => {
       const v = nlGetByPath(dataCtx, key);
       return (v == null) ? "" : String(v);
@@ -1846,11 +2295,19 @@ function nlResolveLinkTextTemplate(el, tpl){
   const isLink = el.classList.contains('nl-dataset-link') || el.classList.contains('nl-node-link');
   if (!isLink) return null;
 
-  const m = String(tpl == null ? '' : tpl).trim().match(/^@([^\s@{}\[\](),;:<>'"/]+)$/);
-  if (!m) return null;
+  const st = String(tpl == null ? '' : tpl).trim();
+  if (!st.startsWith('@') || st.indexOf('@', 1) >= 0) return null;
 
-  const key = m[1];
   const dataCtx = nlGetDataCtx();
+  const exactKey = st.slice(1);
+  let key = '';
+  if (dataCtx && typeof dataCtx === 'object' && Object.prototype.hasOwnProperty.call(dataCtx, exactKey)) {
+    key = exactKey;
+  } else {
+    const m = st.match(/^@([^\s@{}\[\](),;:<>'"/]+)$/);
+    if (!m) return null;
+    key = m[1];
+  }
   const view = nlGetByPath(dataCtx, `${key}_view`);
   if (view != null && String(view).trim() !== '') return String(view);
 
@@ -2184,7 +2641,10 @@ function setSideStatus(t){
 let inputTimer = null;
 
 function collectChanged(el){
-  if (el && el.matches && el.matches('input[data-nl-nodeinput="1"], input[data-nl-datasetinput="1"]')) {
+  // File inputs and the clickable ExtensionPicture wrapper are managed by their
+  // own upload handler.  Treating them as ordinary data-path controls would
+  // overwrite the saved filename/URL with C:\\fakepath\\... or undefined.
+  if (el && el.matches && el.matches('input[type="file"], [data-nl-extension-picture="1"], input[data-nl-nodeinput="1"], input[data-nl-datasetinput="1"]')) {
     return null;
   }
   const path = (el.getAttribute("data-path") || "").trim();
@@ -3865,6 +4325,7 @@ function bindClicks() {
       // update UI (readonly input)
       const inp = nlFindFieldInput(fieldId);
       if (inp) inp.value = "";
+      try { nlExtRefreshInlineActions(); } catch(_) {}
 
       // notify server (as onInputWeb)
       const payload = {
@@ -3974,10 +4435,14 @@ async function apiUserfilesList(){
   return [];
 }
 
-async function apiUserfilesUpload(file){
+async function apiUserfilesUpload(file, forceS3=false){
+  // Keep the browser on the application's origin.  The server performs a
+  // normal presigned PUT to S3, which avoids both browser CORS requirements
+  // and boto3 upload_fileobj/aws-chunked checksum incompatibilities seen with
+  // some S3-compatible providers.
   const fd = new FormData();
   fd.append("file", file);
-  if (shouldUploadUserfilesToS3()) fd.append("upload_s3", "1");
+  if (forceS3 || shouldUploadUserfilesToS3()) fd.append("upload_s3", "1");
   const r = await fetch(API_USERFILES_UPLOAD, { method: "POST", body: fd, credentials: "same-origin" });
   const j = await r.json();
   if (!j || !j.ok) throw new Error((j && j.error) || "upload failed");
@@ -4209,6 +4674,1014 @@ function getDataFromTextarea(){
   return JSON.parse(s);
 }
 
+function nlExtensionFieldRows(){
+  const key = EXTENSION_MANAGED ? '_layout' : '_extension_layout';
+  let rows = _data && _data[key];
+  if (typeof rows === 'string') { try { rows = JSON.parse(rows); } catch(_) { rows = []; } }
+  return {key, rows:Array.isArray(rows) ? rows : []};
+}
+
+function nlExtClone(v){
+  try { return JSON.parse(JSON.stringify(v)); } catch(_) { return v; }
+}
+
+function nlExtensionFieldIds(rows){
+  const out=[];
+  (rows||[]).forEach(row => (Array.isArray(row)?row:[row]).forEach(el => {
+    if (el && typeof el==='object' && el.extension_field && el.id) out.push(String(el.id));
+  }));
+  return out;
+}
+
+function nlExtRowId(row){
+  for (const el of (Array.isArray(row) ? row : [row])) {
+    if (el && typeof el === 'object' && el.extension_field && el.extension_row_id) return String(el.extension_row_id);
+  }
+  return '';
+}
+
+function nlExtFindRow(rows, rowId){
+  for (let i=0;i<(rows||[]).length;i++) if (nlExtRowId(rows[i]) === String(rowId||'')) return {index:i,row:rows[i]};
+  return null;
+}
+
+function nlExtFindField(rows, fieldId){
+  for (let i=0;i<(rows||[]).length;i++) {
+    const row = Array.isArray(rows[i]) ? rows[i] : [rows[i]];
+    for (let j=0;j<row.length;j++) {
+      const f=row[j];
+      if (f && typeof f==='object' && f.extension_field && String(f.id||'')===String(fieldId||'')) {
+        return {rowIndex:i, fieldIndex:j, row:row, field:f};
+      }
+    }
+  }
+  return null;
+}
+
+function nlExtUuid(){
+  try { if (crypto && crypto.randomUUID) return crypto.randomUUID().replaceAll('-',''); } catch(_) {}
+  return `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
+}
+
+function nlExtAutoBase(type){
+  if (type==='number') return 'NUMBER';
+  if (type==='date') return 'DATE';
+  if (type==='check') return 'CHECK';
+  if (type==='node') return 'NODE';
+  if (type==='image') return 'IMAGE';
+  if (type==='table') return 'TABLE';
+  if (type==='tags') return 'TAGS';
+  if (type==='geotag') return 'GEO';
+  return 'TEXT';
+}
+
+function nlExtUniqueFieldId(rows, type, caption){
+  const ids = new Set(nlExtensionFieldIds(rows));
+  let base = String(caption == null ? '' : caption).trim();
+  if (!base) {
+    base = nlExtAutoBase(type);
+    let n=1;
+    while (ids.has(base+n) || Object.prototype.hasOwnProperty.call(_data||{}, base+n)) n++;
+    return base+n;
+  }
+  if (!ids.has(base)) return base;
+  let n=2;
+  while (ids.has(base+n)) n++;
+  return base+n;
+}
+
+function nlExtBuildField(type, id, nodeClassId){
+  const f={id:id, caption:id, value:'@'+id, extension_field:true, extension_plain:true};
+  if (type==='number') { f.type='Input'; f.input_type='NUMBER'; }
+  else if (type==='date') { f.type='Input'; f.input_type='DATE'; }
+  else if (type==='check') { f.type='CheckBox'; }
+  else if (type==='node') { f.type='NodeInput'; f.dataset=String(nodeClassId||''); }
+  else if (type==='image') { f.type='ExtensionPicture'; f.height=180; f.caption=''; f.extension_show_caption=false; }
+  else if (type==='tags') { f.type='ExtensionTags'; f.caption=''; f.extension_show_caption=false; }
+  else if (type==='geotag') { f.type='ExtensionGeoTag'; }
+  else if (type==='table') {
+    f.type='Table'; f.table=true; f.extension_table=true; f.table_header=[];
+    f.virtual_node={layout:[],cover:[]};
+  } else { f.type='Input'; }
+  return f;
+}
+
+function nlExtInitFieldData(type,id){
+  if (Object.prototype.hasOwnProperty.call(_data||{}, id)) return;
+  if (type==='check') _data[id]=false;
+  else if (type==='table') _data[id]=[];
+  else if (type==='tags') { if(!Array.isArray(_data._tags)) _data._tags=[]; return; }
+  else _data[id]='';
+  if (type==='node' && !Object.prototype.hasOwnProperty.call(_data||{}, id+'_view')) _data[id+'_view']='';
+}
+
+function nlExtClassCover(){
+  let c = CLASS_OBJ && CLASS_OBJ.cover;
+  if (typeof c === 'string') { try { c=JSON.parse(c); } catch(_) { c=[]; } }
+  return Array.isArray(c) ? nlExtClone(c) : [];
+}
+
+function nlExtPresentationValueKey(field){
+  const id=String(field && field.id || '');
+  return field && field.type==='NodeInput' ? id+'_view' : id;
+}
+
+function nlExtRefreshPresentation(rows){
+  const fields=[];
+  (rows||[]).forEach(row => (Array.isArray(row)?row:[row]).forEach(f => {
+    if (f && typeof f==='object' && f.extension_field && f.id) fields.push(f);
+  }));
+
+  // Android semantics: the first field marked for the cover also becomes the
+  // record presentation.  If nothing is marked yet, use the first field so a
+  // freshly-created class still has a readable NodeInput/list representation.
+  const coverFields=fields.filter(f => !!f.extension_cover);
+  const presentation = coverFields.find(f=>f.type!=='ExtensionTags'&&f.type!=='ExtensionPicture') || fields.find(f=>f.type!=='ExtensionTags'&&f.type!=='ExtensionPicture') || null;
+  if (presentation) {
+    const tpl='{'+nlExtPresentationValueKey(presentation)+'}';
+    _data._field_template=tpl;
+    _data._extension_record_template=tpl;
+  } else {
+    const generated=String(_data._extension_record_template||'');
+    if (generated && generated===String(_data._field_template||'')) delete _data._field_template;
+    delete _data._extension_record_template;
+  }
+
+  let cover=[];
+  const managed = !!(EXTENSION_MANAGED || (_data && _data._extension_managed));
+  if (managed) {
+    const classLabel=String((_data && _data._extension_class_name) || (CLASS_OBJ && (CLASS_OBJ.display_name||CLASS_OBJ.name)) || CLASS_NAME || '');
+    _data._extension_cover_class=classLabel;
+
+    // The class/date rows are only a fallback for a document which has no
+    // explicit cover fields yet.  Once ★ is used, the user's chosen fields are
+    // the cover instead of always showing the class name first.
+    if (!coverFields.length) {
+      const first=fields.find(f=>f.type==='NodeInput'||(f.type==='Input'&&!f.input_type));
+      if(first) cover.push([{type:'Text',value:'@'+nlExtPresentationValueKey(first),size:16}]);
+      else {
+        cover.push([{type:'Text',value:'@_extension_cover_class',bold:true,size:18}]);
+        cover.push([{type:'Text',value:'@_extension_created_at',size:13}]);
+      }
+    }
+  } else {
+    cover=nlExtClassCover();
+  }
+
+  let selected=0;
+  for (const f of coverFields) {
+    const id=String(f.id||'');
+    if (!id) continue;
+    if (f.type==='ExtensionPicture') {
+      cover.push([{type:'ExtensionPicture',id:id,height:120}]);
+    } else {
+      const t={type:'Text',value:'@'+nlExtPresentationValueKey(f)};
+      if (f.extension_bold) t.bold=true;
+      if (f.extension_italic) t.italic=true;
+      cover.push([t]);
+    }
+    selected++;
+  }
+
+  if (managed || selected>0) {
+    _data._cover=cover;
+    _data._extension_cover_generated=true;
+  } else if (_data._extension_cover_generated) {
+    delete _data._cover;
+    delete _data._extension_cover_generated;
+  }
+}
+
+function nlExtSyncAdminJson(){
+  const ta=document.getElementById('adminDataJson');
+  if (ta) { ta.value=JSON.stringify(_data||{},null,2); ta.__nl_dirty=false; }
+}
+
+function nlExtStoreActive(rowId){
+  try { sessionStorage.setItem(`nl_ext_active:${REPO_ID}:${CLASS_NAME}:${NODE_ID}`, String(rowId||'')); } catch(_) {}
+}
+function nlExtLoadActive(){
+  try { return sessionStorage.getItem(`nl_ext_active:${REPO_ID}:${CLASS_NAME}:${NODE_ID}`)||''; } catch(_) { return ''; }
+}
+
+async function nlExtPersist(rows, activeRowId){
+  const ext=nlExtensionFieldRows();
+  _data[ext.key]=rows;
+  nlExtRefreshPresentation(rows);
+  nlExtSyncAdminJson();
+  if (activeRowId) nlExtStoreActive(activeRowId);
+  const ok=await doSave();
+  if (ok) window.location.reload();
+  return ok;
+}
+
+async function nlExtAddField(spec){
+  if (!CAN_EXTEND_NODE) return;
+  try { snapshotWebFormIntoData(); } catch(_) {}
+  const ext=nlExtensionFieldRows();
+  const rows=nlExtClone(ext.rows||[]);
+  const type=String(spec.type||'text');
+  if(type==='tags' && nlExtensionFieldIds(rows).some(id=>{const hit=nlExtFindField(rows,id);return hit&&hit.field.type==='ExtensionTags';})) return;
+  const id=nlExtUniqueFieldId(rows,type,spec.caption||'');
+  const field=nlExtBuildField(type,id,spec.nodeClassId||'');
+  let activeRowId='';
+
+  if (spec.targetRowId) {
+    const hit=nlExtFindRow(rows,spec.targetRowId);
+    if (!hit || !Array.isArray(hit.row)) return;
+    let sum=0;
+    const left=Math.max(1,Number(spec.leftRatio||1));
+    const right=Math.max(1,Number(spec.rightRatio||1));
+    for (const old of hit.row) {
+      if (!old || !old.extension_field) continue;
+      const w=Math.max(1,Number(old.w||1));
+      old.w=w*left;
+      sum+=w;
+    }
+    field.w=Math.max(1,sum)*right;
+    field.extension_row_id=String(spec.targetRowId);
+    for (const old of hit.row) {
+      if (old && old.extension_position) { field.extension_position=old.extension_position; break; }
+    }
+    hit.row.push(field);
+    rows[hit.index]=hit.row;
+    activeRowId=String(spec.targetRowId);
+  } else {
+    activeRowId='row_'+nlExtUuid();
+    field.extension_row_id=activeRowId;
+    field.extension_position=String(spec.position||'bottom');
+    const row=[field];
+    if (spec.insertAfterRowId) {
+      const hit=nlExtFindRow(rows,spec.insertAfterRowId);
+      if (hit) {
+        const prevPos=(Array.isArray(hit.row)?hit.row:[]).find(x=>x&&x.extension_position)?.extension_position;
+        if (prevPos) field.extension_position=prevPos;
+        rows.splice(hit.index+1,0,row);
+      } else rows.push(row);
+    } else rows.push(row);
+  }
+
+  nlExtInitFieldData(type,id);
+  if (type==='table') {
+    const arr=Array.isArray(_data._extension_tables) ? _data._extension_tables.slice() : [];
+    if (!arr.includes(id)) arr.push(id);
+    _data._extension_tables=arr;
+  }
+  await nlExtPersist(rows,activeRowId);
+}
+
+async function nlExtDeleteField(fieldId,rowId){
+  if (!CAN_EXTEND_NODE) return;
+  try { snapshotWebFormIntoData(); } catch(_) {}
+  const ext=nlExtensionFieldRows();
+  const rows=nlExtClone(ext.rows||[]);
+  const hit=nlExtFindField(rows,fieldId);
+  if (!hit) return;
+  const wasTable=hit.field && hit.field.extension_table;
+  hit.row.splice(hit.fieldIndex,1);
+  if (hit.row.length) rows[hit.rowIndex]=hit.row;
+  else rows.splice(hit.rowIndex,1);
+  if(hit.field.type==='ExtensionTags') delete _data._tags;
+  delete _data[fieldId];
+  delete _data[fieldId+'_view'];
+  delete _data[fieldId+'_data'];
+  delete _data[fieldId+'_d'];
+  if (wasTable && Array.isArray(_data._extension_tables)) _data._extension_tables=_data._extension_tables.filter(x=>String(x)!==String(fieldId));
+  const next = rows[hit.rowIndex] ? nlExtRowId(rows[hit.rowIndex]) : (rows[hit.rowIndex-1] ? nlExtRowId(rows[hit.rowIndex-1]) : '');
+  await nlExtPersist(rows,next||rowId||'');
+}
+
+async function nlExtDeleteRow(rowId){
+  if (!CAN_EXTEND_NODE) return;
+  try { snapshotWebFormIntoData(); } catch(_) {}
+  const ext=nlExtensionFieldRows();
+  const rows=nlExtClone(ext.rows||[]);
+  const hit=nlExtFindRow(rows,rowId);
+  if (!hit) return;
+  const removed=Array.isArray(hit.row)?hit.row:[];
+  for (const f of removed) {
+    if (!f || !f.extension_field || !f.id) continue;
+    delete _data[f.id]; delete _data[String(f.id)+'_view'];
+    if (f.extension_table && Array.isArray(_data._extension_tables)) _data._extension_tables=_data._extension_tables.filter(x=>String(x)!==String(f.id));
+  }
+  rows.splice(hit.index,1);
+  const next=rows[hit.index] ? nlExtRowId(rows[hit.index]) : (rows[hit.index-1] ? nlExtRowId(rows[hit.index-1]) : '');
+  await nlExtPersist(rows,next);
+}
+
+async function nlExtToggleFieldOption(fieldId,rowId,option){
+  if (!CAN_EXTEND_NODE) return;
+  try { snapshotWebFormIntoData(); } catch(_) {}
+  const ext=nlExtensionFieldRows();
+  const rows=nlExtClone(ext.rows||[]);
+  const hit=nlExtFindField(rows,fieldId);
+  if (!hit) return;
+  if (hit.field[option]) delete hit.field[option]; else hit.field[option]=true;
+  await nlExtPersist(rows,rowId);
+}
+
+let nlExtPopover=null;
+function nlExtClosePopover(){
+  if (nlExtPopover && nlExtPopover.parentNode) nlExtPopover.parentNode.removeChild(nlExtPopover);
+  nlExtPopover=null;
+}
+function nlExtPositionPopover(pop,anchor,point){
+  document.body.appendChild(pop);
+  const r=anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : null;
+  let x=point && Number.isFinite(point.x) ? point.x : (r ? r.left : 12);
+  let y=point && Number.isFinite(point.y) ? point.y : (r ? r.bottom+4 : 12);
+  pop.style.left='0px';pop.style.top='0px';
+  const pr=pop.getBoundingClientRect();
+  x=Math.max(8,Math.min(x,window.innerWidth-pr.width-8));
+  y=Math.max(8,Math.min(y,window.innerHeight-pr.height-8));
+  pop.style.left=`${x}px`; pop.style.top=`${y}px`;
+  nlExtPopover=pop;
+}
+function nlExtMenuButton(label,onClick,submenu){
+  if (submenu) {
+    // A submenu parent is deliberately a div, not a <button>: nested buttons are
+    // invalid HTML and make click/hover handling unreliable in Chromium.
+    const item=document.createElement('div'); item.className='nl-ext-menu-item nl-ext-menu-parent'; item.tabIndex=0;
+    const span=document.createElement('span'); span.textContent=label; item.appendChild(span);
+    const arr=document.createElement('span'); arr.className='nl-ext-menu-arrow'; arr.textContent='›'; item.appendChild(arr); item.appendChild(submenu);
+    item.addEventListener('click',e=>{
+      if (e.target.closest('.nl-ext-submenu')) return;
+      e.preventDefault(); e.stopPropagation();
+      submenu.style.display = submenu.style.display==='block' ? '' : 'block';
+    });
+    item.addEventListener('keydown',e=>{
+      if (e.key==='Enter' || e.key===' ' || e.key==='ArrowRight') { e.preventDefault(); submenu.style.display='block'; }
+      else if (e.key==='Escape' || e.key==='ArrowLeft') { e.preventDefault(); submenu.style.display=''; item.focus(); }
+    });
+    return item;
+  }
+  const b=document.createElement('button'); b.type='button'; b.className='nl-ext-menu-item';
+  const span=document.createElement('span'); span.textContent=label; b.appendChild(span);
+  if (onClick) b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();onClick();});
+  return b;
+}
+function nlExtSubmenu(){ const d=document.createElement('div'); d.className='nl-ext-submenu'; return d; }
+
+const NL_EXT_TYPES=[
+  ['text', {{ _('Text')|tojson }}],
+  ['number', {{ _('Number')|tojson }}],
+  ['date', {{ _('Date')|tojson }}],
+  ['check', {{ _('Checkbox')|tojson }}],
+  ['node', {{ _('Node')|tojson }}],
+  ['image', {{ _('Image')|tojson }}],
+  ['geotag', {{ _('Геометка')|tojson }}],
+  ['tags', {{ _('Tags')|tojson }}],
+  ['table', {{ _('Table')|tojson }}]
+];
+
+function nlExtShowNameEditor(anchor,spec,point){
+  nlExtClosePopover();
+  const pop=document.createElement('div'); pop.className='nl-ext-popover nl-ext-name-editor';
+  const label=document.createElement('div'); label.className='small text-muted mb-1';
+  label.textContent={{ _('Field name')|tojson }};
+  const input=document.createElement('input'); input.type='text'; input.className='form-control';
+  input.placeholder={{ _('Optional: an automatic name will be used if empty')|tojson }};
+  const actions=document.createElement('div'); actions.className='nl-ext-name-actions';
+  const cancel=document.createElement('button'); cancel.type='button'; cancel.className='btn btn-sm btn-light'; cancel.textContent={{ _('Cancel')|tojson }};
+  const add=document.createElement('button'); add.type='button'; add.className='btn btn-sm btn-success'; add.textContent={{ _('Add')|tojson }};
+  actions.append(cancel,add); pop.append(label,input,actions);
+  cancel.addEventListener('click',()=>nlExtClosePopover());
+  const commit=async()=>{ const caption=String(input.value||'').trim(); nlExtClosePopover(); await nlExtAddField(Object.assign({},spec,{caption})); };
+  add.addEventListener('click',commit);
+  input.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();commit();} else if(e.key==='Escape'){e.preventDefault();nlExtClosePopover();} });
+  nlExtPositionPopover(pop,anchor,point); setTimeout(()=>input.focus(),0);
+}
+
+
+function nlExtTableField(tableId){
+  const ext=nlExtensionFieldRows();
+  const hit=nlExtFindField(ext.rows,String(tableId||''));
+  if (!hit || !hit.field || !hit.field.extension_table) return null;
+  return {ext,hit,field:hit.field};
+}
+
+function nlExtHeaderParts(raw){
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const title=String(raw.title ?? raw.caption ?? raw.name ?? raw.key ?? '');
+    const key=String(raw.key ?? raw.id ?? raw.name ?? title);
+    const weight=Math.max(1,Number(raw.weight ?? raw.w ?? 1) || 1);
+    return {title,key,weight};
+  }
+  const parts=String(raw == null ? '' : raw).split('|');
+  const title=String(parts[0] || parts[1] || '');
+  const key=String(parts[1] || parts[0] || '');
+  const weight=Math.max(1,Number(parts[2] || 1) || 1);
+  return {title,key,weight};
+}
+
+function nlExtTableVirtualLayout(tableField){
+  if (!tableField || typeof tableField !== 'object') return [];
+  if (!tableField.virtual_node || typeof tableField.virtual_node !== 'object') tableField.virtual_node={layout:[],cover:[]};
+  if (!Array.isArray(tableField.virtual_node.layout)) tableField.virtual_node.layout=[];
+  if (!Array.isArray(tableField.virtual_node.cover)) tableField.virtual_node.cover=[];
+  return tableField.virtual_node.layout;
+}
+
+function nlExtTableDataRows(tableId){
+  let rows=(_data||{})[tableId];
+  if (typeof rows==='string') { try { rows=JSON.parse(rows); } catch(_) { rows=[]; } }
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function nlExtAddTableColumn(tableId,spec){
+  if (!CAN_EXTEND_NODE) return;
+  try { snapshotWebFormIntoData(); } catch(_) {}
+  const info=nlExtTableField(tableId); if(!info) return;
+  const rows=nlExtClone(info.ext.rows||[]);
+  const fresh=nlExtFindField(rows,tableId); if(!fresh) return;
+  const table=fresh.field;
+  const type=String(spec && spec.type || 'text');
+  const caption=String(spec && spec.caption || '').trim();
+  const vlayout=nlExtTableVirtualLayout(table);
+  const id=nlExtUniqueFieldId(vlayout,type,caption);
+  const field=nlExtBuildField(type,id,(spec&&spec.nodeClassId)||'');
+  field.extension_row_id='table_'+String(tableId);
+  delete field.extension_table;
+  delete field.table;
+  delete field.table_header;
+  delete field.virtual_node;
+
+  let header=Array.isArray(table.table_header) ? table.table_header.slice() : [];
+  header.push(`${id}|${id}|1`);
+  table.table_header=header;
+  vlayout.push([field]);
+  table.virtual_node.layout=vlayout;
+
+  if (!Array.isArray(_data[tableId])) _data[tableId]=nlExtTableDataRows(tableId);
+  const tracked=Array.isArray(_data._extension_tables) ? _data._extension_tables.slice() : [];
+  if(!tracked.includes(tableId)) tracked.push(tableId);
+  _data._extension_tables=tracked;
+  await nlExtPersist(rows,String(table.extension_row_id||''));
+}
+
+function nlExtShowTableColumnNameEditor(anchor,tableId,spec,point){
+  nlExtClosePopover();
+  const pop=document.createElement('div'); pop.className='nl-ext-popover nl-ext-name-editor';
+  const label=document.createElement('div'); label.className='small text-muted mb-1';
+  label.textContent={{ _('Field name')|tojson }};
+  const input=document.createElement('input'); input.type='text'; input.className='form-control';
+  input.placeholder={{ _('Optional: an automatic name will be used if empty')|tojson }};
+  const actions=document.createElement('div'); actions.className='nl-ext-name-actions';
+  const cancel=document.createElement('button'); cancel.type='button'; cancel.className='btn btn-sm btn-light'; cancel.textContent={{ _('Cancel')|tojson }};
+  const add=document.createElement('button'); add.type='button'; add.className='btn btn-sm btn-success'; add.textContent={{ _('Add')|tojson }};
+  actions.append(cancel,add); pop.append(label,input,actions);
+  cancel.addEventListener('click',()=>nlExtClosePopover());
+  const commit=async()=>{const caption=String(input.value||'').trim();nlExtClosePopover();await nlExtAddTableColumn(tableId,Object.assign({},spec,{caption}));};
+  add.addEventListener('click',commit);
+  input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();commit();}else if(e.key==='Escape'){e.preventDefault();nlExtClosePopover();}});
+  nlExtPositionPopover(pop,anchor,point);setTimeout(()=>input.focus(),0);
+}
+
+function nlExtTableNodeClassSubmenu(anchor,tableId,baseSpec,point){
+  const sub=nlExtSubmenu();
+  const choices=[{id:'_raw',name:{{ _('Arbitrary node')|tojson }}}].concat(Array.isArray(EXTENSION_NODE_CLASSES)?EXTENSION_NODE_CLASSES:[]);
+  for(const c of choices){
+    const nextSpec=Object.assign({},baseSpec,{nodeClassId:String(c.id||'_raw')});
+    sub.appendChild(nlExtMenuButton(String(c.name||c.id||''),()=>nlExtShowTableColumnNameEditor(anchor,tableId,nextSpec,point)));
+  }
+  return sub;
+}
+
+function nlExtShowAddTableColumnMenu(anchor,tableId,point){
+  nlExtClosePopover();
+  const pop=document.createElement('div');pop.className='nl-ext-popover';
+  for(const [type,label] of NL_EXT_TYPES){
+    if(type==='table'||type==='tags'||type==='geotag') continue; // No virtual-row geotag editor; tags belong to the node.
+    const spec={type};
+    if(type==='node') pop.appendChild(nlExtMenuButton(label,null,nlExtTableNodeClassSubmenu(anchor,tableId,spec,point)));
+    else pop.appendChild(nlExtMenuButton(label,()=>((type==='image'||type==='tags') ? nlExtAddTableColumn(tableId,Object.assign({},spec,{caption:''})) : nlExtShowTableColumnNameEditor(anchor,tableId,spec,point))));
+  }
+  nlExtPositionPopover(pop,anchor,point);
+}
+
+async function nlExtRenameTableColumn(tableId,oldId,newId){
+  newId=String(newId||'').trim(); oldId=String(oldId||'').trim();
+  if(!newId || !oldId || newId===oldId) return;
+  try { snapshotWebFormIntoData(); } catch(_) {}
+  const info=nlExtTableField(tableId); if(!info) return;
+  const rows=nlExtClone(info.ext.rows||[]);
+  const hit=nlExtFindField(rows,tableId); if(!hit) return;
+  const table=hit.field;
+  const header=Array.isArray(table.table_header)?table.table_header.slice():[];
+  if(header.some(h=>nlExtHeaderParts(h).key===newId)) return;
+  let found=false;
+  table.table_header=header.map(h=>{
+    const p=nlExtHeaderParts(h);
+    if(p.key!==oldId) return h;
+    found=true;
+    return `${newId}|${newId}|${p.weight}`;
+  });
+  if(!found) return;
+  const vlayout=nlExtTableVirtualLayout(table);
+  const fHit=nlExtFindField(vlayout,oldId);
+  if(fHit){
+    fHit.field.id=newId;fHit.field.caption=newId;
+    if(String(fHit.field.value||'')==='@'+oldId) fHit.field.value='@'+newId;
+  }
+  const dataRows=nlExtTableDataRows(tableId);
+  for(const row of dataRows){
+    if(!row||typeof row!=='object') continue;
+    for(const suffix of ['', '_view','_data','_d']){
+      const a=oldId+suffix,b=newId+suffix;
+      if(Object.prototype.hasOwnProperty.call(row,a)){row[b]=row[a];delete row[a];}
+    }
+  }
+  _data[tableId]=dataRows;
+  await nlExtPersist(rows,String(table.extension_row_id||''));
+}
+
+async function nlExtDeleteTableColumn(tableId,columnId){
+  try { snapshotWebFormIntoData(); } catch(_) {}
+  const info=nlExtTableField(tableId); if(!info) return;
+  const rows=nlExtClone(info.ext.rows||[]);
+  const hit=nlExtFindField(rows,tableId); if(!hit) return;
+  const table=hit.field;
+  const key=String(columnId||'');
+  table.table_header=(Array.isArray(table.table_header)?table.table_header:[]).filter(h=>nlExtHeaderParts(h).key!==key);
+  const vlayout=nlExtTableVirtualLayout(table);
+  table.virtual_node.layout=vlayout.map(r=>(Array.isArray(r)?r:[r]).filter(f=>!(f&&String(f.id||'')===key))).filter(r=>r.length);
+  const dataRows=nlExtTableDataRows(tableId);
+  for(const row of dataRows){
+    if(!row||typeof row!=='object') continue;
+    for(const suffix of ['', '_view','_data','_d']) delete row[key+suffix];
+  }
+  _data[tableId]=dataRows;
+  await nlExtPersist(rows,String(table.extension_row_id||''));
+}
+
+function nlExtShowTableColumnEditor(anchor,tableId,columnId,point){
+  nlExtClosePopover();
+  const pop=document.createElement('div');pop.className='nl-ext-popover nl-ext-column-editor';
+  const label=document.createElement('div');label.className='small text-muted mb-1';label.textContent={{ _('Field name')|tojson }};
+  const input=document.createElement('input');input.type='text';input.className='form-control';input.value=String(columnId||'');
+  const actions=document.createElement('div');actions.className='nl-ext-name-actions';
+  const del=document.createElement('button');del.type='button';del.className='btn btn-sm btn-outline-danger me-auto';del.textContent='×';del.title={{ _('Delete field')|tojson }};
+  const cancel=document.createElement('button');cancel.type='button';cancel.className='btn btn-sm btn-light';cancel.textContent={{ _('Cancel')|tojson }};
+  const save=document.createElement('button');save.type='button';save.className='btn btn-sm btn-success';save.textContent={{ _('Save')|tojson }};
+  actions.append(del,cancel,save);pop.append(label,input,actions);
+  cancel.addEventListener('click',()=>nlExtClosePopover());
+  del.addEventListener('click',async()=>{nlExtClosePopover();await nlExtDeleteTableColumn(tableId,columnId);});
+  const commit=async()=>{const next=String(input.value||'').trim();if(!next||next===String(columnId||'')){nlExtClosePopover();return;}nlExtClosePopover();await nlExtRenameTableColumn(tableId,columnId,next);};
+  save.addEventListener('click',commit);
+  input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();commit();}else if(e.key==='Escape'){e.preventDefault();nlExtClosePopover();}});
+  nlExtPositionPopover(pop,anchor,point);setTimeout(()=>{input.focus();input.select();},0);
+}
+
+function nlExtDecorateExtensionTable(root){
+  if(!root || !CAN_EXTEND_NODE || IS_READ_ONLY) return;
+  const tableId=String(root.getAttribute('data-nl-table-id')||'').trim();
+  const info=nlExtTableField(tableId); if(!info) return;
+  const table=info.field;
+  const rowId=String(table.extension_row_id||'');
+  const active=!rowId || rowId===String(nlExtActiveRowId||'');
+  const header=Array.isArray(table.table_header)?table.table_header:[];
+  const toolbar=root.querySelector('.nl-vt-toolbar');
+  if(toolbar){
+    let colAdd=toolbar.querySelector('[data-nl-ext-add-column="1"]');
+    if(!colAdd){
+      colAdd=document.createElement('button');colAdd.type='button';colAdd.className='nl-ext-table-column-add';
+      colAdd.setAttribute('data-nl-ext-add-column','1');colAdd.textContent='+▥';colAdd.title={{ _('Add field')|tojson }};
+      colAdd.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();nlExtSetActiveRow(rowId);nlExtShowAddTableColumnMenu(colAdd,tableId,{x:e.clientX,y:e.clientY});});
+      toolbar.prepend(colAdd);
+    }
+    colAdd.style.display=active?'inline-flex':'none';
+    const rowAdd=toolbar.querySelector('[data-nl-vt-add="1"]');
+    if(rowAdd){rowAdd.title={{ _('Add')|tojson }};rowAdd.style.display=(active&&header.length)?'':'none';}
+  }
+  const ths=Array.from(root.querySelectorAll('thead th'));
+  ths.forEach((th,idx)=>{
+    const hp=nlExtHeaderParts(header[idx]); if(!hp.key) return;
+    th.classList.add('nl-ext-table-header-editable');
+    th.dataset.nlExtColumnKey=hp.key;
+    if(th.__nlExtHeaderBound) return; th.__nlExtHeaderBound=true;
+    th.addEventListener('contextmenu',e=>{e.preventDefault();e.stopPropagation();nlExtSetActiveRow(rowId);nlExtShowTableColumnEditor(th,tableId,String(th.dataset.nlExtColumnKey||''),{x:e.clientX,y:e.clientY});});
+    let timer=null,sx=0,sy=0;
+    th.addEventListener('pointerdown',e=>{if(e.pointerType!=='touch')return;sx=e.clientX;sy=e.clientY;timer=setTimeout(()=>{timer=null;nlExtSetActiveRow(rowId);nlExtShowTableColumnEditor(th,tableId,String(th.dataset.nlExtColumnKey||''),{x:sx,y:sy});},560);});
+    const cancel=()=>{if(timer){clearTimeout(timer);timer=null;}};
+    th.addEventListener('pointerup',cancel);th.addEventListener('pointercancel',cancel);th.addEventListener('pointermove',e=>{if(timer&&(Math.abs(e.clientX-sx)>8||Math.abs(e.clientY-sy)>8))cancel();});
+  });
+}
+
+function nlExtRefreshExtensionTables(){
+  document.querySelectorAll('[data-nl-virtual-table="1"]').forEach(nlExtDecorateExtensionTable);
+}
+
+function nlExtNodeClassSubmenu(anchor,baseSpec,point){
+  const sub=nlExtSubmenu();
+  const choices=[{id:'_raw',name:{{ _('Arbitrary node')|tojson }}}].concat(Array.isArray(EXTENSION_NODE_CLASSES)?EXTENSION_NODE_CLASSES:[]);
+  for (const c of choices) {
+    const nextSpec=Object.assign({},baseSpec,{nodeClassId:String(c.id||'_raw')});
+    sub.appendChild(nlExtMenuButton(String(c.name||c.id||''),()=>(nextSpec.type==='image'||nextSpec.type==='tags' ? nlExtAddField(Object.assign({},nextSpec,{caption:''})) : nlExtShowNameEditor(anchor,nextSpec,point))));
+  }
+  return sub;
+}
+
+function nlExtRatioSubmenu(anchor,baseSpec,point){
+  const sub=nlExtSubmenu();
+  const ratios=[['1:1',1,1],['2:1',2,1],['1:2',1,2]];
+  for (const [label,left,right] of ratios) {
+    const ratioSpec=Object.assign({},baseSpec,{leftRatio:left,rightRatio:right});
+    if (ratioSpec.type==='node') {
+      sub.appendChild(nlExtMenuButton(label,null,nlExtNodeClassSubmenu(anchor,ratioSpec,point)));
+    } else {
+      sub.appendChild(nlExtMenuButton(label,()=>((ratioSpec.type==='image'||ratioSpec.type==='tags') ? nlExtAddField(Object.assign({},ratioSpec,{caption:''})) : nlExtShowNameEditor(anchor,ratioSpec,point))));
+    }
+  }
+  return sub;
+}
+
+function nlExtShowAddMenu(anchor,opts,point){
+  nlExtClosePopover();
+  const pop=document.createElement('div'); pop.className='nl-ext-popover';
+  const side=!!opts.targetRowId;
+  for (const [type,label] of NL_EXT_TYPES) {
+    if(type==='tags' && nlExtensionFieldIds(nlExtensionFieldRows().rows).some(id=>{const h=nlExtFindField(nlExtensionFieldRows().rows,id);return h&&h.field.type==='ExtensionTags';}))continue;
+    const baseSpec={type:type,targetRowId:opts.targetRowId||'',insertAfterRowId:opts.insertAfterRowId||'',position:opts.position||'bottom'};
+    if (side) {
+      // Desktop hierarchy requested for side insertion: type -> proportion ->
+      // (for Node only) target class -> one shared field-name editor.
+      pop.appendChild(nlExtMenuButton(label,null,nlExtRatioSubmenu(anchor,baseSpec,point)));
+    } else if (type==='node') {
+      pop.appendChild(nlExtMenuButton(label,null,nlExtNodeClassSubmenu(anchor,baseSpec,point)));
+    } else {
+      pop.appendChild(nlExtMenuButton(label,()=>((type==='image'||type==='tags') ? nlExtAddField(Object.assign({},baseSpec,{caption:''})) : nlExtShowNameEditor(anchor,baseSpec,point))));
+    }
+  }
+  nlExtPositionPopover(pop,anchor,point);
+}
+
+let nlExtActiveRowId='';
+function nlExtSetActiveRow(rowId){
+  nlExtActiveRowId=String(rowId||'');
+  nlExtStoreActive(nlExtActiveRowId);
+  nlExtRenderRowControls();
+  nlExtRefreshExtensionTables();
+}
+
+function nlExtRenderRowControls(){
+  const root=document.getElementById('webRoot'); if(!root) return;
+  root.querySelectorAll('.nl-extension-row-controls,.nl-extension-insert-bar,.nl-extension-bootstrap').forEach(x=>x.remove());
+  root.querySelectorAll('.nl-extension-row').forEach(x=>x.classList.remove('nl-extension-active'));
+  const rows=root.querySelectorAll('.nl-extension-row[data-nl-extension-row]');
+  if (!rows.length) {
+    if (CAN_EXTEND_NODE && !IS_READ_ONLY) {
+      const bar=document.createElement('div');bar.className='nl-extension-bootstrap';
+      const plus=document.createElement('button');plus.type='button';plus.className='nl-extension-bootstrap-plus';plus.textContent='+';plus.title={{ _('Add field')|tojson }};
+      plus.addEventListener('click',e=>{e.stopPropagation();nlExtShowAddMenu(plus,{position:'bottom'});});
+      bar.appendChild(plus);root.appendChild(bar);
+    }
+    return;
+  }
+  if (!nlExtActiveRowId) return;
+  const row=Array.from(rows).find(x=>String(x.dataset.nlExtensionRow||'')===nlExtActiveRowId);
+  if (!row) return;
+  row.classList.add('nl-extension-active');
+  const controls=document.createElement('div');controls.className='nl-extension-row-controls';
+  const plus=document.createElement('button');plus.type='button';plus.className='nl-extension-tool-btn';plus.textContent='+';plus.title={{ _('Add field to the right')|tojson }};
+  plus.addEventListener('click',e=>{e.stopPropagation();nlExtShowAddMenu(plus,{targetRowId:nlExtActiveRowId});});
+  const del=document.createElement('button');del.type='button';del.className='nl-extension-tool-btn nl-extension-delete-row';del.textContent='×';del.title={{ _('Delete row')|tojson }};
+  del.addEventListener('click',e=>{e.stopPropagation();nlExtClosePopover();nlExtDeleteRow(nlExtActiveRowId);});
+  controls.append(plus,del);row.appendChild(controls);
+
+  const insert=document.createElement('div');insert.className='nl-extension-insert-bar';
+  const down=document.createElement('button');down.type='button';down.className='nl-extension-tool-btn';down.textContent='+';down.title={{ _('Add row below')|tojson }};
+  down.addEventListener('click',e=>{e.stopPropagation();nlExtShowAddMenu(down,{insertAfterRowId:nlExtActiveRowId,position:'bottom'});});
+  insert.appendChild(down);row.insertAdjacentElement('afterend',insert);
+}
+
+function nlExtShowFieldOptions(cell,rowId,fieldId,point){
+  const ext=nlExtensionFieldRows(); const hit=nlExtFindField(ext.rows,fieldId); if(!hit) return;
+  const f=hit.field; nlExtSetActiveRow(rowId); nlExtClosePopover();
+  const pop=document.createElement('div');pop.className='nl-ext-popover nl-ext-options';
+  const option=(label,title,key,visible=true,cls='')=>{
+    if(!visible) return;
+    const b=document.createElement('button');b.type='button';b.className='nl-ext-option-btn '+cls;b.textContent=label;b.title=title;
+    if(f[key]) b.classList.add('active');
+    b.addEventListener('click',e=>{e.stopPropagation();nlExtClosePopover();nlExtToggleFieldOption(fieldId,rowId,key);});
+    pop.appendChild(b);
+  };
+  const picture=f.type==='ExtensionPicture'; const check=f.type==='CheckBox'; const text=f.type==='Input'&&!f.input_type;
+  option('T',{{ _('Show field name')|tojson }},'extension_show_caption',!picture&&!check);
+  option('★',{{ _('Use in cover')|tojson }},'extension_cover',f.type!=='ExtensionTags');
+  option('B',{{ _('Bold')|tojson }},'extension_bold',text,'fw-bold');
+  option('I',{{ _('Italic')|tojson }},'extension_italic',text,'fst-italic');
+  if(picture){
+    for(const [height,label] of [[180,{{ _('Normal size')|tojson }}],[360,{{ _('Half-screen size')|tojson }}]]){
+      const b=document.createElement('button');b.type='button';b.className='nl-ext-option-btn';b.title=label;
+      b.textContent=height===180?'▣':'▤';
+      if(Number(f.height||180)===height)b.classList.add('active');
+      b.addEventListener('click',async e=>{e.preventDefault();e.stopPropagation();nlExtClosePopover();
+        try{snapshotWebFormIntoData();}catch(_){}const ext=nlExtensionFieldRows();const rows=nlExtClone(ext.rows||[]);
+        const hit=nlExtFindField(rows,fieldId);if(hit){hit.field.height=height;await nlExtPersist(rows,rowId);}
+      });pop.appendChild(b);
+    }
+  }
+
+  const del=document.createElement('button');del.type='button';del.className='nl-ext-option-btn nl-ext-delete';del.textContent='×';del.title={{ _('Delete field')|tojson }};
+  del.addEventListener('click',e=>{e.stopPropagation();nlExtClosePopover();nlExtDeleteField(fieldId,rowId);});pop.appendChild(del);
+  nlExtPositionPopover(pop,cell,point);
+}
+
+function nlExtNormalizeHttpUrl(value){
+  let raw=String(value==null?'':value).trim();
+  if(!raw) return '';
+  if(/^www\./i.test(raw)) raw='https://'+raw;
+  try {
+    const u=new URL(raw);
+    if(u.protocol!=='http:' && u.protocol!=='https:') return '';
+    return u.href;
+  } catch(_) { return ''; }
+}
+
+function nlExtFillUrlTemplate(tpl,parts){
+  let out=String(tpl||'');
+  for(const [k,v] of Object.entries(parts||{})) out=out.replaceAll(k,encodeURIComponent(String(v==null?'':v)));
+  return out;
+}
+
+function nlExtNodeOpenUrl(fieldId,field){
+  const uid=String(nlGetByPath(nlGetDataCtx(),fieldId)||'').trim();
+  if(!uid) return '';
+  const ds=String((field&&field.dataset)||'').trim();
+  if(uid.startsWith('ext_node_') || ds==='_raw' || ds.startsWith('ext_class_')) {
+    return nlExtFillUrlTemplate(EXT_RAW_NODE_FORM_TEMPLATE,{'__ID__':uid});
+  }
+  const parts=uid.split('$');
+  let cfg='',cls='',nid='';
+  if(parts.length>=3){ cfg=parts.shift()||''; cls=parts.shift()||''; nid=parts.join('$'); }
+  else if(parts.length===2){ cfg=CONFIG_UID; cls=parts[0]||ds; nid=parts[1]||''; }
+  else if(ds && !ds.startsWith('ext_class_') && ds!=='_raw'){ cfg=CONFIG_UID; cls=ds; nid=uid; }
+  if(!cfg||!cls||!nid) return '';
+  return nlExtFillUrlTemplate(EXT_NODE_FORM_TEMPLATE,{'__CFG__':cfg,'__CLASS__':cls,'__ID__':nid});
+}
+
+function nlExtDecorateInlineActions(root){
+  if(!root) return;
+  root.querySelectorAll('.nl-extension-cell[data-nl-extension-field]').forEach(cell=>{
+    const fieldId=String(cell.dataset.nlExtensionField||'').trim();
+    if(!fieldId) return;
+    const hit=nlExtFindField(nlExtensionFieldRows().rows,fieldId);
+    const f=hit&&hit.field; if(!f) return;
+
+    if(f.type==='NodeInput'){
+      const host=cell.querySelector('.nl-nodeinput'); if(!host) return;
+      let btn=host.querySelector('[data-nl-ext-open-node="1"]');
+      if(!btn){
+        btn=document.createElement('button');btn.type='button';btn.className='nl-extension-inline-open';
+        btn.dataset.nlExtOpenNode='1';btn.textContent='↗';btn.title={{ _('Open')|tojson }};
+        btn.addEventListener('click',e=>{
+          e.preventDefault();e.stopPropagation();
+          const url=nlExtNodeOpenUrl(fieldId,f);if(!url)return;
+          const w=window.open(url,'_blank');if(w){try{w.focus();}catch(_){}}
+        });
+        host.appendChild(btn);
+      }
+      btn.disabled=!nlExtNodeOpenUrl(fieldId,f);
+      const nodeText=host.querySelector('.nl-nodeinput-text');
+      if(nodeText && !nodeText.__nlExtOpenBound){
+        nodeText.__nlExtOpenBound=true;
+        nodeText.addEventListener('click',e=>{const url=nlExtNodeOpenUrl(fieldId,f);if(!url)return;
+          e.preventDefault();e.stopPropagation();window.open(url,'_blank','noopener');});
+      }
+      return;
+    }
+
+    if(f.type==='Input' && !f.input_type){
+      const input=cell.querySelector('input.nl-input[data-path],textarea.nl-input[data-path]');
+      if(!input) return;
+      let line=input.closest('.nl-extension-input-line');
+      if(!line){
+        line=document.createElement('div');line.className='nl-extension-input-line';
+        input.parentNode.insertBefore(line,input);line.appendChild(input);
+      }
+      let btn=line.querySelector('[data-nl-ext-open-url="1"]');
+      if(!btn){
+        btn=document.createElement('button');btn.type='button';btn.className='nl-extension-inline-open';
+        btn.dataset.nlExtOpenUrl='1';btn.textContent='↗';btn.title={{ _('Open')|tojson }};
+        btn.addEventListener('click',e=>{
+          e.preventDefault();e.stopPropagation();
+          const url=nlExtNormalizeHttpUrl(input.value);if(!url)return;
+          const w=window.open(url,'_blank');if(w){try{w.focus();}catch(_){}}
+        });
+        line.appendChild(btn);
+        input.addEventListener('input',()=>{btn.disabled=!nlExtNormalizeHttpUrl(input.value);});
+      }
+      btn.disabled=!nlExtNormalizeHttpUrl(input.value);
+    }
+  });
+}
+
+function nlExtRefreshInlineActions(){
+  const root=document.getElementById('webRoot');
+  if(root) nlExtDecorateInlineActions(root);
+}
+
+function nlExtBindPictureFields(root){
+  root.querySelectorAll('.nl-extension-picture[data-nl-extension-picture="1"]').forEach(box=>{
+    const path=String(box.dataset.path||''); const input=box.querySelector('.nl-extension-picture-file'); if(!path||!input) return;
+    box.addEventListener('click',e=>{
+      if (e.button!==0 || e.target.closest('.nl-extension-row-controls')) return;
+      if(e.target===input)return;
+      const src=box.querySelector('img.nl-extension-picture-img')?.getAttribute('src');
+      if(!src){input.click();return;}
+      e.preventDefault();e.stopPropagation();nlExtClosePopover();
+      const pop=document.createElement('div');pop.className='nl-ext-popover';
+      pop.appendChild(nlExtMenuButton({{ _('Open')|tojson }},()=>{nlExtClosePopover();window.open(src,'_blank','noopener');}));
+      pop.appendChild(nlExtMenuButton({{ _('Replace')|tojson }},()=>{nlExtClosePopover();input.click();}));
+      nlExtPositionPopover(pop,box,{x:e.clientX,y:e.clientY});
+    });
+    input.addEventListener('change',async()=>{
+      const f=input.files&&input.files[0]; if(!f) return;
+      try {
+        const saved=await apiUserfilesUpload(f, true); _data[path]=saved; nlExtSyncAdminJson();
+        const ok=await doSave(); if(ok) window.location.reload();
+      } catch(err) { if(window.message) window.message(String(err),'danger'); }
+    });
+  });
+}
+
+// ExtensionGeoTag is intentionally manual-only in the web client. Its saved
+// value has the same "lat, lon" string format as the Android extension field.
+function nlExtBindGeoTags(root){
+  root.querySelectorAll('[data-nl-extension-geotag="1"]').forEach(host=>{
+    const id=String(host.dataset.nlGeotagId||'');
+    const button=host.querySelector('.nl-extension-geotag-value');
+    if(!id||!button||button.__nlGeoBound)return;
+    button.__nlGeoBound=true;
+    button.disabled=IS_READ_ONLY;
+    if(IS_READ_ONLY)return;
+    const showValue=()=>{const value=String(_data[id]||'').trim();
+      button.textContent=value?'◉  '+value:'◉  lat: —   lon: —';};
+    button.addEventListener('click',e=>{
+      e.preventDefault();e.stopPropagation();
+      nlExtClosePopover();
+      const pop=document.createElement('div');pop.className='nl-ext-popover nl-ext-geotag-editor';
+      const heading=document.createElement('div');heading.className='fw-semibold mb-2';
+      heading.textContent={{ _('Геометка')|tojson }};
+      const grid=document.createElement('div');grid.className='nl-ext-geotag-inputs';
+      const makeInput=(name,hint)=>{
+        const label=document.createElement('label');label.textContent=name;
+        const input=document.createElement('input');input.type='text';input.inputMode='decimal';
+        input.autocomplete='off';input.className='form-control form-control-sm';
+        input.placeholder=hint;label.appendChild(input);grid.appendChild(label);return input;
+      };
+      const lat=makeInput('lat','−90 … 90');const lon=makeInput('lon','−180 … 180');
+      const current=String(_data[id]||'').trim();
+      const match=current.match(/^\s*([+-]?\d+(?:\.\d+)?)\s*[,;:]\s*([+-]?\d+(?:\.\d+)?)\s*$/);
+      if(match){lat.value=match[1];lon.value=match[2];}
+      const err=document.createElement('div');err.className='nl-ext-geotag-error';
+      const actions=document.createElement('div');actions.className='nl-ext-name-actions';
+      const clear=document.createElement('button');clear.type='button';clear.className='btn btn-sm btn-outline-danger';
+      clear.textContent={{ _('Clear')|tojson }};
+      const cancel=document.createElement('button');cancel.type='button';cancel.className='btn btn-sm btn-light';
+      cancel.textContent={{ _('Cancel')|tojson }};
+      const save=document.createElement('button');save.type='button';save.className='btn btn-sm btn-success';
+      save.textContent={{ _('Save')|tojson }};
+      actions.append(clear,cancel,save);pop.append(heading,grid,err,actions);
+      cancel.addEventListener('click',()=>nlExtClosePopover());
+      const persist=async value=>{
+        // Preserve other edits on the form before writing the coordinate field.
+        try{snapshotWebFormIntoData();}catch(_){}
+        const hadValue=Object.prototype.hasOwnProperty.call(_data,id);
+        const previous=_data[id];
+        if(value===null)delete _data[id];else _data[id]=value;
+        nlExtSyncAdminJson();showValue();nlExtClosePopover();
+        const ok=await doSave();
+        if(!ok){
+          if(hadValue)_data[id]=previous;else delete _data[id];
+          nlExtSyncAdminJson();showValue();
+        }
+      };
+      clear.addEventListener('click',()=>persist(null));
+      save.addEventListener('click',()=>{
+        const a=lat.value.trim().replace(',', '.');const b=lon.value.trim().replace(',', '.');
+        const valid=/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(a)
+          && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(b);
+        const latitude=Number(a),longitude=Number(b);
+        if(!valid||!Number.isFinite(latitude)||!Number.isFinite(longitude)
+          ||latitude< -90||latitude>90||longitude< -180||longitude>180){
+          err.textContent={{ _('Введите корректные координаты: широта −90…90, долгота −180…180.')|tojson }};
+          return;
+        }
+        persist(latitude.toFixed(7)+', '+longitude.toFixed(7));
+      });
+      [lat,lon].forEach(input=>input.addEventListener('keydown',event=>{
+        if(event.key==='Enter'){event.preventDefault();save.click();}
+        else if(event.key==='Escape'){event.preventDefault();nlExtClosePopover();}
+      }));
+      nlExtPositionPopover(pop,button);lat.focus();
+    });
+  });
+}
+
+function nlExtBindTags(root){
+  root.querySelectorAll('[data-nl-extension-tags="1"]').forEach(host=>{
+    const read=()=>Array.isArray(_data._tags)?_data._tags:[];
+    const names=()=>read().map(t=>typeof t==='string'?t:String(t.id||t.name||'')).filter(Boolean);
+    const draw=()=>{
+      const list=host.querySelector('.nl-ext-tags-list');if(!list)return;list.replaceChildren();
+      names().forEach(name=>{
+        const pill=document.createElement('span');pill.className='nl-ext-tag-pill';pill.dataset.nlExtTag=name;
+        pill.title='Long press / right-click to remove';pill.textContent=name;list.appendChild(pill);
+        const remove=async()=>{
+          if(IS_READ_ONLY)return;
+          if(!confirm(`Удалить тег «${name}»?`))return;
+          _data._tags=read().filter(t=>(typeof t==='string'?t:String(t.id||t.name||''))!==name);
+          nlExtSyncAdminJson();draw();await doSave();
+        };
+        pill.addEventListener('contextmenu',e=>{e.preventDefault();e.stopPropagation();remove();});
+        let timer=null,x=0,y=0;
+        pill.addEventListener('pointerdown',e=>{if(e.pointerType!=='touch')return;
+          e.stopPropagation();x=e.clientX;y=e.clientY;timer=setTimeout(()=>{timer=null;remove();},600);});
+        const cancel=()=>{if(timer){clearTimeout(timer);timer=null;}};
+        pill.addEventListener('pointerup',cancel);pill.addEventListener('pointercancel',cancel);
+        pill.addEventListener('pointermove',e=>{if(timer&&(Math.abs(x-e.clientX)>8||Math.abs(y-e.clientY)>8))cancel();});
+      });
+    };
+    draw();
+    const add=host.querySelector('.nl-ext-tag-add');if(!add||add.__nlExtBound)return;
+    add.__nlExtBound=true;add.disabled=IS_READ_ONLY;
+    add.addEventListener('click',async e=>{
+      e.preventDefault();e.stopPropagation();
+      const sid=String(_data._extension_section||'');let options=[];
+      try{const r=await fetch(API_EXT_SECTION_TAGS+'?section_code='+encodeURIComponent(sid));
+        const j=await r.json();if(j.ok)options=j.tags||[];}catch(_){}
+      const pop=document.createElement('div');pop.className='nl-ext-popover nl-ext-name-editor';
+      const input=document.createElement('input');input.className='form-control';input.placeholder='Тег';
+      const dl=document.createElement('datalist');dl.id='nl_tags_'+nlExtUuid();input.setAttribute('list',dl.id);
+      options.filter(t=>!names().includes(t)).forEach(t=>{const o=document.createElement('option');o.value=t;dl.appendChild(o);});
+      const actions=document.createElement('div');actions.className='nl-ext-name-actions';
+      const ok=document.createElement('button');ok.type='button';ok.className='btn btn-sm btn-success';ok.textContent='Добавить';
+      const cancel=document.createElement('button');cancel.type='button';cancel.className='btn btn-sm btn-light';cancel.textContent='Отмена';
+      actions.append(cancel,ok);pop.append(input,dl,actions);
+      cancel.addEventListener('click',()=>nlExtClosePopover());
+      const commit=async()=>{const name=input.value.trim();if(!name||names().includes(name))return;
+        nlExtClosePopover();_data._tags=read().concat([{id:name}]);nlExtSyncAdminJson();draw();
+        if(await doSave()){
+          try{await fetch(API_EXT_SECTION_TAGS,{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({section_code:sid,tag:name})});}catch(_){}
+        }
+      };
+      ok.addEventListener('click',commit);input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();commit();}});
+      nlExtClosePopover();nlExtPositionPopover(pop,add);input.focus();
+    });
+  });
+}
+
+function nlExtBindGestures(root){
+  root.querySelectorAll('.nl-extension-cell[data-nl-extension-field]').forEach(cell=>{
+    const row=cell.closest('.nl-extension-row[data-nl-extension-row]');
+    if(!row) return;
+    const rowId=String(row.dataset.nlExtensionRow||'');const fieldId=String(cell.dataset.nlExtensionField||'');
+    cell.addEventListener('contextmenu',e=>{e.preventDefault();e.stopPropagation();nlExtShowFieldOptions(cell,rowId,fieldId,{x:e.clientX,y:e.clientY});});
+    let timer=null,startX=0,startY=0;
+    cell.addEventListener('pointerdown',e=>{
+      if(e.pointerType!=='touch') return; startX=e.clientX;startY=e.clientY;
+      timer=setTimeout(()=>{timer=null;nlExtShowFieldOptions(cell,rowId,fieldId,{x:startX,y:startY});},560);
+    });
+    const cancel=e=>{if(timer){clearTimeout(timer);timer=null;}};
+    cell.addEventListener('pointerup',cancel);cell.addEventListener('pointercancel',cancel);
+    cell.addEventListener('pointermove',e=>{if(timer&&(Math.abs(e.clientX-startX)>8||Math.abs(e.clientY-startY)>8))cancel();});
+  });
+}
+
+function nlInitExtensionEditor(){
+  if (IS_PRINT_FORM) return;
+  const root=document.getElementById('webRoot'); if(!root) return;
+  const ext=nlExtensionFieldRows();
+  const hasExtensionForm=EXTENSION_MANAGED || (ext.rows||[]).length>0;
+  if(!hasExtensionForm) return;
+
+  // The configuration flag controls structure editing only. Existing extension
+  // values (pictures, NodeInput, URLs) remain normal document fields.
+  root.classList.add('nl-extension-editor-root');
+  if(!IS_READ_ONLY) nlExtBindPictureFields(root);
+  nlExtBindTags(root);
+  nlExtBindGeoTags(root);
+  nlExtDecorateInlineActions(root);
+  if (!CAN_EXTEND_NODE || IS_READ_ONLY) return;
+
+  const rowIds=(ext.rows||[]).map(nlExtRowId).filter(Boolean);
+  let active=nlExtLoadActive(); if(!rowIds.includes(active)) active=rowIds.length?rowIds[rowIds.length-1]:'';
+  nlExtActiveRowId=active;
+  nlExtBindGestures(root); nlExtRenderRowControls(); nlExtRefreshExtensionTables();
+  document.addEventListener('pointerdown',e=>{
+    if (e.target.closest('.nl-ext-popover,.nl-extension-row.nl-extension-active,.nl-extension-insert-bar,.nl-extension-row-controls')) return;
+    if (nlExtPopover) nlExtClosePopover();
+    if (!nlExtActiveRowId) return;
+    nlExtActiveRowId=''; nlExtStoreActive(''); nlExtRenderRowControls(); nlExtRefreshExtensionTables();
+  },true);
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape') nlExtClosePopover(); });
+  window.addEventListener('resize',()=>nlExtClosePopover());
+  window.addEventListener('scroll',()=>nlExtClosePopover(),true);
+}
+
+
 async function doSave(){
   //fireOnClickWeb({listener:"btnSave"});
   setSideStatus("saving...");
@@ -4366,6 +5839,25 @@ if (bSolo) bSolo.addEventListener("click", () => {
   downloadJson(fn, payload);
 });
 
+const bNraw = document.getElementById('btnNrawExport');
+if(bNraw)bNraw.addEventListener('click',async()=>{
+  try{
+    // Include changes currently visible in the editor before producing the archive.
+    if(!(await doSave())) return;
+    const r=await fetch(API_EXT_GRAPH_EXPORT.replace('__ID__',encodeURIComponent(NODE_ID)));
+    if(!r.ok)throw new Error((await r.text()).slice(0,400));
+    const blob=await r.blob();const file=new File([blob], 'NodaLogic_'+NODE_ID+'.nraw',
+      {type:'application/vnd.nodalogic.nraw+json'});
+    if(navigator.share&&navigator.canShare&&navigator.canShare({files:[file]})){
+      try{await navigator.share({files:[file],title:'NodaLogic .nraw'});return;}
+      catch(e){if(e.name!=='AbortError')console.warn(e);}
+    }
+    const url=URL.createObjectURL(blob);const a=document.createElement('a');
+    a.href=url;a.download=file.name;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),60000);
+  }catch(e){alert('Export .nraw: '+e.message);}
+});
+
 const bS = document.getElementById("btnSave");
 if (bS) bS.addEventListener("click", doSave);
 
@@ -4377,6 +5869,8 @@ if(bD) bD.addEventListener("click", doDelete);
 
 const bC = document.getElementById("btnClose");
 if(bC) bC.addEventListener("click", doClose);
+
+nlInitExtensionEditor();
 
 /* Ctrl+S in JSON editor -> Save */
 const ta = document.getElementById("dataJson");
@@ -4529,6 +6023,7 @@ async function openNodePickDialog(fieldId, kind, dsRaw){
   
         const inp = nlFindFieldInput(fieldId);
         if (inp) inp.value = view;
+        try { nlExtRefreshInlineActions(); } catch(_) {}
 
   
         const payload = {
@@ -4910,6 +6405,7 @@ async function renderVirtualTableRoot(root){
     `</div>`
   )).join("") +
   `</div>`;
+    nlExtDecorateExtensionTable(root);
     return;
   }
 
@@ -4956,6 +6452,7 @@ async function renderVirtualTableRoot(root){
       return `<tr class="nl-tr nl-clickable" data-nl-vt-row="1" data-nl-vt-index="${idx}">${tds}</tr>`;
     }).join("");
     bodyEl.innerHTML = `<div class="nl-table-wrap"><table class="nl-table-el"><colgroup>${colgroup}</colgroup><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table></div>`;
+    nlExtDecorateExtensionTable(root);
     return;
   }
 
@@ -4964,6 +6461,7 @@ async function renderVirtualTableRoot(root){
     `<td>${coverHtmlList[idx] || ""}</td></tr>`
   )).join("");
   bodyEl.innerHTML = `<div class="nl-table-wrap"><table class="nl-table-el"><tbody>${tbody}</tbody></table></div>`;
+  nlExtDecorateExtensionTable(root);
 }
 
 async function refreshVirtualTables(){

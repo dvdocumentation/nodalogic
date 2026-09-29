@@ -11,7 +11,10 @@
 <div class="row">
   <div class="col-12 col-xl-3 mb-3">
     <div class="list-group">
-      <div class="list-group-item text-muted small">{{_('Sections')}}</div>
+      <div class="list-group-item text-muted small d-flex align-items-center justify-content-between gap-2">
+        <span>{{_('Sections')}}</span>
+        <button id="btnAddExtensionSection" class="btn btn-sm btn-outline-success py-0 px-2" type="button" title="{{ _('Add section') }}" aria-label="{{ _('Add section') }}">+</button>
+      </div>
       {% for s in sections if s.code == '__dashboard__' %}
         <a class="list-group-item list-group-item-action {% if s.code == section_code %}active{% endif %}"
            href="{{ url_for('client.section_view', section_code=s.code) }}">
@@ -29,6 +32,7 @@
         {% set scode = s.code if s.code != '' else '__empty__' %}
         {% set active = (s.code == section_code) %}
         <a class="list-group-item list-group-item-action {% if active %}active{% endif %}"
+           {% if s.code.startswith('ext_section_') %}data-nl-ext-section="{{ s.code|e }}"{% endif %}
            href="{{ url_for('client.section_view', section_code=scode) }}">
           <div class="fw-semibold">{% if s.code == '__received_nodes__' %}{{ _('Received Nodes') }}{% else %}{{ s.name }}{% endif %}</div>
           {% if s.code and s.code != '__received_nodes__' %}<div class="small opacity-75">{{ s.code }}</div>{% endif %}
@@ -54,6 +58,8 @@
     {% else %}
     <div class="d-flex gap-2 flex-nowrap align-items-center mb-3 section-toolbar">
       <button id="btnRefresh" class="btn btn-primary btn-sm" type="button">{{_('Refresh')}}</button>
+      <button id="btnExtImportNraw" class="btn btn-outline-success btn-sm" type="button" title="Open .nraw">{{ _('Open') }} .nraw</button>
+      <input id="extImportNrawFile" type="file" accept=".nraw,application/vnd.nodalogic.nraw+json" hidden>
       <button id="btnSaveSoloSel" class="btn btn-outline-primary btn-sm" type="button">{{_('Save to Solo')}}</button>
 
       <label class="form-check-label mb-0 text-nowrap">
@@ -121,6 +127,10 @@
   .section-toolbar #status { min-width: 0; white-space: nowrap; }
   #filtersPanel .card-body { background: #fff; }
   .tag-filter-btn.active { outline: 2px solid #212529; outline-offset: 1px; }
+  .nl-ext-context-menu{position:fixed;z-index:2100;background:white;border:1px solid #dee2e6;
+    border-radius:9px;padding:4px;box-shadow:0 10px 28px rgba(0,0,0,.16);}
+  .nl-ext-context-menu button{min-width:110px;display:block;text-align:left;}
+
   .nl-section-table tbody tr.nl-table-node-row { cursor:pointer; }
   .nl-section-table tbody tr.nl-table-node-row:focus { outline:2px solid rgba(13,110,253,.35); outline-offset:-2px; }
   .nl-section-table td, .nl-section-table th { vertical-align:middle; }
@@ -210,8 +220,68 @@ const apiTimerEventWeb  = {{ url_for('client.api_timer_event_web')|tojson }};
 const apiDashboardLayout = {{ url_for('client.api_dashboard_layout')|tojson }};
 const apiClassEventWeb  = {{ url_for('client.api_class_event_web')|tojson }};
 const apiClassMetadata = {{ url_for('client.api_class_metadata')|tojson }};
+const apiExtSectionCreate = {{ url_for('client.api_extension_section_create')|tojson }};
+const apiExtClassCreate = {{ url_for('client.api_extension_class_create')|tojson }};
+const apiExtNodeCreate = {{ url_for('client.api_extension_node_create')|tojson }};
+const apiExtSectionDelete = {{ url_for('client.api_extension_section_delete')|tojson }};
+const apiExtClassDelete = {{ url_for('client.api_extension_class_delete')|tojson }};
+const apiExtImportNraw = {{ url_for('client.api_extension_graph_import')|tojson }};
 
 const clientBase = {{ url_for('client.home')|tojson }}; // обычно "/client/"
+document.addEventListener('DOMContentLoaded', () => {
+  const b = document.getElementById('btnAddExtensionSection');
+  if (b) b.addEventListener('click', async () => { try { await createExtensionSection(); } catch(e) { alert(e.message || String(e)); } });
+});
+
+// Right-click and touch long press are equivalent for user-owned sections/classes.
+let nlExtContextMenu=null;
+function nlExtHideContext(){if(nlExtContextMenu)nlExtContextMenu.remove();nlExtContextMenu=null;}
+function nlExtContext(anchor,event,action){
+  nlExtHideContext();const menu=document.createElement('div');menu.className='nl-ext-context-menu';
+  const btn=document.createElement('button');btn.type='button';btn.className='btn btn-sm btn-outline-danger';
+  btn.textContent='Удалить';btn.addEventListener('click',async e=>{e.stopPropagation();nlExtHideContext();await action();});
+  menu.appendChild(btn);document.body.appendChild(menu);nlExtContextMenu=menu;
+  const r=anchor.getBoundingClientRect();const x=event&&Number.isFinite(event.clientX)?event.clientX:r.left;
+  const y=event&&Number.isFinite(event.clientY)?event.clientY:r.bottom;
+  menu.style.left=Math.min(Math.max(8,x),window.innerWidth-menu.offsetWidth-8)+'px';
+  menu.style.top=Math.min(Math.max(8,y),window.innerHeight-menu.offsetHeight-8)+'px';
+}
+function nlExtBindContext(anchor,action){
+  if(!anchor||anchor.__nlExtContextBound)return;anchor.__nlExtContextBound=true;
+  anchor.addEventListener('contextmenu',e=>{e.preventDefault();e.stopPropagation();nlExtContext(anchor,e,action);});
+  let timer=null,x=0,y=0,wasLong=false;
+  anchor.addEventListener('pointerdown',e=>{if(e.pointerType!=='touch')return;x=e.clientX;y=e.clientY;wasLong=false;
+    timer=setTimeout(()=>{timer=null;wasLong=true;nlExtContext(anchor,{clientX:x,clientY:y},action);},600);});
+  const cancel=()=>{if(timer){clearTimeout(timer);timer=null;}};
+  anchor.addEventListener('pointerup',cancel);anchor.addEventListener('pointercancel',cancel);
+  anchor.addEventListener('pointermove',e=>{if(timer&&(Math.abs(e.clientX-x)>10||Math.abs(e.clientY-y)>10))cancel();});
+  anchor.addEventListener('click',e=>{if(wasLong){e.preventDefault();e.stopPropagation();wasLong=false;}},true);
+}
+async function nlExtConfirmDelete(url,body,label){
+  const post=async confirm=>{
+    const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({...body,confirm})});const j=await r.json();if(!j.ok)throw new Error(j.error||'Delete failed');return j;
+  };
+  try{const preview=await post(false);
+    const detail=`${preview.classes!=null?'Классы: '+preview.classes+'; ':''}Узлы: ${preview.nodes||0}`;
+    if(!confirm(`Удалить ${label}?\n${detail}\nДействие необратимо.`))return;
+    await post(true);window.location.href={{ url_for('client.home')|tojson }};
+  }catch(e){alert(e.message||String(e));}
+}
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('[data-nl-ext-section]').forEach(a=>nlExtBindContext(a,()=>
+    nlExtConfirmDelete(apiExtSectionDelete,{section_code:a.dataset.nlExtSection},'раздел')));
+  const inp=document.getElementById('extImportNrawFile');const btn=document.getElementById('btnExtImportNraw');
+  if(btn&&inp){btn.addEventListener('click',()=>inp.click());inp.addEventListener('change',async()=>{
+    const file=inp.files&&inp.files[0];if(!file)return;
+    try{const form=new FormData();form.append('file',file,file.name);
+      const response=await fetch(apiExtImportNraw,{method:'POST',body:form});const j=await response.json();
+      if(!j.ok)throw new Error(j.error||'Import failed');window.location.href=j.open_url;
+    }catch(e){alert('Import .nraw: '+e.message);}finally{inp.value='';}
+  });}
+  document.addEventListener('click',e=>{if(nlExtContextMenu&&!nlExtContextMenu.contains(e.target))nlExtHideContext();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')nlExtHideContext();});
+});
 
 let mode = "grid";
 let autoTimer = null;
@@ -905,6 +975,16 @@ function nlResolveCoverTemplateString(s, data){
     }
   }
   if (s.includes('@')) {
+    // Extension ids may be human captions with spaces (for example
+    // "@Тема статьи").  Resolve a whole @reference as an exact object key
+    // before applying the legacy inline-token parser.
+    if (st.startsWith('@') && st.indexOf('@', 1) < 0) {
+      const exactKey=st.slice(1);
+      if (data && typeof data==='object' && Object.prototype.hasOwnProperty.call(data,exactKey)) {
+        const exact=data[exactKey];
+        return (exact == null) ? '' : String(exact);
+      }
+    }
     return s.replace(/@([^\s@{}\[\](),;:<>"'/]+)/g, (_, key) => {
       const v = nlCoverGetByPath(data || {}, key);
       return (v == null) ? '' : String(v);
@@ -996,6 +1076,32 @@ function wireCoverInteractions(root){
       inp.addEventListener('change', (e) => { e.stopPropagation(); send(); }, {passive:false});
     }
   });
+}
+
+async function createExtensionSection(){
+  const name = (prompt({{ _('Section name')|tojson }}) || '').trim();
+  if (!name) return;
+  const r = await fetch(apiExtSectionCreate, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})});
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || 'create section failed');
+  window.location.href = j.open_url;
+}
+
+async function createExtensionClass(){
+  const name = (prompt({{ _('Class name')|tojson }}) || '').trim();
+  if (!name) return;
+  const r = await fetch(apiExtClassCreate, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({section_code:sectionCode, name})});
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || 'create class failed');
+  await loadSection();
+}
+
+async function createExtensionNode(classId){
+  const r = await fetch(apiExtNodeCreate, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({section_code:sectionCode, class_id:classId || ''})});
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || 'create extension node failed');
+  openRawNodeForm(j.raw_node_id || j.node_id);
+  await loadSection();
 }
 
 async function doCreate(repo_id, class_name) {
@@ -1142,13 +1248,19 @@ function render(items, meta, rememberPayload = true) {
   if (isDashboard) {
     cc.innerHTML = '';
   } else {
+  const sectionAllowsClientExtensions = !!(meta && meta.allow_client_extensions);
   cc.innerHTML = classes.map(c => {
     const classType = String(c.class_type || 'data_node');
+    // A configured section owns the permission to create client-added classes
+    // and client-added documents. User-created sections always report this as
+    // true from the server. Ordinary configured-class "New" commands are not
+    // extension functionality and therefore remain available.
     const addBtn = (c.use_standard_commands && classType === 'data_node')
-      ? `<button class="btn btn-sm btn-success" data-act="add"
-                 data-repo="${c.repo_id}" data-class="${escapeHtml(c.class)}">
-           ${newText} ${escapeHtml(c.display_name || c.class)}
-         </button>`
+      ? (c.is_extension
+          ? (sectionAllowsClientExtensions
+              ? `<button class="btn btn-sm btn-success" data-act="add-extension" data-class="${escapeHtml(c.class)}">${newText} ${escapeHtml(c.display_name || c.class)}</button>`
+              : "")
+          : `<button class="btn btn-sm btn-success" data-act="add" data-repo="${c.repo_id}" data-class="${escapeHtml(c.class)}">${newText} ${escapeHtml(c.display_name || c.class)}</button>`)
       : "";
 
     const cmds = (c.commands || "").split(",")
@@ -1176,6 +1288,12 @@ function render(items, meta, rememberPayload = true) {
               ${cmds}
             </div>`;
   }).join("");
+    if (sectionAllowsClientExtensions) {
+      cc.insertAdjacentHTML('beforeend', `<div class="d-flex gap-1 flex-wrap align-items-center ms-auto">
+        <button class="btn btn-sm btn-outline-success" data-act="add-extension-raw">{{ _('New arbitrary node') }}</button>
+        <button class="btn btn-sm btn-outline-success" data-act="add-extension-class">{{ _('Add class') }}</button>
+      </div>`);
+    }
   }
 
   // --- start menu commands (section.commands) ---
@@ -1279,6 +1397,16 @@ if (bulkBtn) bulkBtn.onclick = async () => {
       try { await doCreate(Number(b.dataset.repo), b.dataset.class); }
       catch(e){ alert(e.message || String(e)); }
     });
+  });
+  cc.querySelectorAll("button[data-act='add-extension']").forEach(b => {
+    b.addEventListener("click", async () => { try { await createExtensionNode(b.dataset.class || ''); } catch(e){ alert(e.message || String(e)); } });
+    nlExtBindContext(b,()=>nlExtConfirmDelete(apiExtClassDelete,{class_id:b.dataset.class},'класс'));
+  });
+  cc.querySelectorAll("button[data-act='add-extension-raw']").forEach(b => {
+    b.addEventListener("click", async () => { try { await createExtensionNode(''); } catch(e){ alert(e.message || String(e)); } });
+  });
+  cc.querySelectorAll("button[data-act='add-extension-class']").forEach(b => {
+    b.addEventListener("click", async () => { try { await createExtensionClass(); } catch(e){ alert(e.message || String(e)); } });
   });
   
 
