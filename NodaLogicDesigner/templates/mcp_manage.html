@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4" data-config-uid="{{ config.uid }}">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h2 class="mb-1">MCP Server</h2>
+      <div class="text-muted">{{ config.name }} · {{ config.uid }}</div>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('edit_config', uid=config.uid) }}">← {{ _('Edit configuration') }}</a>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header"><strong>Create MCP access link</strong></div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-4"><label class="form-label">Name</label><input id="mcpLabel" class="form-control" placeholder="ChatGPT procurement"></div>
+        <div class="col-md-4"><label class="form-label">Access</label><select id="mcpMode" class="form-select"><option value="full">Full access</option><option value="user">As user</option></select></div>
+        <div class="col-md-4" id="mcpUserWrap" style="display:none"><label class="form-label">User</label><select id="mcpUser" class="form-select">{% for u in users %}<option value="{{ u.id }}">{{ u.config_display_name or u.email }}</option>{% endfor %}</select></div>
+        <div class="col-12"><div class="form-check"><input id="mcpExtensions" class="form-check-input" type="checkbox"><label class="form-check-label" for="mcpExtensions">Allow user extensions</label><div class="form-text">The agent may create ordinary client extension sections/classes/nodes. Base configuration schema and handlers remain immutable.</div></div></div>
+        <div class="col-12"><button id="mcpCreate" class="btn btn-primary">Create link</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="mcpSecretCard" class="alert alert-warning d-none">
+    <div class="fw-semibold mb-2">Copy now — the full secret is shown only once.</div>
+    <label class="form-label">Ready-to-use MCP URL</label><div class="input-group mb-2"><input id="mcpUrl" class="form-control font-monospace" readonly><button class="btn btn-outline-secondary" data-copy="mcpUrl">Copy</button></div>
+    <label class="form-label">Stable endpoint + Bearer token</label><div class="input-group mb-2"><input id="mcpEndpoint" class="form-control font-monospace" readonly><button class="btn btn-outline-secondary" data-copy="mcpEndpoint">Copy</button></div>
+    <div class="input-group"><input id="mcpToken" class="form-control font-monospace" readonly><button class="btn btn-outline-secondary" data-copy="mcpToken">Copy token</button></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><strong>Issued links</strong></div>
+    <div class="table-responsive"><table class="table table-hover mb-0"><thead><tr><th>Name</th><th>Mode</th><th>Extensions</th><th>Token</th><th>Last used</th><th></th></tr></thead><tbody id="mcpRows"></tbody></table></div>
+  </div>
+</div>
+<script>
+const uid={{ config.uid|tojson }};
+const api=`/api/config/${encodeURIComponent(uid)}/mcp-links`;
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function loadLinks(){const r=await fetch(api);const j=await r.json();const tb=document.getElementById('mcpRows');tb.innerHTML='';(j.links||[]).forEach(x=>{const tr=document.createElement('tr');tr.innerHTML=`<td>${esc(x.label)}</td><td>${x.access_mode==='user'?'User: '+esc(x.user):'Full'}</td><td>${x.allow_extensions?'Yes':'No'}</td><td><code>${esc(x.token_prefix)}…</code></td><td>${esc(x.last_used_at||'—')}</td><td class="text-end">${x.active?`<button class="btn btn-sm btn-outline-danger" onclick="revokeLink(${x.id})">Revoke</button>`:'<span class="badge bg-secondary">Revoked</span>'}</td>`;tb.appendChild(tr);});}
+async function revokeLink(id){if(!confirm('Revoke this MCP link?'))return;await fetch(`${api}/${id}`,{method:'DELETE'});loadLinks();}
+document.getElementById('mcpMode').addEventListener('change',e=>document.getElementById('mcpUserWrap').style.display=e.target.value==='user'?'block':'none');
+document.getElementById('mcpCreate').addEventListener('click',async()=>{const body={label:document.getElementById('mcpLabel').value||'MCP',access_mode:document.getElementById('mcpMode').value,user_id:document.getElementById('mcpUser').value,allow_extensions:document.getElementById('mcpExtensions').checked};const r=await fetch(api,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const j=await r.json();if(!r.ok||!j.ok){alert(j.error||'Failed');return;}document.getElementById('mcpUrl').value=j.link.url;document.getElementById('mcpEndpoint').value=j.link.endpoint;document.getElementById('mcpToken').value=j.link.token;document.getElementById('mcpSecretCard').classList.remove('d-none');loadLinks();});
+document.querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',()=>navigator.clipboard.writeText(document.getElementById(b.dataset.copy).value)));
+loadLinks();
+</script>
+{% endblock %}

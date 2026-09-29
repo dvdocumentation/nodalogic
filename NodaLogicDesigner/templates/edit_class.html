@@ -109,6 +109,13 @@
             <label class="form-check-label" for="hasStorage">{{ _('Autosave to _data') }}</label>
           </div>
 
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="allowClientExtensions" name="allow_client_extensions"
+                   {% if class_obj.allow_client_extensions is not false %}checked{% endif %}>
+            <label class="form-check-label" for="allowClientExtensions">{{ _('Allow client extensions') }}</label>
+            <small class="text-muted d-block">{{ _('Allow mobile users to add fields and layout extensions to nodes of this class.') }}</small>
+          </div>
+
           <div class="mb-3">
             <label for="classType" class="form-label">{{ _('Class type') }}</label>
             <select class="form-select" id="classType" name="class_type">
@@ -1165,6 +1172,7 @@ document.addEventListener('DOMContentLoaded', function () {
                                         data-method-source="{{ method.source }}"
                                         data-method-server="{{ method.server or '' }}"
                                         data-method-engine="{{ method.engine }}"
+                                        data-method-description="{{ (method.ngenie_description or '')|e }}"
                                         data-class-id="{{ class_obj.id }}">
                                     <i class="bi bi-pencil"></i> {{ _('Edit') }}
                                 </button>
@@ -1271,6 +1279,10 @@ document.addEventListener('DOMContentLoaded', function () {
                         <input type="text" class="form-control" name="name" required>
                     </div>
                     <input type="hidden" name="code" id="editMethodCodeHidden">
+                    <div class="mb-3">
+                        <label class="form-label">nGenie / MCP description</label>
+                        <textarea class="form-control" name="ngenie_description" rows="2" placeholder="What this method does, expected input and important side effects"></textarea>
+                    </div>
                     <input type="hidden" name="source" value="internal">
                     <div class="mb-3">
                         <label class="form-label">{{ _('Engine/Language') }}</label>
@@ -1321,6 +1333,10 @@ return True,{}
                         <input type="text" class="form-control" name="name" id="editMethodName" required>
                     </div>
                     <input type="hidden" name="code" id="editMethodCodeHidden">
+                    <div class="mb-3">
+                        <label class="form-label">nGenie / MCP description</label>
+                        <textarea class="form-control" name="ngenie_description" id="editMethodDescription" rows="2" placeholder="What this method does, expected input and important side effects"></textarea>
+                    </div>
                     <input type="hidden" name="source" id="editMethodSource" value="internal">
                     <div class="mb-3">
                         <label class="form-label">{{ _('Engine/Language') }}</label>
@@ -1617,12 +1633,14 @@ codeInput.registerTemplate("syntax-highlighted",
             const methodSource = this.dataset.methodSource;
             const methodServer = this.dataset.methodServer;
             const methodEngine = this.dataset.methodEngine;
+            const methodDescription = this.dataset.methodDescription || "";
             const classId = this.dataset.classId;
             
             document.getElementById('editMethodName').value = methodName;
             document.getElementById('editMethodCodeHidden').value = methodName;
             document.getElementById('editMethodSource').value = methodSource;
             document.getElementById('editMethodEngine').value = methodEngine;
+            const descEl = document.getElementById('editMethodDescription'); if (descEl) descEl.value = methodDescription;
             document.getElementById('editMethodForm').action = `/save-method/${methodId}`;
             
      

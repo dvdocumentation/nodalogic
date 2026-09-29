@@ -79,6 +79,8 @@
   {{ _('Common layouts') }}
 </button>
 
+<a class="nav-link text-center" href="{{ url_for('mcp_runtime.mcp_manage_page', config_uid=config.uid) }}">MCP Server</a>
+
 <button class="nav-link {% if active_tab == 'profile-templates' %}active{% endif %}"
         id="v-pills-profile-templates-tab"
         data-bs-toggle="pill"
@@ -323,6 +325,12 @@
                                 <label for="serverName" class="form-label">{{ _('*Server name?') }}</label>
                                 <input type="text" class="form-control" id="serverName" name="server_name" value="{{ config.server_name }}">
                             </div>
+
+                            <div class="col-12">
+                                <label for="configDescription" class="form-label">{{ _('Description') }}</label>
+                                <textarea class="form-control" id="configDescription" name="description" rows="3" placeholder="{{ _('Short description of the configuration') }}">{{ config.description or '' }}</textarea>
+                                <div class="form-text">{{ _('This text is shown in the Demo products catalog and is exported with the configuration.') }}</div>
+                            </div>
                                                         
                            <div class="col-md-6">
                                 <label for="configProvider" class="form-label">{{ _('Vendor') }}</label>
@@ -343,10 +351,21 @@
                             {% if can_publish_demo_product %}
                             <div class="col-12">
                                 <input type="hidden" name="demo_product_present" value="1">
+                                <label for="demoLanguage" class="form-label">{{ 'Язык демо-продукта' if get_locale() == 'ru' else 'Demo product language' }}</label>
+                                <select id="demoLanguage" name="demo_language" class="form-select mb-3">
+                                    <option value="" {% if not config.demo_language %}selected{% endif %}>{{ 'Без привязки' if get_locale() == 'ru' else 'Any language' }}</option>
+                                    <option value="ru" {% if config.demo_language == 'ru' %}selected{% endif %}>Ru — Русский</option>
+                                    <option value="en" {% if config.demo_language == 'en' %}selected{% endif %}>En — English</option>
+                                </select>
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" id="demoProduct" name="demo_product" {% if config.demo_product %}checked{% endif %}>
                                     <label class="form-check-label fw-semibold" for="demoProduct">{{ _('Demo product') }}</label>
                                     <div class="form-text">{{ _('Publish this configuration on the Demo products page. Installed copies are not published again.') }}</div>
+                                </div>
+                                <div class="form-check mt-2">
+                                    <input class="form-check-input" type="checkbox" id="demoInstallAllowed" name="demo_install_allowed" {% if config.demo_install_allowed %}checked{% endif %}>
+                                    <label class="form-check-label fw-semibold" for="demoInstallAllowed">{{ 'Код открыт (показывать копию в конфигураторе)' if get_locale() == 'ru' else 'Source code available (show copy in Designer)' }}</label>
+                                    <div class="form-text">{{ 'Установка доступна в обоих случаях. Включено — копия видна в конфигураторе и доступна для редактирования. Выключено — конфигурация скрыта только в конфигураторе; база, сервер и клиенты работают.' if get_locale() == 'ru' else 'Installation is available either way. Enabled: the copy is visible and editable in Designer. Disabled: it is hidden only from Designer; the database, server and clients remain available.' }}</div>
                                 </div>
                             </div>
                             {% endif %}
@@ -527,6 +546,7 @@
                                 <thead>
                                     <tr>
                                         <th>{{ _('Name') }}</th>
+                                        <th>{{ _('nGenie') }}</th>
                                         <th>{{ _('Type') }}</th>
                                         <th>{{ _('Methods count') }}</th>
                                         <th>{{ _('Actions') }}</th>
@@ -535,16 +555,30 @@
                                 <tbody>
                                     {% for class_obj in config.classes %}
                                     <tr>
-                                        <td>{{ class_obj.name }}</td>
+                                        <td>
+                                            <div class="fw-semibold">{{ class_obj.name }}</div>
+                                            {% if class_obj.ngenie_description %}
+                                              <div class="small text-muted mt-1" style="max-width:420px; white-space:normal;">{{ class_obj.ngenie_description }}</div>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if class_obj.ngenie_role %}
+                                              <span class="badge rounded-pill text-bg-light border">{{ class_obj.ngenie_role }}</span>
+                                            {% else %}
+                                              <span class="text-muted small">{{ _('Not specified') }}</span>
+                                            {% endif %}
+                                        </td>
                                         <td>{{ _(class_obj.class_type or 'custom_process') }}</td>
                                         <td>{{ class_obj.methods|length }}</td>
-                                        <td>
-                                            <a href="{{ url_for('edit_class', class_id=class_obj.id) }}" class="btn btn-sm btn-outline-primary me-2">
-                                                {{ _('Edit') }}
-                                            </a>
-                                            <a href="{{ url_for('delete_class', class_id=class_obj.id) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete class {{ class_obj.name }}?')">
-                                                {{ _('Delete') }}
-                                            </a>
+                                        <td style="white-space:nowrap;">
+                                            <div class="d-inline-flex align-items-center gap-2 flex-nowrap">
+                                                <a href="{{ url_for('edit_class', class_id=class_obj.id) }}" class="btn btn-sm btn-outline-primary">
+                                                    {{ _('Edit') }}
+                                                </a>
+                                                <a href="{{ url_for('delete_class', class_id=class_obj.id) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete class {{ class_obj.name }}?')">
+                                                    {{ _('Delete') }}
+                                                </a>
+                                            </div>
                                         </td>
                                     </tr>
                                     {% endfor %}
@@ -1178,6 +1212,9 @@
               <option value="onDataMessage">onDataMessage</option>
               <option value="onIncomingNodes">onIncomingNodes</option>
               <option value="onContractReceived">onContractReceived</option>
+              <option value="onRecognitionListenerResult">onRecognitionListenerResult</option>
+              <option value="onIntentReceived">onIntentReceived</option>
+              <option value="onRawBarcode">onRawBarcode</option>
               
 
             </select>
@@ -1363,6 +1400,11 @@
                             <input type="checkbox" class="form-check-input" id="sectionHideWebClient" name="hide_web_client">
                             <label class="form-check-label" for="sectionHideWebClient">{{ _('Hide web client') }}</label>
                         </div>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="sectionAllowClientExtensions" name="allow_client_extensions" checked>
+                        <label class="form-check-label" for="sectionAllowClientExtensions">{{ _('Allow client extensions') }}</label>
+                        <small class="text-muted d-block">{{ _('Allow mobile users to add local classes and documents to this section.') }}</small>
                     </div>
                     <div class="mb-3">
                         <label for="sectionCommands" class="form-label">{{ _('Commands') }}</label>
@@ -1712,6 +1754,7 @@ document.addEventListener('DOMContentLoaded', function() {
         sectionModalTitle.textContent = "{{ _('Add section') }}";
         sectionForm.reset();
         document.getElementById('section_id').value = '';
+        document.getElementById('sectionAllowClientExtensions').checked = true;
         sectionForm.action = "{{ url_for('add_section', config_uid=config.uid) }}";
     });
 
@@ -1734,6 +1777,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('sectionCommands').value = data.commands || '';
                 document.getElementById('sectionHideMobileClient').checked = !!data.hide_mobile_client;
                 document.getElementById('sectionHideWebClient').checked = !!data.hide_web_client;
+                document.getElementById('sectionAllowClientExtensions').checked = data.allow_client_extensions !== false;
                 
                 sectionForm.action = "{{ url_for('update_section', section_id='') }}" + sectionId;
                 sectionModal.show();
@@ -3648,6 +3692,21 @@ fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
 
 .event-oncontractreceived {
     background-color: #2d0647;
+    color: white;
+}
+
+.event-onrecognitionlistenerresult {
+    background-color: #740bbb;
+    color: white;
+}
+
+.event-onintentreceived {
+    background-color: #15053a;
+    color: white;
+}
+
+.event-onrawbarcode {
+    background-color: #570331;
     color: white;
 }
 

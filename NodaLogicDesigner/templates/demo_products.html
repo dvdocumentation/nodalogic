@@ -7,15 +7,14 @@
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
     <div>
       <h2 class="mb-1">{{ _('Demo products') }}</h2>
-      <div class="text-muted">{{ _('Choose a ready configuration. It will be installed in Designer and added to your repository immediately.') }}</div>
+      <div class="text-muted">{{ _('Choose a ready demo configuration. Products marked as source-available can be installed as editable Designer copies.') }}</div>
     </div>
-    <a class="btn btn-outline-secondary" href="{{ url_for('choose_mode') }}"><i class="bi bi-arrow-left"></i> {{ _('Back') }}</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('index', lang=demo_lang) }}#demo"><i class="bi bi-arrow-left"></i> {{ _('Back') }}</a>
   </div>
 
   <div class="row g-3">
     {% for product in products %}
-      {% set product_key = product.content_uid or product.uid %}
-      {% set installed = (product_key|string) in installed_content_uids %}
+      {% set state = demo_states.get(product.uid|string, 'install') %}
       <div class="col-12 col-lg-6">
         <div class="card h-100 shadow-sm">
           <div class="card-body d-flex flex-column">
@@ -26,15 +25,36 @@
               </div>
               <span class="badge text-bg-light border">{{ product.version or '' }}</span>
             </div>
+            {% if product.description %}
+              <div class="mt-3" style="white-space:pre-wrap;">{{ product.description }}</div>
+            {% endif %}
             <div class="small text-muted mt-3"><code>{{ product.content_uid }}</code></div>
+            {% if product.demo_install_allowed %}
+              <div class="mt-3">
+                <span class="badge text-bg-success"><i class="bi bi-code-slash"></i> {{ 'Код открыт' if demo_lang == 'ru' else 'Source code available' }}</span>
+                <div class="small text-muted mt-1">{{ _('Installation includes an editable Designer copy with configuration metadata and handler sources.') }}</div>
+              </div>
+            {% else %}
+              <div class="mt-3">
+                <span class="badge text-bg-secondary">{{ 'Без доступа к конфигуратору' if demo_lang == 'ru' else 'Runtime only' }}</span>
+              </div>
+            {% endif %}
             <div class="mt-auto pt-4 d-flex gap-2 align-items-center">
+              {% if not current_user.is_authenticated %}
+              <a class="btn btn-primary" href="{{ url_for('index', lang=demo_lang, auth='login', next='/demo-products') }}">{{ 'Войти / зарегистрироваться для установки' if demo_lang == 'ru' else 'Sign in / register to install' }}</a>
+              {% elif current_user.can_designer %}
+              {% if state == 'installed' %}
+              <button class="btn btn-outline-success" type="button" disabled><i class="bi bi-check-circle"></i> {{ 'Установлено' if demo_lang == 'ru' else 'Installed' }}</button>
+              {% else %}
               <form method="POST" action="{{ url_for('demo_products_install', source_uid=product.uid) }}">
                 <button class="btn btn-primary" type="submit">
                   <i class="bi bi-box-arrow-in-down"></i>
-                  {{ _('Update product') if installed else _('Install product') }}
+                  {{ ('Обновить' if state == 'update' else 'Установить') if demo_lang == 'ru' else ('Update' if state == 'update' else 'Install') }}
                 </button>
               </form>
-              {% if installed %}<span class="text-success small"><i class="bi bi-check-circle"></i> {{ _('Installed') }}</span>{% endif %}
+              {% endif %}
+              {% else %}<span class="text-muted">{{ 'У этой учётной записи нет права установки решений.' if demo_lang == 'ru' else 'This account does not have permission to install solutions.' }}</span>{% endif %}
+
             </div>
           </div>
         </div>

@@ -1,56 +1,987 @@
-{% extends "base.html" %}
+<!DOCTYPE html>
+{% set is_en = landing_lang == 'en' %}
+<html lang="{{ 'en' if is_en else 'ru' }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if is_en %}NodaLogic — open business application platform{% else %}NodaLogic — открытая платформа бизнес-решений{% endif %}</title>
+    <meta name="description" content="{% if is_en %}NodaLogic is a node-based low-code platform for compact business applications with web, server and independent mobile execution. Build yourself or order an AI-generated Solution tailored to your processes.{% else %}NodaLogic — low-code платформа бизнес-решений на основе узлов: сервер, веб и независимая мобильная платформа. Создавайте сами или закажите AI-сборку Solution точно под процессы компании.{% endif %}">
+    <meta name="robots" content="index,follow">
+    <meta name="theme-color" content="#0b8f78">
+    <link rel="canonical" href="{{ url_for('index', _external=True, lang=landing_lang) }}">
+    <link rel="alternate" hreflang="ru" href="{{ url_for('index', _external=True, lang='ru') }}">
+    <link rel="alternate" hreflang="en" href="{{ url_for('index', _external=True, lang='en') }}">
+    <link rel="alternate" hreflang="x-default" href="{{ url_for('index', _external=True, lang='ru') }}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="NodaLogic">
+    <meta property="og:title" content="{% if is_en %}NodaLogic — business applications built around nodes{% else %}NodaLogic — бизнес-решения, построенные вокруг узлов{% endif %}">
+    <meta property="og:description" content="{% if is_en %}Open low-code core, independent mobile runtime and AI-assisted Solutions built for your business requirements.{% else %}Открытое low-code ядро, независимая мобильная платформа и AI-сборка Solutions под ваши бизнес-требования.{% endif %}">
+    <meta property="og:url" content="{{ url_for('index', _external=True, lang=landing_lang) }}">
 
-{% block content %}
-<div class="container mt-5">
-    <div class="row justify-content-center">
-        <div class="col-md-6">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32x32.png') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='landing.css') }}">
 
-            <ul class="nav nav-tabs mb-4" id="authTabs" role="tablist">
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="login-tab" data-bs-toggle="tab" data-bs-target="#login" type="button" role="tab">
-                        {{ _('Login') }}
-                    </button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="register-tab" data-bs-toggle="tab" data-bs-target="#register" type="button" role="tab">
-                        {{ _('Register') }}
-                    </button>
-                </li>
-            </ul>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "NodaLogic",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Web, Android, Server",
+      "url": {{ url_for('index', _external=True, lang=landing_lang)|tojson }},
+      "description": {{ ("Node-based low-code platform for compact business applications with web, server and independent mobile execution." if is_en else "Low-code платформа для компактных бизнес-решений с серверным, веб- и независимым мобильным исполнением на основе узлов.")|tojson }}
+    }
+    </script>
 
+    <meta name="msvalidate.01" content="40FEFBAC420E453778DCF164C5D01364" />
 
-            <div class="tab-content" id="authTabsContent">
-   
-                <div class="tab-pane fade show active" id="login" role="tabpanel">
-                    <form method="POST" action="{{ url_for('index') }}">
-                        <input type="hidden" name="form_type" value="login">
-                        <div class="mb-3">
-                            <input type="email" name="email" class="form-control" placeholder="{{ _('Email') }}" required>
-                        </div>
-                        <div class="mb-3">
-                            <input type="password" name="password" class="form-control" placeholder="{{ _('Password') }}" required>
-                        </div>
-                        <button type="submit" class="btn btn-primary w-100">{{ _('Login') }}</button>
-                    </form>
+    <!-- Yandex.Metrika counter -->
+<script type="text/javascript">
+    (function(m,e,t,r,i,k,a){
+        m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+        m[i].l=1*new Date();
+        for (var j = 0; j < document.scripts.length; j++) {if (document.scripts[j].src === r) { return; }}
+        k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)
+    })(window, document,'script','https://mc.yandex.ru/metrika/tag.js?id=112947304', 'ym');
+
+    ym(112947304, 'init', {ssr:true, webvisor:true, clickmap:true, ecommerce:"dataLayer", referrer: document.referrer, url: location.href, accurateTrackBounce:true, trackLinks:true});
+</script>
+<noscript><div><img src="https://mc.yandex.ru/watch/112947304" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+<!-- /Yandex.Metrika counter -->
+
+</head>
+<body>
+<header class="site-header">
+    <div class="landing-container nav-wrap">
+        <a class="brand" href="#top" aria-label="NodaLogic">
+            <img class="brand-logo" src="{{ url_for('static', filename='landing_media/logo-half.png') }}" alt="NodaLogic logo">
+            <span>NodaLogic</span>
+        </a>
+        <nav class="desktop-nav" aria-label="{% if is_en %}Main navigation{% else %}Основная навигация{% endif %}">
+            <a href="#platform">{% if is_en %}Platform{% else %}Платформа{% endif %}</a>
+            {% if landing_articles and landing_articles.count %}<a href="#articles">{% if is_en %}Articles{% else %}Статьи{% endif %}</a>{% endif %}
+            <a href="#demo">{% if is_en %}Demo solutions{% else %}Демо-решения{% endif %}</a>
+            <a href="#solutions">Solutions</a>
+            <a href="#license">{% if is_en %}License{% else %}Лицензия{% endif %}</a>
+            <a href="#contact">{% if is_en %}Contact{% else %}Связаться{% endif %}</a>
+        </nav>
+        <div class="nav-actions">
+            <div class="lang-switch" aria-label="Language">
+                <a href="{{ url_for('index', lang='ru') }}" class="{{ 'active' if not is_en else '' }}">RU</a>
+                <span>/</span>
+                <a href="{{ url_for('index', lang='en') }}" class="{{ 'active' if is_en else '' }}">EN</a>
+            </div>
+            {% if landing_authenticated %}
+                <a class="button button-ghost button-sm" href="{{ url_for('choose_mode') }}">
+                    {% if is_en %}Configurator{% else %}В конфигуратор{% endif %}
+                </a>
+            {% else %}
+                <button type="button" class="button button-ghost button-sm" data-open-auth="login">
+                    {% if is_en %}Sign in{% else %}Войти{% endif %}
+                </button>
+            {% endif %}
+        </div>
+    </div>
+</header>
+
+<main id="top">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="landing-container flash-stack" aria-live="polite">
+                {% for category, message in messages %}
+                    <div class="landing-alert landing-alert-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <section class="hero section-pad">
+        <div class="landing-container hero-grid">
+            <div class="hero-copy">
+                <div class="eyebrow">
+                    <span class="eyebrow-dot"></span>
+                    {% if is_en %}Business application framework{% else %}Платформа бизнес-решений{% endif %}
                 </div>
-
-                <div class="tab-pane fade" id="register" role="tabpanel">
-                    <form method="POST" action="{{ url_for('index') }}">
-                        <input type="hidden" name="form_type" value="register">
-                        <div class="mb-3">
-                            <input type="email" name="email" class="form-control" placeholder="{{ _('Email') }}" required>
-                        </div>
-                        <div class="mb-3">
-                            <input type="password" name="password" class="form-control" placeholder="{{ _('Password') }}" required>
-                        </div>
-                        <button type="submit" class="btn btn-success w-100">{{ _('Register') }}</button>
-                    </form>
+                <h1>
+                    {% if is_en %}
+                        Business logic that stays <span>compact, readable and yours</span>
+                    {% else %}
+                        Бизнес-логика, которая остаётся <span>компактной, понятной и вашей</span>
+                    {% endif %}
+                </h1>
+                <p class="hero-lead">
+                    {% if is_en %}
+                        NodaLogic is a low-code platform built around one primitive — the node. The same semantics powers server logic, web clients and an independent mobile runtime that can keep working offline.
+                    {% else %}
+                        NodaLogic — low-code платформа, построенная вокруг одного базового элемента — узла. Одна семантика используется для серверной логики, веб-клиента и независимой мобильной платформы, способной работать офлайн.
+                    {% endif %}
+                </p>
+                <p class="hero-sublead">
+                    {% if is_en %}
+                        Simple semantics makes NodaLogic convenient for AI generation, while the resulting solutions remain compact and readable. AI agents are used during development and testing and can also work inside the finished solution alongside users — changing data, writing reports, adjusting settings and executing business logic.
+                    {% else %}
+                        Простая семантика делает NodaLogic удобной для AI-генерации, а решения остаются компактными и читаемыми. AI-агенты активно используются как на этапе разработки и тестирования, так и в самом решении — для изменения данных, написания отчётов, настроек и выполнения логики наряду с пользователями.
+                    {% endif %}
+                </p>
+                <div class="hero-actions">
+                    {% if landing_authenticated %}
+                        <a class="button button-primary" href="{{ url_for('choose_mode') }}">
+                            {% if is_en %}Open configurator{% else %}Открыть конфигуратор{% endif %}
+                            <i class="bi bi-arrow-right"></i>
+                        </a>
+                    {% else %}
+                        <button type="button" class="button button-primary" data-open-auth="login">
+                            {% if is_en %}Open configurator{% else %}Войти в конфигуратор{% endif %}
+                            <i class="bi bi-arrow-right"></i>
+                        </button>
+                    {% endif %}
+                    <a class="button button-ghost" href="#solutions">
+                        {% if is_en %}How Solutions work{% else %}Как работают Solutions{% endif %}
+                    </a>
+                </div>
+                <div class="hero-links">
+                    <a href="{{ 'https://nodatxt.readthedocs.io/en/latest/' if is_en else 'https://nodalogic-txt-ru.readthedocs.io/ru/latest/' }}" target="_blank" rel="noopener">
+                        <i class="bi bi-book"></i> {% if is_en %}Documentation{% else %}Документация{% endif %}
+                    </a>
+                    <a href="https://play.google.com/store/apps/details?id=com.dv.noda&pcampaignid=web_share" target="_blank" rel="noopener">
+                        <i class="bi bi-google-play"></i> {% if is_en %}Android app{% else %}Android-приложение{% endif %}
+                    </a>
                 </div>
             </div>
+
+            <div class="hero-illustration" aria-label="{% if is_en %}Node network illustration{% else %}Схема сети узлов{% endif %}">
+                <img src="{{ url_for('static', filename=('landing_media/nodalogic-node-visual_en.png' if is_en else 'landing_media/nodalogic-node-visual.png')) }}"
+                     alt="{% if is_en %}Node illustration: data, methods, events and runtimes{% else %}Иллюстрация узла: данные, методы, события и окружения выполнения{% endif %}"
+                     loading="eager">
+            </div>
+        </div>
+    </section>
+
+    <section id="platform" class="section-pad section-soft">
+        <div class="landing-container">
+            <div class="section-heading narrow">
+                <span class="section-label">{% if is_en %}Platform{% else %}Платформа{% endif %}</span>
+                <h2>{% if is_en %}One architecture from data to interface{% else %}Одна архитектура — от данных до интерфейса{% endif %}</h2>
+                <p>
+                    {% if is_en %}
+                        NodaLogic keeps application structure explicit. A solution is a configuration with open JSON and handlers instead of a hidden box of generated code.
+                    {% else %}
+                        NodaLogic сохраняет структуру решения явной. Конфигурация — это открытый JSON и обработчики, а не закрытая коробка с неразбираемым сгенерированным кодом.
+                    {% endif %}
+                </p>
+            </div>
+
+            <div class="feature-grid">
+                <article class="feature-card">
+                    <div class="feature-icon"><i class="bi bi-diagram-3"></i></div>
+                    <h3>{% if is_en %}Node is the basic unit{% else %}Узел — основа логики{% endif %}</h3>
+                    <p>{% if is_en %}A node combines persistent state, class methods, events and links to other nodes. Business entities and processes are built from the same simple unit.{% else %}Узел объединяет постоянное состояние, методы класса, события и связи с другими узлами. Из одного простого элемента строятся и бизнес-сущности, и процессы.{% endif %}</p>
+                </article>
+                <article class="feature-card">
+                    <div class="feature-icon"><i class="bi bi-phone"></i></div>
+                    <h3>{% if is_en %}Independent mobile runtime{% else %}Независимая мобильная платформа{% endif %}</h3>
+                    <p>{% if is_en %}Android clients can store data and execute node logic locally, continue offline and synchronize when connectivity is available.{% else %}Android-клиенты могут локально хранить данные и исполнять логику узлов, продолжать работу без связи и синхронизироваться при её появлении.{% endif %}</p>
+                </article>
+                <article class="feature-card">
+                    <div class="feature-icon"><i class="bi bi-shuffle"></i></div>
+                    <h3>{% if is_en %}Execution follows the node{% else %}Исполнение следует за узлом{% endif %}</h3>
+                    <p>{% if is_en %}The same business semantics works on the server and clients. Logic can execute where the node is located instead of forcing every action through a central backend.{% else %}Одна и та же бизнес-семантика работает на сервере и клиентах. Логика может исполняться там, где находится узел, без обязательного похода на центральный backend для каждого действия.{% endif %}</p>
+                </article>
+                <article class="feature-card">
+                    <div class="feature-icon"><i class="bi bi-stars"></i></div>
+                    <h3>nGenie</h3>
+                    <p>{% if is_en %}A data assistant that works with application context and can be extended with skills — from navigation and data work to domain-specific actions.{% else %}Data-assistant, который работает с контекстом прикладного решения и расширяется навыками — от навигации и работы с данными до специализированных действий.{% endif %}</p>
+                    <a class="card-video-link" href="https://youtu.be/PduBu-FpsNw" target="_blank" rel="noopener"><i class="bi bi-youtube"></i> {% if is_en %}Watch nGenie{% else %}Посмотреть nGenie{% endif %}</a>
+                </article>
+            </div>
+
+            <div class="path-strip">
+                <div>
+                    <strong>{% if is_en %}Want to build it yourself?{% else %}Хотите сделать сами?{% endif %}</strong>
+                    <span>{% if is_en %}Read the docs, install the Android app and open the configurator.{% else %}Изучайте документацию, ставьте Android-приложение и открывайте конфигуратор.{% endif %}</span>
+                </div>
+                <div class="path-actions">
+                    <a class="text-link" href="{{ 'https://nodatxt.readthedocs.io/en/latest/' if is_en else 'https://nodalogic-txt-ru.readthedocs.io/ru/latest/' }}" target="_blank" rel="noopener">{% if is_en %}Documentation{% else %}Документация{% endif %} <i class="bi bi-arrow-up-right"></i></a>
+                    <a class="text-link" href="https://play.google.com/store/apps/details?id=com.dv.noda&pcampaignid=web_share" target="_blank" rel="noopener">{% if is_en %}Android app{% else %}Android-приложение{% endif %} <i class="bi bi-arrow-up-right"></i></a>
+                    {% if landing_authenticated %}
+                    <a class="text-link" href="{{ url_for('choose_mode') }}">{% if is_en %}Configurator{% else %}Конфигуратор{% endif %} <i class="bi bi-arrow-right"></i></a>
+                    {% else %}
+                    <button type="button" class="text-link text-link-button" data-open-auth="login">{% if is_en %}Configurator{% else %}Конфигуратор{% endif %} <i class="bi bi-arrow-right"></i></button>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {% if landing_articles and landing_articles.count %}
+    <section id="articles" class="section-pad articles-section">
+        <div class="landing-container">
+            <div class="section-heading articles-heading">
+                <span class="section-label">{% if is_en %}Articles{% else %}Статьи{% endif %}</span>
+                <h2>{% if is_en %}About NodaLogic, architecture and practice{% else %}О NodaLogic, архитектуре и практике{% endif %}</h2>
+                <p>{% if is_en %}Long-form materials about the platform, its architecture and real-world use.{% else %}Развёрнутые материалы о платформе, её архитектуре и практическом использовании.{% endif %}</p>
+            </div>
+
+            <div class="articles-layout">
+                <aside class="pinned-articles-column">
+                    <div class="articles-column-title">
+                        <i class="bi bi-pin-angle-fill"></i>
+                        {% if is_en %}Pinned articles{% else %}Закреплённые статьи{% endif %}
+                    </div>
+                    {% if landing_articles.pinned %}
+                        <div class="pinned-articles-list">
+                            {% for article in landing_articles.pinned %}
+                                <a class="article-card article-card-pinned" href="{{ article.url }}">
+                                    {% if article.preview_url %}
+                                        <div class="article-preview"><img src="{{ article.preview_url }}" alt="" loading="lazy"></div>
+                                    {% endif %}
+                                    <div class="article-card-body">
+                                        <span class="pinned-chip"><i class="bi bi-pin-angle"></i>{% if is_en %}Pinned{% else %}Закреплено{% endif %}</span>
+                                        <h3>{{ article.title }}</h3>
+                                        {% if article.announcement %}<p>{{ article.announcement }}</p>{% endif %}
+                                        <div class="article-meta">
+                                            {% if article.author %}<span>{{ article.author }}</span>{% endif %}
+                                            {% if article.published_at %}<span>{{ article.published_at }}</span>{% endif %}
+                                        </div>
+                                    </div>
+                                </a>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="articles-empty">{% if is_en %}No pinned articles yet.{% else %}Закреплённых статей пока нет.{% endif %}</div>
+                    {% endif %}
+                </aside>
+
+                <div class="regular-articles-column">
+                    <div class="articles-column-title">
+                        <i class="bi bi-clock-history"></i>
+                        {% if is_en %}Latest articles{% else %}Статьи по хронологии{% endif %}
+                    </div>
+                    {% if landing_articles.regular %}
+                        <div class="regular-articles-list">
+                            {% for article in landing_articles.regular %}
+                                <a class="article-card article-card-regular" href="{{ article.url }}">
+                                    {% if article.preview_url %}
+                                        <div class="article-preview"><img src="{{ article.preview_url }}" alt="" loading="lazy"></div>
+                                    {% endif %}
+                                    <div class="article-card-body">
+                                        <h3>{{ article.title }}</h3>
+                                        {% if article.announcement %}<p>{{ article.announcement }}</p>{% endif %}
+                                        <div class="article-meta">
+                                            {% if article.author %}<span>{{ article.author }}</span>{% endif %}
+                                            {% if article.published_at %}<span>{{ article.published_at }}</span>{% endif %}
+                                        </div>
+                                    </div>
+                                    <i class="bi bi-arrow-up-right article-open-icon"></i>
+                                </a>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="articles-empty articles-empty-wide">
+                            {% if is_en %}New articles will appear here in chronological order.{% else %}Новые статьи будут появляться здесь по хронологии.{% endif %}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    <!-- License and development options: self-contained block; other sections unchanged. -->
+    <section id="license" class="nl-license" aria-labelledby="nl-license-title">
+        <style>
+            .nl-license { position: relative; isolation: isolate; overflow: hidden; padding: 84px 0 88px; background: #f3f8f5; color: #19392e; scroll-margin-top: 84px; }
+            .nl-license * { box-sizing: border-box; }
+            .nl-license::before { content: ""; position: absolute; z-index: -1; width: 560px; height: 560px; right: -230px; top: -280px; border: 1px solid #d8e9dd; border-radius: 50%; box-shadow: 0 0 0 75px #e8f2eb, 0 0 0 76px #d8e9dd, 0 0 0 150px #f0f7f2, 0 0 0 151px #d8e9dd; opacity: .64; pointer-events: none; }
+            .nl-license .nl-license-wrap { width: min(1160px, calc(100% - 48px)); margin: 0 auto; }
+            .nl-license .nl-license-kicker { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 15px; color: #277b50; font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+            .nl-license .nl-license-kicker i { font-size: 16px; }
+            .nl-license .nl-license-intro { max-width: 850px; }
+            .nl-license h2 { margin: 0 0 18px; max-width: 900px; color: #123629; font-size: clamp(30px, 4vw, 51px); line-height: 1.13; letter-spacing: -.04em; }
+            .nl-license h2 em { font-style: normal; color: #1d8a57; }
+            .nl-license .nl-license-lead { margin: 0; max-width: 850px; color: #496359; font-size: clamp(16px, 1.6vw, 19px); line-height: 1.75; }
+            .nl-license .nl-license-facts { display: flex; flex-wrap: wrap; gap: 10px; margin: 24px 0 35px; }
+            .nl-license .nl-license-fact { display: inline-flex; align-items: center; gap: 8px; padding: 9px 13px; border: 1px solid #d5e6d9; border-radius: 100px; background: #fff; color: #2d5943; font-size: 13px; font-weight: 650; }
+            .nl-license .nl-license-fact i { color: #25865a; }
+            .nl-license .nl-license-question { margin: 0 0 17px; color: #345247; font-size: 18px; font-weight: 750; }
+            .nl-license .nl-license-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+            .nl-license .nl-license-choice { display: flex; flex-direction: column; min-width: 0; padding: clamp(24px, 3vw, 35px); border: 1px solid #d8e8de; border-radius: 24px; background: #fff; box-shadow: 0 14px 35px rgba(14, 62, 36, .055); }
+            .nl-license .nl-license-choice--service { background: linear-gradient(145deg, #193f31 0%, #0c2e24 100%); border-color: #224e3d; color: #fff; }
+            .nl-license .nl-license-choice-top { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 22px; }
+            .nl-license .nl-license-number { display: inline-flex; align-items: center; gap: 9px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #46705a; }
+            .nl-license .nl-license-choice--service .nl-license-number { color: #b0d8bf; }
+            .nl-license .nl-license-choice-icon { display: grid; place-items: center; flex: 0 0 50px; height: 50px; border-radius: 15px; background: #e8f5eb; color: #258658; font-size: 23px; }
+            .nl-license .nl-license-choice--service .nl-license-choice-icon { background: rgba(213, 246, 222, .12); color: #c7edcf; }
+            .nl-license .nl-license-choice h3 { margin: 0 0 11px; color: #173c2c; font-size: clamp(23px, 2.6vw, 29px); letter-spacing: -.025em; line-height: 1.2; }
+            .nl-license .nl-license-choice--service h3 { color: #fff; }
+            .nl-license .nl-license-choice p { margin: 0 0 14px; color: #50665a; font-size: 15px; line-height: 1.72; }
+            .nl-license .nl-license-choice--service p { color: #d5e4db; }
+            .nl-license .nl-license-flag { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin: 0 0 14px; padding: 5px 9px; border-radius: 7px; background: #e6f4e9; color: #1c7349; font-size: 11px; font-weight: 850; letter-spacing: .07em; text-transform: uppercase; }
+            .nl-license .nl-license-choice--service .nl-license-flag { background: rgba(255, 255, 255, .13); color: #cce8d4; }
+            .nl-license .nl-license-spacer { flex: 1 1 auto; min-height: 10px; }
+            .nl-license .nl-license-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+            .nl-license .nl-license-link { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 44px; padding: 10px 15px; border-radius: 11px; background: #176747; color: #fff !important; text-decoration: none !important; font-size: 14px; font-weight: 730; transition: transform .2s, background .2s; }
+            .nl-license .nl-license-link:hover { transform: translateY(-2px); background: #0e4d34; }
+            .nl-license .nl-license-link--secondary { background: #edf5ef; color: #245d3d !important; }
+            .nl-license .nl-license-link--secondary:hover { background: #dcecdf; }
+            .nl-license .nl-license-choice--service .nl-license-link { background: #d6f3dc; color: #12432c !important; }
+            .nl-license .nl-license-choice--service .nl-license-link:hover { background: #fff; }
+            .nl-license .nl-license-link:focus-visible { outline: 3px solid #7fcc9c; outline-offset: 3px; }
+            .nl-license .nl-license-summary { display: flex; align-items: center; gap: 18px; margin-top: 19px; padding: 20px 24px; border: 1px solid #cfe3d5; border-radius: 18px; background: #e8f3eb; }
+            .nl-license .nl-license-summary-icon { display: grid; place-items: center; flex: 0 0 43px; height: 43px; border-radius: 12px; background: #d1ead8; color: #1d764d; font-size: 21px; }
+            .nl-license .nl-license-summary p { margin: 0; color: #355745; line-height: 1.6; font-size: 14px; }
+            .nl-license .nl-license-summary strong { color: #164631; }
+            @media (max-width: 750px) {
+                .nl-license { padding: 58px 0 62px; scroll-margin-top: 65px; }
+                .nl-license .nl-license-wrap { width: min(100% - 34px, 580px); }
+                .nl-license .nl-license-choices { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+                .nl-license .nl-license-choice { padding: 24px; border-radius: 19px; }
+                .nl-license .nl-license-facts { margin-bottom: 27px; }
+                .nl-license .nl-license-summary { align-items: flex-start; padding: 18px; gap: 12px; }
+            }
+            @media (max-width: 420px) {
+                .nl-license .nl-license-actions { flex-direction: column; }
+                .nl-license .nl-license-link { width: 100%; }
+            }
+        </style>
+        <div class="nl-license-wrap">
+            <div class="nl-license-intro">
+                <span class="nl-license-kicker"><i class="bi bi-unlock" aria-hidden="true"></i> {% if is_en %}License &amp; ownership{% else %}Лицензия и владение{% endif %}</span>
+                <h2 id="nl-license-title">{% if is_en %}The platform is <em>free.</em> How you build with it is up to you.{% else %}Платформа <em>бесплатна.</em> Как создавать решения — решаете вы.{% endif %}</h2>
+                <p class="nl-license-lead">{% if is_en %}NodaLogic is not a subscription-only cloud service. Download the open-source server and configurator from GitHub, run them on your own infrastructure, and keep your configurations and business data with you. You can also use the hosted configurator at nmaker.pw to get started. The platform itself has no hidden subscription.{% else %}NodaLogic — не облачный сервис с обязательной подпиской. Сервер и конфигуратор с открытым исходным кодом можно скачать с GitHub и развернуть у себя: ваши конфигурации и бизнес-данные останутся под вашим контролем. Для знакомства можно воспользоваться и конфигуратором на nmaker.pw. За саму платформу платить не нужно, скрытых подписок нет.{% endif %}</p>
+                <div class="nl-license-facts">
+                    <span class="nl-license-fact"><i class="bi bi-check-circle-fill" aria-hidden="true"></i>{% if is_en %}Open-source core{% else %}Открытое ядро{% endif %}</span>
+                    <span class="nl-license-fact"><i class="bi bi-check-circle-fill" aria-hidden="true"></i>{% if is_en %}Your server and data{% else %}Ваш сервер и данные{% endif %}</span>
+                    <span class="nl-license-fact"><i class="bi bi-check-circle-fill" aria-hidden="true"></i>{% if is_en %}No mandatory subscription{% else %}Без обязательной подписки{% endif %}</span>
+                </div>
+            </div>
+
+            <p class="nl-license-question">{% if is_en %}Two ways to make a business application:{% else %}Два пути к собственному бизнес-решению:{% endif %}</p>
+            <div class="nl-license-choices">
+                <article class="nl-license-choice">
+                    <div class="nl-license-choice-top">
+                        <span class="nl-license-number">01 / {% if is_en %}Build it yourself{% else %}Создать самому{% endif %}</span>
+                        <span class="nl-license-choice-icon" aria-hidden="true"><i class="bi bi-tools"></i></span>
+                    </div>
+                    <span class="nl-license-flag"><i class="bi bi-check2" aria-hidden="true"></i> {% if is_en %}Free platform{% else %}Платформа бесплатна{% endif %}</span>
+                    <h3>{% if is_en %}Build what you need.{% else %}Сделайте своё решение сами.{% endif %}</h3>
+                    <p>{% if is_en %}Explore the documentation and examples, open the regular configurator on nmaker.pw or deploy it on your server. NodaLogic is designed for low-code development, and you can bring your favorite LLM along to help write a configuration.{% else %}Изучайте документацию, видео и примеры, заходите в обычный конфигуратор на nmaker.pw или запускайте его на своём сервере. NodaLogic задумывалась как настоящая low-code платформа: сделать конфигурацию можно самостоятельно, в том числе с помощью ChatGPT или другой LLM.{% endif %}</p>
+                    <div class="nl-license-spacer"></div>
+                    <div class="nl-license-actions">
+                        <a class="nl-license-link" href="https://github.com/dvdocumentation/nodalogic" target="_blank" rel="noopener noreferrer"><i class="bi bi-github" aria-hidden="true"></i> GitHub</a>
+                        <a class="nl-license-link nl-license-link--secondary" href="{{ 'https://nodatxt.readthedocs.io/en/latest/' if is_en else 'https://nodalogic-txt-ru.readthedocs.io/ru/latest/' }}" target="_blank" rel="noopener noreferrer"><i class="bi bi-book" aria-hidden="true"></i> {% if is_en %}Documentation{% else %}Документация{% endif %}</a>
+                    </div>
+                </article>
+
+                <article class="nl-license-choice nl-license-choice--service">
+                    <div class="nl-license-choice-top">
+                        <span class="nl-license-number">02 / {% if is_en %}Order a solution{% else %}Заказать решение{% endif %}</span>
+                        <span class="nl-license-choice-icon" aria-hidden="true"><i class="bi bi-stars"></i></span>
+                    </div>
+                    <span class="nl-license-flag"><i class="bi bi-lightning-charge-fill" aria-hidden="true"></i> {% if is_en %}Optional paid service{% else %}Платный сервис по желанию{% endif %}</span>
+                    <h3>{% if is_en %}Let N-Reactor do the building.{% else %}Поручите разработку N-Reactor.{% endif %}</h3>
+                    <p>{% if is_en %}N-Reactor is an optional commercial AI service: it builds your solution using NodaLogic's methodology and standards. You deploy and test the generated configuration, check it with real users and workloads, then pay for the accepted solution and download the same ordinary .nod file you could have built yourself. Generation tokens are billed separately under the service terms.{% else %}N-Reactor — необязательный коммерческий AI-сервис. Он создаёт решение по методологии и стандартам NodaLogic. Вы разворачиваете конфигурацию, проверяете её на своих задачах и с пользователями и лишь после приёмки оплачиваете готовое решение и скачиваете обычный .nod-файл — такой же, какой могли бы сделать сами. Токены генерации оплачиваются отдельно по условиям сервиса.{% endif %}</p>
+                    <div class="nl-license-spacer"></div>
+                    <div class="nl-license-actions">
+                        <a class="nl-license-link" href="#solutions"><i class="bi bi-arrow-right-circle" aria-hidden="true"></i> {% if is_en %}How N-Reactor works{% else %}Как работает N-Reactor{% endif %}</a>
+                    </div>
+                </article>
+            </div>
+            <div class="nl-license-summary">
+                <span class="nl-license-summary-icon" aria-hidden="true"><i class="bi bi-file-earmark-code"></i></span>
+                <p>{% if is_en %}<strong>The result belongs to you in either case.</strong> Your own configuration and a configuration created by N-Reactor use the same NodaLogic format. Paid generation is a choice, not a requirement for using the platform.{% else %}<strong>Результат в обоих случаях ваш.</strong> И самостоятельно созданная конфигурация, и работа N-Reactor — один и тот же формат NodaLogic. Платная генерация — один из способов разработки, а не условие использования платформы.{% endif %}</p>
+            </div>
+        </div>
+    </section>
+
+    <section id="demo" class="section-pad">
+        <div class="landing-container">
+            <div class="section-heading split-heading">
+                <div>
+                    <span class="section-label">{% if is_en %}Demo solutions{% else %}Демо-решения{% endif %}</span>
+                    <h2>{% if is_en %}Explore ready-made solutions{% else %}Изучайте готовые решения{% endif %}</h2>
+                </div>
+                <div class="demo-switch" aria-label="{% if is_en %}Demo solution{% else %}Демо-решение{% endif %}">
+                    <button type="button" class="active" data-demo-tab="wms" aria-pressed="true">WMS</button>
+                    <button type="button" data-demo-tab="trade" aria-pressed="false">Trade Demo</button>
+                </div>
+            </div>
+
+            <div class="demo-grid" data-demo-panel="wms">
+                <div class="demo-copy">
+                    <span class="demo-badge">NodaLogic WMS</span>
+                    <h3>{% if is_en %}A compact WMS generated for real warehouse processes{% else %}Компактная WMS, сгенерированная под реальные процессы склада{% endif %}</h3>
+                    <p>{% if is_en %}The solution covers configurable strategies and warehouse operations, FEFO/FIFO, lots and serials, storage zones and package dimensions. The mobile terminal is offline-first and can execute independent Android logic without a permanent server connection.{% else %}Решение включает настраиваемые стратегии и складские операции, FEFO/FIFO, партии и серии, зоны хранения и учёт ВГХ упаковок. Мобильный ТСД работает offline-first и может выполнять самостоятельную Android-логику без постоянной связи с сервером.{% endif %}</p>
+                    <p>{% if is_en %}The same configuration contains web workplaces, indicators, operation kanban, warehouse heat maps, integration utilities and arbitrary reports that can be created by an AI assistant in user mode. The server and mobile logic remain ordinary readable Python code.{% else %}В той же конфигурации есть веб-рабочие места, индикаторы, канбан операций, тепловые карты склада, интеграционные утилиты и произвольные отчёты, которые AI-ассистент может создавать прямо в пользовательском режиме. Серверная и мобильная логика остаётся обычным читаемым Python-кодом.{% endif %}</p>
+                    <ul class="check-list">
+                        <li><i class="bi bi-check2"></i>{% if is_en %}Strategies tailored by AI to warehouse business logic{% else %}Стратегии, адаптируемые AI под бизнес-логику склада{% endif %}</li>
+                        <li><i class="bi bi-check2"></i>{% if is_en %}Configurable tasks, constraints and permitted substitutions{% else %}Настраиваемые задачи, ограничения и разрешённые замены{% endif %}</li>
+                        <li><i class="bi bi-check2"></i>{% if is_en %}Offline-first mobile terminal with OCR and search{% else %}Offline-first ТСД с OCR и поиском{% endif %}</li>
+                        <li><i class="bi bi-check2"></i>{% if is_en %}Analytics, visual warehouse maps and AI-generated reports{% else %}Аналитика, визуальные карты склада и AI-отчёты{% endif %}</li>
+                    </ul>
+                    <div class="demo-actions">
+                        <a class="button button-dark" href="{{ url_for('demo_products_page') }}">
+                            {% if is_en %}Open solution examples{% else %}Открыть примеры решений{% endif %} <i class="bi bi-arrow-right"></i>
+                        </a>
+                        <a class="button button-video" href="https://youtu.be/fUKesWpoGHM" target="_blank" rel="noopener">
+                            <i class="bi bi-youtube"></i> {% if is_en %}WMS video{% else %}Видео о WMS{% endif %}
+                        </a>
+                    </div>
+                    <div class="demo-highlight">
+                        {% if is_en %}
+                            You can deploy a full demo solution under your own account — a working system with initial setup, API integration with an external system, load tests, mobile workplaces, users and configured permissions.
+                        {% else %}
+                            Вы можете развернуть под своей учётной записью полноценное решение — систему, в которой можно работать, с начальным заполнением, интеграцией с внешней системой через API, нагрузочными тестами, мобильными рабочими местами, пользователями и настроенными правами.
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="screenshot-slider wms-slider" data-slider>
+                    <div class="slider-track" data-slider-track>
+                        <article class="shot-placeholder real-shot active">
+                            <div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/wms-01.png') }}" alt="{% if is_en %}Warehouse map reports{% else %}Графические отчёты на карте склада{% endif %}" loading="lazy"></div>
+                            <div class="shot-caption"><strong>{% if is_en %}Warehouse map reports{% else %}Графические отчёты на карте склада{% endif %}</strong><span>{% if is_en %}Occupancy and turnover visualization{% else %}Загруженность и оборачиваемость{% endif %}</span></div>
+                        </article>
+                        <article class="shot-placeholder real-shot">
+                            <div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/wms-02.png') }}" alt="{% if is_en %}Warehouse indicators{% else %}Индикаторы работы склада{% endif %}" loading="lazy"></div>
+                            <div class="shot-caption"><strong>{% if is_en %}Warehouse indicators{% else %}Индикаторы работы склада{% endif %}</strong><span>{% if is_en %}Operational metrics at a glance{% else %}Операционные показатели в одном экране{% endif %}</span></div>
+                        </article>
+                        <article class="shot-placeholder real-shot">
+                            <div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/wms-03.png') }}" alt="{% if is_en %}Operation kanban{% else %}Канбан складских операций{% endif %}" loading="lazy"></div>
+                            <div class="shot-caption"><strong>{% if is_en %}Operation kanban{% else %}Канбан складских операций{% endif %}</strong><span>{% if is_en %}Current work and task state{% else %}Текущая работа и состояние задач{% endif %}</span></div>
+                        </article>
+                        <article class="shot-placeholder real-shot">
+                            <div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/wms-04.png') }}" alt="{% if is_en %}Independent Android logic{% else %}Независимая логика на Android{% endif %}" loading="lazy"></div>
+                            <div class="shot-caption"><strong>{% if is_en %}Independent Android logic{% else %}Самостоятельная логика на Android{% endif %}</strong><span>{% if is_en %}Works without a permanent server connection{% else %}Работает без постоянной связи с сервером{% endif %}</span></div>
+                        </article>
+                        <article class="shot-placeholder real-shot">
+                            <div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/wms-05.png') }}" alt="{% if is_en %}Reports created by the AI assistant{% else %}Отчёты через AI-ассистента{% endif %}" loading="lazy"></div>
+                            <div class="shot-caption"><strong>{% if is_en %}Reports created by the AI assistant{% else %}Произвольные отчёты через AI-ассистента{% endif %}</strong><span>{% if is_en %}Created directly in user mode{% else %}Создаются прямо в пользовательском режиме{% endif %}</span></div>
+                        </article>
+                        <article class="shot-placeholder real-shot">
+                            <div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/wms-06.png') }}" alt="{% if is_en %}AI-generated WMS strategies{% else %}AI-генерация стратегий WMS{% endif %}" loading="lazy"></div>
+                            <div class="shot-caption"><strong>{% if is_en %}Strategies generated for your process{% else %}Стратегии генерируются под вашу бизнес-логику{% endif %}</strong><span>{% if is_en %}Strategy logic remains editable{% else %}Логика стратегии остаётся редактируемой{% endif %}</span></div>
+                        </article>
+                        <article class="shot-placeholder real-shot">
+                            <div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/wms-07.png') }}" alt="{% if is_en %}Generated integration utilities{% else %}Генерируемые утилиты интеграции{% endif %}" loading="lazy"></div>
+                            <div class="shot-caption"><strong>{% if is_en %}Integration utilities generated for your logic{% else %}Интеграционные утилиты под вашу логику{% endif %}</strong><span>{% if is_en %}External exchange without a rigid integration core{% else %}Обмен без жёсткого интеграционного ядра{% endif %}</span></div>
+                        </article>
+                    </div>
+                    <div class="slider-controls">
+                        <button type="button" data-slider-prev aria-label="Previous"><i class="bi bi-arrow-left"></i></button>
+                        <div class="slider-dots" data-slider-dots></div>
+                        <button type="button" data-slider-next aria-label="Next"><i class="bi bi-arrow-right"></i></button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="demo-grid" data-demo-panel="trade" hidden>
+                <div class="demo-copy">
+                    <span class="demo-badge">Trade Demo</span>
+                    <span class="demo-badge">{% if is_en %}Source code available{% else %}Код открыт{% endif %}</span>
+                    <h3>{% if is_en %}Purchasing, sales and inventory with a mobile warehouse{% else %}Закупки, продажи и учёт товаров с мобильным складом{% endif %}</h3>
+                    <p>{% if is_en %}A learning solution for a small trading company. Explore connected business processes and readable NodaLogic code, then adapt the configuration to your needs.{% else %}Учебное решение для небольшой торговой компании. Изучайте связанные бизнес-процессы и читаемый код NodaLogic, затем адаптируйте конфигурацию под свои задачи.{% endif %}</p>
+                    <ul class="check-list">
+                        <li><i class="bi bi-check2"></i>{% if is_en %}FIFO costing, additional expenses and margin control{% else %}FIFO, дополнительные расходы и контроль наценки{% endif %}</li>
+                        <li><i class="bi bi-check2"></i>{% if is_en %}Order fulfillment, reservations and expected receipts{% else %}Обеспечение заказов, резервы и ожидаемые поступления{% endif %}</li>
+                        <li><i class="bi bi-check2"></i>{% if is_en %}Procurement planning based on demand and sales{% else %}Планирование закупок по потребности и продажам{% endif %}</li>
+                        <li><i class="bi bi-check2"></i>{% if is_en %}Offline receiving and shipping with barcode scanning{% else %}Оффлайновая приёмка и отгрузка со сканированием{% endif %}</li>
+                        <li><i class="bi bi-check2"></i>{% if is_en %}Stock, availability, sales and margin reports{% else %}Отчёты по остаткам, доступности, продажам и марже{% endif %}</li>
+                    </ul>
+                    <div class="demo-actions">
+                        <a class="button button-dark" href="{{ url_for('demo_products_page', lang=landing_lang) }}">{% if is_en %}Open demo products{% else %}Открыть демо-продукты{% endif %} <i class="bi bi-arrow-right"></i></a>
+                        <a class="button button-video" href="{{ url_for('article_page', lang=landing_lang, slug='trade-demo') }}">{% if is_en %}Read the article{% else %}Читать статью{% endif %} <i class="bi bi-arrow-up-right"></i></a>
+                    </div>
+                    <div class="demo-highlight">{% if is_en %}Source code available: install an editable copy, inspect the server and mobile handlers, and save or modify the configuration in Designer.{% else %}Код открыт: установите редактируемую копию, изучайте серверные и мобильные обработчики, сохраняйте и меняйте конфигурацию в конфигураторе.{% endif %}</div>
+                </div>
+                <div class="screenshot-slider wms-slider" data-slider>
+                    <div class="slider-track" data-slider-track>
+                        <article class="shot-placeholder real-shot active">
+                            <div class="shot-image-frame"><img src="{{ url_for('article_asset', lang=landing_lang, slug='trade-demo', filename='features-0.png') }}" alt="{% if is_en %}Customer orders and fulfillment{% else %}Заказ клиента и обеспечение{% endif %}" loading="lazy"></div>
+                            <div class="shot-caption"><strong>{% if is_en %}Customer orders and fulfillment{% else %}Заказ клиента и обеспечение{% endif %}</strong><span>Trade Demo · NodaLogic</span></div>
+                        </article>
+                        <article class="shot-placeholder real-shot">
+                            <div class="shot-image-frame"><img src="{{ url_for('article_asset', lang=landing_lang, slug='trade-demo', filename='features-1.png') }}" alt="{% if is_en %}Procurement planning{% else %}Планирование закупок{% endif %}" loading="lazy"></div>
+                            <div class="shot-caption"><strong>{% if is_en %}Procurement planning{% else %}Планирование закупок{% endif %}</strong><span>Trade Demo · NodaLogic</span></div>
+                        </article>
+                        <article class="shot-placeholder real-shot">
+                            <div class="shot-image-frame"><img src="{{ url_for('article_asset', lang=landing_lang, slug='trade-demo', filename='features-2.png') }}" alt="{% if is_en %}Sales analysis{% else %}Анализ продаж{% endif %}" loading="lazy"></div>
+                            <div class="shot-caption"><strong>{% if is_en %}Sales analysis{% else %}Анализ продаж{% endif %}</strong><span>Trade Demo · NodaLogic</span></div>
+                        </article>
+                        <article class="shot-placeholder real-shot">
+                            <div class="shot-image-frame"><img src="{{ url_for('article_asset', lang=landing_lang, slug='trade-demo', filename='features-3.png') }}" alt="{% if is_en %}Stock and availability{% else %}Остатки и доступность товаров{% endif %}" loading="lazy"></div>
+                            <div class="shot-caption"><strong>{% if is_en %}Stock and availability{% else %}Остатки и доступность товаров{% endif %}</strong><span>Trade Demo · NodaLogic</span></div>
+                        </article>
+                        <article class="shot-placeholder real-shot">
+                            <div class="shot-image-frame"><img src="{{ url_for('article_asset', lang=landing_lang, slug='trade-demo', filename='features-4.png') }}" alt="{% if is_en %}Purchase orders{% else %}Заказы поставщикам{% endif %}" loading="lazy"></div>
+                            <div class="shot-caption"><strong>{% if is_en %}Purchase orders{% else %}Заказы поставщикам{% endif %}</strong><span>Trade Demo · NodaLogic</span></div>
+                        </article>
+                        <article class="shot-placeholder real-shot">
+                            <div class="shot-image-frame"><img src="{{ url_for('article_asset', lang=landing_lang, slug='trade-demo', filename='features-5.png') }}" alt="{% if is_en %}Mobile receiving and shipping{% else %}Мобильная приёмка и отгрузка{% endif %}" loading="lazy"></div>
+                            <div class="shot-caption"><strong>{% if is_en %}Mobile receiving and shipping{% else %}Мобильная приёмка и отгрузка{% endif %}</strong><span>Trade Demo · NodaLogic</span></div>
+                        </article>
+                    </div>
+                    <div class="slider-controls">
+                        <button type="button" data-slider-prev aria-label="{% if is_en %}Previous{% else %}Назад{% endif %}"><i class="bi bi-arrow-left"></i></button>
+                        <div class="slider-dots" data-slider-dots></div>
+                        <button type="button" data-slider-next aria-label="{% if is_en %}Next{% else %}Вперёд{% endif %}"><i class="bi bi-arrow-right"></i></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="solutions" class="section-pad section-dark">
+        <div class="landing-container">
+            <div class="solutions-intro">
+                <span class="section-label section-label-light">NodaLogic Solutions</span>
+                <h2>{% if is_en %}N-Reactor — the AI pipeline behind NodaLogic Solutions{% else %}N-Reactor — AI-конвейер NodaLogic Solutions{% endif %}</h2>
+                <p>{% if is_en %}The N-Reactor AI pipeline covers the entire lifecycle of solution creation: from methodology, questionnaires and functional requirements to runtime tests, deployment and release. It combines custom engineering with repeatable production discipline: the model starts from your requirements, while relying on platform methodology, reference architecture, reusable patterns and proven building blocks.{% else %}AI-конвейер N-Reactor берёт на себя все этапы создания решения: от постановки методологии и сбора функциональных требований до runtime-тестов, деплоя и выпуска релиза. Он совмещает индивидуальную разработку с повторяемым производственным конвейером: модель отталкивается от ваших требований, но опирается на методологию платформы, референсную архитектуру, паттерны и готовые строительные блоки.{% endif %}</p>
+            </div>
+
+<a href="{{ 'https://infostart.ru/1c/articles/2783946/' if is_en else 'https://infostart.ru/1c/articles/2783946/' }}" 
+   target="_blank" 
+   rel="noopener" 
+   class="infostart-custom-btn">
+   
+  
+    <span class="infostart-btn-text">
+        {% if is_en %}About N-Reactor{% else %}Статья о работе с N-Reactor{% endif %}
+    </span>
+</a>
+
+            <div class="solution-pillars">
+                <article>
+                    <span>01</span>
+                    <h3>{% if is_en %}Exactly your requirements{% else %}Точно по требованиям{% endif %}</h3>
+                    <p>{% if is_en %}Questionnaires and dialogue become structured facts, a specification and an editable solution schema. You approve what is being built before generation moves on.{% else %}Анкетирование и диалог превращаются в формализованные факты, ТЗ и редактируемую схему решения. Вы утверждаете, что именно должно быть собрано.{% endif %}</p>
+                </article>
+                <article>
+                    <span>02</span>
+                    <h3>{% if is_en %}Not a blank page{% else %}Не с пустого места{% endif %}</h3>
+                    <p>{% if is_en %}Patterns, methodology, platform standards and reference solutions keep recurring business mechanics from being reinvented every time.{% else %}Паттерны, методология, стандарты платформы и референсные решения не дают каждый раз заново изобретать типовые бизнес-механизмы.{% endif %}</p>
+                </article>
+                <article>
+                    <span>03</span>
+                    <h3>{% if is_en %}Tested as a solution{% else %}Проверяется как решение{% endif %}</h3>
+                    <p>{% if is_en %}The pipeline performs technical, semantic and runtime checks, generates tests and repairs detected defects under control.{% else %}Конвейер выполняет технические, семантические и runtime-проверки, сам генерирует тесты и под контролем исправляет найденные дефекты.{% endif %}</p>
+                </article>
+                <article>
+                    <span>04</span>
+                    <h3>{% if is_en %}You test it in real conditions{% else %}Вы работаете с решением{% endif %}</h3>
+                    <p>{% if is_en %}Deploy the candidate in your company, run functional, load and integration tests, connect real systems and continue refinement with the model before final acceptance.{% else %}Разворачивайте кандидат в своей компании, проводите функциональные, нагрузочные и интеграционные тесты, подключайте реальные системы и продолжайте доработку с моделью до финальной приёмки.{% endif %}</p>
+                </article>
+                <article>
+                    <span>05</span>
+                    <h3>{% if is_en %}You own the result{% else %}Результат принадлежит вам{% endif %}</h3>
+                    <p>{% if is_en %}Download the configuration, inspect it, change it yourself or continue development with any suitable model. There is no required subscription for the generated solution.{% else %}Скачивайте конфигурацию, изучайте её, дописывайте сами или продолжайте разработку с любой подходящей моделью. Обязательной подписки на сгенерированное решение нет.{% endif %}</p>
+                </article>
+            </div>
+
+            <div class="pipeline-card">
+                <div class="pipeline-title">
+                    <strong>{% if is_en %}From business request to release{% else %}От бизнес-задачи до релиза{% endif %}</strong>
+                    <span>{% if is_en %}A controlled generation pipeline{% else %}AI-конвейер N-Reactor{% endif %}</span>
+                </div>
+                <div class="pipeline-flow pipeline-flow-detailed">
+                    <div><i>1</i><span>{% if is_en %}Questionnaires, requirements and facts{% else %}Анкетирование, требования и факты{% endif %}</span></div><b></b>
+                    <div><i>2</i><span>{% if is_en %}Specification and solution schema{% else %}ТЗ и схема решения{% endif %}</span></div><b></b>
+                    <div><i>3</i><span>{% if is_en %}Candidate with methodology and patterns{% else %}Кандидат с учётом методологии и паттернов{% endif %}</span></div><b></b>
+                    <div><i>4</i><span>{% if is_en %}Automatic technical checks and refinement{% else %}Автоматические технические проверки и доработки{% endif %}</span></div><b></b>
+                    <div><i>5</i><span>{% if is_en %}Semantic test against the specification{% else %}Семантический тест на соответствие ТЗ{% endif %}</span></div><b></b>
+                    <div><i>6</i><span>{% if is_en %}Runtime-test generation and automated testing{% else %}Генерация runtime-тестов и автотестирование{% endif %}</span></div><b></b>
+                    <div><i>7</i><span>{% if is_en %}Repair and control{% else %}Repair и контроль{% endif %}</span></div><b></b>
+                    <div><i>8</i><span>{% if is_en %}Free-form work with the user{% else %}Работа с пользователем в произвольном режиме{% endif %}</span></div><b></b>
+                    <div><i>9</i><span>{% if is_en %}Release and delivery{% else %}Релиз и получение решения{% endif %}</span></div>
+                </div>
+            </div>
+
+            <div class="solutions-gallery-head">
+                <div>
+                    <strong>{% if is_en %}The pipeline in practice{% else %}Конвейер в работе{% endif %}</strong>
+                    <span>{% if is_en %}Actual screens from requirement collection, generation, testing and repair{% else %}Реальные экраны сбора требований, генерации, тестирования и доработки{% endif %}</span>
+                </div>
+            </div>
+            <div class="screenshot-slider solution-media-slider" data-slider>
+                <div class="slider-track" data-slider-track>
+                    <article class="shot-placeholder real-shot active"><div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/solutions-01.png') }}" alt="{% if is_en %}Questionnaire and fact collection{% else %}Анкетирование и сбор фактов{% endif %}" loading="lazy"></div><div class="shot-caption"><strong>{% if is_en %}Questionnaire and fact collection{% else %}Анкетирование и сбор фактов{% endif %}</strong><span>{% if is_en %}Answers are formalized and stored as solution facts{% else %}Ответы формализуются и сохраняются как факты решения{% endif %}</span></div></article>
+                    <article class="shot-placeholder real-shot"><div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/solutions-04.png') }}" alt="{% if is_en %}Generated textual specification{% else %}Сгенерированное текстовое ТЗ{% endif %}" loading="lazy"></div><div class="shot-caption"><strong>{% if is_en %}The model prepares the specification{% else %}Модель готовит текстовое ТЗ{% endif %}</strong><span>{% if is_en %}Requirements become a concrete build target{% else %}Требования превращаются в конкретную цель сборки{% endif %}</span></div></article>
+                    <article class="shot-placeholder real-shot"><div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/solutions-06.png') }}" alt="{% if is_en %}Editable solution schema{% else %}Редактируемая схема решения{% endif %}" loading="lazy"></div><div class="shot-caption"><strong>{% if is_en %}Editable solution schema{% else %}Модель разрабатывает редактируемую схему решения{% endif %}</strong><span>{% if is_en %}The structure is visible before the candidate is built{% else %}Структура видна ещё до сборки кандидата{% endif %}</span></div></article>
+                    <article class="shot-placeholder real-shot"><div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/solutions-10.png') }}" alt="{% if is_en %}Detailed node relationship graph{% else %}Подробная схема связей между узлами{% endif %}" loading="lazy"></div><div class="shot-caption"><strong>{% if is_en %}Detailed node relationships and prompts{% else %}Схема подробно описывает связи между узлами и промпты{% endif %}</strong><span>{% if is_en %}The model works from an explicit architecture{% else %}Модель работает с явной архитектурой{% endif %}</span></div></article>
+                    <article class="shot-placeholder real-shot"><div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/solutions-02.png') }}" alt="{% if is_en %}Overall pipeline progress{% else %}Общий прогресс конвейера{% endif %}" loading="lazy"></div><div class="shot-caption"><strong>{% if is_en %}Overall pipeline progress{% else %}Общий прогресс выполнения{% endif %}</strong><span>{% if is_en %}The current stage and completed work stay visible{% else %}Текущий этап и уже пройденная работа остаются видимыми{% endif %}</span></div></article>
+                    <article class="shot-placeholder real-shot"><div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/solutions-05.png') }}" alt="{% if is_en %}Semantic candidate test{% else %}Семантический тест кандидата{% endif %}" loading="lazy"></div><div class="shot-caption"><strong>{% if is_en %}Semantic test against the specification{% else %}Семантическое тестирование на соответствие ТЗ{% endif %}</strong><span>{% if is_en %}The model checks whether the candidate actually solves the requested task{% else %}Модель проверяет, действительно ли кандидат решает поставленную задачу{% endif %}</span></div></article>
+                    <article class="shot-placeholder real-shot"><div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/solutions-03.png') }}" alt="{% if is_en %}Generated runtime tests and repair{% else %}Генерация runtime-тестов и repair{% endif %}" loading="lazy"></div><div class="shot-caption"><strong>{% if is_en %}Runtime tests are generated, executed and checked automatically{% else %}Конвейер сам генерирует и запускает runtime-тесты{% endif %}</strong><span>{% if is_en %}Results are analyzed and defects are repaired under control{% else %}Результат проверяется, а ошибки исправляются под контролем{% endif %}</span></div></article>
+                    <article class="shot-placeholder real-shot"><div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/solutions-09.png') }}" alt="{% if is_en %}Runtime test results{% else %}Результаты runtime-тестов{% endif %}" loading="lazy"></div><div class="shot-caption"><strong>{% if is_en %}Runtime test results and issue control{% else %}Результаты runtime-тестов и контроль проблем{% endif %}</strong><span>{% if is_en %}Passes, failures and follow-up work are visible in one place{% else %}Успехи, ошибки и дальнейшая работа видны в одном месте{% endif %}</span></div></article>
+                    <article class="shot-placeholder real-shot"><div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/solutions-08.png') }}" alt="{% if is_en %}Client error snapshots for the model{% else %}Снимки ошибок клиентского приложения для модели{% endif %}" loading="lazy"></div><div class="shot-caption"><strong>{% if is_en %}Client error snapshots go directly to the model{% else %}Снимки ошибок клиентского приложения удобно передавать модели{% endif %}</strong><span>{% if is_en %}User testing becomes part of the repair loop{% else %}Пользовательское тестирование становится частью repair-цикла{% endif %}</span></div></article>
+                    <article class="shot-placeholder real-shot"><div class="shot-image-frame"><img src="{{ url_for('static', filename='landing_media/solutions-07.png') }}" alt="{% if is_en %}Free-form chat refinement{% else %}Доработка в произвольном режиме чата{% endif %}" loading="lazy"></div><div class="shot-caption"><strong>{% if is_en %}Skip a stage and return later in chat mode{% else %}Этапы можно пропустить и вернуться к ним позже в режиме чата{% endif %}</strong><span>{% if is_en %}The controlled pipeline does not prevent free-form refinement{% else %}Управляемый конвейер не мешает произвольной доработке{% endif %}</span></div></article>
+                </div>
+                <div class="slider-controls">
+                    <button type="button" data-slider-prev aria-label="Previous"><i class="bi bi-arrow-left"></i></button>
+                    <div class="slider-dots" data-slider-dots></div>
+                    <button type="button" data-slider-next aria-label="Next"><i class="bi bi-arrow-right"></i></button>
+                </div>
+            </div>
+
+            <div class="code-note">
+                <i class="bi bi-code-slash"></i>
+                <div>
+                    <strong>{% if is_en %}Compact enough to read{% else %}Достаточно компактно, чтобы читать{% endif %}</strong>
+                    <p>{% if is_en %}The target is a small, structured codebase rather than generated sprawl. For a typical business solution, the server side can stay around 3–4 thousand lines, while mobile logic may range from roughly 500 to 15,000 lines depending on the task.{% else %}Цель — небольшая структурированная кодовая база вместо сгенерированного кома. Для типового бизнес-решения серверная часть может оставаться порядка 3–4 тысяч строк, а мобильная логика — примерно от 500 до 15 000 строк в зависимости от задачи.{% endif %}</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="pricing" class="section-pad section-dark pricing-dark">
+        <div class="landing-container">
+            <div class="section-heading narrow center-heading">
+                <span class="section-label">{% if is_en %}Pricing{% else %}Стоимость Solutions{% endif %}</span>
+                <h2>{% if is_en %}Pay for the build, then keep the configuration{% else %}Оплачиваете сборку — дальше конфигурация ваша{% endif %}</h2>
+                <p>{% if is_en %}Generation tokens are added at actual model usage. No mandatory recurring fee is attached to the generated configuration.{% else %}К стоимости добавляется фактический расход токенов выбранной модели. Обязательной регулярной платы за сгенерированную конфигурацию нет.{% endif %}</p>
+            </div>
+
+            <div class="pricing-grid">
+                <article class="price-card featured">
+                    <div class="price-top"><span class="price-badge">WMS</span><i class="bi bi-box-seam"></i></div>
+                    <h3>{% if is_en %}WMS Solution{% else %}WMS-решение{% endif %}</h3>
+                    {% if landing_prices.wms.promo_active %}<div class="promo-old-price">{{ landing_prices.wms.regular_display }}</div>{% endif %}
+                    <div class="price">{{ landing_prices.wms.current_display }}</div>
+                    <p class="price-extra">+ {% if is_en %}generation token cost{% else %}стоимость токенов генерации{% endif %}</p>
+                    <ul>
+                        <li>{% if is_en %}Starts from WMS methodology and reference architecture{% else %}Опирается на WMS-методологию и референсную архитектуру{% endif %}</li>
+                        <li>{% if is_en %}Adapted to your warehouse processes{% else %}Адаптируется под ваши складские процессы{% endif %}</li>
+                        <li>{% if is_en %}Web + mobile business flow{% else %}Веб + мобильный бизнес-процесс{% endif %}</li>
+                    </ul>
+                    {% if solutions_available is defined and solutions_available %}
+                    <a href="{{ url_for('solutions_page') }}" class="button button-primary full-width">{% if is_en %}Open N-Reactor{% else %}Перейти в N-Reactor{% endif %}</a>
+                    {% else %}
+                    <button type="button" class="button button-primary full-width button-disabled" disabled>{% if is_en %}N-Reactor is temporarily unavailable{% else %}N-Reactor временно недоступен{% endif %}</button>
+                    {% endif %}
+                </article>
+
+                <article class="price-card">
+                    <div class="price-top"><span class="price-badge neutral">CUSTOM</span><i class="bi bi-bezier2"></i></div>
+                    <h3>{% if is_en %}Custom Solution{% else %}Произвольное решение{% endif %}</h3>
+                    {% if landing_prices.custom.promo_active %}<div class="promo-old-price">{{ landing_prices.custom.regular_display }}</div>{% endif %}
+                    <div class="price">{{ landing_prices.custom.current_display }}</div>
+                    <p class="price-extra">+ {% if is_en %}generation token cost{% else %}стоимость токенов генерации{% endif %}</p>
+                    <ul>
+                        <li>{% if is_en %}Specification and solution schema from your requirements{% else %}ТЗ и схема решения из ваших требований{% endif %}</li>
+                        <li>{% if is_en %}Uses reusable platform patterns when relevant{% else %}Использует подходящие готовые паттерны платформы{% endif %}</li>
+                        <li>{% if is_en %}Final downloadable NodaLogic configuration{% else %}Итоговая скачиваемая конфигурация NodaLogic{% endif %}</li>
+                    </ul>
+                    {% if solutions_available is defined and solutions_available %}
+                    <a href="{{ url_for('solutions_page') }}" class="button button-dark full-width">{% if is_en %}Open N-Reactor{% else %}Перейти в N-Reactor{% endif %}</a>
+                    {% else %}
+                    <button type="button" class="button button-dark full-width button-disabled" disabled>{% if is_en %}N-Reactor is temporarily unavailable{% else %}N-Reactor временно недоступен{% endif %}</button>
+                    {% endif %}
+                </article>
+            </div>
+
+            <p class="ownership-note">
+                <i class="bi bi-unlock"></i>
+                {% if is_en %}
+                    NodaLogic's server, web client and configurator core are open source; the mobile client is available free of charge. A generated Solution is delivered as a configuration you can download, inspect and modify.
+                {% else %}
+                    Сервер, веб-клиент и конфигуратор NodaLogic имеют открытый исходный код; мобильный клиент доступен бесплатно. Сгенерированный Solution передаётся как конфигурация, которую можно скачать, изучать и изменять.
+                {% endif %}
+            </p>
+        </div>
+    </section>
+
+    <section id="support" class="section-pad support-section">
+        <div class="landing-container">
+            <div class="support-card">
+                <div class="support-copy">
+                    <span class="section-label">{% if is_en %}Custom development & support{% else %}Разработка на заказ и поддержка{% endif %}</span>
+                    <h2>{% if is_en %}Sometimes it is better to talk to a person{% else %}Иногда лучше подключить человека{% endif %}</h2>
+                    <p class="support-lead">
+                        {% if is_en %}
+                            N-Reactor can do almost anything, but sometimes you may need:
+                        {% else %}
+                            N-Reactor может почти всё, но иногда может понадобиться:
+                        {% endif %}
+                    </p>
+                    <ul class="support-list">
+                        <li>{% if is_en %}integration with 1C{% else %}интеграция с 1С{% endif %}</li>
+                        <li>{% if is_en %}extending the server or mobile capabilities of NodaLogic{% else %}расширение возможностей серверной и мобильной платформы NodaLogic{% endif %}</li>
+                        <li>{% if is_en %}migration from SimpleUI{% else %}переход с SimpleUI{% endif %}</li>
+                        <li>{% if is_en %}project support{% else %}сопровождение проекта{% endif %}</li>
+                        <li>{% if is_en %}or simply talking to a real person instead of a robot{% else %}или просто хочется пообщаться с живым человеком, а не роботом{% endif %}</li>
+                    </ul>
+                    <p class="support-outro">
+                        {% if is_en %}
+                            In that case, use the contact form below and I will get back to you.
+                        {% else %}
+                            Тогда обращайтесь через форму обратной связи ниже, и я обязательно Вам отвечу.
+                        {% endif %}
+                    </p>
+                    <a class="button button-dark support-contact-button" href="#contact">
+                        {% if is_en %}Contact me{% else %}Написать{% endif %}
+                        <i class="bi bi-arrow-down"></i>
+                    </a>
+                </div>
+                <div class="support-photo-wrap">
+                    <img class="support-photo" src="{{ url_for('static', filename='landing_media/support-author.jpg') }}" alt="{% if is_en %}NodaLogic developer{% else %}Разработчик NodaLogic{% endif %}" loading="lazy">
+                    <div class="support-photo-caption">
+                        <strong>NodaLogic</strong>
+                        <span>{% if is_en %}Development & support{% else %}Разработка и поддержка{% endif %}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="contact" class="section-pad section-soft">
+        <div class="landing-container contact-grid">
+            <div class="contact-copy">
+                <span class="section-label">{% if is_en %}Contact{% else %}Обратная связь{% endif %}</span>
+                <h2>{% if is_en %}Questions about the platform or the pipeline?{% else %}Вопросы о платформе или о конвейере?{% endif %}</h2>
+                <p>{% if is_en %}A short message is enough. Ask about the platform, the N-Reactor pipeline, generation issues, demo products or any other question.{% else %}Для начала достаточно короткого сообщения. Можно спросить о платформе, конвейере N-Reactor, проблемах с генерацией, демо-продуктах или задать любой другой вопрос.{% endif %}</p>
+                
+            </div>
+
+            <form class="contact-form" method="POST" action="{{ url_for('index', lang=landing_lang) }}#contact">
+                <input type="hidden" name="form_type" value="contact">
+                <input type="hidden" name="landing_lang" value="{{ landing_lang }}">
+                <div class="honeypot" aria-hidden="true">
+                    <label>Website<input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+                </div>
+                <div class="form-row">
+                    <label>
+                        <span>{% if is_en %}Name{% else %}Имя{% endif %}</span>
+                        <input type="text" name="name" maxlength="120" required value="{{ contact_values.get('name', '') if contact_values else '' }}">
+                    </label>
+                    <label>
+                        <span>Email</span>
+                        <input type="email" name="email" maxlength="180" required value="{{ contact_values.get('email', '') if contact_values else '' }}">
+                    </label>
+                </div>
+                <label>
+                    <span>{% if is_en %}Company / project{% else %}Компания / проект{% endif %} <small>{% if is_en %}optional{% else %}необязательно{% endif %}</small></span>
+                    <input type="text" name="company" maxlength="180" value="{{ contact_values.get('company', '') if contact_values else '' }}">
+                </label>
+                <label>
+                    <span>{% if is_en %}Your question{% else %}Ваш вопрос{% endif %}</span>
+                    <textarea name="message" rows="5" maxlength="6000" required>{{ contact_values.get('message', '') if contact_values else '' }}</textarea>
+                </label>
+                <button type="submit" class="button button-primary full-width">
+                    {% if is_en %}Send message{% else %}Отправить сообщение{% endif %} <i class="bi bi-send"></i>
+                </button>
+                <small class="form-hint">{% if is_en %}The message is sent directly to the NodaLogic project contact.{% else %}Сообщение отправляется напрямую контакту проекта NodaLogic.{% endif %}</small>
+            </form>
+        </div>
+    </section>
+
+    <!-- APK releases: add a new entry to the list below for each published build. -->
+    {% set apk_releases = [
+        {'date': '17.09.2026', 'version': '5.50.20',
+         'url': 'https://disk.yandex.ru/d/4pQMssREu8MoOw',
+         'description_ru': 'Совместимость с требованиями обфускации, начальный релиз карт.',
+         'description_en': 'Compatibility with obfuscation requirements; initial maps release.'},
+         {'date': '17.09.2026', 'version': '5.55.05',
+         'url': 'https://disk.yandex.ru/d/H3LLTvCbLPs11w',
+         'description_ru': 'Релиз Яндекс-карт. Новый механизм отслеживания изменений конфигурации. Распознавание речи командой listen. Исправлены ошибки',
+         'description_en': 'Yandex Maps release. New mechanism for tracking configuration changes. Speech recognition via the `listen` command. Bug fixes.'},
+          {'date': '23.09.2026', 'version': '5.55.20',
+         'url': 'https://disk.yandex.ru/d/inqPI184oCjesQ',
+         'description_ru': 'Селективный запуск сервиса. Доработан репозиторий и добавление конфигураций. Beta-версия',
+         'description_en': 'Selective service startup. The repository and configuration addition process have been improved. Bug fixes.Beta'}
+    ] %}
+    <section id="android-releases" class="apk-releases" aria-labelledby="apk-releases-title">
+        <style>
+            .apk-releases { padding: 70px 0 76px; background: linear-gradient(145deg, #f3faf6 0%, #ffffff 64%, #eaf5ef 100%); }
+            .apk-releases * { box-sizing: border-box; }
+            .apk-releases .apk-wrap { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+            .apk-releases .apk-heading { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
+            .apk-releases .apk-heading-icon { display: grid; place-items: center; flex: 0 0 58px; height: 58px; border-radius: 19px; background: #d9efe2; color: #176546; font-size: 27px; }
+            .apk-releases .apk-kicker { margin: 0 0 5px; color: #29805a; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .13em; }
+            .apk-releases h2 { margin: 0; color: #173d30; font-size: clamp(25px, 3vw, 34px); line-height: 1.2; }
+            .apk-releases .apk-intro { margin: 0 0 29px; color: #60746a; line-height: 1.6; }
+            .apk-releases .apk-list { display: grid; gap: 13px; }
+            .apk-releases .apk-entry { display: flex; align-items: center; justify-content: space-between; gap: 25px; padding: 23px 26px; border: 1px solid #dbe9df; border-radius: 20px; background: #fff; box-shadow: 0 9px 28px rgba(18, 76, 50, .045); }
+            .apk-releases .apk-details { min-width: 0; }
+            .apk-releases .apk-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-bottom: 9px; }
+            .apk-releases .apk-date { color: #74857c; font-size: 13px; font-variant-numeric: tabular-nums; }
+            .apk-releases .apk-version { color: #194b35; font-size: 16px; font-weight: 800; }
+            .apk-releases .apk-beta { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid #f4cb85; border-radius: 100px; background: #fff5dd; color: #915400; font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+            .apk-releases .apk-description { margin: 0; color: #43574d; line-height: 1.55; overflow-wrap: anywhere; }
+            .apk-releases .apk-download { display: inline-flex; justify-content: center; align-items: center; flex-shrink: 0; gap: 10px; padding: 13px 19px; border-radius: 12px; background: #176344; color: #fff !important; font-weight: 700; text-decoration: none !important; transition: background .2s, transform .2s; }
+            .apk-releases .apk-download:hover { background: #0c4b31; transform: translateY(-2px); }
+            .apk-releases .apk-download:focus-visible { outline: 3px solid #87cbaa; outline-offset: 3px; }
+            @media (max-width: 650px) {
+                .apk-releases { padding: 48px 0; }
+                .apk-releases .apk-wrap { padding: 0 18px; }
+                .apk-releases .apk-entry { align-items: stretch; flex-direction: column; gap: 17px; padding: 20px; }
+                .apk-releases .apk-download { width: 100%; }
+                .apk-releases .apk-heading-icon { flex-basis: 48px; height: 48px; font-size: 23px; }
+            }
+        </style>
+        <div class="apk-wrap">
+            <div class="apk-heading">
+                <span class="apk-heading-icon" aria-hidden="true"><i class="bi bi-android2"></i></span>
+                <div>
+                    <p class="apk-kicker">Android · APK</p>
+                    <h2 id="apk-releases-title">{% if is_en %}Download Android builds{% else %}Сборки Android-приложения{% endif %}</h2>
+                </div>
+            </div>
+            <p class="apk-intro">{% if is_en %}Release archive — choose a version and open its download link.{% else %}Архив релизов — выберите версию и перейдите по ссылке для скачивания.{% endif %}</p>
+            <div class="apk-list">
+                {% for release in apk_releases %}
+                    {% set release_description = release.description_en if is_en else release.description_ru %}
+                    {% set beta_release = 'бета' in (release.description_ru|default('', true)|lower) or 'beta' in (release.description_ru|default('', true)|lower) or 'бета' in (release.description_en|default('', true)|lower) or 'beta' in (release.description_en|default('', true)|lower) %}
+                    <article class="apk-entry">
+                        <div class="apk-details">
+                            <div class="apk-meta">
+                                <time class="apk-date">{{ release.date }}</time>
+                                <span class="apk-version">v{{ release.version }}</span>
+                                {% if beta_release %}<span class="apk-beta"><i class="bi bi-flask" aria-hidden="true"></i> BETA</span>{% endif %}
+                            </div>
+                            {% if release_description %}<p class="apk-description">{{ release_description }}</p>{% endif %}
+                        </div>
+                        <a class="apk-download" href="{{ release.url }}" target="_blank" rel="noopener noreferrer" aria-label="{% if is_en %}Download version{% else %}Скачать версию{% endif %} {{ release.version }}">
+                            <i class="bi bi-download" aria-hidden="true"></i> {% if is_en %}Download APK{% else %}Скачать APK{% endif %}
+                            <i class="bi bi-arrow-up-right" aria-hidden="true"></i>
+                        </a>
+                    </article>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
+
+    <section class="resources section-pad-sm">
+        <div class="landing-container resources-grid">
+            <div>
+                <h3>{% if is_en %}Documentation & code{% else %}Документация и код{% endif %}</h3>
+                <a href="{{ 'https://nodatxt.readthedocs.io/en/latest/' if is_en else 'https://nodalogic-txt-ru.readthedocs.io/ru/latest/' }}" target="_blank" rel="noopener">{% if is_en %}NodaLogic documentation{% else %}Документация NodaLogic{% endif %}</a>
+                <a href="https://github.com/dvdocumentation/nodalogic" target="_blank" rel="noopener">GitHub</a>
+                <a class="app-link" href="https://play.google.com/store/apps/details?id=com.dv.noda&pcampaignid=web_share" target="_blank" rel="noopener"><i class="bi bi-google-play"></i> {% if is_en %}Android app on Google Play{% else %}Android-приложение в Google Play{% endif %}</a>
+            </div>
+            <div>
+                <h3>{% if is_en %}Articles{% else %}Статьи{% endif %}</h3>
+                <a href="https://infostart.ru/1c/articles/2614496/" target="_blank" rel="noopener">Infostart · 1C integration</a>
+                <a href="https://infostart.ru/1c/articles/2714577/" target="_blank" rel="noopener">Infostart · Sync & online handlers</a>
+                <a href="https://infostart.ru/1c/articles/2635403/" target="_blank" rel="noopener">Infostart · NodaScript</a>
+                <a href="https://infostart.ru/1c/tools/2682705/" target="_blank" rel="noopener">Infostart · Process communicator</a>
+            </div>
+            <div>
+                <h3>{% if is_en %}Community{% else %}Сообщество{% endif %}</h3>
+                <a href="https://www.youtube.com/playlist?list=PLsvLZ7PBE6oJ8WMgAMa9UJctlXDE8UJIz" target="_blank" rel="noopener"><i class="bi bi-youtube"></i> YouTube</a>
+                <a href="https://t.me/thinknodes_ru" target="_blank" rel="noopener"><i class="bi bi-telegram"></i>{% if is_en %} Telegram news channel{% else %} Новостной канал{% endif %}</a>
+                <a href="https://t.me/nodalogic_dev" target="_blank" rel="noopener"><i class="bi bi-telegram"></i>{% if is_en %} Developer community{% else %} Чат разработчиков{% endif %}</a>
+            </div>
+        </div>
+    </section>
+</main>
+
+<footer class="site-footer">
+    <div class="landing-container footer-row footer-row-legal">
+        <div class="footer-brand-block">
+            <div class="footer-brand-line"><strong>NodaLogic</strong><span>© {{ current_year }}</span></div>
+            <div class="footer-owner">Воронцов Дмитрий Игоревич · ИНН: 744903672936 · <a href="{{ url_for('public_offer') }}">{% if is_en %}Public offer{% else %}Публичная оферта{% endif %}</a></div>
+        </div>
+        <div>{% if is_en %}Compact business logic. Open architecture. Your configuration.{% else %}Компактная бизнес-логика. Открытая архитектура. Ваша конфигурация.{% endif %}</div>
+    </div>
+</footer>
+
+<div class="image-lightbox" data-lightbox aria-hidden="true">
+    <button type="button" class="lightbox-close" data-lightbox-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
+    <div class="lightbox-backdrop" data-lightbox-close></div>
+    <div class="lightbox-dialog">
+        <img src="" alt="" data-lightbox-image>
+        <div class="lightbox-caption" data-lightbox-caption></div>
+    </div>
+</div>
+
+<div class="auth-modal" data-auth-modal aria-hidden="true">
+    <div class="auth-backdrop" data-close-auth></div>
+    <div class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+        <button type="button" class="auth-close" data-close-auth aria-label="Close"><i class="bi bi-x-lg"></i></button>
+        <div class="auth-brand">NodaLogic</div>
+        <h2 id="auth-title">{% if is_en %}Open the workspace{% else %}Войти в рабочее пространство{% endif %}</h2>
+        <p>{% if is_en %}Sign in to the configurator or create an account.{% else %}Авторизуйтесь в конфигураторе или создайте учётную запись.{% endif %}</p>
+        <div class="auth-tabs" role="tablist">
+            <button type="button" class="active" data-auth-tab="login">{% if is_en %}Sign in{% else %}Войти{% endif %}</button>
+            <button type="button" data-auth-tab="register">{% if is_en %}Register{% else %}Регистрация{% endif %}</button>
+        </div>
+        <div class="auth-panel active" data-auth-panel="login">
+            <form method="POST" action="{{ url_for('index', lang=landing_lang) }}">
+                <input type="hidden" name="form_type" value="login">
+                <input type="hidden" name="next" value="{{ '/demo-products' if request.args.get('next') == '/demo-products' or request.form.get('next') == '/demo-products' else '' }}">
+                <input type="hidden" name="landing_lang" value="{{ landing_lang }}">
+                <label><span>Email</span><input type="email" name="email" autocomplete="email" required></label>
+                <label><span>{% if is_en %}Password{% else %}Пароль{% endif %}</span><input type="password" name="password" autocomplete="current-password" required></label>
+                <div class="auth-help-row"><a href="{{ url_for('forgot_password', lang=landing_lang) }}">{% if is_en %}Forgot password?{% else %}Забыли пароль?{% endif %}</a></div>
+                <button type="submit" class="button button-primary full-width">{% if is_en %}Sign in{% else %}Войти{% endif %}</button>
+            </form>
+        </div>
+        <div class="auth-panel" data-auth-panel="register">
+            <form method="POST" action="{{ url_for('index', lang=landing_lang) }}">
+                <input type="hidden" name="form_type" value="register">
+                <input type="hidden" name="next" value="{{ '/demo-products' if request.args.get('next') == '/demo-products' or request.form.get('next') == '/demo-products' else '' }}">
+                <input type="hidden" name="landing_lang" value="{{ landing_lang }}">
+                <label><span>Email</span><input type="email" name="email" autocomplete="email" required></label>
+                <label><span>{% if is_en %}Password{% else %}Пароль{% endif %}</span><input type="password" name="password" autocomplete="new-password" minlength="6" required></label>
+                <button type="submit" class="button button-dark full-width">{% if is_en %}Create account{% else %}Создать аккаунт{% endif %}</button>
+            </form>
         </div>
     </div>
 </div>
 
+<script>
+    window.NODALOGIC_LANDING = {
+        openAuth: {{ 'true' if open_auth else 'false' }},
+        authTab: {{ (auth_tab or 'login')|tojson }}
+    };
+</script>
+<script src="{{ url_for('static', filename='landing.js') }}"></script>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-{% endblock %}
+<style>
+.infostart-custom-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 32px; /* Большие внутренние отступы для заметности */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    color: #ffffff !important;
+    text-decoration: none !important;
+    background: linear-gradient(135deg, #005691 0%, #007cc3 100%); /* Фирменный градиент */
+    border: none;
+    border-radius: 50px; /* Идеальное закругление по краям */
+    box-shadow: 0 4px 15px rgba(0, 86, 145, 0.25); /* Эффект объема */
+    transition: all 0.25s ease-in-out;
+    cursor: pointer;
+}
+
+/* Эффекты при наведении мыши */
+.infostart-custom-btn:hover {
+    background: linear-gradient(135deg, #004575 0%, #006ba8 100%);
+    box-shadow: 0 6px 20px rgba(0, 86, 145, 0.4);
+    transform: translateY(-2px); /* Кнопка слегка приподнимается */
+}
+
+/* Эффект при клике */
+.infostart-custom-btn:active {
+    transform: translateY(1px);
+    box-shadow: 0 2px 8px rgba(0, 86, 145, 0.3);
+}
+
+/* Стилизация иконки */
+.infostart-btn-icon {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.infostart-btn-text {
+    line-height: 1;
+}
+</style>
+
+</body>
+</html>

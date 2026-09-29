@@ -47,7 +47,7 @@
                 <span>{{ _('Language') }}:</span>
                 {% for lang_code, lang_name in LANGUAGES.items() %}
                     {% if lang_code != get_locale() %}
-                        <a href="{{ url_for('set_language', lang=lang_code) }}">
+                        <a href="{{ url_for('demo_products_page', lang=lang_code) if request.endpoint == 'demo_products_page' else url_for('set_language', lang=lang_code) }}">
                             {{ lang_name }}
                         </a>
                     {% else %}
