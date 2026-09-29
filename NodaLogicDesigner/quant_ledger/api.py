@@ -50,7 +50,6 @@ INT64_MAX = 2 ** 63 - 1
 
 BALANCE_TABLE = "quant_ledger_balance"
 MOVEMENT_TABLE = "quant_ledger_movement"
-API_VERSION = 2
 
 _ENGINE_OVERRIDE = None
 
@@ -105,6 +104,13 @@ class MoveResult:
     # Backward-compatible field for old handlers. Reposting is never a no-op,
     # therefore this value is always False in the new posting model.
     already_applied: bool = False
+
+
+@dataclass(frozen=True)
+class RemoveResult:
+    scope: str
+    operation_id: str
+    removed_movements: int = 0
 
 
 @dataclass(frozen=True)
@@ -612,6 +618,29 @@ class LedgerTransaction:
             self._failure = exc
             raise
 
+    def remove(
+        self,
+        operation_id: str,
+        *,
+        nonnegative_resources: Optional[Iterable[int]] = None,
+    ) -> RemoveResult:
+        """Remove one logical movement and reverse its balance delta atomically."""
+        if self._connection is None:
+            raise QuantLedgerError("Transaction is not open")
+        if self._failed:
+            raise QuantLedgerError("Transaction is marked for rollback after a failed operation")
+        try:
+            return _apply_remove(
+                self._connection,
+                scope=self.scope,
+                operation_id=operation_id,
+                nonnegative_resources=nonnegative_resources,
+            )
+        except Exception as exc:
+            self._failed = True
+            self._failure = exc
+            raise
+
 
 def transaction(*, scope: Optional[str] = None) -> LedgerTransaction:
     return LedgerTransaction(scope=scope)
@@ -666,6 +695,157 @@ def move(
             allow_negative=allow_negative,
             nonnegative_resources=nonnegative_resources,
         )
+
+
+def remove(
+    operation_id: str,
+    *,
+    nonnegative_resources: Optional[Iterable[int]] = None,
+    scope: Optional[str] = None,
+    tx: Optional[LedgerTransaction] = None,
+) -> RemoveResult:
+    """Remove one logical movement and reverse its contribution to balances.
+
+    The operation is identified by ``operation_id`` inside the current scope.
+    If the movement does not exist, the call is a no-op.  By default resource 0
+    may not become negative; pass ``nonnegative_resources`` to validate other
+    resource indexes as well.
+    """
+    if tx is not None:
+        resolved = _resolve_scope(scope) if scope else tx.scope
+        if resolved != tx.scope:
+            raise QuantLedgerError("remove scope differs from transaction scope")
+        return tx.remove(operation_id, nonnegative_resources=nonnegative_resources)
+    with transaction(scope=scope) as local_tx:
+        return local_tx.remove(operation_id, nonnegative_resources=nonnegative_resources)
+
+
+def _apply_remove(
+    connection,
+    *,
+    scope: str,
+    operation_id: str,
+    nonnegative_resources: Optional[Iterable[int]],
+) -> RemoveResult:
+    operation_id = str(operation_id or "").strip()
+    if not operation_id:
+        raise QuantLedgerError("operation_id is required")
+    if len(operation_id) > 255:
+        raise QuantLedgerError("operation_id is too long")
+
+    checks = _nonnegative_indices(
+        allow_negative=False,
+        nonnegative_resources=nonnegative_resources,
+    )
+    resource_names = _resource_columns()
+    cur = connection.cursor()
+    cur.execute(
+        f"""
+        SELECT id, space, quant, quant_hash, selector_quant, selector_hash,
+               {', '.join(resource_names)}
+        FROM {MOVEMENT_TABLE}
+        WHERE scope = ? AND operation_id = ?
+        ORDER BY id
+        """,
+        (scope, operation_id),
+    )
+    old_rows = cur.fetchall()
+    if not old_rows:
+        return RemoveResult(scope=scope, operation_id=operation_id, removed_movements=0)
+
+    affected: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+    for old in old_rows:
+        old_space = str(old[1] or "")
+        old_quant = str(old[2] or "")
+        old_quant_hash = str(old[3] or "")
+        old_selector = str(old[4] or "")
+        old_selector_hash = str(old[5] or "")
+        if _hash(old_quant) != old_quant_hash:
+            raise OperationConflictError("Quant hash collision detected for existing movement")
+        if _hash(old_selector) != old_selector_hash:
+            raise OperationConflictError("Selector hash collision detected for existing movement")
+        key = (old_space, old_quant_hash, old_quant)
+        bucket = affected.get(key)
+        if bucket is None:
+            bucket = {
+                "space": old_space,
+                "quant": old_quant,
+                "quant_hash": old_quant_hash,
+                "selector_quant": old_selector,
+                "selector_hash": old_selector_hash,
+                "delta": [0] * MAX_RESOURCES,
+            }
+            affected[key] = bucket
+        elif bucket["selector_quant"] != old_selector:
+            raise SelectorConflictError("One full quant cannot have different selector_quant values")
+        old_resources = [int(v or 0) for v in old[6:6 + MAX_RESOURCES]]
+        for index, value in enumerate(old_resources):
+            bucket["delta"][index] -= value
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    assignments = ", ".join(
+        f"resource{i} = resource{i} + ?" for i in range(1, MAX_RESOURCES + 1)
+    )
+
+    for bucket in affected.values():
+        cur.execute(
+            f"""
+            SELECT quant, selector_quant, {', '.join(resource_names)}
+            FROM {BALANCE_TABLE}
+            WHERE scope = ? AND space = ? AND quant_hash = ?
+            """,
+            (scope, bucket["space"], bucket["quant_hash"]),
+        )
+        balance_row = cur.fetchone()
+        if balance_row is None:
+            raise QuantLedgerError("Cannot remove movement because its balance row is missing")
+        if str(balance_row[0] or "") != bucket["quant"]:
+            raise OperationConflictError("Quant hash collision detected for balance")
+        if str(balance_row[1] or "") != bucket["selector_quant"]:
+            raise SelectorConflictError("selector_quant must be immutable for an existing scope + space + quant")
+
+        current = [int(v or 0) for v in balance_row[2:2 + MAX_RESOURCES]]
+        final_values = []
+        for index, (old_value, delta) in enumerate(zip(current, bucket["delta"])):
+            final_value = old_value + delta
+            if final_value < INT64_MIN or final_value > INT64_MAX:
+                raise ResourceError(f"Resource {index} overflow")
+            final_values.append(final_value)
+        for index in checks:
+            if final_values[index] < 0:
+                raise NegativeBalanceError(
+                    scope=scope,
+                    space=bucket["space"],
+                    quant_value=bucket["quant"],
+                    resource_index=index,
+                    attempted=_from_scaled(final_values[index]),
+                )
+        bucket["final"] = final_values
+
+    for bucket in affected.values():
+        cur.execute(
+            f"""
+            UPDATE {BALANCE_TABLE}
+            SET {assignments}, version = version + 1, updated_at = ?
+            WHERE scope = ? AND space = ? AND quant_hash = ? AND quant = ?
+            """,
+            (
+                *bucket["delta"], now, scope, bucket["space"],
+                bucket["quant_hash"], bucket["quant"],
+            ),
+        )
+        if cur.rowcount != 1:
+            raise QuantLedgerError("Balance update failed")
+
+    cur.execute(
+        f"DELETE FROM {MOVEMENT_TABLE} WHERE scope = ? AND operation_id = ?",
+        (scope, operation_id),
+    )
+    return RemoveResult(
+        scope=scope,
+        operation_id=operation_id,
+        removed_movements=len(old_rows),
+    )
 
 
 def _apply_move(
@@ -1276,7 +1456,6 @@ movements = select_movements
 
 
 __all__ = [
-    "API_VERSION",
     "MAX_RESOURCES",
     "RESOURCE_SCALE_DIGITS",
     "QuantLedgerError",
@@ -1287,6 +1466,7 @@ __all__ = [
     "OperationConflictError",
     "SelectorConflictError",
     "MoveResult",
+    "RemoveResult",
     "BalanceRow",
     "MovementRow",
     "StatementRow",
@@ -1300,6 +1480,7 @@ __all__ = [
     "transaction",
     "LedgerTransaction",
     "move",
+    "remove",
     "get_balance",
     "balance",
     "select_balances",
