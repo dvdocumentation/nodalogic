@@ -17,6 +17,7 @@ import pickle
 import sqlite3
 import os
 import re
+import secrets
 import smtplib
 from email.message import EmailMessage
 import traceback
@@ -55,6 +56,7 @@ from sqlalchemy.orm import selectinload
 import sqlalchemy as sa
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 import pytz
 from flask_babel import Babel, _, format_datetime, format_date
 from sqlitedict import SqliteDict
@@ -821,7 +823,10 @@ def _configuration_is_installed_demo_copy(config) -> bool:
     if bool(getattr(config, 'demo_product', False)) or bool(getattr(config, 'is_system', False)):
         return False
     if str(getattr(config, 'demo_source_uid', '') or '').strip():
-        return True
+        # Source-available demos intentionally expose their installed configuration in
+        # Designer. ``demo_install_allowed`` is copied from the source and acts
+        # as the durable marker for such source-available copies.
+        return not bool(getattr(config, 'demo_install_allowed', False))
     content_uid = str(getattr(config, 'content_uid', '') or '').strip()
     config_uid = str(getattr(config, 'uid', '') or '').strip()
     owner_id = getattr(config, 'user_id', None)
@@ -3739,6 +3744,7 @@ def edit_class(class_id):
         class_obj.show_tag_cloud = 'show_tag_cloud' in request.form
         class_obj.hide_mobile_client = 'hide_mobile_client' in request.form
         class_obj.hide_web_client = 'hide_web_client' in request.form
+        class_obj.allow_client_extensions = 'allow_client_extensions' in request.form
         class_obj.dashboard_enabled = 'dashboard_enabled' in request.form
         class_obj.dashboard_width = (request.form.get('dashboard_width') or '100').strip()
         if class_obj.dashboard_width not in ('100', '50', '25'):
@@ -3981,6 +3987,7 @@ def add_method(class_id):
         source='internal',
         engine=request.form['engine'],
         code=method_name,
+        ngenie_description=request.form.get('ngenie_description', ''),
         class_id=class_id
     )
     
@@ -4064,6 +4071,7 @@ def edit_method(method_id):
         method.source = request.form['source']
         method.engine = request.form['engine']
         method.code = request.form['code']
+        method.ngenie_description = request.form.get('ngenie_description', '')
         db.session.commit()
         flash(_('Method updated successfully'), 'success')
         return redirect(url_for('edit_class', class_id=method.class_id))
@@ -4074,7 +4082,8 @@ def edit_method(method_id):
             'name': method.name,
             'source': method.source,
             'engine': method.engine,
-            'code': method.code
+            'code': method.code,
+            'ngenie_description': getattr(method, 'ngenie_description', '') or ''
         })
     
     return render_template('edit_method.html', method=method)
@@ -4494,10 +4503,13 @@ def export_config(uid):
         'nodes_server_handlers': config.nodes_server_handlers,  
         'nodes_server_handlers_meta': config.nodes_server_handlers_meta,  
         'ngenie_prompt': getattr(config, 'ngenie_prompt', '') or '',
+        'description': getattr(config, 'description', '') or '',
         'ngenie_code_locked': bool(getattr(config, 'ngenie_code_locked', False)),
         'ngenie_code_instruction': getattr(config, 'ngenie_code_instruction', '') or '',
         'ngenie_code_example': getattr(config, 'ngenie_code_example', '') or '',
+        'demo_language': getattr(config, 'demo_language', '') or '',
         'demo_product': bool(getattr(config, 'demo_product', False)),
+        'demo_install_allowed': bool(getattr(config, 'demo_install_allowed', False)),
         'version': getattr(config, 'version', '00.00.01'),
         "NodaLogicFormat": NL_FORMAT,
         "NodaLogicType": "ANDROID_SERVER",
@@ -4526,6 +4538,7 @@ def export_config(uid):
                 'mobile_print_enabled': bool(getattr(c, 'mobile_print_enabled', False)),
                 'hide_mobile_client': bool(getattr(c, 'hide_mobile_client', False)),
                 'hide_web_client': bool(getattr(c, 'hide_web_client', False)),
+                'allow_client_extensions': getattr(c, 'allow_client_extensions', True) is not False,
                 'dashboard_enabled': bool(getattr(c, 'dashboard_enabled', False)),
                 'dashboard_width': str(getattr(c, 'dashboard_width', '') or '100'),
                 'dashboard_top': bool(getattr(c, 'dashboard_top', False)),
@@ -4554,11 +4567,13 @@ def export_config(uid):
                 'hidden': c.hidden,
                 'hide_mobile_client': bool(getattr(c, 'hide_mobile_client', False)),
                 'hide_web_client': bool(getattr(c, 'hide_web_client', False)),
+                'allow_client_extensions': getattr(c, 'allow_client_extensions', True) is not False,
                 'methods': [{
                     'name': m.name,
                     'source': m.source,
                     'engine': m.engine,
-                    'code': m.code
+                    'code': m.code,
+                    'ngenie_description': getattr(m, 'ngenie_description', '') or ''
                 } for m in c.methods],
                 'events': [
                     {
@@ -4602,7 +4617,8 @@ def export_config(uid):
                 'code': s.code,
                 'commands': s.commands,
                 'hide_mobile_client': bool(getattr(s, 'hide_mobile_client', False)),
-                'hide_web_client': bool(getattr(s, 'hide_web_client', False))
+                'hide_web_client': bool(getattr(s, 'hide_web_client', False)),
+                'allow_client_extensions': getattr(s, 'allow_client_extensions', True) is not False
             } for s in config.sections
         ],
         "servers": [
@@ -4760,9 +4776,17 @@ def import_config_new():
             existing_config.nodes_server_handlers = data.get('nodes_server_handlers', existing_config.nodes_server_handlers)
             existing_config.nodes_server_handlers_meta = data.get('nodes_server_handlers_meta', existing_config.nodes_server_handlers_meta)
             existing_config.ngenie_prompt = data.get('ngenie_prompt', getattr(existing_config, 'ngenie_prompt', '') or '')
+            if hasattr(existing_config, 'description'):
+                existing_config.description = data.get('description', getattr(existing_config, 'description', '') or '') or ''
+            existing_config.demo_language = _normalize_demo_language(data.get('demo_language', existing_config.demo_language))
             if hasattr(existing_config, 'demo_product'):
                 existing_config.demo_product = (
                     bool(data.get('demo_product', False))
+                    if _current_user_has_admin_login() else False
+                )
+            if hasattr(existing_config, 'demo_install_allowed'):
+                existing_config.demo_install_allowed = (
+                    bool(data.get('demo_install_allowed', False))
                     if _current_user_has_admin_login() else False
                 )
             if hasattr(existing_config, 'ngenie_code_locked'):
@@ -4816,11 +4840,17 @@ def import_config_new():
                 common_layouts=data.get('CommonLayouts', data.get('common_layouts', [])) or [],
                 profile_templates=data.get('profile_templates', data.get('ProfileTemplates', [])) or [],
                 ngenie_prompt=data.get('ngenie_prompt', ''),
+                description=data.get('description', ''),
                 ngenie_code_locked=_ngenie_code_bool(data.get('ngenie_code_locked')),
                 ngenie_code_instruction=data.get('ngenie_code_instruction', ''),
                 ngenie_code_example=data.get('ngenie_code_example', ''),
+                demo_language=_normalize_demo_language(data.get('demo_language')),
                 demo_product=(
                     bool(data.get('demo_product', False))
+                    if _current_user_has_admin_login() else False
+                ),
+                demo_install_allowed=(
+                    bool(data.get('demo_install_allowed', False))
                     if _current_user_has_admin_login() else False
                 )
             )
@@ -4892,6 +4922,7 @@ def import_config_new():
                 hidden=class_data.get('hidden', False),
                 hide_mobile_client=bool(class_data.get('hide_mobile_client', class_data.get('hideMobileClient', False))),
                 hide_web_client=bool(class_data.get('hide_web_client', class_data.get('hideWebClient', False))),
+                allow_client_extensions=bool(class_data.get('allow_client_extensions', class_data.get('allowClientExtensions', True))),
                 config_id=config_to_use.id
             )
             db.session.add(new_class)
@@ -4907,6 +4938,7 @@ def import_config_new():
                     source=method_data.get('source', 'internal'),
                     engine=method_data['engine'],
                     code=method_data['code'],
+                    ngenie_description=method_data.get('ngenie_description', method_data.get('ngenieDescription', '')),
                     class_id=new_class.id
                 )
                 db.session.add(new_method)
@@ -4975,6 +5007,7 @@ def import_config_new():
                 commands=section_data.get('commands', ''),
                 hide_mobile_client=bool(section_data.get('hide_mobile_client', section_data.get('hideMobileClient', False))),
                 hide_web_client=bool(section_data.get('hide_web_client', section_data.get('hideWebClient', False))),
+                allow_client_extensions=bool(section_data.get('allow_client_extensions', section_data.get('allowClientExtensions', True))),
                 config_id=config_to_use.id
             )
             db.session.add(new_section)
@@ -5155,12 +5188,16 @@ def apply_full_config_from_json(config, data):
     config.version = data.get('version', config.version)
     if 'ngenie_prompt' in data:
         config.ngenie_prompt = data.get('ngenie_prompt') or ''
+    if 'description' in data and hasattr(config, 'description'):
+        config.description = data.get('description') or ''
     if 'ngenie_code_instruction' in data and hasattr(config, 'ngenie_code_instruction'):
         config.ngenie_code_instruction = data.get('ngenie_code_instruction') or ''
     if 'ngenie_code_example' in data and hasattr(config, 'ngenie_code_example'):
         config.ngenie_code_example = data.get('ngenie_code_example') or ''
     if 'ngenie_code_locked' in data and hasattr(config, 'ngenie_code_locked'):
         config.ngenie_code_locked = _ngenie_code_bool(data.get('ngenie_code_locked'))
+    if 'demo_language' in data:
+        config.demo_language = _normalize_demo_language(data.get('demo_language'))
     if hasattr(config, 'demo_product'):
         if _current_user_has_admin_login():
             if 'demo_product' in data:
@@ -5168,6 +5205,12 @@ def apply_full_config_from_json(config, data):
         else:
             # A non-admin import/generation must never publish a configuration.
             config.demo_product = False
+    if hasattr(config, 'demo_install_allowed'):
+        if _current_user_has_admin_login():
+            if 'demo_install_allowed' in data:
+                config.demo_install_allowed = bool(data.get('demo_install_allowed'))
+        else:
+            config.demo_install_allowed = False
     config.nodes_handlers = data.get('nodes_handlers', config.nodes_handlers)
     config.nodes_handlers = _rewrite_android_handlers_instance_refs_b64(
         config.nodes_handlers,
@@ -5256,6 +5299,7 @@ def apply_full_config_from_json(config, data):
                 hidden=class_data.get('hidden', False),
                 hide_mobile_client=bool(class_data.get('hide_mobile_client', class_data.get('hideMobileClient', False))),
                 hide_web_client=bool(class_data.get('hide_web_client', class_data.get('hideWebClient', False))),
+                allow_client_extensions=bool(class_data.get('allow_client_extensions', class_data.get('allowClientExtensions', True))),
                 config_id=config.id
             )
         db.session.add(new_class)
@@ -5272,6 +5316,7 @@ def apply_full_config_from_json(config, data):
                 source=method_data.get('source', 'internal'),
                 engine=method_data['engine'],
                 code=method_data['code'],
+                ngenie_description=method_data.get('ngenie_description', method_data.get('ngenieDescription', '')),
                 class_id=new_class.id
             )
             db.session.add(new_method)
@@ -5352,6 +5397,7 @@ def apply_full_config_from_json(config, data):
             commands=section_data.get('commands', ''),
             hide_mobile_client=bool(section_data.get('hide_mobile_client', section_data.get('hideMobileClient', False))),
             hide_web_client=bool(section_data.get('hide_web_client', section_data.get('hideWebClient', False))),
+            allow_client_extensions=bool(section_data.get('allow_client_extensions', section_data.get('allowClientExtensions', True))),
             config_id=config.id
         )
         db.session.add(new_section)
@@ -6405,7 +6451,7 @@ def _ngenie_preserve_reference_surface(reference_cfg: dict, candidate_cfg: dict)
         for key in (
             "name", "section", "section_code", "has_storage", "display_name",
             "record_view", "cover_image", "class_type", "projection_type",
-            "hidden", "hide_mobile_client", "hide_web_client", "include_in_contract",
+            "hidden", "hide_mobile_client", "hide_web_client", "allow_client_extensions", "include_in_contract",
             "print_template_type", "print_target_classes", "print_html_template",
         ):
             if key in ref_cls:
@@ -9800,6 +9846,7 @@ def save_method(method_id):
     method.source = request.form['source']
     method.engine = request.form['engine']
     method.code = request.form['name']
+    method.ngenie_description = request.form.get('ngenie_description', '')
     
    
     function_body = request.form['function_body']
@@ -9885,12 +9932,17 @@ def update_config(uid):
         config.server_name = request.form['server_name']    
     if 'ngenie_prompt' in request.form:
         config.ngenie_prompt = request.form.get('ngenie_prompt') or ''
+    if 'description' in request.form and hasattr(config, 'description'):
+        config.description = request.form.get('description') or ''
     if (
         _current_user_has_admin_login()
         and 'demo_product_present' in request.form
         and hasattr(config, 'demo_product')
     ):
+        config.demo_language = _normalize_demo_language(request.form.get('demo_language'))
         config.demo_product = 'demo_product' in request.form
+        if hasattr(config, 'demo_install_allowed'):
+            config.demo_install_allowed = 'demo_install_allowed' in request.form if config.demo_product else False
     if 'profile_templates_json' in request.form and hasattr(config, 'profile_templates'):
         raw_profile_templates = request.form.get('profile_templates_json') or '[]'
         try:
@@ -10046,7 +10098,8 @@ def get_section_json():
         'name': section.name,
         'commands': section.commands,
         'hide_mobile_client': bool(getattr(section, 'hide_mobile_client', False)),
-        'hide_web_client': bool(getattr(section, 'hide_web_client', False))
+        'hide_web_client': bool(getattr(section, 'hide_web_client', False)),
+        'allow_client_extensions': getattr(section, 'allow_client_extensions', True) is not False
     })
 
 @_routes.route('/edit-dataset/<dataset_id>', methods=['GET', 'POST'])
@@ -10129,6 +10182,7 @@ def add_section(config_uid):
     commands = request.form.get('commands', '')
     hide_mobile_client = 'hide_mobile_client' in request.form
     hide_web_client = 'hide_web_client' in request.form
+    allow_client_extensions = 'allow_client_extensions' in request.form
     
     if code and name:
         new_section = ConfigSection(
@@ -10137,6 +10191,7 @@ def add_section(config_uid):
             commands=commands,
             hide_mobile_client=hide_mobile_client,
             hide_web_client=hide_web_client,
+            allow_client_extensions=allow_client_extensions,
             config_id=config.id
         )
         db.session.add(new_section)
@@ -10158,6 +10213,7 @@ def update_section(section_id):
     section.commands = request.form.get('commands', '')
     section.hide_mobile_client = 'hide_mobile_client' in request.form
     section.hide_web_client = 'hide_web_client' in request.form
+    section.allow_client_extensions = 'allow_client_extensions' in request.form
     section.config.last_modified = datetime.now(timezone.utc)
     db.session.commit()
     
@@ -10616,7 +10672,7 @@ UI_COMPONENT_TEMPLATES = OrderedDict([
     ('Switch', '{"type":"Switch","caption":"Setting 1","id":"sw1","value":"@sw1"}'),
     ('CheckBox', '{"type":"CheckBox","caption":"My checkbox","id":"cb1","value":"@cb1"}'),
     ('Input', '{"type":"Input","caption":"My input","id":"my_input1","input_type":"number","value":"@my_input1"}'),
-    ('Table(flat)', '{"type":"Table","id":"tab4","value":lines,"table":True,"table_header":["#|n|1","Position|position|7","Qty|qty|1"]}'),
+    ('Table(flat)', '{"type":"Table","id":"tab4","value":lines,"table":true,"table_header":["#|n|1","Position|position|7","Qty|qty|1"]}'),
     ('Table(list)', '{"type":"Table","id":"table1","layout":tab1_layout,"value":"@lines"}'),
     ('Tabs', '{"type":"Tabs","value":[{"type":"Tab","id":"tab1","caption":"My tab1","layout":[]}]}'),
     ('DatasetField', '{"type":"DatasetField","dataset":"goods","value":"@product"}'),
@@ -10631,6 +10687,7 @@ UI_COMPONENT_TEMPLATES = OrderedDict([
     ('HorizontalScroll', '{"type":"HorizontalScroll","value":[]}'),
     ('Parameters', '{"type":"Parameters","height":0,"w":1}'),
     ('ActiveCV', ' [ {"type":"Parameters","height":0,"w":1}, {"type":"ActiveCV","id":"active_cv","width":-1,"height":-1} ],   [ {"type":"Parameters","height":0,"w":1}, {"type":"VerticalLayout","id":"cv_info_container","width":-1,"height":-1,"value":[]} ]'),
+    ('YandexMap', '{"type":"YandexMap","id":"my_map","height":260,"events":true}'),
 ])
 
 WIZARD_ACTIVE_TEMPLATES = OrderedDict([
@@ -10729,6 +10786,7 @@ def _enforce_web_access_modes():
     # Common authenticated pages that do not expose configuration internals.
     if endpoint in {
         "index", "public_offer", "logout", "choose_mode", "static", "set_language",
+        "demo_products_page", "article_page", "article_preview", "article_asset",
         "edit_profile", "update_device_token",
     }:
         return
@@ -11959,8 +12017,568 @@ def _landing_language() -> str:
     return 'en' if locale.startswith('en') else 'ru'
 
 
+_ARTICLE_LANGS = {'ru', 'en'}
+_ARTICLE_SLUG_RE = re.compile(r'^[a-z0-9][a-z0-9._-]{0,119}$', re.I)
+
+
+def _articles_root() -> Path:
+    # Filesystem-backed public articles. Copying a folder publishes it.
+    return Path(current_app.root_path) / 'articles'
+
+
+def _article_folder(lang: str, slug: str):
+    lang = str(lang or '').strip().lower()
+    slug = str(slug or '').strip()
+    if lang not in _ARTICLE_LANGS or not _ARTICLE_SLUG_RE.fullmatch(slug):
+        return None
+    folder = _articles_root() / lang / slug
+    try:
+        folder.resolve().relative_to((_articles_root() / lang).resolve())
+    except Exception:
+        return None
+    return folder
+
+
+def _load_article_meta(lang: str, slug: str):
+    folder = _article_folder(lang, slug)
+    if not folder or not folder.is_dir():
+        return None
+    article_path = folder / 'article.html'
+    meta_path = folder / 'meta.json'
+    if not article_path.is_file() or not meta_path.is_file():
+        return None
+    try:
+        raw = json.loads(meta_path.read_text(encoding='utf-8'))
+    except Exception as exc:
+        current_app.logger.warning('Skipping article %s/%s: invalid meta.json: %s', lang, slug, exc)
+        return None
+    if not isinstance(raw, dict):
+        return None
+
+    title = str(raw.get('title') or slug).strip()[:500]
+    announcement = str(raw.get('announcement') or '').strip()[:2000]
+    author = str(raw.get('author') or '').strip()[:200]
+    published_at = str(raw.get('published_at') or '').strip()[:40]
+    try:
+        sort_dt = datetime.fromisoformat(published_at.replace('Z', '+00:00')) if published_at else datetime.min
+        if sort_dt.tzinfo is None:
+            sort_dt = sort_dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        sort_dt = datetime.min.replace(tzinfo=timezone.utc)
+
+    preview_path = folder / 'preview.png'
+    try:
+        pin_order = int(raw.get('pin_order', 100))
+    except Exception:
+        pin_order = 100
+
+    return {
+        'slug': slug,
+        'lang': lang,
+        'title': title,
+        'announcement': announcement,
+        'author': author,
+        'published_at': published_at,
+        'sort_ts': sort_dt.timestamp() if sort_dt.year > 1 else 0.0,
+        'pinned': bool(raw.get('pinned', False)),
+        'pin_order': pin_order,
+        'has_preview': preview_path.is_file(),
+    }
+
+
+def _landing_articles(lang: str) -> dict:
+    # Discover article folders for exactly one landing language.
+    lang = 'en' if str(lang or '').lower().startswith('en') else 'ru'
+    root = _articles_root() / lang
+    items = []
+    if root.is_dir():
+        try:
+            children = sorted(root.iterdir(), key=lambda p: p.name.casefold())
+        except Exception:
+            children = []
+        for child in children:
+            if not child.is_dir() or not _ARTICLE_SLUG_RE.fullmatch(child.name):
+                continue
+            meta = _load_article_meta(lang, child.name)
+            if not meta:
+                continue
+            meta['url'] = url_for('article_page', lang=lang, slug=child.name)
+            meta['preview_url'] = (
+                url_for('article_preview', lang=lang, slug=child.name)
+                if meta.get('has_preview') else ''
+            )
+            items.append(meta)
+
+    pinned = sorted(
+        (x for x in items if x.get('pinned')),
+        key=lambda x: (int(x.get('pin_order', 100)), -float(x.get('sort_ts', 0)), str(x.get('title', '')).casefold()),
+    )
+    regular = sorted(
+        (x for x in items if not x.get('pinned')),
+        key=lambda x: (-float(x.get('sort_ts', 0)), str(x.get('title', '')).casefold()),
+    )
+    return {'pinned': pinned, 'regular': regular, 'count': len(items)}
+
+
+def _article_comments_conn():
+    path = Path(current_app.instance_path) / 'article_comments.sqlite3'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path), timeout=8.0)
+    conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA busy_timeout=8000')
+    conn.execute('PRAGMA journal_mode=WAL')
+    conn.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS article_comment (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lang TEXT NOT NULL,
+            slug TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            author TEXT NOT NULL,
+            body TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        '''
+    )
+    conn.execute(
+        'CREATE INDEX IF NOT EXISTS ix_article_comment_article '
+        'ON article_comment(lang, slug, id)'
+    )
+    conn.commit()
+    return conn
+
+
+def _article_comment_author(user: User) -> str:
+    display = str(getattr(user, 'config_display_name', '') or '').strip()
+    if display:
+        return display[:120]
+    email = str(getattr(user, 'email', '') or '').strip()
+    local = email.split('@', 1)[0].strip() if '@' in email else email
+    return (local or ('User ' + str(getattr(user, 'id', '') or '')))[0:120]
+
+
+def _article_comments(lang: str, slug: str):
+    rows = []
+    conn = _article_comments_conn()
+    try:
+        query_rows = conn.execute(
+            'SELECT id, author, body, created_at FROM article_comment '
+            'WHERE lang=? AND slug=? ORDER BY id ASC LIMIT 500',
+            (lang, slug),
+        ).fetchall()
+    finally:
+        conn.close()
+    for row in query_rows:
+        raw_dt = str(row['created_at'] or '')
+        try:
+            dt = datetime.fromisoformat(raw_dt.replace('Z', '+00:00'))
+            if lang == 'en':
+                created_display = dt.strftime('%Y-%m-%d %H:%M')
+            else:
+                created_display = dt.strftime('%d.%m.%Y %H:%M')
+        except Exception:
+            created_display = raw_dt
+        rows.append({
+            'id': int(row['id']),
+            'author': str(row['author'] or ''),
+            'body': str(row['body'] or ''),
+            'created_display': created_display,
+        })
+    return rows
+
+
+def _article_comment_csrf() -> str:
+    token = str(session.get('_article_comment_csrf') or '')
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session['_article_comment_csrf'] = token
+        session.permanent = True
+    return token
+
+
+def _inject_article_chrome(raw_html: str, *, lang: str, slug: str, meta: dict, comment_error: str = '') -> str:
+    # Inject a small NodaLogic return bar and comments into trusted server HTML.
+    article_url = url_for('article_page', lang=lang, slug=slug)
+    home_url = url_for('index', lang=lang) + '#articles'
+    stylesheet_url = url_for('static', filename='article_comments.css')
+    csrf_token = _article_comment_csrf()
+    comments_html = render_template(
+        'article_comments_fragment.html',
+        article_lang=lang,
+        article_url=article_url,
+        article_authenticated=bool(current_user.is_authenticated),
+        comment_csrf=csrf_token,
+        comments=_article_comments(lang, slug),
+        comment_error=comment_error,
+        login_url=url_for('index', lang=lang),
+    )
+    back_text = 'Back to NodaLogic' if lang == 'en' else 'Вернуться на NodaLogic'
+    author = str(meta.get('author') or '')
+    published = str(meta.get('published_at') or '')
+    meta_line = ' · '.join(x for x in (author, published) if x)
+    topbar = (
+        '<div class="nl-article-sitebar">'
+        f'<a href="{html_escape(home_url)}">← {html_escape(back_text)}</a>'
+        f'<span class="nl-article-meta-line">{html_escape(meta_line)}</span>'
+        '</div>'
+    )
+    html = str(raw_html or '')
+    css_tag = f'<link rel="stylesheet" href="{html_escape(stylesheet_url)}">'
+    if re.search(r'</head\s*>', html, flags=re.I):
+        html = re.sub(r'</head\s*>', lambda _m: css_tag + '</head>', html, count=1, flags=re.I)
+    else:
+        html = css_tag + html
+    if re.search(r'<body[^>]*>', html, flags=re.I):
+        html = re.sub(r'(<body[^>]*>)', lambda m: m.group(1) + topbar, html, count=1, flags=re.I)
+    else:
+        html = topbar + html
+    if re.search(r'</body\s*>', html, flags=re.I):
+        html = re.sub(r'</body\s*>', lambda _m: comments_html + '</body>', html, count=1, flags=re.I)
+    else:
+        html += comments_html
+    return html
+
+
+@_routes.route('/articles/<lang>/<slug>/', methods=['GET', 'POST'])
+def article_page(lang: str, slug: str):
+    lang = str(lang or '').strip().lower()
+    meta = _load_article_meta(lang, slug)
+    folder = _article_folder(lang, slug)
+    if not meta or not folder:
+        abort(404)
+
+    comment_error = ''
+    if request.method == 'POST':
+        if not current_user.is_authenticated:
+            abort(403)
+        sent_csrf = str(request.form.get('csrf_token') or '')
+        expected_csrf = str(session.get('_article_comment_csrf') or '')
+        if not expected_csrf or not sent_csrf or not secrets.compare_digest(sent_csrf, expected_csrf):
+            abort(400)
+
+        body = str(request.form.get('comment') or '').strip()
+        if not body:
+            comment_error = 'Comment cannot be empty.' if lang == 'en' else 'Комментарий не может быть пустым.'
+        elif len(body) > 4000:
+            comment_error = 'Comment is too long.' if lang == 'en' else 'Комментарий слишком длинный.'
+        else:
+            user_id = int(getattr(current_user, 'id', 0) or 0)
+            author = _article_comment_author(current_user)
+            now_iso = datetime.now(timezone.utc).isoformat()
+            conn = _article_comments_conn()
+            try:
+                duplicate = conn.execute(
+                    'SELECT created_at FROM article_comment '
+                    'WHERE lang=? AND slug=? AND user_id=? AND body=? '
+                    'ORDER BY id DESC LIMIT 1',
+                    (lang, slug, user_id, body),
+                ).fetchone()
+                duplicate_recent = False
+                if duplicate:
+                    try:
+                        prev = datetime.fromisoformat(str(duplicate['created_at']).replace('Z', '+00:00'))
+                        if prev.tzinfo is None:
+                            prev = prev.replace(tzinfo=timezone.utc)
+                        duplicate_recent = (datetime.now(timezone.utc) - prev).total_seconds() < 60
+                    except Exception:
+                        duplicate_recent = False
+                if not duplicate_recent:
+                    conn.execute(
+                        'INSERT INTO article_comment(lang, slug, user_id, author, body, created_at) '
+                        'VALUES(?,?,?,?,?,?)',
+                        (lang, slug, user_id, author, body, now_iso),
+                    )
+                    conn.commit()
+            finally:
+                conn.close()
+            return redirect(url_for('article_page', lang=lang, slug=slug) + '#comments')
+
+    raw_html = (folder / 'article.html').read_text(encoding='utf-8')
+    response = make_response(
+        _inject_article_chrome(
+            raw_html,
+            lang=lang,
+            slug=slug,
+            meta=meta,
+            comment_error=comment_error,
+        )
+    )
+    response.headers['Content-Type'] = 'text/html; charset=utf-8'
+    return response
+
+
+@_routes.route('/articles/<lang>/<slug>/preview.png', methods=['GET'])
+def article_preview(lang: str, slug: str):
+    folder = _article_folder(lang, slug)
+    if not folder or not _load_article_meta(lang, slug):
+        abort(404)
+    preview = folder / 'preview.png'
+    if not preview.is_file():
+        abort(404)
+    return send_from_directory(str(folder), 'preview.png', conditional=True)
+
+
+@_routes.route('/articles/<lang>/<slug>/assets/<path:filename>', methods=['GET'])
+def article_asset(lang: str, slug: str, filename: str):
+    folder = _article_folder(lang, slug)
+    if not folder or not _load_article_meta(lang, slug):
+        abort(404)
+    assets = folder / 'assets'
+    if not assets.is_dir():
+        abort(404)
+    return send_from_directory(str(assets), filename, conditional=True)
+
 def _clean_contact_header(value: str, limit: int) -> str:
     return re.sub(r'[\r\n]+', ' ', str(value or '')).strip()[:limit]
+
+
+def _landing_product_prices(landing_lang: str) -> dict:
+    """Read public Solution prices when the optional Solutions package exists."""
+    locale = 'en' if str(landing_lang or '').lower().startswith('en') else 'ru'
+    try:
+        from solutions.billing import product_prices_for_locale
+        return product_prices_for_locale(locale)
+    except Exception:
+        if locale == 'en':
+            return {
+                'wms': {'current_display': '$550', 'regular_display': '$550', 'promo_active': False},
+                'custom': {'current_display': '$420', 'regular_display': '$420', 'promo_active': False},
+            }
+        return {
+            'wms': {'current_display': '55 000 руб.', 'regular_display': '55 000 руб.', 'promo_active': False},
+            'custom': {'current_display': '35 000 руб.', 'regular_display': '35 000 руб.', 'promo_active': False},
+        }
+
+
+PASSWORD_RESET_MAX_AGE_SECONDS = 60 * 60
+
+
+def _password_reset_secret() -> str:
+    """Return a persistent secret used only for password-reset links.
+
+    Do not reuse the historical Flask SECRET_KEY here: old installations may
+    have a public/static application secret.  A dedicated random secret is
+    created lazily under the writable instance directory and survives restarts.
+    It can be overridden with NODALOGIC_PASSWORD_RESET_SECRET.
+    """
+    configured = str(os.getenv('NODALOGIC_PASSWORD_RESET_SECRET') or '').strip()
+    if configured:
+        return configured
+
+    instance_dir = Path(current_app.instance_path)
+    instance_dir.mkdir(parents=True, exist_ok=True)
+    secret_path = instance_dir / 'password_reset_secret'
+
+    try:
+        existing = secret_path.read_text(encoding='utf-8').strip()
+        if existing:
+            return existing
+    except FileNotFoundError:
+        pass
+    except Exception:
+        current_app.logger.exception('Could not read password-reset secret')
+
+    generated = secrets.token_urlsafe(48)
+    try:
+        # O_EXCL avoids two workers creating different secrets on first use.
+        fd = os.open(str(secret_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            os.write(fd, generated.encode('utf-8'))
+        finally:
+            os.close(fd)
+        return generated
+    except FileExistsError:
+        try:
+            existing = secret_path.read_text(encoding='utf-8').strip()
+            if existing:
+                return existing
+        except Exception:
+            pass
+    except Exception:
+        current_app.logger.exception('Could not persist password-reset secret')
+
+    # Last-resort process-local value.  This should only be reached on a
+    # read-only/broken instance directory and is deliberately logged.
+    current_app.logger.warning('Password-reset secret is process-local; fix instance directory permissions')
+    cache_key = '_nodalogic_password_reset_secret'
+    cached = current_app.extensions.get(cache_key)
+    if not cached:
+        current_app.extensions[cache_key] = generated
+        cached = generated
+    return str(cached)
+
+
+def _password_reset_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(
+        _password_reset_secret(),
+        salt='nodalogic-password-reset-v1',
+    )
+
+
+def _password_reset_fingerprint(user: User) -> str:
+    raw = str(getattr(user, 'password', '') or '')
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()[:24]
+
+
+def _make_password_reset_token(user: User) -> str:
+    return _password_reset_serializer().dumps({
+        'uid': int(user.id),
+        'email': str(user.email or ''),
+        'pwd': _password_reset_fingerprint(user),
+    })
+
+
+def _load_password_reset_user(token: str):
+    try:
+        payload = _password_reset_serializer().loads(
+            str(token or ''),
+            max_age=PASSWORD_RESET_MAX_AGE_SECONDS,
+        )
+    except (SignatureExpired, BadSignature):
+        return None
+    except Exception:
+        current_app.logger.exception('Password-reset token validation failed')
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+    try:
+        user_id = int(payload.get('uid'))
+    except Exception:
+        return None
+    user = db.session.get(User, user_id)
+    if not user:
+        return None
+    if str(payload.get('email') or '') != str(user.email or ''):
+        return None
+    if str(payload.get('pwd') or '') != _password_reset_fingerprint(user):
+        return None
+    return user
+
+
+def _send_password_reset_email(*, recipient: str, reset_url: str, lang: str) -> None:
+    """Send a password-reset link through the same SMTP relay as landing feedback."""
+    host = str(os.getenv('NODALOGIC_CONTACT_SMTP_HOST') or 'smtp.beget.com').strip()
+    try:
+        port = int(str(os.getenv('NODALOGIC_CONTACT_SMTP_PORT') or '465').strip())
+    except Exception:
+        port = 465
+    username = str(os.getenv('NODALOGIC_CONTACT_SMTP_USERNAME') or 'site@nmaker.pw').strip()
+    password = str(os.getenv('NODALOGIC_CONTACT_SMTP_PASSWORD') or 'Ferret_2016')
+    sender = str(os.getenv('NODALOGIC_CONTACT_SMTP_FROM') or username or 'site@nmaker.pw').strip()
+    use_ssl = str(os.getenv('NODALOGIC_CONTACT_SMTP_SSL') or '1').strip().lower() in {'1', 'true', 'yes', 'on'}
+    use_starttls = str(os.getenv('NODALOGIC_CONTACT_SMTP_STARTTLS') or '0').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+    is_en = str(lang or '').lower().startswith('en')
+    mail = EmailMessage()
+    mail['Subject'] = 'NodaLogic password reset' if is_en else 'Восстановление пароля NodaLogic'
+    mail['From'] = sender
+    mail['To'] = recipient
+    if is_en:
+        mail.set_content(
+            'A password reset was requested for your NodaLogic account.\n\n'
+            f'Open this link within 1 hour:\n{reset_url}\n\n'
+            'If you did not request a password reset, simply ignore this email.\n'
+        )
+    else:
+        mail.set_content(
+            'Для вашей учётной записи NodaLogic запрошено восстановление пароля.\n\n'
+            f'Откройте эту ссылку в течение 1 часа:\n{reset_url}\n\n'
+            'Если вы не запрашивали восстановление пароля, просто проигнорируйте это письмо.\n'
+        )
+
+    smtp_cls = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
+    with smtp_cls(host, port, timeout=20) as smtp:
+        if not use_ssl and use_starttls:
+            smtp.starttls()
+        if username:
+            smtp.login(username, password)
+        smtp.send_message(mail)
+
+
+@_routes.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    lang = 'en' if str(request.values.get('lang') or '').lower().startswith('en') else 'ru'
+    submitted = False
+    if request.method == 'POST':
+        submitted = True
+        email = str(request.form.get('email') or '').strip()
+        user = None
+        if email:
+            user = db.session.execute(
+                select(User).where(sa.func.lower(User.email) == email.lower())
+            ).scalars().first()
+
+        # Always show the same response so the endpoint cannot be used to
+        # enumerate registered accounts.
+        if user:
+            try:
+                token = _make_password_reset_token(user)
+                reset_url = url_for('reset_password', token=token, lang=lang, _external=True)
+                _send_password_reset_email(
+                    recipient=str(user.email or email),
+                    reset_url=reset_url,
+                    lang=lang,
+                )
+            except Exception as exc:
+                current_app.logger.warning('Password reset email failed for user_id=%s: %s', getattr(user, 'id', None), exc)
+
+    return render_template(
+        'password_reset.html',
+        mode='request',
+        reset_lang=lang,
+        submitted=submitted,
+        token_valid=True,
+    )
+
+
+@_routes.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password(token: str):
+    lang = 'en' if str(request.values.get('lang') or '').lower().startswith('en') else 'ru'
+    user = _load_password_reset_user(token)
+    if not user:
+        return render_template(
+            'password_reset.html',
+            mode='reset',
+            reset_lang=lang,
+            submitted=False,
+            token_valid=False,
+        ), 400
+
+    if request.method == 'POST':
+        new_password = str(request.form.get('password') or '')
+        confirm_password = str(request.form.get('password_confirm') or '')
+        if len(new_password) < 6:
+            flash('Password must contain at least 6 characters.' if lang == 'en' else 'Пароль должен содержать не менее 6 символов.', 'warning')
+        elif new_password != confirm_password:
+            flash('Passwords do not match.' if lang == 'en' else 'Пароли не совпадают.', 'warning')
+        else:
+            user.password = generate_password_hash(new_password)
+            user.android_password_sha256 = hashlib.sha256(new_password.encode('utf-8')).hexdigest()
+            db.session.commit()
+            # Keep the hidden _System/_User mirror used by Android business login
+            # in sync for both owner and child accounts.  A mirror failure must
+            # not roll back an already successful password reset.
+            try:
+                sync_fn = _app_helper('_sync_system_users_for_owner')
+                if callable(sync_fn):
+                    sync_fn(int(getattr(user, 'parent_user_id', None) or user.id))
+            except Exception as exc:
+                current_app.logger.warning('Could not sync _System user after password reset: %s', exc)
+            # The token contains a fingerprint of the old password, so this
+            # commit also makes the used link invalid immediately.
+            logout_user()
+            flash('Password changed. You can sign in with the new password.' if lang == 'en' else 'Пароль изменён. Теперь можно войти с новым паролем.', 'success')
+            return redirect(url_for('index', lang=lang))
+
+    return render_template(
+        'password_reset.html',
+        mode='reset',
+        reset_lang=lang,
+        submitted=False,
+        token_valid=True,
+        reset_token=token,
+    )
 
 
 def _send_landing_contact_email(*, name: str, email: str, company: str, message: str) -> None:
@@ -12013,8 +12631,10 @@ def index():
     # user.  Authentication only changes the CTA target; choose-mode remains
     # the post-login workspace and is not used as a replacement for `/`.
     landing_lang = _landing_language()
-    open_auth = False
-    auth_tab = 'login'
+    open_auth = request.args.get('auth') in {'login', 'register'} or bool(request.args.get('next'))
+    auth_tab = 'register' if request.args.get('auth') == 'register' else 'login'
+    # Only the public catalog is an allowed post-auth return target.
+    return_to_demo = request.values.get('next') == '/demo-products'
     contact_values = {}
 
     if request.method == 'POST':
@@ -12029,7 +12649,7 @@ def index():
 
             if user and check_password_hash(user.password, password):
                 login_user(user)
-                return redirect(url_for('choose_mode'))
+                return redirect(url_for('demo_products_page', lang=landing_lang) if return_to_demo else url_for('choose_mode'))
             flash('Invalid email or password' if landing_lang == 'en' else 'Неверный email или пароль', 'error')
             open_auth = True
             auth_tab = 'login'
@@ -12056,7 +12676,7 @@ def index():
                 db.session.add(new_user)
                 db.session.commit()
                 login_user(new_user)
-                return redirect(url_for('choose_mode'))
+                return redirect(url_for('demo_products_page', lang=landing_lang) if return_to_demo else url_for('choose_mode'))
 
         elif form_type == 'contact':
             # Honeypot: bots tend to fill this field; real users never see it.
@@ -12109,6 +12729,8 @@ def index():
         auth_tab=auth_tab,
         contact_values=contact_values,
         landing_authenticated=bool(current_user.is_authenticated),
+        landing_prices=_landing_product_prices(landing_lang),
+        landing_articles=_landing_articles(landing_lang),
         current_year=datetime.now(timezone.utc).year,
     )
 
@@ -12475,15 +13097,49 @@ def _copy_model_columns(source, target, *, exclude=None):
     return target
 
 
+def _demo_source_revision(source):
+    """Hash the exact model graph copied by installation, independently of the viewer.
+
+    Do not use the API export: it can be filtered by the current user's class access.
+    Runtime business data is deliberately outside this graph.
+    """
+    def snapshot(row, relations=()):
+        values = {
+            column.name: getattr(row, column.name)
+            for column in row.__table__.columns
+            if column.name != 'demo_source_revision'
+        }
+        for name, children in relations:
+            items = [snapshot(child, children) for child in (getattr(row, name, None) or [])]
+            values[name] = sorted(items, key=lambda item: json.dumps(item, sort_keys=True, default=str))
+        return values
+
+    actions = (('actions', ()),)
+    graph = snapshot(source, (
+        ('classes', (('methods', ()), ('event_objs', actions))),
+        ('datasets', ()), ('sections', ()), ('servers', ()), ('room_aliases', ()),
+        ('config_events', actions), ('config_timers', actions),
+    ))
+    encoded = json.dumps(graph, ensure_ascii=False, sort_keys=True, default=str, separators=(',', ':'))
+    return hashlib.sha256(encoded.encode('utf-8')).hexdigest()
+
+
 def _clone_demo_configuration(source, owner_user_id):
     """Install/update one demo configuration exactly like a Designer import."""
     source_content_uid = str(getattr(source, 'content_uid', '') or getattr(source, 'uid', '') or uuid.uuid4())
     target = db.session.execute(
         select(Configuration).where(
             Configuration.user_id == int(owner_user_id),
-            Configuration.content_uid == source_content_uid,
+            Configuration.demo_source_uid == str(source.uid),
         )
     ).scalar_one_or_none()
+    if target is None:
+        target = db.session.execute(
+            select(Configuration).where(
+                Configuration.user_id == int(owner_user_id),
+                Configuration.content_uid == source_content_uid,
+            )
+        ).scalar_one_or_none()
     if target is None:
         target = Configuration(
             uid=str(uuid.uuid4()),
@@ -12503,14 +13159,14 @@ def _clone_demo_configuration(source, owner_user_id):
         source, target,
         exclude={
             'id', 'uid', 'user_id', 'is_system', 'demo_product',
-            'designer_hidden', 'demo_source_uid', 'last_modified',
+            'designer_hidden', 'demo_source_uid', 'demo_source_revision', 'last_modified',
         },
     )
     target.uid = preserved_uid
     target.user_id = int(owner_user_id)
     target.is_system = False
     target.demo_product = False
-    target.designer_hidden = True
+    target.designer_hidden = not bool(getattr(source, 'demo_install_allowed', False))
     target.demo_source_uid = str(source.uid or '')
     target.last_modified = datetime.now(timezone.utc)
     target.nodes_handlers = _rewrite_android_handlers_instance_refs_b64(
@@ -12630,14 +13286,19 @@ def _add_configuration_to_client_repo(config, user_id):
     return repo
 
 
+def _normalize_demo_language(value):
+    value = str(value or '').strip().lower()
+    return value if value in {'ru', 'en'} else ''
+
+
 @_routes.route('/demo-products')
-@login_required
 def demo_products_page():
-    if not bool(getattr(current_user, 'can_designer', False)):
-        abort(403)
+    demo_lang = _landing_language()
     products = db.session.execute(
         select(Configuration).where(
             Configuration.demo_product == True,
+            sa.or_(Configuration.demo_language == demo_lang,
+                   Configuration.demo_language == '', Configuration.demo_language.is_(None)),
             sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)),
         ).order_by(Configuration.name, Configuration.version)
     ).scalars().all()
@@ -12646,21 +13307,32 @@ def demo_products_page():
         str(value) for value in client_models.db.session.execute(
             select(client_models.Repo.config_uid).where(client_models.Repo.user_id == current_user.id)
         ).scalars().all() if str(value or '').strip()
-    }
-    installed_content_uids = {
-        str(value) for value in db.session.execute(
-            select(Configuration.content_uid).where(
-                Configuration.user_id == current_user.id,
-                Configuration.uid.in_(installed_config_uids),
-                Configuration.content_uid.is_not(None),
-                Configuration.content_uid != '',
-            )
-        ).scalars().all()
-    } if installed_config_uids else set()
+    } if current_user.is_authenticated else set()
+    installed_configs = db.session.execute(
+        select(Configuration).where(
+            Configuration.user_id == current_user.id,
+            Configuration.uid.in_(installed_config_uids),
+        )
+    ).scalars().all() if installed_config_uids else []
+    demo_states = {}
+    for product in products:
+        key = str(product.content_uid or product.uid)
+        target = next((row for row in installed_configs
+                       if str(row.demo_source_uid or '') == str(product.uid)), None)
+        if target is None:
+            target = next((row for row in installed_configs
+                           if str(row.content_uid or row.uid) == key), None)
+        # Legacy installations have no snapshot: offer one update to establish it.
+        demo_states[str(product.uid)] = (
+            'install' if target is None else
+            'installed' if target.demo_source_revision == _demo_source_revision(product) else
+            'update'
+        )
     return render_template(
         'demo_products.html',
         products=products,
-        installed_content_uids=installed_content_uids,
+        demo_lang=demo_lang,
+        demo_states=demo_states,
     )
 
 
@@ -12684,6 +13356,7 @@ def demo_products_install(source_uid):
         target = source if int(source.user_id) == int(current_user.id) else _clone_demo_configuration(source, current_user.id)
         db.session.flush()
         _add_configuration_to_client_repo(target, current_user.id)
+        target.demo_source_revision = _demo_source_revision(source)
         db.session.commit()
         _materialize_profile_templates_for_config(target)
         flash(_('Demo product installed and added to the repository'), 'success')

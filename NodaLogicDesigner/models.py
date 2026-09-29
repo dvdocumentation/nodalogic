@@ -28,6 +28,26 @@ class RawNode(db.Model):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
+class ClientExtensionState(db.Model):
+    """Per-account metadata for client-created sections/classes/templates.
+
+    Extension documents themselves stay in RawNode so they keep the existing
+    client/server transport.  This small state object only stores the schema
+    metadata which otherwise lived exclusively in a particular client.
+    """
+    __tablename__ = 'client_extension_state'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True, nullable=False, index=True)
+    state_json = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
 class NodeDiscussionMessage(db.Model):
     """Permanent history for node-discussion messages only.
 
@@ -568,6 +588,7 @@ class Configuration(db.Model):
     nodes_server_handlers = db.Column(db.Text, nullable=True)  
     nodes_server_handlers_meta = db.Column(db.JSON)
     ngenie_prompt = db.Column(db.Text, default="")
+    description = db.Column(db.Text, default="")
     ngenie_code_locked = db.Column(db.Boolean, default=False)
     ngenie_code_instruction = db.Column(db.Text, default="")
     ngenie_code_example = db.Column(db.Text, default="")
@@ -585,13 +606,19 @@ class Configuration(db.Model):
     is_system = db.Column(db.Boolean, default=False, index=True)
     # Published in the separate Demo products catalog. Installed copies are not republished.
     demo_product = db.Column(db.Boolean, default=False, index=True)
-    # Runtime/client-only configuration instance created when another account installs
-    # a published demo. It remains fully available to Client/API/Android, but is
-    # intentionally hidden and forbidden in NodaLogic Designer.
+    demo_language = db.Column(db.String(2), default="", nullable=True)
+    # Legacy field name: controls source visibility in Designer, NOT installation.
+    # Every published demo can be installed as a complete runtime instance.
+    demo_install_allowed = db.Column(db.Boolean, default=False, index=True)
+    # Configuration instance created when another account installs a published demo.
+    # Runtime-only demo copies stay hidden from Designer; source-available demo copies
+    # remain editable there. Both kinds remain available to Client/API/Android.
     designer_hidden = db.Column(db.Boolean, default=False, index=True)
     # UID of the published demo configuration from which this client-only instance
     # was created. Empty for ordinary configurations and for the published source.
     demo_source_uid = db.Column(db.String(36), default="", index=True)
+    # Snapshot of the published source at the last successful installation/update.
+    demo_source_revision = db.Column(db.String(64), default="")
     
     def update_last_modified(self):
         self.last_modified = datetime.now()
@@ -612,6 +639,7 @@ class ConfigSection(db.Model):
     commands = db.Column(db.Text)
     hide_mobile_client = db.Column(db.Boolean, default=False)
     hide_web_client = db.Column(db.Boolean, default=False)
+    allow_client_extensions = db.Column(db.Boolean, default=True)
     config_id = db.Column(db.Integer, db.ForeignKey('configuration.id'))
 
 class ConfigClass(db.Model):
@@ -640,6 +668,7 @@ class ConfigClass(db.Model):
     hidden = db.Column(db.Boolean, default=False)
     hide_mobile_client = db.Column(db.Boolean, default=False)
     hide_web_client = db.Column(db.Boolean, default=False)
+    allow_client_extensions = db.Column(db.Boolean, default=True)
     event_objs = db.relationship('ClassEvent', backref='class_obj', cascade='all, delete-orphan')
     # Display-related images / layouts
     display_image_web = db.Column(db.Text, default="")
@@ -690,6 +719,7 @@ class ClassMethod(db.Model):
     engine = db.Column(db.String(50))
     
     code = db.Column(db.Text)
+    ngenie_description = db.Column(db.Text, default="")
     class_id = db.Column(db.Integer, db.ForeignKey('config_class.id'))
 
 class ClassEvent(db.Model):
@@ -909,6 +939,38 @@ class Server(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
 
+
+
+class MCPAccessLink(db.Model):
+    __tablename__ = "mcp_access_link"
+    id = db.Column(db.Integer, primary_key=True)
+    config_id = db.Column(db.Integer, db.ForeignKey("configuration.id", ondelete="CASCADE"), nullable=False, index=True)
+    label = db.Column(db.String(200), default="")
+    access_mode = db.Column(db.String(20), nullable=False, default="full")
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True)
+    allow_extensions = db.Column(db.Boolean, default=False, nullable=False)
+    token_hash = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    token_prefix = db.Column(db.String(32), default="")
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_used_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    revoked_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+
+class MCPAuditLog(db.Model):
+    __tablename__ = "mcp_audit_log"
+    id = db.Column(db.Integer, primary_key=True)
+    link_id = db.Column(db.Integer, db.ForeignKey("mcp_access_link.id", ondelete="SET NULL"), nullable=True, index=True)
+    config_id = db.Column(db.Integer, db.ForeignKey("configuration.id", ondelete="CASCADE"), nullable=False, index=True)
+    effective_user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True)
+    tool_name = db.Column(db.String(120), default="", index=True)
+    class_name = db.Column(db.String(120), default="")
+    node_id = db.Column(db.String(255), default="")
+    method_name = db.Column(db.String(120), default="")
+    success = db.Column(db.Boolean, default=True, nullable=False)
+    detail = db.Column(db.Text, default="")
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+
 class ApiToken(db.Model):
     __tablename__ = "api_token"
     id = db.Column(db.Integer, primary_key=True)
@@ -921,6 +983,7 @@ class ApiToken(db.Model):
 
 __all__ = [
     'RawNode',
+    'ClientExtensionState',
     'NodeDiscussionMessage',
     'Dataset',
     'DatasetItem',

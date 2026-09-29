@@ -168,6 +168,7 @@ import nodes as _nodes_mod
 from extensions import db, login_manager
 from models import (
     RawNode,
+    ClientExtensionState,
     NodeDiscussionMessage,
     Dataset,
     DatasetItem,
@@ -202,6 +203,8 @@ from models import (
     MessageGroupMember,
     Server,
     ApiToken,
+    MCPAccessLink,
+    MCPAuditLog,
     ensure_node_discussion_message_table_runtime,
     ensure_user_profile_tables_runtime,
 )
@@ -1349,6 +1352,7 @@ def _class_payload_for_config(c):
         'hidden': c.hidden,
                 'hide_mobile_client': bool(getattr(c, 'hide_mobile_client', False)),
                 'hide_web_client': bool(getattr(c, 'hide_web_client', False)),
+                'allow_client_extensions': getattr(c, 'allow_client_extensions', True) is not False,
         'methods': [{
             'name': m.name,
             'source': m.source,
@@ -2302,6 +2306,14 @@ def _ensure_sqlite_schema():
         cfg_cols = _get_cols("configuration")
         if "demo_product" not in cfg_cols:
             _add_col("configuration", "demo_product BOOLEAN DEFAULT FALSE", "demo_product")
+        if "demo_source_revision" not in cfg_cols:
+            _add_col("configuration", "demo_source_revision VARCHAR(64) DEFAULT ''", "demo_source_revision")
+        if "demo_language" not in cfg_cols:
+            _add_col("configuration", "demo_language VARCHAR(2) DEFAULT ''", "demo_language")
+        if "demo_install_allowed" not in cfg_cols:
+            _add_col("configuration", "demo_install_allowed BOOLEAN DEFAULT FALSE", "demo_install_allowed")
+        if "description" not in cfg_cols:
+            _add_col("configuration", 'description TEXT DEFAULT ""', "description")
         if "designer_hidden" not in cfg_cols:
             _add_col("configuration", "designer_hidden BOOLEAN DEFAULT FALSE", "designer_hidden")
         if "demo_source_uid" not in cfg_cols:
@@ -2309,6 +2321,10 @@ def _ensure_sqlite_schema():
         _create_index(
             "CREATE INDEX IF NOT EXISTS ix_configuration_demo_product ON configuration (demo_product)",
             "configuration.demo_product",
+        )
+        _create_index(
+            "CREATE INDEX IF NOT EXISTS ix_configuration_demo_install_allowed ON configuration (demo_install_allowed)",
+            "configuration.demo_install_allowed",
         )
         _create_index(
             "CREATE INDEX IF NOT EXISTS ix_configuration_designer_hidden ON configuration (designer_hidden)",
@@ -2397,6 +2413,8 @@ def _ensure_sqlite_schema():
             _add_col("config_section", "hide_mobile_client BOOLEAN DEFAULT FALSE", "hide_mobile_client")
         if "hide_web_client" not in scols:
             _add_col("config_section", "hide_web_client BOOLEAN DEFAULT FALSE", "hide_web_client")
+        if "allow_client_extensions" not in scols:
+            _add_col("config_section", "allow_client_extensions BOOLEAN DEFAULT TRUE", "allow_client_extensions")
 
     # ------------------------------------------------------------
     # dataset migrations
@@ -2432,6 +2450,14 @@ def _ensure_sqlite_schema():
             _add_col("configuration", 'ngenie_code_example TEXT DEFAULT ""', "ngenie_code_example")
         if "demo_product" not in ccols:
             _add_col("configuration", "demo_product BOOLEAN DEFAULT FALSE", "demo_product")
+        if "demo_source_revision" not in ccols:
+            _add_col("configuration", "demo_source_revision VARCHAR(64) DEFAULT ''", "demo_source_revision")
+        if "demo_language" not in ccols:
+            _add_col("configuration", "demo_language VARCHAR(2) DEFAULT ''", "demo_language")
+        if "demo_install_allowed" not in ccols:
+            _add_col("configuration", "demo_install_allowed BOOLEAN DEFAULT FALSE", "demo_install_allowed")
+        if "description" not in ccols:
+            _add_col("configuration", 'description TEXT DEFAULT ""', "description")
         if "designer_hidden" not in ccols:
             _add_col("configuration", "designer_hidden BOOLEAN DEFAULT FALSE", "designer_hidden")
         if "demo_source_uid" not in ccols:
@@ -2562,6 +2588,8 @@ def _ensure_sqlite_schema():
             _add_col("config_class", "hide_mobile_client BOOLEAN DEFAULT FALSE", "hide_mobile_client")
         if "hide_web_client" not in cols:
             _add_col("config_class", "hide_web_client BOOLEAN DEFAULT FALSE", "hide_web_client")
+        if "allow_client_extensions" not in cols:
+            _add_col("config_class", "allow_client_extensions BOOLEAN DEFAULT TRUE", "allow_client_extensions")
         if "dashboard_enabled" not in cols:
             _add_col("config_class", "dashboard_enabled BOOLEAN DEFAULT FALSE", "dashboard_enabled")
         if "dashboard_width" not in cols:
@@ -2677,6 +2705,14 @@ def _ensure_sqlite_schema():
             _add_col("config_event_action", 'http_function_name VARCHAR(255) DEFAULT ""', "http_function_name")
         if "post_http_function_name" not in eacols:
             _add_col("config_event_action", 'post_http_function_name VARCHAR(255) DEFAULT ""', "post_http_function_name")
+
+    # ------------------------------------------------------------
+    # class_method MCP/nGenie semantic description
+    # ------------------------------------------------------------
+    if _table_exists("class_method"):
+        cmcols = _get_cols("class_method")
+        if "ngenie_description" not in cmcols:
+            _add_col("class_method", 'ngenie_description TEXT DEFAULT ""', "ngenie_description")
 
     # ------------------------------------------------------------
     # outgoing_message_log migrations
@@ -3253,6 +3289,184 @@ def api_raw_node_post(node_id):
         'updated_at': obj.updated_at.isoformat() if obj.updated_at else None,
         'url': f"{request.url_root.rstrip('/')}/api/raw-node/{obj.node_id}"
     })
+
+
+@app.route('/api/client-extensions/sync', methods=['GET', 'POST'])
+@api_auth_required
+def api_client_extensions_sync():
+    """Account-scoped two-way sync for client-created sections/classes/documents.
+
+    ``ClientExtensionState`` stores only the small schema/section metadata while
+    the documents themselves remain canonical ``RawNode`` rows.  POST accepts
+    both pieces in one request so Android doesn't have to race a metadata upload
+    against a separate fire-and-forget raw-node upload.
+    """
+    # Extension sync is account-scoped, not RLS-profile-scoped: the API login
+    # is the same account which owns the web client data.  A selected _System
+    # user may still affect normal business-node permissions, but must not split
+    # one account's personal extension workspace into separate islands.
+    api_user = getattr(g, 'auth_user', None) or getattr(g, 'api_user', None)
+    user_id = int(getattr(api_user, 'id', 0) or 0)
+    if not user_id:
+        return jsonify({'ok': False, 'error': 'unauthorized'}), 401
+
+    row = db.session.execute(
+        select(ClientExtensionState).where(ClientExtensionState.user_id == user_id)
+    ).scalar_one_or_none()
+
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        incoming = body.get('state') if isinstance(body.get('state'), dict) else {}
+        current = dict(getattr(row, 'state_json', None) or {}) if row is not None else {}
+        seed_only = bool(body.get('seed_only'))
+
+        def _technical_extension_name(value, rid):
+            value = str(value or '').strip()
+            rid = str(rid or '').strip()
+            if not value or (rid and value == rid):
+                return True
+            return bool(re.match(r'^ext_(?:section|class)_[0-9A-Za-z_-]+$', value, re.I))
+
+        def _merge_rows(key, id_keys):
+            merged = {}
+            order = []
+            collections = (incoming.get(key) or [], current.get(key) or []) if seed_only else (current.get(key) or [], incoming.get(key) or [])
+            for collection in collections:
+                if not isinstance(collection, list):
+                    continue
+                for source in collection:
+                    if not isinstance(source, dict):
+                        continue
+                    rid = ''
+                    for k in id_keys:
+                        rid = str(source.get(k) or '').strip()
+                        if rid:
+                            break
+                    if not rid:
+                        continue
+                    if rid not in merged:
+                        order.append(rid)
+                        merged[rid] = dict(source)
+                        continue
+
+                    # Metadata may be produced by different client versions. Merge
+                    # fields instead of replacing the whole row, and never allow an
+                    # ext_section_*/ext_class_* placeholder to destroy a known title.
+                    target = dict(merged[rid])
+                    for field, value in source.items():
+                        if field == 'name':
+                            old_name = target.get('name')
+                            if (not _technical_extension_name(old_name, rid)
+                                    and _technical_extension_name(value, rid)):
+                                continue
+                        target[field] = value
+                    merged[rid] = target
+            return [merged[rid] for rid in order]
+
+        merged_state = dict(current)
+        merged_state['version'] = max(int(current.get('version') or 1), int(incoming.get('version') or 1))
+        merged_state['sections'] = _merge_rows('sections', ('id', 'code'))
+        merged_state['classes'] = _merge_rows('classes', ('id', 'class_id'))
+        cur_tpl = current.get('configured_class_templates') if isinstance(current.get('configured_class_templates'), dict) else {}
+        inc_tpl = incoming.get('configured_class_templates') if isinstance(incoming.get('configured_class_templates'), dict) else {}
+        merged_state['configured_class_templates'] = ({**inc_tpl, **cur_tpl} if seed_only else {**cur_tpl, **inc_tpl})
+
+        # The Android client may send changed extension documents together with
+        # the metadata.  This is intentionally the same RawNode representation
+        # used everywhere else, only ownership is forced to the authenticated
+        # account and only extension-managed payloads are accepted here.
+        incoming_nodes = body.get('nodes') if isinstance(body.get('nodes'), list) else []
+        now = datetime.now(timezone.utc)
+        for item in incoming_nodes:
+            if not isinstance(item, dict):
+                continue
+            payload = item.get('payload') if isinstance(item.get('payload'), dict) else item
+            if not isinstance(payload, dict):
+                continue
+            node_id = str(item.get('node_id') or payload.get('_id') or '').strip()
+            if not node_id:
+                continue
+            data = payload.get('_data') if isinstance(payload.get('_data'), dict) else payload
+            marker = data.get('_extension_managed') if isinstance(data, dict) else False
+            if marker not in (True, 1, '1', 'true', 'True'):
+                continue
+
+            obj = db.session.execute(
+                select(RawNode).where(RawNode.node_id == node_id)
+            ).scalar_one_or_none()
+            if obj is not None and int(getattr(obj, 'owner_user_id', 0) or 0) not in (0, user_id):
+                # Never let one account overwrite another account's RawNode even
+                # if a malicious client guesses its id.
+                continue
+            if obj is not None and seed_only:
+                # Startup migration of old local-only Android extensions: publish
+                # missing rows, but never overwrite a newer server copy.
+                continue
+            if obj is None:
+                obj = RawNode(
+                    node_id=node_id,
+                    payload_json=payload,
+                    content_type='node',
+                    owner_user_id=user_id,
+                    created_at=now,
+                    updated_at=now,
+                )
+                db.session.add(obj)
+            else:
+                obj.payload_json = payload
+                obj.content_type = 'node'
+                obj.owner_user_id = user_id
+                obj.updated_at = now
+
+        # Optional tombstones are accepted for forward compatibility.  Current
+        # Android/web UI doesn't require them for creation/update sync, but this
+        # makes document deletion safe once a client starts sending the list.
+        deleted_node_ids = body.get('deleted_node_ids') if isinstance(body.get('deleted_node_ids'), list) else []
+        for raw_id in deleted_node_ids:
+            node_id = str(raw_id or '').strip()
+            if not node_id:
+                continue
+            obj = db.session.execute(
+                select(RawNode).where(
+                    RawNode.node_id == node_id,
+                    RawNode.owner_user_id == user_id,
+                )
+            ).scalar_one_or_none()
+            if obj is not None:
+                db.session.delete(obj)
+
+        if row is None:
+            row = ClientExtensionState(
+                user_id=user_id,
+                state_json=merged_state,
+                created_at=now,
+                updated_at=now,
+            )
+            db.session.add(row)
+        else:
+            row.state_json = merged_state
+            row.updated_at = now
+        db.session.commit()
+
+    state = dict(getattr(row, 'state_json', None) or {}) if row is not None else {
+        'version': 1, 'sections': [], 'classes': [], 'configured_class_templates': {}
+    }
+    raw_nodes = []
+    rows = db.session.execute(
+        select(RawNode).where(RawNode.owner_user_id == user_id).order_by(RawNode.updated_at.asc(), RawNode.id.asc())
+    ).scalars().all()
+    for obj in rows:
+        payload = obj.payload_json if isinstance(obj.payload_json, dict) else {}
+        data = payload.get('_data') if isinstance(payload.get('_data'), dict) else payload
+        marker = data.get('_extension_managed') if isinstance(data, dict) else False
+        if marker not in (True, 1, '1', 'true', 'True'):
+            continue
+        raw_nodes.append({
+            'node_id': obj.node_id,
+            'updated_at': obj.updated_at.isoformat() if obj.updated_at else None,
+            'payload': payload,
+        })
+    return jsonify({'ok': True, 'state': state, 'nodes': raw_nodes})
 
 
 @app.route('/api/raw-node/<node_id>', methods=['GET'])
@@ -5485,10 +5699,13 @@ def get_config(uid):
         'nodes_handlers': config.nodes_handlers,
         'nodes_server_handlers': config.nodes_server_handlers,
         'ngenie_prompt': getattr(config, 'ngenie_prompt', '') or '',
+        'description': getattr(config, 'description', '') or '',
         'ngenie_code_locked': bool(getattr(config, 'ngenie_code_locked', False)),
         'ngenie_code_instruction': getattr(config, 'ngenie_code_instruction', '') or '',
         'ngenie_code_example': getattr(config, 'ngenie_code_example', '') or '',
+        'demo_language': getattr(config, 'demo_language', '') or '',
         'demo_product': bool(getattr(config, 'demo_product', False)),
+        'demo_install_allowed': bool(getattr(config, 'demo_install_allowed', False)),
         'version': getattr(config, 'version', '00.00.01'),
         'last_modified': local_time.isoformat(),
         "NodaLogicFormat": NL_FORMAT,
@@ -5523,6 +5740,7 @@ def get_config(uid):
                 'mobile_print_enabled': bool(getattr(c, 'mobile_print_enabled', False)),
                 'hide_mobile_client': bool(getattr(c, 'hide_mobile_client', False)),
                 'hide_web_client': bool(getattr(c, 'hide_web_client', False)),
+                'allow_client_extensions': getattr(c, 'allow_client_extensions', True) is not False,
                 'dashboard_enabled': bool(getattr(c, 'dashboard_enabled', False)),
                 'dashboard_width': str(getattr(c, 'dashboard_width', '') or '100'),
                 'dashboard_top': bool(getattr(c, 'dashboard_top', False)),
@@ -5537,6 +5755,7 @@ def get_config(uid):
                 'mobile_print_enabled': bool(getattr(c, 'mobile_print_enabled', False)),
                 'hide_mobile_client': bool(getattr(c, 'hide_mobile_client', False)),
                 'hide_web_client': bool(getattr(c, 'hide_web_client', False)),
+                'allow_client_extensions': getattr(c, 'allow_client_extensions', True) is not False,
                 'dashboard_enabled': bool(getattr(c, 'dashboard_enabled', False)),
                 'dashboard_width': str(getattr(c, 'dashboard_width', '') or '100'),
                 'dashboard_top': bool(getattr(c, 'dashboard_top', False)),
@@ -5564,6 +5783,7 @@ def get_config(uid):
                 'hidden': c.hidden,
                 'hide_mobile_client': bool(getattr(c, 'hide_mobile_client', False)),
                 'hide_web_client': bool(getattr(c, 'hide_web_client', False)),
+                'allow_client_extensions': getattr(c, 'allow_client_extensions', True) is not False,
                 'methods': [{
                     'name': m.name,
                     'source': m.source,
@@ -5614,7 +5834,8 @@ def get_config(uid):
                 'code': d.code,
                 'commands': d.commands,
                 'hide_mobile_client': bool(getattr(d, 'hide_mobile_client', False)),
-                'hide_web_client': bool(getattr(d, 'hide_web_client', False))
+                'hide_web_client': bool(getattr(d, 'hide_web_client', False)),
+                'allow_client_extensions': getattr(d, 'allow_client_extensions', True) is not False
             } for d in config.sections
         ],
         "servers": [
@@ -5754,6 +5975,7 @@ def _export_class_json(class_obj: ConfigClass) -> dict:
         data['hide_mobile_client'] = True
     if bool(getattr(class_obj, 'hide_web_client', False)):
         data['hide_web_client'] = True
+    data['allow_client_extensions'] = getattr(class_obj, 'allow_client_extensions', True) is not False
     if bool(getattr(class_obj, 'show_tag_cloud', False)):
         data['show_tag_cloud'] = True
     if bool(getattr(class_obj, 'mobile_print_enabled', False)):
@@ -8017,6 +8239,13 @@ def execute_node_method(config_uid, class_name, node_id, method_name):
                 node = node_class.get(node_id, config_uid)
                 if not node:
                     abort(404, description=f"Node {node_id} not found")
+
+                request_user = getattr(g, 'api_user', None)
+                if not user_can_access_class(request_user, config_uid, class_name):
+                    return _forbidden_response()
+                _node_payload = node.to_dict()
+                if not user_can_access_node(request_user, config_uid, class_name, extract_internal_id(node_id), _node_payload.get('_data', {})):
+                    return _forbidden_response()
                 
                 # Check the existence of the method
                 if not hasattr(node, method_name):
@@ -14129,6 +14358,14 @@ except Exception as _e:
     print('Semantic model warmup not started:', _e)
 
 
+# NodaLogic runtime MCP (one endpoint per deployed configuration credential)
+try:
+    import sys as _sys
+    from mcp_server import register_mcp as _register_mcp
+    _register_mcp(app, _sys.modules[__name__])
+except Exception as _mcp_e:
+    print("MCP runtime not loaded:", _mcp_e)
+
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
@@ -14316,6 +14553,9 @@ if __name__ == '__main__':
             if 'hide_web_client' not in section_columns:
                 with db.engine.begin() as conn:
                     conn.execute(text('ALTER TABLE config_section ADD COLUMN hide_web_client BOOLEAN DEFAULT FALSE'))
+            if 'allow_client_extensions' not in section_columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE config_section ADD COLUMN allow_client_extensions BOOLEAN DEFAULT TRUE'))
 
         if 'configuration' in inspector.get_table_names():
             config_columns = [col['name'] for col in inspector.get_columns('configuration')]
@@ -14440,6 +14680,9 @@ if __name__ == '__main__':
             if 'hide_web_client' not in columns:
                 with db.engine.begin() as conn:
                     conn.execute(text('ALTER TABLE config_class ADD COLUMN hide_web_client BOOLEAN DEFAULT FALSE'))
+            if 'allow_client_extensions' not in columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN allow_client_extensions BOOLEAN DEFAULT TRUE'))
             if 'dashboard_enabled' not in columns:
                 with db.engine.begin() as conn:
                     conn.execute(text('ALTER TABLE config_class ADD COLUMN dashboard_enabled BOOLEAN DEFAULT FALSE'))
