@@ -22,7 +22,7 @@ NODALAYOUT_WEB_ELEMENT_TYPES = frozenset({
     "Text", "Picture", "HTML", "Button", "Input", "TextInput", "Switch", "CheckBox",
     "Table", "Parameters", "NodeChildren", "Spinner",
     "DatasetField", "DatasetInput", "DatasetLink", "DataSetLink",
-    "NodeInput", "NodeLink",
+    "NodeInput", "NodeLink", "ExtensionPicture", "ExtensionGeoTag",
     "VerticalLayout", "HorizontalLayout", "VerticalScroll", "HorizontalScroll", "Card",
     "Tabs", "Tab", "CodeFrame", "ImageSlider", "PictureGallery",
     "gauge", "pie", "bar", "line", "Gauge", "Pie", "Bar", "Line",
@@ -266,12 +266,25 @@ def _coerce_layout(layout: Layout) -> List[List[Dict[str, Any]]]:
 
 
 def _resolve_vars(text: str, data: Dict[str, Any]) -> str:
-    """Replace '@key' with data[key] string value."""
+    """Replace '@key' with data[key] string value.
+
+    Client-extension fields intentionally use the visible field title as their
+    id.  Such ids may contain spaces (for example ``Название статьи``).  When
+    the whole expression is one variable, resolve the exact key first; the
+    legacy regexp remains for ordinary inline ``... @field ...`` templates.
+    """
+    raw = text or ""
+    if isinstance(raw, str) and raw.startswith("@"):
+        exact_key = raw[1:]
+        if exact_key in data:
+            val = data.get(exact_key)
+            return "" if val is None else str(val)
+
     def repl(m: re.Match) -> str:
         k = m.group(1)
         val = data.get(k)
         return "" if val is None else str(val)
-    return _VAR_RE.sub(repl, text or "")
+    return _VAR_RE.sub(repl, raw)
 
 
 def _looks_like_data_uri(s: str) -> bool:
@@ -292,17 +305,24 @@ def _detect_image_mime(b: bytes) -> Optional[str]:
 
 def _try_decode_base64(s: str) -> Optional[bytes]:
     ss = (s or "").strip()
+    # Some Android/legacy paths use an explicit ``base64:`` marker, while
+    # current extension pictures normally arrive as a data URI.
+    if ss.lower().startswith("base64:"):
+        ss = ss[7:].strip()
     if len(ss) < 16:
         return None
-    if not re.fullmatch(r"[A-Za-z0-9+/=\s]+", ss):
+    if not re.fullmatch(r"[A-Za-z0-9+/_=\-\s]+", ss):
         return None
-    ss = re.sub(r"\s+", "", ss)
-    if len(ss) % 4 != 0:
-        return None
+    ss = re.sub(r"\s+", "", ss).replace("-", "+").replace("_", "/")
+    # Be tolerant of Base64 encoders which omit trailing padding.
+    if len(ss) % 4:
+        ss += "=" * (4 - (len(ss) % 4))
     try:
-        return base64.b64decode(ss, validate=False)
+        decoded = base64.b64decode(ss, validate=False)
     except Exception:
         return None
+    # Do not treat arbitrary Base64 text as an image.
+    return decoded if _detect_image_mime(decoded) else None
 
 
 def _picture_src(raw: str, assets_base_dir: Optional[str]) -> str:
@@ -310,7 +330,7 @@ def _picture_src(raw: str, assets_base_dir: Optional[str]) -> str:
     picture value can be:
       - http(s) url
       - data uri
-      - base64 raw bytes (png/jpg/webp/gif)
+      - ``base64:...`` or raw base64 bytes (png/jpg/webp/gif)
       - relative file name (resolved under assets_base_dir)
     """
     if not raw:
@@ -1222,6 +1242,66 @@ def render_nodalayout_html(
                 )
             return f'<div class="nl-picture nl-empty"{style_attr}{tpl}></div>'
 
+        if t == "ExtensionTags":
+            # One shared node-level _tags array; field id is layout-only.
+            raw_tags = node_data.get("_tags") if isinstance(node_data, dict) else []
+            pills = []
+            for tag in raw_tags if isinstance(raw_tags, list) else []:
+                name = str(tag.get("id") or tag.get("name") or "") if isinstance(tag, dict) else str(tag)
+                if name.strip():
+                    pills.append(f'<span class="nl-ext-tag-pill" data-nl-ext-tag="{escape(name.strip())}" '
+                                 f'title="Long press / right-click to remove">{escape(name.strip())}</span>')
+            return ('<div class="nl-ext-tags" data-nl-extension-tags="1">'
+                    + '<div class="nl-ext-tags-list">' + ''.join(pills) + '</div>'
+                    + '<button class="nl-ext-tag-add" type="button" aria-label="Add tag" title="Add tag">'
+                    + '<i class="bi bi-tag-fill"></i><span class="nl-ext-tag-plus">+</span></button></div>')
+
+        if t == "ExtensionGeoTag":
+            # Match the Android ExtensionGeoTag representation: one string in
+            # node._data[field_id], formatted as "lat, lon" (7 decimal places).
+            # This is a plain coordinate field: no map or browser geolocation.
+            fid = str(el.get("id") or "").strip()
+            value = str(node_data.get(fid) or "").strip() if fid else ""
+            caption = str(el.get("caption") or "").strip()
+            label = (f'<div class="nl-label">{escape(caption)}</div>'
+                     if el.get("extension_show_caption") and caption else "")
+            display = "◉  " + value if value else "◉  lat: —   lon: —"
+            return (
+                f'<div class="nl-extension-geotag" data-nl-extension-geotag="1" '
+                f'data-nl-geotag-id="{escape(fid)}"{style_attr}>'
+                f'{label}<button class="nl-extension-geotag-value" type="button" '
+                f'aria-label="Edit coordinates" title="Edit coordinates">'
+                f'{escape(display)}</button></div>'
+            )
+
+        if t == "ExtensionPicture":
+            # Editable picture used by client-created extension fields.  The
+            # browser-side editor binds the file input and stores the selected
+            # image in the same data field as Android.
+            fid = str(el.get("id") or "").strip()
+            raw = node_data.get(fid, "") if fid else ""
+            src = ""
+            if raw not in (None, ""):
+                src = _picture_src_for_element(el, str(raw), node_data, assets_base_dir)
+            h = el.get("height") or 180
+            try:
+                h = max(72, int(h))
+            except Exception:
+                h = 180
+            cap = str(el.get("caption") or fid or "Image")
+            img = (
+                f'<img class="nl-extension-picture-img" src="{escape(src)}" alt="{escape(cap)}" '
+                f'style="display:{"block" if src else "none"};max-width:100%;max-height:{h}px;object-fit:contain"/>'
+            )
+            empty = f'<span class="nl-extension-picture-empty" style="display:{"none" if src else "inline-flex"}">＋</span>'
+            return (
+                f'<div class="nl-extension-picture" data-nl-extension-picture="1" data-path="{escape(fid)}" '
+                f'data-id="{escape(fid)}"{style_attr}>'
+                f'{img}{empty}'
+                f'<input class="nl-extension-picture-file" type="file" accept="image/*" data-path="{escape(fid)}" hidden/>'
+                f'</div>'
+            )
+
         if t == "ImageSlider":
             # value:
             # - ["file1.png", "file2.png"]
@@ -1382,7 +1462,13 @@ def render_nodalayout_html(
             path = escape(nid)
 
             caption_raw = _resolve_vars(str(el.get("caption") or ""), node_data)
-            show_label = bool(caption_raw.strip())
+            # Client-extension fields are intentionally "document-like": the
+            # caption is hidden by default and is shown only when the user
+            # explicitly enables the T option, matching Android.
+            if el.get("extension_field"):
+                show_label = bool(el.get("extension_show_caption") and caption_raw.strip())
+            else:
+                show_label = bool(caption_raw.strip())
             label_html = f'<div class="nl-label">{escape(caption_raw)}</div>' if show_label else ""
 
             # what to show in the readonly field: prefer <id>_view, else value
@@ -1436,7 +1522,8 @@ def render_nodalayout_html(
                 f'<div class="nl-nodeinput" style="display:flex;gap:8px;align-items:center;flex:1 1 auto;min-width:0">'
                 f'<input class="nl-input nl-nodeinput-text"{style_attr_input} '
                 f'data-path="{path}" data-id="{iid}" data-nl-nodeinput="1" '
-                f'readonly value="{escape(display)}"/>'
+                f'readonly value="{escape(display)}" '
+                f'placeholder="{escape(caption_raw) if el.get("extension_field") and not el.get("extension_show_caption") else ""}"/>'
                 f'<button class="nl-button nl-nodeinput-btn"{btn_style} type="button" '
                 f'data-nl-nodepick="1" data-nl-listener="{iid}" '
                 f'data-nl-ds-kind="{ds_kind}" data-nl-ds="{ds_payload}">…</button>'
@@ -1540,12 +1627,20 @@ def render_nodalayout_html(
             events_attr = ' data-nl-events="1"' if el.get("events") else ""
 
             # Inputs default to full width in row-based string layouts (Android-like MATCH_PARENT)
-            style_attr_input = _style_attr(el, extra_css=extra_css, default_full_width=False)
+            input_extra_css = list(extra_css or []) if isinstance(extra_css, list) else ([] if extra_css is None else [str(extra_css)])
+            if el.get("extension_field") and not itype:
+                if el.get("extension_bold"):
+                    input_extra_css.append("font-weight:700")
+                if el.get("extension_italic"):
+                    input_extra_css.append("font-style:italic")
+            style_attr_input = _style_attr(el, extra_css=input_extra_css or None, default_full_width=False)
 
-            # Web UX: show caption as a label (not only as placeholder).
-            # - MULTILINE: label on top
-            # - others: label on the left, taking half of the available field width
-            show_label = bool(caption_raw.strip())
+            # Extension fields follow Android: their title is hidden until the
+            # user enables the T option; caption still serves as placeholder.
+            if el.get("extension_field"):
+                show_label = bool(el.get("extension_show_caption") and caption_raw.strip())
+            else:
+                show_label = bool(caption_raw.strip())
             label_html = f'<div class="nl-label">{escape(caption_raw)}</div>' if show_label else ""
 
             if itype == "MULTILINE":
@@ -1612,7 +1707,13 @@ def render_nodalayout_html(
 
             # caption (label)
             caption_raw = _resolve_vars(str(el.get("caption") or ""), node_data)
-            show_label = bool(caption_raw.strip())
+            # Client-extension fields are intentionally "document-like": the
+            # caption is hidden by default and is shown only when the user
+            # explicitly enables the T option, matching Android.
+            if el.get("extension_field"):
+                show_label = bool(el.get("extension_show_caption") and caption_raw.strip())
+            else:
+                show_label = bool(caption_raw.strip())
             label_html = f'<div class="nl-label">{escape(caption_raw)}</div>' if show_label else ""
 
             # dataset
@@ -2268,7 +2369,15 @@ def render_nodalayout_html(
         elif normal_count > 1:
             row_cols = normal_count
 
-        row_cls = "nl-row"
+        extension_row_id = ""
+        if isinstance(row, list):
+            for _ext_item in row:
+                if isinstance(_ext_item, dict) and _ext_item.get("extension_field"):
+                    extension_row_id = str(_ext_item.get("extension_row_id") or "").strip()
+                    if extension_row_id:
+                        break
+        row_cls = "nl-row" + (" nl-extension-row" if extension_row_id else "")
+        row_ext_attr = f' data-nl-extension-row="{escape(extension_row_id)}"' if extension_row_id else ""
         
 
         # add css var --nl-cols to existing style attr
@@ -2280,7 +2389,7 @@ def render_nodalayout_html(
         else:
             row_style_attr = f' style="--nl-cols:{row_cols}"'
 
-        out.append(f'<div class="{row_cls}"{row_style_attr}>')
+        out.append(f'<div class="{row_cls}"{row_ext_attr}{row_style_attr}>')
         #out.append(f'<div class="nl-row"{row_style_attr}>')
 
         for c_i, el in enumerate(row):
@@ -2307,7 +2416,23 @@ def render_nodalayout_html(
 
             if is_field and "nl-cell-full" not in cell_cls:
                 cell_cls += " nl-cell-field"
-            out.append(f'<div class="{cell_cls}" data-col="{c_i}">')
+
+            ext_cell_attr = ""
+            ext_cell_style = ""
+            if isinstance(el, dict) and el.get("extension_field"):
+                field_id = str(el.get("id") or "").strip()
+                field_type = str(el.get("type") or "").strip()
+                cell_cls += " nl-extension-cell"
+                ext_cell_attr = (
+                    f' data-nl-extension-field="{escape(field_id)}"'
+                    f' data-nl-extension-type="{escape(field_type)}"'
+                )
+                try:
+                    weight = max(1, int(el.get("w") or 1))
+                except Exception:
+                    weight = 1
+                ext_cell_style = f' style="--nl-extension-weight:{weight}"'
+            out.append(f'<div class="{cell_cls}" data-col="{c_i}"{ext_cell_attr}{ext_cell_style}>')
             out.append(render_inline(el))
             out.append("</div>")
 

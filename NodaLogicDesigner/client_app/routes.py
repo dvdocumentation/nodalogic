@@ -20,13 +20,14 @@ import sys
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, quote
 
 import requests
 from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for, after_this_request, send_from_directory, send_file, Response, make_response, g, has_request_context, current_app
 from markupsafe import escape
 from html import unescape
 from flask_login import current_user, login_required
+from flask_babel import _
 from functools import wraps
 from contextlib import contextmanager
 from werkzeug.security import check_password_hash
@@ -410,6 +411,603 @@ def _default_section_code(sections: List[Dict[str, str]]) -> str:
 
 def _server_model(name: str):
     return getattr(main, name, None)
+
+
+# ---------------------------------------------------------------------------
+# Client extensions (web/mobile compatible metadata)
+# ---------------------------------------------------------------------------
+
+_CLIENT_EXT_VERSION = 1
+_CLIENT_EXT_MANAGED = "_extension_managed"
+_CLIENT_EXT_SECTION = "_extension_section"
+_CLIENT_EXT_SECTION_NAME = "_extension_section_name"
+_CLIENT_EXT_CLASS = "_extension_class_id"
+_CLIENT_EXT_CLASS_NAME = "_extension_class_name"
+_CLIENT_EXT_LAYOUT = "_extension_layout"
+_CLIENT_EXT_TABLES = "_extension_tables"
+
+
+def _client_extension_empty_state() -> Dict[str, Any]:
+    return {
+        "version": _CLIENT_EXT_VERSION,
+        "sections": [],
+        "classes": [],
+        "configured_class_templates": {},
+        "deleted_sections": [],
+        "deleted_classes": [],
+        "section_tags": {},
+    }
+
+
+def _client_extension_bool(value: Any, default: bool = True) -> bool:
+    """Boolean parser where a missing flag keeps backward-compatible True."""
+    if value is None:
+        return bool(default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def _client_extension_normalize_state(value: Any) -> Dict[str, Any]:
+    src = value if isinstance(value, dict) else {}
+    out = _client_extension_empty_state()
+    try:
+        out["version"] = max(1, int(src.get("version") or _CLIENT_EXT_VERSION))
+    except Exception:
+        pass
+
+    sections = []
+    seen_sections = set()
+    for row in src.get("sections") or []:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("id") or row.get("code") or "").strip()
+        if not code or code in seen_sections:
+            continue
+        seen_sections.add(code)
+        sections.append({
+            "id": code,
+            "code": code,
+            "name": str(row.get("name") or code).strip() or code,
+            "is_extension": True,
+            "allow_client_extensions": True,
+        })
+    out["sections"] = sections
+
+    classes = []
+    seen_classes = set()
+    for row in src.get("classes") or []:
+        if not isinstance(row, dict):
+            continue
+        class_id = str(row.get("id") or row.get("class_id") or "").strip()
+        section_code = str(row.get("section") or row.get("section_code") or "").strip()
+        if not class_id or class_id in seen_classes:
+            continue
+        seen_classes.add(class_id)
+        layout = row.get("layout")
+        if isinstance(layout, str):
+            try:
+                layout = json.loads(layout)
+            except Exception:
+                layout = []
+        if not isinstance(layout, list):
+            layout = []
+        tables = row.get("tables") if isinstance(row.get("tables"), list) else []
+        classes.append({
+            "id": class_id,
+            "name": str(row.get("name") or row.get("display_name") or class_id).strip() or class_id,
+            "section": section_code,
+            "layout": layout,
+            "tables": tables,
+            "record_template": str(row.get("record_template") or "").strip(),
+            "is_extension": True,
+            "allow_client_extensions": True,
+        })
+    out["classes"] = classes
+    for deleted_key in ("deleted_sections", "deleted_classes"):
+        out[deleted_key] = list(dict.fromkeys(str(x) for x in (src.get(deleted_key) or []) if isinstance(x, str) and x))[:10000]
+
+    vocab = src.get("section_tags")
+    if isinstance(vocab, dict):
+        out["section_tags"] = {
+            str(section): list(dict.fromkeys(str(tag).strip()[:200] for tag in values
+                                           if isinstance(tag, str) and tag.strip()))[:1000]
+            for section, values in vocab.items()
+            if isinstance(section, str) and isinstance(values, list)
+        }
+    templates = src.get("configured_class_templates")
+    out["configured_class_templates"] = templates if isinstance(templates, dict) else {}
+    return out
+
+
+def _client_extension_state_row(user_id: Optional[int] = None, create: bool = False):
+    State = _server_model("ClientExtensionState")
+    if State is None:
+        return None
+    uid = int(user_id or _ngenie_effective_user_id() or 0)
+    if not uid:
+        return None
+    try:
+        row = State.query.filter_by(user_id=uid).first()
+        if row is None and create:
+            row = State(user_id=uid, state_json=_client_extension_empty_state())
+            models.db.session.add(row)
+            models.db.session.flush()
+        return row
+    except Exception:
+        return None
+
+
+def _client_extension_load_state(user_id: Optional[int] = None, reconcile: bool = True) -> Dict[str, Any]:
+    row = _client_extension_state_row(user_id=user_id, create=False)
+    state = _client_extension_normalize_state(getattr(row, "state_json", None) if row is not None else None)
+    if reconcile:
+        try:
+            changed = _client_extension_reconcile_from_raw_nodes(state, user_id=user_id)
+            if changed:
+                _client_extension_save_state(state, user_id=user_id)
+        except Exception:
+            pass
+    return state
+
+
+def _client_extension_save_state(state: Dict[str, Any], user_id: Optional[int] = None) -> Dict[str, Any]:
+    normalized = _client_extension_normalize_state(state)
+    row = _client_extension_state_row(user_id=user_id, create=True)
+    if row is None:
+        return normalized
+    row.state_json = normalized
+    try:
+        row.updated_at = datetime.now(timezone.utc)
+    except Exception:
+        pass
+    models.db.session.add(row)
+    models.db.session.commit()
+    return normalized
+
+
+def _client_extension_payload_data(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    data = payload.get("_data")
+    if isinstance(data, dict):
+        return data
+    # tolerate raw payloads which are just the data object
+    return payload if isinstance(payload, dict) else {}
+
+
+def _client_extension_reconcile_from_raw_nodes(state: Dict[str, Any], user_id: Optional[int] = None) -> bool:
+    """Adopt metadata carried by existing Android/web extension RawNodes.
+
+    Older Android builds keep section/class definitions only in SharedPreferences,
+    but every extension document carries stable section/class ids and the full
+    layout.  Reconstruct enough metadata from those rows so the web client can
+    immediately see documents already uploaded by Android.
+    """
+    RawNode = _server_model("RawNode")
+    uid = int(user_id or _ngenie_effective_user_id() or 0)
+    if RawNode is None or not uid:
+        return False
+    try:
+        rows = RawNode.query.filter_by(owner_user_id=uid).order_by(RawNode.updated_at.asc(), RawNode.id.asc()).limit(2000).all()
+    except Exception:
+        return False
+
+    sections_by_id = {str(x.get("id") or x.get("code") or ""): x for x in (state.get("sections") or []) if isinstance(x, dict)}
+    classes_by_id = {str(x.get("id") or ""): x for x in (state.get("classes") or []) if isinstance(x, dict)}
+    changed = False
+
+    for obj in rows:
+        payload = _raw_node_payload(obj)
+        data = _client_extension_payload_data(payload)
+        if not _client_extension_bool(data.get(_CLIENT_EXT_MANAGED), default=False):
+            continue
+        section_id = str(data.get(_CLIENT_EXT_SECTION) or "").strip()
+        class_id = str(data.get(_CLIENT_EXT_CLASS) or "").strip()
+        class_json = _extract_raw_node_class_json(payload)
+        if section_id in state.get("deleted_sections", []) or class_id in state.get("deleted_classes", []):
+            continue
+        if section_id and section_id.startswith("ext_section_") and section_id not in sections_by_id:
+            section_name = str(data.get(_CLIENT_EXT_SECTION_NAME) or section_id).strip() or section_id
+            row = {"id": section_id, "code": section_id, "name": section_name, "is_extension": True, "allow_client_extensions": True}
+            state.setdefault("sections", []).append(row)
+            sections_by_id[section_id] = row
+            changed = True
+        if class_id and class_id.startswith("ext_class_"):
+            layout = data.get("_layout")
+            if isinstance(layout, str):
+                try:
+                    layout = json.loads(layout)
+                except Exception:
+                    layout = []
+            if not isinstance(layout, list):
+                layout = []
+            class_name = str(
+                data.get(_CLIENT_EXT_CLASS_NAME)
+                or class_json.get("display_name")
+                or class_json.get("name")
+                or class_id
+            ).strip() or class_id
+            existing = classes_by_id.get(class_id)
+            if existing is None:
+                existing = {
+                    "id": class_id,
+                    "name": class_name,
+                    "section": section_id,
+                    "layout": layout,
+                    "tables": data.get(_CLIENT_EXT_TABLES) if isinstance(data.get(_CLIENT_EXT_TABLES), list) else [],
+                    "record_template": str(data.get("_extension_record_template") or class_json.get("record_template") or "").strip(),
+                    "is_extension": True,
+                    "allow_client_extensions": True,
+                }
+                state.setdefault("classes", []).append(existing)
+                classes_by_id[class_id] = existing
+                changed = True
+            else:
+                # Rows are sorted oldest -> newest; last document therefore wins,
+                # matching the Android "use latest document as template" rule.
+                if layout and existing.get("layout") != layout:
+                    existing["layout"] = layout
+                    changed = True
+                if section_id and existing.get("section") != section_id:
+                    existing["section"] = section_id
+                    changed = True
+                if class_name and existing.get("name") != class_name:
+                    existing["name"] = class_name
+                    changed = True
+                record_template = str(data.get("_extension_record_template") or class_json.get("record_template") or "").strip()
+                if str(existing.get("record_template") or "") != record_template:
+                    existing["record_template"] = record_template
+                    changed = True
+    return changed
+
+
+def _client_extension_section(state: Dict[str, Any], section_code: str) -> Optional[Dict[str, Any]]:
+    code = str(section_code or "")
+    for row in state.get("sections") or []:
+        if isinstance(row, dict) and str(row.get("id") or row.get("code") or "") == code:
+            return row
+    return None
+
+
+def _client_extension_class(state: Dict[str, Any], class_id: str) -> Optional[Dict[str, Any]]:
+    cid = str(class_id or "")
+    for row in state.get("classes") or []:
+        if isinstance(row, dict) and str(row.get("id") or "") == cid:
+            return row
+    return None
+
+
+def _client_extension_node_class_choices(user_id: Optional[int] = None) -> List[Dict[str, str]]:
+    """Android-compatible choices for an extension NodeInput.
+
+    ClientExtensionManager.chooseNodeClass() lists client-created classes plus
+    a separate arbitrary-node option.  The arbitrary option is inserted by the
+    browser itself; this helper supplies the same client-created class list.
+    """
+    state = _client_extension_load_state(user_id=user_id)
+    out: List[Dict[str, str]] = []
+    for row in state.get("classes") or []:
+        if not isinstance(row, dict):
+            continue
+        cid = str(row.get("id") or "").strip()
+        if not cid:
+            continue
+        out.append({"id": cid, "name": str(row.get("name") or cid).strip() or cid})
+    return out
+
+
+
+def _client_extension_raw_record_view(
+    data: Dict[str, Any],
+    node_id: str,
+    class_meta: Optional[Dict[str, Any]] = None,
+    embedded_class: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Android-compatible presentation for a client-created RawNode.
+
+    Extension field ids are user-visible captions, so template keys may contain
+    spaces.  Prefer the per-node generated _field_template, then the synced
+    custom-class template, then the embedded class JSON.
+    """
+    data = data if isinstance(data, dict) else {}
+    direct = data.get("_view")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+
+    class_meta = class_meta if isinstance(class_meta, dict) else {}
+    embedded_class = embedded_class if isinstance(embedded_class, dict) else {}
+    tpl = str(
+        data.get("_field_template")
+        or data.get("_extension_record_template")
+        or class_meta.get("record_template")
+        or embedded_class.get("record_view")
+        or embedded_class.get("record_template")
+        or ""
+    ).strip()
+    if tpl:
+        def repl(m: re.Match) -> str:
+            key = m.group(1)
+            value = data.get(key)
+            return "" if value is None else str(value)
+        rendered = re.sub(r"\{([^{}]+)\}", repl, tpl).strip()
+        if rendered:
+            return rendered
+
+    return str(node_id or "")
+
+
+def _client_extension_raw_cover_html(
+    obj: Any,
+    data: Dict[str, Any],
+    class_id: str,
+    node_id: str,
+    repo: Optional[models.Repo],
+) -> str:
+    """Render a custom RawNode cover without routing through configured Node storage."""
+    data = data if isinstance(data, dict) else {}
+    payload = _raw_node_payload(obj)
+    embedded = _extract_raw_node_class_json(payload)
+    layout = data.get("_cover")
+    if not layout and isinstance(embedded, dict):
+        layout = embedded.get("cover") or embedded.get("cover_image")
+    if not layout:
+        return ""
+    try:
+        assets_dir = _userfiles_dir_for_repo(repo) if repo is not None else None
+        ctx = _nl_context(repo, class_name=class_id or "raw-node", node_id=node_id) if repo is not None else None
+        return str(render_nodalayout_html(layout, data, assets_base_dir=assets_dir, context=ctx) or "").strip()
+    except Exception:
+        return ""
+
+
+def _client_extension_config_section_meta(repos: List[models.Repo], section_code: str) -> Optional[Dict[str, Any]]:
+    code = str(section_code or "")
+    for repo in repos or []:
+        parsed = get_parsed_config(repo, models.db) or {}
+        for sec in normalize_sections(parsed.get("cfg") or {}):
+            if str(sec.get("code") or "") == code:
+                return sec
+    return None
+
+
+def _client_extension_section_allowed(repos: List[models.Repo], state: Dict[str, Any], section_code: str) -> bool:
+    if _client_extension_section(state, section_code) is not None:
+        return True
+    meta = _client_extension_config_section_meta(repos, section_code)
+    if meta is None:
+        return False
+    return _client_extension_bool(meta.get("allow_client_extensions"), default=True)
+
+
+def _client_extension_class_allowed(class_cfg: Dict[str, Any]) -> bool:
+    if not isinstance(class_cfg, dict):
+        return False
+    return _client_extension_bool(
+        class_cfg.get("allow_client_extensions", class_cfg.get("allowClientExtensions")),
+        default=True,
+    )
+
+
+def _client_extension_template_key(config_uid: str, class_name: str) -> str:
+    return f"{str(config_uid or '').strip()}${str(class_name or '').strip()}"
+
+
+def _client_extension_template_for(state: Dict[str, Any], config_uid: str, class_name: str) -> Dict[str, Any]:
+    templates = state.get("configured_class_templates") if isinstance(state, dict) else None
+    if not isinstance(templates, dict):
+        return {}
+    value = templates.get(_client_extension_template_key(config_uid, class_name))
+    return value if isinstance(value, dict) else {}
+
+
+def _client_extension_update_configured_template(state: Dict[str, Any], config_uid: str, class_name: str, data: Dict[str, Any]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    layout = data.get(_CLIENT_EXT_LAYOUT)
+    tables = data.get(_CLIENT_EXT_TABLES)
+    if isinstance(layout, str):
+        try:
+            layout = json.loads(layout)
+        except Exception:
+            layout = None
+    if not isinstance(layout, list) and not isinstance(tables, list):
+        return False
+    templates = state.setdefault("configured_class_templates", {})
+    key = _client_extension_template_key(config_uid, class_name)
+    new_value = {
+        "layout": layout if isinstance(layout, list) else [],
+        "tables": tables if isinstance(tables, list) else [],
+        "record_template": str(data.get("_extension_record_template") or "").strip(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if templates.get(key) == new_value:
+        return False
+    templates[key] = new_value
+    return True
+
+
+def _client_extension_after_configured_save(config_uid: str, class_name: str, class_cfg: Dict[str, Any], data: Dict[str, Any]) -> None:
+    if not _client_extension_class_allowed(class_cfg):
+        return
+    try:
+        state = _client_extension_load_state(reconcile=False)
+        if _client_extension_update_configured_template(state, config_uid, class_name, data):
+            _client_extension_save_state(state)
+    except Exception:
+        pass
+
+
+def _client_extension_apply_configured_template(config_uid: str, class_name: str, class_cfg: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(data or {})
+    if not _client_extension_class_allowed(class_cfg):
+        return out
+    if _client_extension_parse_layout(out.get(_CLIENT_EXT_LAYOUT)):
+        return out
+    try:
+        state = _client_extension_load_state(reconcile=False)
+        tpl = _client_extension_template_for(state, config_uid, class_name)
+        layout = _client_extension_parse_layout(tpl.get("layout"))
+        if layout:
+            out[_CLIENT_EXT_LAYOUT] = layout
+        tables = tpl.get("tables")
+        if isinstance(tables, list) and tables:
+            out[_CLIENT_EXT_TABLES] = json.loads(json.dumps(tables))
+        record_template = str(tpl.get("record_template") or "").strip()
+        if record_template:
+            out["_field_template"] = record_template
+            out["_extension_record_template"] = record_template
+        if layout:
+            _client_extension_refresh_presentation_data(out, layout, managed=False, class_cfg=class_cfg)
+    except Exception:
+        pass
+    return out
+
+
+def _client_extension_parse_layout(value: Any) -> List[Any]:
+    if isinstance(value, list):
+        return json.loads(json.dumps(value))
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except Exception:
+            return []
+    return []
+
+
+def _client_extension_layout_fields(layout: Any) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for row in _client_extension_parse_layout(layout):
+        items = row if isinstance(row, list) else [row]
+        for field in items:
+            if isinstance(field, dict) and field.get("extension_field") and str(field.get("id") or "").strip():
+                out.append(field)
+    return out
+
+
+def _client_extension_refresh_presentation_data(
+    data: Dict[str, Any], layout: Any, *, managed: bool, class_cfg: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Mirror ClientExtensionManager.refreshPresentationForLayout()."""
+    if not isinstance(data, dict):
+        data = {}
+    fields = _client_extension_layout_fields(layout)
+    presentation = next((f for f in fields if _client_extension_bool(f.get("extension_cover"), default=False)), None)
+    if presentation is None and fields:
+        presentation = next((f for f in fields if f.get("type") not in ("ExtensionTags", "ExtensionPicture")), None)
+    if presentation is not None:
+        fid = str(presentation.get("id") or "")
+        value_key = fid + "_view" if str(presentation.get("type") or "") == "NodeInput" else fid
+        tpl = "{" + value_key + "}"
+        data["_field_template"] = tpl
+        data["_extension_record_template"] = tpl
+    else:
+        generated = str(data.get("_extension_record_template") or "")
+        if generated and generated == str(data.get("_field_template") or ""):
+            data.pop("_field_template", None)
+        data.pop("_extension_record_template", None)
+
+    cover_fields = [
+        field for field in fields
+        if _client_extension_bool(field.get("extension_cover"), default=False)
+    ]
+
+    cover: List[Any] = []
+    if managed:
+        class_label = str(
+            data.get(_CLIENT_EXT_CLASS_NAME)
+            or (class_cfg or {}).get("display_name")
+            or (class_cfg or {}).get("name")
+            or "Arbitrary node"
+        )
+        data["_extension_cover_class"] = class_label
+        # Class/date are only the empty-cover fallback.  Once the user marks a
+        # field with ★, the explicit fields become the document cover.
+        if not cover_fields:
+            first = next((f for f in fields if f.get("type") in ("Input", "TextInput", "NodeInput") and f.get("id")), None)
+            if first is not None:
+                fid = str(first["id"])
+                value_key = fid + "_view" if first.get("type") == "NodeInput" else fid
+                cover.append([{"type": "Text", "value": "@" + value_key, "size": 16}])
+            else:
+                cover.extend([
+                    [{"type": "Text", "value": "@_extension_cover_class", "bold": True, "size": 18}],
+                    [{"type": "Text", "value": "@_extension_created_at", "size": 13}],
+                ])
+    else:
+        cover = _client_extension_parse_layout((class_cfg or {}).get("cover"))
+
+    selected = 0
+    for field in cover_fields:
+        fid = str(field.get("id") or "").strip()
+        if not fid:
+            continue
+        if str(field.get("type") or "") == "ExtensionPicture":
+            cover.append([{"type": "ExtensionPicture", "id": fid, "height": 120}])
+        else:
+            value_key = fid + "_view" if str(field.get("type") or "") == "NodeInput" else fid
+            text: Dict[str, Any] = {"type": "Text", "value": "@" + value_key}
+            if _client_extension_bool(field.get("extension_bold"), default=False):
+                text["bold"] = True
+            if _client_extension_bool(field.get("extension_italic"), default=False):
+                text["italic"] = True
+            cover.append([text])
+        selected += 1
+
+    if managed or selected > 0:
+        data["_cover"] = cover
+        data["_extension_cover_generated"] = True
+    elif _client_extension_bool(data.get("_extension_cover_generated"), default=False):
+        data.pop("_cover", None)
+        data.pop("_extension_cover_generated", None)
+    return data
+
+
+def _client_extension_merge_layout(base_layout: Any, node_data: Dict[str, Any]) -> Any:
+    """Merge Android-compatible _extension_layout around the configured layout."""
+    if not isinstance(node_data, dict):
+        return base_layout
+    explicit = _client_extension_parse_layout(node_data.get("_layout"))
+    if explicit:
+        return explicit
+    ext = _client_extension_parse_layout(node_data.get(_CLIENT_EXT_LAYOUT))
+    if not ext:
+        return base_layout
+    base = _client_extension_parse_layout(base_layout)
+    if not base:
+        return ext
+    top, bottom = [], []
+    for row in ext:
+        position = ""
+        if isinstance(row, list):
+            for item in row:
+                if isinstance(item, dict) and item.get("extension_field"):
+                    position = str(item.get("extension_position") or "").strip().lower()
+                    if position:
+                        break
+        elif isinstance(row, dict):
+            position = str(row.get("extension_position") or "").strip().lower()
+        (top if position == "top" else bottom).append(row)
+    return top + base + bottom
+
+
+def _client_extension_raw_rows(user_id: Optional[int] = None) -> List[Any]:
+    RawNode = _server_model("RawNode")
+    uid = int(user_id or _ngenie_effective_user_id() or 0)
+    if RawNode is None or not uid:
+        return []
+    try:
+        return RawNode.query.filter_by(owner_user_id=uid).order_by(RawNode.updated_at.desc(), RawNode.id.desc()).limit(2000).all()
+    except Exception:
+        return []
+
+
+def _client_extension_is_raw_obj(obj: Any) -> bool:
+    data = _client_extension_payload_data(_raw_node_payload(obj))
+    return _client_extension_bool(data.get(_CLIENT_EXT_MANAGED), default=False)
 
 
 def _extract_raw_node_class_name(value) -> str:
@@ -1156,6 +1754,10 @@ def _build_raw_node_items(q: str = "") -> Tuple[List[Dict[str, Any]], Dict[str, 
             continue
 
         payload = _raw_node_payload(obj)
+        # Client-created extension documents have their own real sections/classes
+        # in the web client and must not be duplicated under Received Nodes.
+        if _client_extension_bool(_client_extension_payload_data(payload).get(_CLIENT_EXT_MANAGED), default=False):
+            continue
         class_name, payload_node_id, data = _raw_node_identity(payload, raw_id)
         node_id = payload_node_id or raw_id
         data.setdefault("_id", node_id)
@@ -1230,7 +1832,151 @@ def _build_raw_node_items(q: str = "") -> Tuple[List[Dict[str, Any]], Dict[str, 
     }
 
 
-_CLASS_VIEW_RE = re.compile(r"\{([\w.]+)\}", re.UNICODE)
+def _client_extension_items_for_section(
+    section_code: str,
+    state: Dict[str, Any],
+    repos: List[models.Repo],
+    q: str = "",
+    tag_filter: str = "",
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Dict[str, str]]]:
+    """Return custom extension documents/classes for one section."""
+    section_code = str(section_code or "")
+    q_low = str(q or "").strip().lower()
+    classes = [
+        c for c in (state.get("classes") or [])
+        if isinstance(c, dict) and str(c.get("section") or "") == section_code
+    ]
+    classes_by_id = {str(c.get("id") or ""): c for c in classes}
+    classes_ui: List[Dict[str, Any]] = []
+    for c in classes:
+        cid = str(c.get("id") or "").strip()
+        if not cid:
+            continue
+        classes_ui.append({
+            "repo": "",
+            "repo_id": 0,
+            "class": cid,
+            "display_name": str(c.get("name") or cid),
+            "use_standard_commands": True,
+            "commands": "",
+            "repo_uid": "",
+            "class_type": "data_node",
+            "projection_type": "",
+            "dashboard_enabled": False,
+            "dashboard_width": "100",
+            "dashboard_top": False,
+            "is_extension": True,
+            "allow_client_extensions": True,
+        })
+
+    items: List[Dict[str, Any]] = []
+    tags_map: Dict[str, Dict[str, str]] = {}
+    render_repo = repos[0] if repos else None
+    assets_dir = _userfiles_dir_for_repo(render_repo) if render_repo is not None else None
+
+    for obj in _client_extension_raw_rows():
+        payload = _raw_node_payload(obj)
+        data = _client_extension_payload_data(payload)
+        if not _client_extension_bool(data.get(_CLIENT_EXT_MANAGED), default=False):
+            continue
+        if str(data.get(_CLIENT_EXT_SECTION) or "") != section_code:
+            continue
+        if section_code in state.get("deleted_sections", []) or str(data.get(_CLIENT_EXT_CLASS) or "") in state.get("deleted_classes", []):
+            continue
+        raw_id = str(getattr(obj, "node_id", "") or "").strip()
+        if not raw_id:
+            continue
+        class_id = str(data.get(_CLIENT_EXT_CLASS) or "").strip()
+        class_meta = classes_by_id.get(class_id) or {}
+        embedded = _extract_raw_node_class_json(payload)
+        display_class = str(
+            data.get(_CLIENT_EXT_CLASS_NAME)
+            or class_meta.get("name")
+            or embedded.get("display_name")
+            or embedded.get("name")
+            or "Arbitrary node"
+        ).strip() or "Arbitrary node"
+        node_id = str(data.get("_id") or payload.get("_id") or raw_id).strip() or raw_id
+        data = dict(data)
+        data.setdefault("_id", node_id)
+        data.setdefault("_raw_node_id", raw_id)
+        data.setdefault("_download_url", _raw_node_download_ref(payload, raw_id))
+        # Old generated covers lack the first unnamed Input until the node is
+        # edited again.  Repair the list presentation without mutating storage.
+        if data.get("_extension_cover_generated") and not data.get("_extension_cover_v3"):
+            try:
+                _client_extension_refresh_presentation_data(
+                    data, data.get("_layout") or [], managed=True,
+                    class_cfg={"name": display_class, "display_name": display_class},
+                )
+            except Exception:
+                pass
+
+        if q_low:
+            try:
+                hay = json.dumps({"class": display_class, "data": data}, ensure_ascii=False).lower()
+            except Exception:
+                hay = str(data).lower()
+            if q_low not in hay:
+                continue
+
+        tags = _normalize_node_tags(data)
+        tag_ids = []
+        for tag in tags:
+            tid = str(tag.get("id") or "")
+            if tid:
+                tags_map.setdefault(tid, tag)
+                tag_ids.append(tid)
+        if tag_filter and tag_filter not in tag_ids:
+            continue
+
+        layout = data.get("_cover") or []
+        if not layout:
+            layout = [[
+                {"type": "Text", "value": display_class, "bold": True, "width": -1},
+            ]]
+        display_html = ""
+        try:
+            ctx = _nl_context(render_repo, class_name=class_id or "raw-node", node_id=node_id) if render_repo is not None else None
+            display_html = str(render_nodalayout_html(layout, data, assets_base_dir=assets_dir, context=ctx) or "")
+        except Exception:
+            display_html = ""
+        if not display_html:
+            display_html = _render_tags_html(data)
+
+        items.append({
+            "repo": "",
+            "repo_id": 0,
+            "class": class_id or "__extension_raw__",
+            "display_class": display_class,
+            "id": node_id,
+            "raw_node_id": raw_id,
+            "data": data,
+            "class_obj": embedded or {},
+            "class_key": f"extension:{class_id or '__raw__'}",
+            "is_raw_node": True,
+            "is_extension": True,
+            "is_extension_managed": True,
+            "is_custom_process": False,
+            "is_projection": False,
+            "projection_type": "",
+            "display_image_html": display_html,
+            "tags": tags,
+            "table_values": {},
+            "use_standard_commands": True,
+            "repo_uid": "",
+            "dashboard_width": "100",
+            "dashboard_top": False,
+        })
+
+    items.sort(
+        key=lambda it: str((it.get("data") or {}).get("_extension_created_at") or it.get("id") or ""),
+        reverse=True,
+    )
+    return items, classes_ui, tags_map
+
+
+_CLASS_VIEW_RE = re.compile(r"\{([^{}]+)\}", re.UNICODE)
 
 def _render_class_record_view(parsed: Optional[Dict[str, Any]], class_name: str, node_id: str, data: Optional[Dict[str, Any]]) -> str:
     """Render class-level record view template using node data."""
@@ -2930,6 +3676,10 @@ def normalize_sections(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
             "commands": (s.get("commands") or "").strip(),
             "hide_mobile_client": bool(s.get("hide_mobile_client") or s.get("hideMobileClient")),
             "hide_web_client": bool(s.get("hide_web_client") or s.get("hideWebClient")),
+            # Missing flag means enabled for old configurations.
+            "allow_client_extensions": _client_extension_bool(
+                s.get("allow_client_extensions", s.get("allowClientExtensions")), default=True
+            ),
         })
     return out
 
@@ -3521,9 +4271,11 @@ def fetch_config(config_url: str) -> Dict[str, Any]:
     return resp.json()
 
 
-def build_global_sections(repos: List[models.Repo], db) -> List[Dict[str, str]]:
-    seen: Dict[str, str] = {}
+def build_global_sections(repos: List[models.Repo], db) -> List[Dict[str, Any]]:
+    seen: Dict[str, Dict[str, Any]] = {}
     has_empty = False
+
+    state = _client_extension_load_state()
 
     for r in repos:
         parsed = get_parsed_config(r, db)
@@ -3534,21 +4286,65 @@ def build_global_sections(repos: List[models.Repo], db) -> List[Dict[str, str]]:
         section_codes_with_classes = {class_section_code(c) for c in classes}
         if "" in section_codes_with_classes:
             has_empty = True
-        for s in normalize_sections(cfg):
-            code = s["code"]
-            # Do not show sections that contain no accessible classes.
-            if code not in section_codes_with_classes:
+        for sec in normalize_sections(cfg):
+            code = sec["code"]
+            # Keep a configured section visible when it can accept client-created
+            # content even before it has any normal accessible class in this browser.
+            has_ext_class = any(str(c.get("section") or "") == code for c in state.get("classes") or [])
+            if code not in section_codes_with_classes and not has_ext_class:
                 continue
             if code not in seen:
-                seen[code] = s["name"]
+                seen[code] = {
+                    "code": code,
+                    "name": sec["name"],
+                    "is_extension": False,
+                    "allow_client_extensions": _client_extension_bool(sec.get("allow_client_extensions"), default=True),
+                }
 
-    sections: List[Dict[str, str]] = []
+    # User-created sections are account-level and are not tied to a particular
+    # repository. They are therefore visible from every browser for the account.
+    for sec in state.get("sections") or []:
+        if not isinstance(sec, dict):
+            continue
+        code = str(sec.get("id") or sec.get("code") or "").strip()
+        if not code:
+            continue
+        seen[code] = {
+            "code": code,
+            "name": str(sec.get("name") or code),
+            "is_extension": True,
+            "allow_client_extensions": True,
+        }
+
+    # Android extension documents created in a configured section can exist even
+    # before metadata was saved by a web client. Preserve such sections too.
+    configured_names = {}
+    for r in repos:
+        parsed = get_parsed_config(r, db) or {}
+        for sec in normalize_sections(parsed.get("cfg") or {}):
+            configured_names[str(sec.get("code") or "")] = sec
+    for obj in _client_extension_raw_rows():
+        data = _client_extension_payload_data(_raw_node_payload(obj))
+        if not _client_extension_bool(data.get(_CLIENT_EXT_MANAGED), default=False):
+            continue
+        code = str(data.get(_CLIENT_EXT_SECTION) or "").strip()
+        if not code or code in seen:
+            continue
+        cfg_sec = configured_names.get(code)
+        seen[code] = {
+            "code": code,
+            "name": str(data.get(_CLIENT_EXT_SECTION_NAME) or (cfg_sec or {}).get("name") or code),
+            "is_extension": bool(code.startswith("ext_section_")),
+            "allow_client_extensions": True if code.startswith("ext_section_") else _client_extension_bool((cfg_sec or {}).get("allow_client_extensions"), default=True),
+        }
+
+    sections: List[Dict[str, Any]] = []
     if has_empty:
-        sections.append({"code": "", "name": "<...>"})
-    for code in sorted(seen.keys()):
+        sections.append({"code": "", "name": "<...>", "is_extension": False, "allow_client_extensions": True})
+    for code in sorted(seen.keys(), key=lambda x: str(seen[x].get("name") or x).lower()):
         if code == "":
             continue
-        sections.append({"code": code, "name": seen[code]})
+        sections.append(seen[code])
     return sections
 
 
@@ -11431,6 +12227,7 @@ def api_node_save():
                 reg_count = 0
                 reg_result = {}
 
+            _client_extension_after_configured_save(cfg_uid, class_name, cls_cfg, data)
             out = {"ok": True}
             if reg_count:
                 out["registered"] = reg_count
@@ -11463,6 +12260,7 @@ def api_node_save():
             f"/api/config/{cfg_uid}/node/{class_name}/{node_id}/save",
             {"_data": data},
         )
+        _client_extension_after_configured_save(cfg_uid, class_name, cls_cfg, data)
         msgs = getattr(_nodes_mod, "RUNTIME_MESSAGES", None)
         msgs = msgs.get() if msgs else []
         if isinstance(msgs, list) and msgs:
@@ -12721,6 +13519,13 @@ def api_section_data():
         }))
 
     repos = models.Repo.query.filter_by(user_id=_ngenie_effective_user_id()).all()
+    extension_state = _client_extension_load_state()
+    extension_section_meta = _client_extension_section(extension_state, section_code)
+    configured_section_meta = _client_extension_config_section_meta(repos, section_code) if section_code not in (RAW_NODES_SECTION_CODE, DASHBOARD_SECTION_CODE) else None
+    section_is_extension = extension_section_meta is not None
+    section_allow_extensions = True if section_is_extension else _client_extension_bool(
+        (configured_section_meta or {}).get("allow_client_extensions"), default=True
+    ) if configured_section_meta is not None else False
     is_dashboard = section_code == DASHBOARD_SECTION_CODE
     # The browser may still be on a section that became unavailable after role
     # changes.  Redirect it to the current default section instead of returning
@@ -12949,6 +13754,8 @@ def api_section_data():
                 "dashboard_enabled": _class_dashboard_enabled(c),
                 "dashboard_width": str(c.get("dashboard_width") or c.get("dashboardWidth") or "100"),
                 "dashboard_top": bool(c.get("dashboard_top") or c.get("dashboardTop")),
+                "is_extension": False,
+                "allow_client_extensions": _client_extension_class_allowed(c),
             })
 
         # items
@@ -13111,6 +13918,26 @@ def api_section_data():
                 if "_sort_string_desc" in data:
                     any_desc = True
 
+    # Account-level client extensions use RawNode for document transport and
+    # server-side metadata for sections/classes. They are merged into the same
+    # section payload as normal configured classes.
+    if not is_dashboard:
+        try:
+            ext_items, ext_classes_ui, ext_tags = _client_extension_items_for_section(
+                section_code, extension_state, repos, q=q, tag_filter=tag_filter
+            )
+            merged.extend(ext_items)
+            known_class_keys = {(bool(x.get("is_extension")), str(x.get("class") or "")) for x in classes_ui}
+            for row in ext_classes_ui:
+                key = (True, str(row.get("class") or ""))
+                if key not in known_class_keys:
+                    classes_ui.append(row)
+                    known_class_keys.add(key)
+            for tid, tag in ext_tags.items():
+                tag_filter_map.setdefault(tid, tag)
+        except Exception:
+            traceback.print_exc()
+
     # Process-local virtual banners are always placed at the very top of Home.
     if is_dashboard:
         try:
@@ -13190,9 +14017,565 @@ def api_section_data():
             "tag_filter": list(tag_filter_map.values()),
             "selected_tag": tag_filter,
             "is_dashboard": bool(is_dashboard),
+            "is_extension_section": bool(section_is_extension),
+            "allow_client_extensions": bool(section_allow_extensions),
         }
     }))
 
+
+
+
+# Browser extension lifecycle and portable Android-compatible .nraw node graphs.
+def _ext_owned_raw_objects():
+    return [obj for obj in _client_extension_raw_rows()
+            if _client_extension_is_raw_obj(obj)]
+
+
+def _ext_ref_fields(layout):
+    """Yield NodeInput definitions, including virtual-table columns."""
+    for field in _client_extension_layout_fields(layout):
+        if str(field.get("type") or "") == "NodeInput":
+            yield field
+        virtual = field.get("virtual_node")
+        if isinstance(virtual, dict):
+            yield from _ext_ref_fields(virtual.get("layout"))
+
+
+def _ext_strip_scripts(value, depth=0):
+    if depth > 20:
+        return []
+    forbidden = {"onClick", "onSelect", "onChange", "onInput", "onLongClick", "onEvent", "script"}
+    if isinstance(value, list):
+        return [_ext_strip_scripts(x, depth+1) for x in value][:500]
+    if isinstance(value, dict):
+        return {k: _ext_strip_scripts(v, depth+1) for k,v in value.items() if k not in forbidden}
+    return value
+
+
+def _ext_remap_layout(layout, class_ids):
+    for row in layout if isinstance(layout, list) else []:
+        items = row if isinstance(row, list) else [row]
+        for f in items:
+            if not isinstance(f, dict):
+                continue
+            if f.get("type") == "NodeInput":
+                f["dataset"] = class_ids.get(str(f.get("dataset") or ""), "_raw")
+            for k in ("layout",):
+                if isinstance(f.get(k), list):
+                    _ext_remap_layout(f[k], class_ids)
+            v = f.get("virtual_node")
+            if isinstance(v, dict) and isinstance(v.get("layout"), list):
+                _ext_remap_layout(v["layout"], class_ids)
+
+
+def _ext_remap_values(data, layout, node_ids, class_ids):
+    for f in _client_extension_layout_fields(layout):
+        fid = str(f.get("id") or "")
+        if not fid:
+            continue
+        kind = str(f.get("type") or "")
+        if kind == "NodeInput":
+            old = str(data.get(fid) or "")
+            if old in node_ids:
+                data[fid] = node_ids[old]
+            else:
+                data.pop(fid, None)
+                data.pop(fid + "_view", None)
+                data.pop(fid + "_data", None)
+        elif kind == "Table":
+            sub = f.get("virtual_node") or {}
+            columns = sub.get("layout") if isinstance(sub, dict) else []
+            if isinstance(data.get(fid), list):
+                for row in data[fid]:
+                    if isinstance(row, dict):
+                        _ext_remap_values(row, columns, node_ids, class_ids)
+        elif kind == "ExtensionPicture":
+            raw = str(data.get(fid) or "")
+            if raw and not raw.startswith(("data:image/", "https://", "http://")):
+                data.pop(fid, None)  # local Android path is not portable
+
+
+@client_bp.route("/api/extensions/section/delete", methods=["POST"])
+@login_required
+def api_extension_section_delete():
+    j = request.get_json(silent=True) or {}
+    sid = str(j.get("section_code") or "").strip()
+    state = _client_extension_load_state()
+    if not sid.startswith("ext_section_") or _client_extension_section(state, sid) is None:
+        return jsonify({"ok": False, "error": "User section not found"}), 404
+    class_ids = {str(c.get("id") or "") for c in state["classes"] if c.get("section") == sid}
+    rows = [o for o in _ext_owned_raw_objects() if str(_client_extension_payload_data(_raw_node_payload(o)).get(_CLIENT_EXT_SECTION) or "") == sid]
+    if not j.get("confirm"):
+        return jsonify({"ok": True, "confirm_required": True, "classes": len(class_ids), "nodes": len(rows)})
+    state["sections"] = [r for r in state["sections"] if r.get("id") != sid]
+    state["classes"] = [r for r in state["classes"] if r.get("section") != sid]
+    state.setdefault("deleted_sections", []).append(sid)
+    state.setdefault("deleted_classes", []).extend(class_ids)
+    state.setdefault("section_tags", {}).pop(sid, None)
+    for obj in rows:
+        models.db.session.delete(obj)
+    _client_extension_save_state(state)
+    return jsonify({"ok": True, "deleted_classes": len(class_ids), "deleted_nodes": len(rows)})
+
+
+@client_bp.route("/api/extensions/class/delete", methods=["POST"])
+@login_required
+def api_extension_class_delete():
+    j = request.get_json(silent=True) or {}
+    cid = str(j.get("class_id") or "").strip()
+    state = _client_extension_load_state()
+    if not cid.startswith("ext_class_") or _client_extension_class(state, cid) is None:
+        return jsonify({"ok": False, "error": "User class not found"}), 404
+    rows = [o for o in _ext_owned_raw_objects() if str(_client_extension_payload_data(_raw_node_payload(o)).get(_CLIENT_EXT_CLASS) or "") == cid]
+    if not j.get("confirm"):
+        return jsonify({"ok": True, "confirm_required": True, "nodes": len(rows)})
+    state["classes"] = [r for r in state["classes"] if r.get("id") != cid]
+    state.setdefault("deleted_classes", []).append(cid)
+    for obj in rows:
+        models.db.session.delete(obj)
+    _client_extension_save_state(state)
+    return jsonify({"ok": True, "deleted_nodes": len(rows)})
+
+
+@client_bp.route("/api/extensions/tags", methods=["GET", "POST"])
+@login_required
+def api_extension_section_tags():
+    body = request.get_json(silent=True) if request.method == "POST" else {}
+    body = body if isinstance(body, dict) else {}
+    sid = str(body.get("section_code") or request.args.get("section_code") or "").strip()
+    state = _client_extension_load_state()
+    repos = models.Repo.query.filter_by(user_id=_ngenie_effective_user_id()).all()
+    if not sid or not _client_extension_section_allowed(repos, state, sid):
+        return jsonify({"ok": False, "error": "Section not found or not editable"}), 404
+    names = set(state.get("section_tags", {}).get(sid, []))
+    for obj in _ext_owned_raw_objects():
+        data = _client_extension_payload_data(_raw_node_payload(obj))
+        if str(data.get(_CLIENT_EXT_SECTION) or "") == sid:
+            names.update(t["id"] for t in _normalize_node_tags(data))
+    if request.method == "POST":
+        tag = str(body.get("tag") or "").strip()
+        if not tag or len(tag) > 200:
+            return jsonify({"ok": False, "error": "Invalid tag"}), 400
+        names.add(tag)
+        state.setdefault("section_tags", {})[sid] = sorted(names, key=str.casefold)[:1000]
+        _client_extension_save_state(state)
+    return jsonify({"ok": True, "tags": sorted(names, key=str.casefold)[:1000]})
+
+
+@client_bp.route("/api/extensions/node/<raw_node_id>/export.nraw")
+@login_required
+def api_extension_graph_export(raw_node_id):
+    rows = {str(o.node_id): o for o in _ext_owned_raw_objects()}
+    candidate_repos = models.Repo.query.filter_by(user_id=_ngenie_effective_user_id()).all()
+    if raw_node_id not in rows:
+        abort(404)
+    state = _client_extension_load_state()
+    class_defs = {c["id"]: c for c in state["classes"]}
+    nodes, classes, unresolved, external = {}, {}, [], []
+    queue = [raw_node_id]
+    while queue:
+        nid = queue.pop(0)
+        if nid in nodes:
+            continue
+        if len(nodes) >= 250:
+            return jsonify({"ok": False, "error": "Graph exceeds 250 nodes"}), 400
+        obj = rows.get(nid)
+        if obj is None:
+            continue
+        payload = _raw_node_payload(obj)
+        data = json.loads(json.dumps(_client_extension_payload_data(payload), ensure_ascii=False))
+        cid = str(data.get(_CLIENT_EXT_CLASS) or "_raw")
+        nodes[nid] = {"id": nid, "class_id": cid, "data": data}
+        meta = class_defs.get(cid)
+        if meta and cid not in classes:
+            classes[cid] = {
+                "id": cid, "name": meta.get("name"), "display_name": meta.get("name"),
+                "init_screen_layout": json.dumps(meta.get("layout") or [], ensure_ascii=False),
+            }
+        layout = data.get("_layout") or (meta or {}).get("layout") or []
+        # Android imports local images only when embedded as data:image/...;
+        # resolve web uploads from the current user's repository directories.
+        for f in _client_extension_layout_fields(layout):
+            fid = str(f.get("id") or "")
+            if f.get("type") == "NodeInput" and fid:
+                refs = [(data, fid)]
+            elif f.get("type") == "Table" and fid:
+                virtual = f.get("virtual_node") or {}
+                refs = [(r, str(col.get("id") or ""))
+                        for r in data.get(fid, []) if isinstance(r, dict)
+                        for col in _client_extension_layout_fields(virtual.get("layout") if isinstance(virtual, dict) else [])
+                        if col.get("type") == "NodeInput"]
+            else:
+                refs = []
+            for record, key in refs:
+                ref = str(record.get(key) or "").strip()
+                if ref and ref not in nodes:
+                    if ref in rows:
+                        queue.append(ref)
+                    else:
+                        unresolved.append({"from_node": nid, "field": key, "target": ref})
+            if f.get("type") == "ExtensionPicture" and fid:
+                value = str(data.get(fid) or "")
+                if value and not value.startswith("data:image/"):
+                    embedded = False
+                    if value == os.path.basename(value) and not value.startswith("."):
+                        mime = mimetypes.guess_type(value)[0] or ""
+                        if mime in ("image/jpeg", "image/png", "image/webp", "image/gif"):
+                            for repo in candidate_repos:
+                                path = os.path.join(_userfiles_dir_for_repo(repo), value)
+                                if os.path.isfile(path) and os.path.getsize(path) <= 20 * 1024 * 1024:
+                                    with open(path, "rb") as stream:
+                                        content = stream.read(20 * 1024 * 1024 + 1)
+                                    if len(content) <= 20 * 1024 * 1024:
+                                        data[fid] = "data:" + mime + ";base64," + base64.b64encode(content).decode("ascii")
+                                        embedded = True
+                                    break
+                    if not embedded:
+                        external.append({"node": nid, "field": fid, "url": value})
+    bundle = {"format": "nodalogic.extension.node-graph", "format_version": 1,
+              "root_node_id": raw_node_id, "exported_at": int(time.time() * 1000),
+              "nodes_by_id": nodes, "classes_by_id": classes,
+              "unresolved_node_refs": unresolved, "external_media_refs": external}
+    blob = json.dumps(bundle, ensure_ascii=False, indent=2).encode("utf-8")
+    if len(blob) > 25 * 1024 * 1024:
+        return jsonify({"ok": False, "error": "Export exceeds 25 MB"}), 413
+    filename = re.sub(r"[^a-zA-Z0-9_.-]+", "_", raw_node_id)[:64] + ".nraw"
+    return send_file(BytesIO(blob), mimetype="application/vnd.nodalogic.nraw+json", as_attachment=True, download_name=filename)
+
+
+@client_bp.route("/api/extensions/import-nraw", methods=["POST"])
+@login_required
+def api_extension_graph_import():
+    uploaded = request.files.get("file")
+    if uploaded is None:
+        return jsonify({"ok": False, "error": "Choose a .nraw file"}), 400
+    if not str(uploaded.filename or "").lower().endswith(".nraw"):
+        return jsonify({"ok": False, "error": "Expected .nraw"}), 400
+    content = uploaded.stream.read(25 * 1024 * 1024 + 1)
+    if len(content) > 25 * 1024 * 1024:
+        return jsonify({"ok": False, "error": "File exceeds 25 MB"}), 413
+    try:
+        bundle = json.loads(content)
+        if not isinstance(bundle, dict) or bundle.get("format") != "nodalogic.extension.node-graph" or bundle.get("format_version") != 1:
+            raise ValueError("Unsupported .nraw format")
+        source = bundle.get("nodes_by_id")
+        if not isinstance(source, dict) or not 1 <= len(source) <= 250:
+            raise ValueError("Invalid node count (limit 250)")
+        old_root = str(bundle.get("root_node_id") or "")
+        if old_root not in source:
+            raise ValueError("Root node missing")
+        for old, entry in source.items():
+            if not isinstance(entry, dict) or entry.get("id") != old or not isinstance(entry.get("data"), dict):
+                raise ValueError("Malformed node graph")
+        defs = bundle.get("classes_by_id") if isinstance(bundle.get("classes_by_id"), dict) else {}
+        state = _client_extension_load_state()
+        RawNode = _server_model("RawNode")
+        if RawNode is None:
+            raise RuntimeError("RawNode storage unavailable")
+        owner_id = _ngenie_effective_user_id()
+        sid = "ext_section_" + uuid.uuid4().hex[:16]
+        section_name = "Импорт .nraw"
+        node_ids = {old: "ext_node_" + uuid.uuid4().hex for old in source}
+        class_ids = {str(e.get("class_id")): "ext_class_" + uuid.uuid4().hex[:16]
+                     for e in source.values() if str(e.get("class_id") or "").startswith("ext_class_")
+                     and isinstance(defs.get(str(e.get("class_id"))), dict)}
+        new_classes = []
+        for old, cid in class_ids.items():
+            definition = defs[old]
+            layout = definition.get("init_screen_layout") or definition.get("layout") or []
+            layout = _ext_strip_scripts(_client_extension_parse_layout(layout))
+            _ext_remap_layout(layout, class_ids)
+            name = str(definition.get("display_name") or definition.get("name") or "Imported class")[:200]
+            new_classes.append({"id": cid, "name": name, "section": sid, "layout": layout,
+                                "tables": [], "record_template": "", "is_extension": True,
+                                "allow_client_extensions": True})
+        state["sections"].append({"id": sid, "code": sid, "name": section_name,
+                                  "is_extension": True, "allow_client_extensions": True})
+        state["classes"].extend(new_classes)
+        for old, entry in source.items():
+            nid = node_ids[old]
+            old_class = str(entry.get("class_id") or "_raw")
+            cid = class_ids.get(old_class, "")
+            cls = next((c for c in new_classes if c["id"] == cid), None)
+            data = json.loads(json.dumps(entry["data"], ensure_ascii=False))
+            layout = _client_extension_parse_layout(data.get("_layout") or data.get("_extension_layout"))
+            if not layout and cls:
+                layout = _client_extension_parse_layout(cls["layout"])
+            if not layout and isinstance(defs.get(old_class), dict):
+                layout = _client_extension_parse_layout(defs[old_class].get("init_screen_layout"))
+            layout = _ext_strip_scripts(layout)
+            _ext_remap_values(data, layout, node_ids, class_ids)
+            _ext_remap_layout(layout, class_ids)
+            data["_id"] = nid
+            data[_CLIENT_EXT_MANAGED] = True
+            data[_CLIENT_EXT_SECTION] = sid
+            data[_CLIENT_EXT_SECTION_NAME] = section_name
+            data[_CLIENT_EXT_CLASS] = cid or None
+            data[_CLIENT_EXT_CLASS_NAME] = cls["name"] if cls else "Arbitrary node"
+            data["_layout"] = layout
+            data.pop("_extension_layout", None)
+            data.pop("_extension_record_template", None)
+            data.pop("_extension_cover_generated", None)
+            _client_extension_refresh_presentation_data(data, layout, managed=True, class_cfg=cls)
+            embedded = _client_extension_embedded_class(cid, data[_CLIENT_EXT_CLASS_NAME], sid, layout, "")
+            now = datetime.now(timezone.utc)
+            models.db.session.add(RawNode(
+                node_id=nid, payload_json={"_id": nid, "_class": embedded, "_data": data},
+                content_type="node", owner_user_id=owner_id, created_at=now, updated_at=now,
+            ))
+        # Save the entire graph and its section/class metadata in one transaction.
+        # A malformed file must never leave behind an orphaned, partially imported graph.
+        _client_extension_save_state(state)
+        return jsonify({"ok": True, "section_code": sid, "root_node_id": node_ids[old_root],
+                        "open_url": url_for("client.raw_node_form", raw_node_id=node_ids[old_root])})
+    except (ValueError, TypeError, UnicodeError, json.JSONDecodeError) as e:
+        models.db.session.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception:
+        models.db.session.rollback()
+        current_app.logger.exception("Failed to import .nraw")
+        return jsonify({"ok": False, "error": "Import failed"}), 500
+
+
+@client_bp.route("/api/extensions/section/create", methods=["POST"])
+@login_required
+def api_extension_section_create():
+    j = request.get_json(force=True, silent=True) or {}
+    name = str(j.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "name required"}), 400
+    state = _client_extension_load_state()
+    # Keep names free-form, but ids stable and transport-safe.
+    section_id = "ext_section_" + uuid.uuid4().hex[:16]
+    row = {
+        "id": section_id,
+        "code": section_id,
+        "name": name[:200],
+        "is_extension": True,
+        "allow_client_extensions": True,
+    }
+    state.setdefault("sections", []).append(row)
+    _client_extension_save_state(state)
+    return jsonify({
+        "ok": True,
+        "section": row,
+        "open_url": url_for("client.section_view", section_code=section_id),
+    })
+
+
+@client_bp.route("/api/extensions/class/create", methods=["POST"])
+@login_required
+def api_extension_class_create():
+    j = request.get_json(force=True, silent=True) or {}
+    section_code = str(j.get("section_code") or "").strip()
+    name = str(j.get("name") or "").strip()
+    if not section_code or not name:
+        return jsonify({"ok": False, "error": "section_code and name required"}), 400
+    repos = models.Repo.query.filter_by(user_id=_ngenie_effective_user_id()).all()
+    state = _client_extension_load_state()
+    if not _client_extension_section_allowed(repos, state, section_code):
+        return jsonify({"ok": False, "error": "Extensions are disabled for this section"}), 403
+    class_id = "ext_class_" + uuid.uuid4().hex[:16]
+    row = {
+        "id": class_id,
+        "name": name[:200],
+        "section": section_code,
+        "layout": [],
+        "tables": [],
+        "record_template": "",
+        "is_extension": True,
+        "allow_client_extensions": True,
+    }
+    state.setdefault("classes", []).append(row)
+    _client_extension_save_state(state)
+    return jsonify({"ok": True, "class": row})
+
+
+def _client_extension_embedded_class(
+    class_id: str, class_name: str, section_code: str, layout: List[Any], record_template: str = ""
+) -> Dict[str, Any]:
+    record_template = str(record_template or "").strip()
+    out = {
+        "name": class_name or class_id or "Arbitrary node",
+        "display_name": class_name or class_id or "Arbitrary node",
+        "section_code": section_code,
+        "class_type": "data_node",
+        "has_storage": True,
+        "use_standard_commands": True,
+        "allow_client_extensions": True,
+        "init_screen_layout": json.dumps(layout or [], ensure_ascii=False),
+        "init_screen_layout_web": json.dumps(layout or [], ensure_ascii=False),
+        "record_view": record_template or "{_id}",
+    }
+    if record_template:
+        out["record_template"] = record_template
+    return out
+
+
+def _client_extension_store_raw(node_id: str, payload: Dict[str, Any], owner_user_id: int):
+    saver = getattr(main, "_save_raw_node_local", None)
+    if callable(saver):
+        return saver(node_id, payload, owner_user_id=owner_user_id, content_type="node")
+    RawNode = _server_model("RawNode")
+    if RawNode is None:
+        raise RuntimeError("RawNode model is unavailable")
+    obj = RawNode.query.filter_by(node_id=node_id).first()
+    now = datetime.now(timezone.utc)
+    if obj is None:
+        obj = RawNode(node_id=node_id, payload_json=payload, content_type="node", owner_user_id=owner_user_id, created_at=now, updated_at=now)
+        models.db.session.add(obj)
+    else:
+        obj.payload_json = payload
+        obj.owner_user_id = owner_user_id
+        obj.updated_at = now
+    models.db.session.commit()
+    return obj
+
+
+@client_bp.route("/api/extensions/node/create", methods=["POST"])
+@login_required
+def api_extension_node_create():
+    j = request.get_json(force=True, silent=True) or {}
+    section_code = str(j.get("section_code") or "").strip()
+    class_id = str(j.get("class_id") or "").strip()
+    if not section_code:
+        return jsonify({"ok": False, "error": "section_code required"}), 400
+
+    repos = models.Repo.query.filter_by(user_id=_ngenie_effective_user_id()).all()
+    state = _client_extension_load_state()
+    if not _client_extension_section_allowed(repos, state, section_code):
+        return jsonify({"ok": False, "error": "Extensions are disabled for this section"}), 403
+
+    class_meta = _client_extension_class(state, class_id) if class_id else None
+    if class_id and (class_meta is None or str(class_meta.get("section") or "") != section_code):
+        return jsonify({"ok": False, "error": "extension class not found in section"}), 404
+
+    section_meta = _client_extension_section(state, section_code) or _client_extension_config_section_meta(repos, section_code) or {}
+    section_name = str(section_meta.get("name") or section_code)
+    class_name = str((class_meta or {}).get("name") or "Arbitrary node")
+    layout = _client_extension_parse_layout((class_meta or {}).get("layout"))
+    tables = (class_meta or {}).get("tables") if isinstance((class_meta or {}).get("tables"), list) else []
+
+    node_id = "ext_node_" + uuid.uuid4().hex
+    now_iso = datetime.now(timezone.utc).isoformat()
+    record_template = str((class_meta or {}).get("record_template") or "").strip()
+    data = {
+        "_id": node_id,
+        _CLIENT_EXT_MANAGED: True,
+        _CLIENT_EXT_SECTION: section_code,
+        _CLIENT_EXT_SECTION_NAME: section_name,
+        _CLIENT_EXT_CLASS: class_id or None,
+        _CLIENT_EXT_CLASS_NAME: class_name,
+        "_extension_cover_class": class_name,
+        "_extension_created_at": now_iso,
+        "_layout": layout,
+        _CLIENT_EXT_TABLES: tables,
+        "_cover": [
+            [{"type": "Text", "value": "@_extension_cover_class", "bold": True, "size": 18}],
+            [{"type": "Text", "value": "@_extension_created_at", "size": 13}],
+        ],
+        "_extension_cover_generated": True,
+    }
+    if record_template:
+        data["_field_template"] = record_template
+        data["_extension_record_template"] = record_template
+    _client_extension_refresh_presentation_data(
+        data, layout, managed=True, class_cfg={"name": class_name, "display_name": class_name}
+    )
+    record_template = str(data.get("_extension_record_template") or record_template or "").strip()
+    embedded = _client_extension_embedded_class(class_id, class_name, section_code, layout, record_template)
+    payload = {"_id": node_id, "_class": embedded, "_data": data}
+    try:
+        _client_extension_store_raw(node_id, payload, _ngenie_effective_user_id())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify({
+        "ok": True,
+        "raw_node_id": node_id,
+        "node_id": node_id,
+        "open_url": url_for("client.raw_node_form", raw_node_id=node_id),
+    })
+
+
+@client_bp.route("/api/extensions/raw-node/save", methods=["POST"])
+@login_required
+def api_extension_raw_node_save():
+    j = request.get_json(force=True, silent=True) or {}
+    raw_node_id = str(j.get("raw_node_id") or j.get("node_id") or "").strip()
+    data = j.get("data")
+    if not raw_node_id or not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "raw_node_id and data required"}), 400
+    RawNode = _server_model("RawNode")
+    obj = RawNode.query.filter_by(node_id=raw_node_id).first() if RawNode is not None else None
+    uid = _ngenie_effective_user_id()
+    if obj is None or int(getattr(obj, "owner_user_id", 0) or 0) != int(uid or 0):
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    payload = _raw_node_payload(obj)
+    old_data = _client_extension_payload_data(payload)
+    if not _client_extension_bool(old_data.get(_CLIENT_EXT_MANAGED), default=False):
+        return jsonify({"ok": False, "error": "not an extension node"}), 400
+
+    # Identity/ownership metadata is server-controlled; form values may replace
+    # everything else. This avoids a browser accidentally moving a document to
+    # another section/account by editing hidden JSON.
+    merged = dict(data)
+    for key in (_CLIENT_EXT_MANAGED, _CLIENT_EXT_SECTION, _CLIENT_EXT_SECTION_NAME, _CLIENT_EXT_CLASS, _CLIENT_EXT_CLASS_NAME, "_extension_created_at"):
+        if key in old_data:
+            merged[key] = old_data.get(key)
+    merged["_id"] = str(old_data.get("_id") or raw_node_id)
+
+    class_id = str(merged.get(_CLIENT_EXT_CLASS) or "").strip()
+    state = _client_extension_load_state(reconcile=False)
+    class_meta = _client_extension_class(state, class_id) if class_id else None
+    if class_meta is not None:
+        # The most recently edited extension document becomes the template for
+        # the next document of this custom class, exactly as on Android.
+        layout = _client_extension_parse_layout(merged.get("_layout"))
+        if layout:
+            class_meta["layout"] = layout
+        if isinstance(merged.get(_CLIENT_EXT_TABLES), list):
+            class_meta["tables"] = merged.get(_CLIENT_EXT_TABLES)
+        class_meta["record_template"] = str(merged.get("_extension_record_template") or "").strip()
+        _client_extension_save_state(state)
+
+    # Keep the embedded class in lockstep with the document layout even for a
+    # classless arbitrary node.  That is what makes the RawNode portable to
+    # Android without relying on browser-only metadata.
+    embedded = _client_extension_embedded_class(
+        class_id,
+        str((class_meta or {}).get("name") or merged.get(_CLIENT_EXT_CLASS_NAME) or class_id or "Arbitrary node"),
+        str(merged.get(_CLIENT_EXT_SECTION) or ""),
+        _client_extension_parse_layout(merged.get("_layout")),
+        str(merged.get("_extension_record_template") or "").strip(),
+    )
+    new_payload = dict(payload)
+    new_payload["_id"] = merged["_id"]
+    new_payload["_data"] = merged
+    if embedded:
+        new_payload["_class"] = embedded
+    try:
+        _client_extension_store_raw(raw_node_id, new_payload, uid)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify({"ok": True, "node_id": merged["_id"], "raw_node_id": raw_node_id})
+
+
+@client_bp.route("/api/extensions/raw-node/delete", methods=["POST"])
+@login_required
+def api_extension_raw_node_delete():
+    j = request.get_json(force=True, silent=True) or {}
+    raw_node_id = str(j.get("raw_node_id") or j.get("node_id") or "").strip()
+    RawNode = _server_model("RawNode")
+    obj = RawNode.query.filter_by(node_id=raw_node_id).first() if (RawNode is not None and raw_node_id) else None
+    uid = _ngenie_effective_user_id()
+    if obj is None or int(getattr(obj, "owner_user_id", 0) or 0) != int(uid or 0):
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    data = _client_extension_payload_data(_raw_node_payload(obj))
+    if not _client_extension_bool(data.get(_CLIENT_EXT_MANAGED), default=False):
+        return jsonify({"ok": False, "error": "not an extension node"}), 400
+    models.db.session.delete(obj)
+    models.db.session.commit()
+    return jsonify({"ok": True})
 
 
 @client_bp.route("/api/node/create", methods=["POST"])
@@ -13221,6 +14604,8 @@ def api_node_create():
             return jsonify({"ok": False, "error": "singleton process cannot be created here"}), 400
     except Exception:
         return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    initial_data = _client_extension_apply_configured_template(repo.config_uid, class_name, cmeta, initial_data)
 
     base_url = (repo.base_url or "").strip().rstrip("/")
     current = (request.host_url or "").rstrip("/")
@@ -14051,6 +15436,466 @@ def print_form_pdf(repo_id: int, print_class_name: str):
     return resp
 
 
+
+def _movement_node_candidates(config_uid: str, class_name: str, node_id: str) -> Dict[str, str]:
+    internal_id = str(_nodes_mod.extract_internal_id(node_id) or node_id or "").strip()
+    full_uid = str(_nodes_mod.normalize_own_uid(config_uid, class_name, internal_id) or "").strip()
+    short_uid = f"{class_name}${internal_id}" if class_name and internal_id else ""
+    return {"internal_id": internal_id, "full_uid": full_uid, "short_uid": short_uid}
+
+
+def _movement_value_mentions_node(value: Any, candidates: Dict[str, str]) -> bool:
+    full_uid = str(candidates.get("full_uid") or "")
+    short_uid = str(candidates.get("short_uid") or "")
+    internal_id = str(candidates.get("internal_id") or "")
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if _movement_value_mentions_node(nested, candidates):
+                return True
+            # Legacy handlers sometimes saved only the internal id in explicit
+            # source/reference metadata. Restrict that fallback to semantic keys
+            # so an id like "1" does not match an unrelated numeric value.
+            key_l = str(key or "").strip().lower()
+            if internal_id and str(nested or "").strip() == internal_id and any(
+                token in key_l for token in ("source", "document", "node", "uid", "ref", "operation")
+            ):
+                return True
+        return False
+    if isinstance(value, (list, tuple, set)):
+        return any(_movement_value_mentions_node(v, candidates) for v in value)
+    if value is None:
+        return False
+    text = str(value).strip()
+    if not text:
+        return False
+    if full_uid and (text == full_uid or full_uid in text):
+        return True
+    if short_uid and (text == short_uid or short_uid in text):
+        return True
+    return False
+
+
+def _movement_operation_mentions_node(value: Any, candidates: Dict[str, str]) -> bool:
+    """Match a document/node encoded inside a stable operation key.
+
+    QuantLedger handlers often use keys such as ``receive:<node-id>`` instead
+    of a full Node UID.  Only accept the raw internal id when it is reasonably
+    distinctive and delimited, otherwise short numeric ids would create many
+    false positives.
+    """
+    if _movement_value_mentions_node(value, candidates):
+        return True
+    internal_id = str(candidates.get("internal_id") or "").strip()
+    text = str(value or "").strip()
+    if not text or len(internal_id) < 6:
+        return False
+    return re.search(r"(^|[^A-Za-z0-9])" + re.escape(internal_id) + r"($|[^A-Za-z0-9])", text) is not None
+
+
+def _movement_readable_value(value: Any, get_node_view) -> Any:
+    if isinstance(value, dict):
+        return {str(k): _movement_readable_value(v, get_node_view) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_movement_readable_value(v, get_node_view) for v in value]
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    text = str(value)
+    stripped = text.strip()
+    if not stripped or "$" not in stripped:
+        return text
+    try:
+        cfg_uid, cls_name, internal_id = _nodes_mod.parse_uid_any(stripped)
+        if cls_name and internal_id:
+            view = str(get_node_view(stripped) or "").strip()
+            return view or text
+    except Exception:
+        pass
+    return text
+
+
+def _movement_nonzero_resources(raw: Dict[str, Any], *, max_resources: int, scale: int) -> List[Dict[str, str]]:
+    out: List[Dict[str, str]] = []
+    for idx in range(1, int(max_resources or 0) + 1):
+        try:
+            scaled = int(raw.get(f"resource{idx}") or 0)
+        except Exception:
+            scaled = 0
+        if not scaled:
+            continue
+        try:
+            from decimal import Decimal
+            value = Decimal(scaled) / Decimal(scale)
+            text = format(value, "f").rstrip("0").rstrip(".") if "." in format(value, "f") else format(value, "f")
+        except Exception:
+            text = str(scaled)
+        out.append({"index": idx, "value": text or "0"})
+    return out
+
+
+def _quant_ledger_movements_for_node(repo: models.Repo, class_name: str, node_id: str, get_node_view) -> Dict[str, Any]:
+    candidates = _movement_node_candidates(str(repo.config_uid or ""), class_name, node_id)
+    try:
+        import quant_ledger.api as ql
+    except Exception as exc:
+        return {"available": False, "movements": [], "error": str(exc)}
+
+    full_uid = candidates["full_uid"]
+    short_uid = candidates["short_uid"]
+    internal_id = candidates["internal_id"]
+    encoded_full = quote(full_uid, safe="") if full_uid else ""
+    encoded_short = quote(short_uid, safe="") if short_uid else ""
+    where = ["scope = ?"]
+    params: List[Any] = [str(repo.config_uid or "")]
+    refs = [x for x in (full_uid, short_uid) if x]
+    encoded_refs = [x for x in (encoded_full, encoded_short) if x]
+    clauses: List[str] = []
+    if internal_id:
+        clauses.append("operation_id = ?")
+        params.append(internal_id)
+        if len(internal_id) >= 6:
+            clauses.extend(["operation_id LIKE ?", "details_json LIKE ?"])
+            params.extend([f"%{internal_id}%", f"%{internal_id}%"])
+    for ref in refs:
+        clauses.extend(["operation_id LIKE ?", "details_json LIKE ?"])
+        params.extend([f"%{ref}%", f"%{ref}%"])
+    for ref in encoded_refs:
+        clauses.extend(["quant LIKE ?", "selector_quant LIKE ?"])
+        params.extend([f"%{ref}%", f"%{ref}%"])
+    if not clauses:
+        return {"available": True, "movements": [], "error": ""}
+    where.append("(" + " OR ".join(clauses) + ")")
+    try:
+        rows = ql._query(
+            f"SELECT * FROM {ql.MOVEMENT_TABLE} WHERE {' AND '.join(where)} ORDER BY period DESC, id DESC LIMIT 500",
+            params,
+        )
+    except Exception as exc:
+        return {"available": True, "movements": [], "error": str(exc)}
+
+    out: List[Dict[str, Any]] = []
+    total_rows = max(1, len(rows))
+    for row_no, row in enumerate(rows, 1):
+        if row_no == 1 or row_no % 50 == 0:
+            _background_jobs.raise_if_cancelled()
+            _background_jobs.update_progress(
+                progress=0.20 + (0.20 * min(1.0, row_no / total_rows)),
+            )
+        try:
+            details = json.loads(row.get("details_json") or "{}")
+        except Exception:
+            details = {}
+        try:
+            quant_parts = list(ql.parse_quant(str(row.get("quant") or "")))
+        except Exception:
+            quant_parts = [str(row.get("quant") or "")]
+        try:
+            selector_parts = list(ql.parse_quant(str(row.get("selector_quant") or ""))) if row.get("selector_quant") else []
+        except Exception:
+            selector_parts = [str(row.get("selector_quant") or "")]
+
+        # SQL LIKE is only a prefilter. Confirm relation after decoding quant JSON.
+        if not (
+            (internal_id and str(row.get("operation_id") or "").strip() == internal_id)
+            or _movement_operation_mentions_node(row.get("operation_id"), candidates)
+            or _movement_value_mentions_node(details, candidates)
+            or _movement_value_mentions_node(quant_parts, candidates)
+            or _movement_value_mentions_node(selector_parts, candidates)
+        ):
+            continue
+        out.append({
+            "id": int(row.get("id") or 0),
+            "period": str(row.get("period") or ""),
+            "space": str(row.get("space") or ""),
+            "operation_id": _movement_readable_value(row.get("operation_id") or "", get_node_view),
+            "quant": _movement_readable_value(quant_parts, get_node_view),
+            "selector": _movement_readable_value(selector_parts, get_node_view),
+            "resources": _movement_nonzero_resources(row, max_resources=ql.MAX_RESOURCES, scale=ql.RESOURCE_SCALE),
+            "details": _movement_readable_value(details if isinstance(details, dict) else {}, get_node_view),
+        })
+    return {"available": True, "movements": out, "error": ""}
+
+
+def _transaction_rows_from_data(
+    data: Dict[str, Any],
+    *,
+    owner_uid: str,
+    owner_class: str,
+    owner_view: str,
+    candidates: Dict[str, str],
+    get_node_view,
+    include_all: bool = False,
+) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    roots = (("_transactions", "sum"), ("_state_transactions", "state"))
+    for root_name, kind in roots:
+        schemes = data.get(root_name) if isinstance(data, dict) else None
+        if not isinstance(schemes, dict):
+            continue
+        for scheme, txs in schemes.items():
+            if not isinstance(txs, list):
+                continue
+            for tx in txs:
+                if not isinstance(tx, dict):
+                    continue
+                related_payload = {
+                    "keys": tx.get("keys"),
+                    "values": tx.get("values"),
+                    "meta": tx.get("meta"),
+                    "uk": tx.get("uk"),
+                }
+                if not include_all and not _movement_value_mentions_node(related_payload, candidates):
+                    continue
+                tx_keys = list(tx.get("keys") or [])
+                key_str = "::".join(str(k) for k in tx_keys)
+                if kind == "state":
+                    result_map = tx.get("state") if isinstance(tx.get("state"), dict) else {}
+                else:
+                    result_map = tx.get("balances") if isinstance(tx.get("balances"), dict) else {}
+                result_value = result_map.get(key_str) if isinstance(result_map, dict) else None
+                out.append({
+                    "kind": kind,
+                    "scheme": str(scheme or ""),
+                    "period": str(tx.get("period") or ""),
+                    "transaction_id": str(tx.get("uid") or ""),
+                    "owner_class": owner_class,
+                    "owner": owner_view or owner_uid,
+                    "keys": _movement_readable_value(tx_keys, get_node_view),
+                    "values": _movement_readable_value(tx.get("values") or [], get_node_view),
+                    "result": _movement_readable_value(result_value, get_node_view),
+                    "meta": _movement_readable_value(tx.get("meta") or {}, get_node_view),
+                })
+    return out
+
+
+def _legacy_transaction_movements_for_node(
+    repo: models.Repo,
+    parsed: Dict[str, Any],
+    class_name: str,
+    node_id: str,
+    get_node_view,
+    own_data_override: Optional[Dict[str, Any]] = None,
+    progress_text: str = "",
+) -> Dict[str, Any]:
+    candidates = _movement_node_candidates(str(repo.config_uid or ""), class_name, node_id)
+    full_uid = candidates["full_uid"]
+    short_uid = candidates["short_uid"]
+    internal_id = candidates["internal_id"]
+    out: List[Dict[str, Any]] = []
+    seen = set()
+
+    # Always include ledgers stored directly on the opened node. Raw/extension
+    # documents live in RawNode rather than node_storage, so their payload can
+    # be supplied by the caller.
+    own_data = own_data_override if isinstance(own_data_override, dict) else _node_storage_data_direct(str(repo.config_uid or ""), class_name, internal_id) or {}
+    own_view = str(get_node_view(full_uid) or internal_id)
+    for row in _transaction_rows_from_data(
+        own_data,
+        owner_uid=full_uid,
+        owner_class=class_name,
+        owner_view=own_view,
+        candidates=candidates,
+        get_node_view=get_node_view,
+        include_all=True,
+    ):
+        key = (row.get("owner_class"), row.get("transaction_id"), row.get("scheme"), row.get("kind"))
+        if key not in seen:
+            seen.add(key); out.append(row)
+
+    # Cross-node impact: search the pickled SqliteDict rows by the full/short UID
+    # first, then unpickle and verify only transaction payloads. This avoids a
+    # full Python scan of every node when the user opens the Movements tab.
+    blob_refs = [x for x in (full_uid, short_uid) if x]
+    if internal_id and len(internal_id) >= 6:
+        blob_refs.append(internal_id)
+    blob_needles = [x.encode("utf-8") for x in dict.fromkeys(blob_refs)]
+    owner_classes = list((parsed or {}).get("classes", {}).keys())
+    owner_total = max(1, len(owner_classes))
+    for owner_no, owner_class in enumerate(owner_classes, 1):
+        _background_jobs.raise_if_cancelled()
+        _background_jobs.update_progress(
+            current=owner_no,
+            total=owner_total,
+            progress=0.45 + (0.45 * min(1.0, (owner_no - 1) / owner_total)),
+            text=(progress_text or "Reading transactions..."),
+        )
+        db_path = os.path.join("node_storage", f"{owner_class}_{repo.config_uid}.sqlite")
+        if not os.path.exists(db_path) or not blob_needles:
+            continue
+        try:
+            conn = sqlite3.connect(db_path)
+            try:
+                table = "unnamed"
+                query = "SELECT key, value FROM unnamed WHERE " + " OR ".join("instr(value, ?) > 0" for _ in blob_needles) + " LIMIT 1000"
+                rows = conn.execute(query, [sqlite3.Binary(x) for x in blob_needles]).fetchall()
+            finally:
+                conn.close()
+        except Exception:
+            continue
+        for raw_no, (raw_key, raw_value) in enumerate(rows, 1):
+            if raw_no == 1 or raw_no % 100 == 0:
+                _background_jobs.raise_if_cancelled()
+            try:
+                obj = pickle.loads(raw_value)
+            except Exception:
+                continue
+            data = obj.get("_data") if isinstance(obj, dict) and isinstance(obj.get("_data"), dict) else obj
+            if not isinstance(data, dict):
+                continue
+            owner_internal = str(_nodes_mod.extract_internal_id(raw_key) or raw_key or "")
+            owner_uid = str(_nodes_mod.normalize_own_uid(repo.config_uid, owner_class, owner_internal) or owner_internal)
+            if owner_uid == full_uid:
+                continue
+            owner_view = str(get_node_view(owner_uid) or owner_internal)
+            for row in _transaction_rows_from_data(
+                data,
+                owner_uid=owner_uid,
+                owner_class=owner_class,
+                owner_view=owner_view,
+                candidates=candidates,
+                get_node_view=get_node_view,
+                include_all=False,
+            ):
+                key = (row.get("owner_class"), row.get("transaction_id"), row.get("scheme"), row.get("kind"))
+                if key not in seen:
+                    seen.add(key); out.append(row)
+                if len(out) >= 500:
+                    break
+            if len(out) >= 500:
+                break
+        if len(out) >= 500:
+            break
+    out.sort(key=lambda row: (str(row.get("period") or ""), str(row.get("transaction_id") or "")), reverse=True)
+    return {"available": True, "movements": out[:500], "error": ""}
+
+
+@client_bp.route("/api/node/movements", methods=["POST"])
+@login_required
+def api_node_movements():
+    payload = request.get_json(force=True, silent=True) or {}
+    try:
+        repo_id = int(payload.get("repo_id") or 0)
+    except Exception:
+        repo_id = 0
+    class_name = str(payload.get("class_name") or "").strip()
+    node_id = str(payload.get("node_id") or "").strip()
+    is_raw_node = bool(payload.get("is_raw_node"))
+    raw_node_id = str(payload.get("raw_node_id") or "").strip()
+    internal_job_execution = bool(payload.get("__movements_job_execute")) and request.headers.get("X-Noda-Background-Job") == "1"
+    progress_labels = payload.get("progress_labels") if isinstance(payload.get("progress_labels"), dict) else {}
+    progress_loading = str(progress_labels.get("loading") or "Loading movements...")
+    progress_preparing = str(progress_labels.get("preparing") or "Preparing node...")
+    progress_quant = str(progress_labels.get("quant") or "Reading QuantLedger...")
+    progress_transactions = str(progress_labels.get("transactions") or "Reading transactions...")
+    progress_finishing = str(progress_labels.get("finishing") or "Preparing results...")
+
+    if not repo_id or not class_name or not node_id:
+        return jsonify({"ok": False, "error": "Missing node identity"}), 400
+
+    repo = _get_repo_or_404(repo_id)
+
+    # Movements are report-like and can scan several stores. Queue the work only
+    # when the Movements tab asks for it; opening the document itself stays fast.
+    if not internal_job_execution:
+        app_obj = current_app._get_current_object()
+        user_id = str(current_user.get_id() or "")
+        request_body = dict(payload)
+        request_body["__movements_job_execute"] = True
+
+        def _execute_movements_job():
+            _background_jobs.update_progress(progress=0.02, text=progress_loading)
+            with app_obj.test_client() as test_client:
+                with test_client.session_transaction() as session_data:
+                    session_data["_user_id"] = user_id
+                    session_data["_fresh"] = True
+                response = test_client.post(
+                    "/client/api/node/movements",
+                    json=request_body,
+                    headers={"X-Noda-Background-Job": "1"},
+                )
+                result = response.get_json(silent=True)
+                if result is None:
+                    result = {"ok": False, "error": response.get_data(as_text=True)[:2000]}
+                if response.status_code >= 400:
+                    raise RuntimeError(str(result.get("error") or f"HTTP {response.status_code}"))
+                return result
+
+        job = _background_jobs.submit(
+            _execute_movements_job,
+            owner="web:" + user_id,
+            mode="runprogress",
+            title=progress_loading,
+        )
+        job_id = str(job.get("id") or "")
+        return jsonify({
+            "ok": True,
+            "background": True,
+            "mode": "runprogress",
+            "job": {
+                **job,
+                "status_url": f"/client/api/node/event_job/{job_id}",
+                "cancel_url": f"/client/api/node/event_job/{job_id}/cancel",
+            },
+        }), 202
+
+    _background_jobs.raise_if_cancelled()
+    _background_jobs.update_progress(progress=0.08, text=progress_preparing)
+
+    own_data_override = None
+    if is_raw_node and raw_node_id:
+        RawNode = _server_model("RawNode")
+        obj = RawNode.query.filter_by(node_id=raw_node_id).first() if RawNode is not None else None
+        if not obj:
+            return jsonify({"ok": False, "error": "Raw node not found"}), 404
+        if not _current_user_can_access_raw_node(raw_node_id, obj=obj):
+            abort(403)
+        raw_payload = _raw_node_payload(obj)
+        resolved_class, resolved_node_id, raw_data = _raw_node_identity(raw_payload, raw_node_id)
+        if resolved_class:
+            class_name = resolved_class
+        if resolved_node_id:
+            node_id = resolved_node_id
+        if isinstance(raw_data, dict):
+            own_data_override = raw_data
+
+    if _client_repo_is_local(repo) and not is_raw_node and not _client_user_can_access_class(repo.config_uid, class_name):
+        abort(403)
+    if not _client_repo_is_local(repo):
+        _background_jobs.update_progress(progress=1.0, text=progress_finishing)
+        return jsonify({
+            "ok": True,
+            "quant_ledger": {"available": False, "movements": [], "error": "Movements are available for local repositories only."},
+            "transactions": {"available": False, "movements": [], "error": "Movements are available for local repositories only."},
+        })
+
+    parsed = get_parsed_config(repo, models.db) or {}
+    ctx = _nl_context(repo, class_name=class_name, node_id=node_id, shared_cache={})
+    get_node_view = ctx.get("get_node_view") or (lambda value: str(value or ""))
+
+    _background_jobs.raise_if_cancelled()
+    _background_jobs.update_progress(progress=0.15, text=progress_quant)
+    quant_result = _quant_ledger_movements_for_node(repo, class_name, node_id, get_node_view)
+
+    _background_jobs.raise_if_cancelled()
+    _background_jobs.update_progress(progress=0.45, current=0, total=0, text=progress_transactions)
+    transaction_result = _legacy_transaction_movements_for_node(
+        repo,
+        parsed,
+        class_name,
+        node_id,
+        get_node_view,
+        own_data_override=own_data_override,
+        progress_text=progress_transactions,
+    )
+
+    _background_jobs.raise_if_cancelled()
+    _background_jobs.update_progress(progress=0.96, current=0, total=0, text=progress_finishing)
+    return jsonify({
+        "ok": True,
+        "quant_ledger": quant_result,
+        "transactions": transaction_result,
+    })
+
+
 @client_bp.route("/node/<path:config_uid>/<path:class_name>/<path:node_id>")
 @login_required
 def node_form(config_uid: str, class_name: str, node_id: str):
@@ -14310,8 +16155,11 @@ def node_form(config_uid: str, class_name: str, node_id: str):
             cls.get("init_screen_layout"),
         )
 
-    # Resolve '^layout_id' via CommonLayouts
+    # Resolve '^layout_id' via CommonLayouts, then append client extension
+    # fields around the configured form. Android uses the same _extension_layout
+    # convention, so one document renders identically on both clients.
     layout = resolve_common_layout(parsed, layout)
+    layout = _client_extension_merge_layout(layout, node_data)
 
     if layout is not None and isinstance(node_data, dict):
         _fill_nodeinput_views(repo, parsed, layout, node_data)
@@ -14379,6 +16227,9 @@ def node_form(config_uid: str, class_name: str, node_id: str):
         ui_plugins=ui_plugins,
         class_obj=cls,
         is_raw_node=False,
+        extension_managed=False,
+        can_extend_node=_client_extension_class_allowed(cls),
+        extension_node_classes=_client_extension_node_class_choices(),
     )
 
 
@@ -14421,6 +16272,10 @@ def raw_node_form(raw_node_id: str):
     download_url = _raw_node_download_ref(payload, raw_node_id)
     event_download_url = _raw_node_download_url(raw_node_id)
     node_data.setdefault("_download_url", download_url)
+    extension_managed = bool(
+        _client_extension_bool(node_data.get(_CLIENT_EXT_MANAGED), default=False)
+        and int(getattr(obj, "owner_user_id", 0) or 0) == int(_ngenie_effective_user_id() or 0)
+    )
 
     repo, parsed, cls = _resolve_raw_node_class(payload, class_name)
     if repo is None:
@@ -14438,7 +16293,7 @@ def raw_node_form(raw_node_id: str):
             node_data.setdefault("_class", class_name)
     ui_plugins = _parse_plugins_json(cls.get("plug_in_web") or "") if isinstance(cls, dict) else []
     ui_message = None
-    use_std = bool(cls.get("use_standard_commands")) if isinstance(cls, dict) else False
+    use_std = True if extension_managed else (bool(cls.get("use_standard_commands")) if isinstance(cls, dict) else False)
     is_custom_process = _is_singleton_class_type(cls) if isinstance(cls, dict) else False
     is_projection = _is_projection_class_type(cls) if isinstance(cls, dict) else False
     projection_type = str(cls.get("projection_type") or "").strip() if isinstance(cls, dict) else ""
@@ -14487,6 +16342,7 @@ def raw_node_form(raw_node_id: str):
         )
 
     layout = resolve_common_layout(parsed, layout)
+    layout = _client_extension_merge_layout(layout, node_data)
     if layout is not None and isinstance(node_data, dict):
         try:
             _fill_nodeinput_views(repo, parsed, layout, node_data)
@@ -14524,8 +16380,8 @@ def raw_node_form(raw_node_id: str):
         use_standard_commands=use_std,
         has_onshowweb=has_onshowweb,
         api_event_web=url_for("client.api_node_event_web"),
-        api_save_url=url_for("client.api_node_save"),
-        api_delete_url=url_for("client.api_node_delete"),
+        api_save_url=url_for("client.api_extension_raw_node_save") if extension_managed else url_for("client.api_node_save"),
+        api_delete_url=url_for("client.api_extension_raw_node_delete") if extension_managed else url_for("client.api_node_delete"),
         api_register_url=url_for("client.api_node_register"),
         is_custom_process=is_custom_process,
         is_projection=is_projection,
@@ -14555,6 +16411,9 @@ def raw_node_form(raw_node_id: str):
         class_obj=cls,
         is_raw_node=True,
         discussion_node_id=str(raw_node_id or ""),
+        extension_managed=extension_managed,
+        can_extend_node=True if extension_managed else _client_extension_class_allowed(cls),
+        extension_node_classes=_client_extension_node_class_choices(),
     )
 
 
@@ -14815,23 +16674,53 @@ def _public_s3_url_for_key(object_key: str) -> str:
 
 
 def _upload_userfile_to_s3(file_storage, *, owner_id: str, filename: str, content_type: str) -> str:
+    """Upload a client file to S3 through a server-side presigned PUT.
+
+    Keep this path deliberately separate from boto3.upload_fileobj(). Some
+    S3-compatible providers reject boto3's streaming/checksum request mode with
+    XAmzContentSHA256Mismatch. A browser-side PUT is not used either, because
+    that would require bucket CORS rules.
+    """
     s3_client = getattr(main, "s3", None)
     bucket = getattr(main, "S3_BUCKET", None)
     if s3_client is None or not bucket:
         raise RuntimeError("S3 client is not configured")
+
     base_name = _safe_filename(filename) or "file.bin"
     _, ext = os.path.splitext(base_name)
     object_key = f"uploads/client_userfiles/{owner_id or 'user'}/{uuid.uuid4().hex}{ext.lower()}"
-    extra = {"ContentType": content_type or "application/octet-stream"}
+    mime = content_type or "application/octet-stream"
+
+    upload_url = s3_client.generate_presigned_url(
+        ClientMethod="put_object",
+        Params={
+            "Bucket": bucket,
+            "Key": object_key,
+            "ContentType": mime,
+        },
+        ExpiresIn=600,
+    )
+
     file_storage.stream.seek(0)
-    s3_client.upload_fileobj(file_storage.stream, bucket, object_key, ExtraArgs=extra)
+    raw = file_storage.stream.read()
+    response = requests.put(
+        upload_url,
+        data=raw,
+        headers={"Content-Type": mime},
+        timeout=60,
+    )
+    if response.status_code < 200 or response.status_code >= 300:
+        body = (response.text or "").strip().replace("\n", " ")[:500]
+        raise RuntimeError(f"S3 upload failed: HTTP {response.status_code}: {body}")
+
+    public_url = _public_s3_url_for_key(object_key)
     try:
         invalidate = getattr(main, "_runtime_cache_invalidate", None)
         if callable(invalidate):
-            invalidate(_public_s3_url_for_key(object_key))
+            invalidate(public_url)
     except Exception:
         pass
-    return _public_s3_url_for_key(object_key)
+    return public_url
 
 
 @client_bp.route("/api/userfiles/<int:repo_id>/list")
@@ -16760,6 +18649,78 @@ def api_class_nodes():
             "ok": True,
             "items": _client_system_user_picker_items(q=q, limit=limit),
         })
+
+    # Client-created classes do not exist in the downloaded configuration.
+    # Their documents are RawNode rows scoped to the same account, exactly as
+    # on Android.  `_raw` is the arbitrary-node choice.
+    ext_state = _client_extension_load_state()
+    ext_class = _client_extension_class(ext_state, class_name)
+    if ext_class is not None or class_name == "_raw":
+        owner_id = int(_ngenie_effective_user_id() or 0)
+        repos_for_render = models.Repo.query.filter_by(user_id=owner_id).all() if owner_id else []
+        render_repo = None
+        if repo_id:
+            render_repo = next((r for r in repos_for_render if int(getattr(r, "id", 0) or 0) == repo_id), None)
+        if render_repo is None and repos_for_render:
+            render_repo = repos_for_render[0]
+
+        q_low = q.lower()
+        items = []
+        seen = set()
+        for obj in _client_extension_raw_rows(user_id=owner_id):
+            payload = _raw_node_payload(obj)
+            data = _client_extension_payload_data(payload)
+            raw_id = str(getattr(obj, "node_id", "") or "").strip()
+            if not raw_id:
+                continue
+
+            managed = _client_extension_bool(data.get(_CLIENT_EXT_MANAGED), default=False)
+            row_class_id = str(data.get(_CLIENT_EXT_CLASS) or "").strip()
+            if ext_class is not None:
+                if not managed or row_class_id != class_name:
+                    continue
+            elif class_name == "_raw":
+                # Android's arbitrary-node picker is not tied to a configured
+                # class.  For web-created extension nodes, include classless
+                # RawNodes; for ordinary raw-node payloads the same owner scope
+                # keeps the behavior useful without leaking another account.
+                if managed and row_class_id:
+                    continue
+
+            embedded = _extract_raw_node_class_json(payload)
+            node_id = str(data.get("_id") or payload.get("_id") or raw_id).strip() or raw_id
+            uid = node_id
+            if uid in seen:
+                continue
+            seen.add(uid)
+
+            meta = ext_class if ext_class is not None else {}
+            view = _client_extension_raw_record_view(data, node_id, meta, embedded)
+            if q_low:
+                try:
+                    hay = json.dumps({"uid": uid, "view": view, "data": data}, ensure_ascii=False).lower()
+                except Exception:
+                    hay = f"{uid} {view}".lower()
+                if q_low not in hay:
+                    continue
+
+            cover_html = _client_extension_raw_cover_html(
+                obj, data, row_class_id or class_name, node_id, render_repo
+            )
+            items.append({
+                "uid": uid,
+                "_id": node_id,
+                "_class": row_class_id or _extract_raw_node_class_name(payload.get("_class")) or "_raw",
+                "_view": str(view or uid),
+                "cover_html": cover_html,
+                "data": data,
+                "repo_id": getattr(render_repo, "id", 0) if render_repo is not None else 0,
+                "repo_uid": getattr(render_repo, "config_uid", "") if render_repo is not None else "",
+                "raw_node_id": raw_id,
+            })
+            if len(items) >= max(1, min(limit, 500)):
+                break
+        return jsonify({"ok": True, "items": items})
 
     if repo_id:
         repos = [models.Repo.query.filter_by(id=repo_id, user_id=current_user.id).first()]
