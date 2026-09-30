@@ -4251,6 +4251,56 @@ function initProjection(){
 }
 
 
+function nlTableRowContext(el) {
+  try {
+    if (!el || !el.closest) return null;
+    const row = el.closest('[data-nl-table][data-nl-row-index]');
+    if (!row) return null;
+    const tableId = String(row.getAttribute('data-nl-table') || '').trim();
+    if (!tableId) return null;
+    const posRaw = row.getAttribute('data-nl-row-index');
+    const position = Number.isFinite(Number(posRaw)) ? Number(posRaw) : posRaw;
+    const key = String(row.getAttribute('data-nl-row') || '');
+    let data = {};
+    try { data = JSON.parse(row.getAttribute('data-nl-row-data') || '{}') || {}; } catch(_) { data = {}; }
+    const selectedKey = (data && Object.prototype.hasOwnProperty.call(data, 'key'))
+      ? data.key
+      : ((data && Object.prototype.hasOwnProperty.call(data, '_id')) ? data._id : null);
+    const inputKey = (data && Object.prototype.hasOwnProperty.call(data, 'key')) ? data.key : null;
+    return { row, tableId, position, key, data, selectedKey, inputKey };
+  } catch(_) { return null; }
+}
+
+function nlSetTableCompatSelection(ctx) {
+  if (!ctx || !ctx.tableId) return;
+  try {
+    _data = _data || {};
+    _data[`${ctx.tableId}_selected_position`] = ctx.position;
+    _data[`${ctx.tableId}_selected_data`] = ctx.data;
+    if (ctx.selectedKey !== null && ctx.selectedKey !== undefined) _data[`${ctx.tableId}_selected_key`] = ctx.selectedKey;
+  } catch(_) {}
+}
+
+async function nlFireTableCompatInput(el, value, originalListener) {
+  const ctx = nlTableRowContext(el);
+  if (!ctx) return;
+  const elementId = String(originalListener || el.getAttribute('data-id') || el.getAttribute('data-nl-listener') || el.id || '').trim();
+  if (!elementId) return;
+  const listener = `${ctx.tableId}_input_${elementId}`;
+  const posPath = `${ctx.tableId}_input_position`;
+  const keyPath = `${ctx.tableId}_input_key`;
+  try {
+    _data = _data || {};
+    _data[posPath] = ctx.position;
+    if (ctx.inputKey !== null && ctx.inputKey !== undefined) _data[keyPath] = ctx.inputKey;
+    if (value !== undefined) _data[listener] = value;
+  } catch(_) {}
+  const payload = { listener, id: listener, path: listener, value };
+  payload.extra = [{ path: posPath, value: ctx.position }];
+  if (ctx.inputKey !== null && ctx.inputKey !== undefined) payload.extra.push({ path: keyPath, value: ctx.inputKey });
+  await fireOnInputWeb(payload);
+}
+
 function bindClicks() {
   
   const root = document.getElementById("webRoot") || document;
@@ -4273,13 +4323,24 @@ function bindClicks() {
       e.stopPropagation();
 
       const listener = String(clickEl.getAttribute("data-nl-listener") || "").trim();
+      const rowCtx = nlTableRowContext(clickEl);
 
   
       const owner = clickEl.closest('[data-nl-target-class][data-nl-target-node]');
       const target_class = owner ? String(owner.getAttribute("data-nl-target-class") || "").trim() : "";
       const target_node  = owner ? String(owner.getAttribute("data-nl-target-node") || "").trim() : "";
 
-      await fireOnClickWeb({ listener, element_tag: clickEl.tagName }, target_class, target_node);
+      if (rowCtx && clickEl === rowCtx.row) {
+        // Backward compatibility: keep the legacy WEB listener (<table_id>) exactly as before,
+        // but populate Android-compatible selected_* data and additionally emit <table_id>_click.
+        nlSetTableCompatSelection(rowCtx);
+        await fireOnClickWeb({ listener, element_tag: clickEl.tagName }, target_class, target_node);
+        await fireOnClickWeb({ listener: `${rowCtx.tableId}_click`, element_tag: clickEl.tagName }, target_class, target_node);
+      } else {
+        // Existing nested control event first; then add Android-compatible table input event.
+        await fireOnClickWeb({ listener, element_tag: clickEl.tagName }, target_class, target_node);
+        if (rowCtx) await nlFireTableCompatInput(clickEl, undefined, listener);
+      }
       return;
     }
 
@@ -4391,16 +4452,28 @@ function bindInputs(){
 
     // input: only for text typing (throttle if has events)
     if (kind === "input") {
-      if (hasEvents) {
+      const rowCtx = nlTableRowContext(el);
+      if (hasEvents || rowCtx) {
         if (inputTimer) clearTimeout(inputTimer);
-        inputTimer = setTimeout(() => fireOnInputWeb(p), 250);
+        inputTimer = setTimeout(async () => {
+          if (hasEvents) await fireOnInputWeb(p);
+          if (rowCtx) await nlFireTableCompatInput(el, p.value, p.listener || p.id || p.path);
+        }, 250);
       }
       return;
     }
 
-    // change: checkboxes/selects/dates always can affect layout
+    // change: checkboxes/selects/dates always can affect layout.
+    // Inside Table rows, also emit the Android-compatible table input listener.
     if (kind === "change") {
-      if (shouldSendWebEvent(el)) fireOnInputWeb(p);
+      const sendOld = shouldSendWebEvent(el);
+      const rowCtx = nlTableRowContext(el);
+      if (sendOld || rowCtx) {
+        (async () => {
+          if (sendOld) await fireOnInputWeb(p);
+          if (rowCtx) await nlFireTableCompatInput(el, p.value, p.listener || p.id || p.path);
+        })();
+      }
       return;
     }
   };
