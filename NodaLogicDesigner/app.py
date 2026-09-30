@@ -18,6 +18,8 @@ from flask_sockets import Sockets
 from geventwebsocket.handler import WebSocketHandler
 from geventwebsocket import WebSocketError
 from gevent.pywsgi import WSGIServer
+from gevent.lock import Semaphore
+from gevent import Timeout
 from sqlitedict import SqliteDict
 from collections import defaultdict
 import background_jobs as _background_jobs
@@ -1931,6 +1933,175 @@ app.json = CustomJSONProvider(app)
 
 active_connections = defaultdict(dict)
 
+# ------------------------------------------------------------------
+# WebSocket I/O guard
+# ------------------------------------------------------------------
+# gevent does not allow two greenlets to wait/write on the same socket at
+# the same time.  A slow/disconnected client can therefore turn concurrent
+# ws.send()/ws.close() calls into ConcurrentObjectUseError and, in the worst
+# case, a libev assertion which aborts the whole process.
+#
+# All writes and closes go through the helpers below.  Writes are serialized
+# per WebSocket.  If another write is stuck for too long, the new frame is
+# deliberately dropped: losing one real-time notification is preferable to
+# taking down the server.  The client can recover state through the normal
+# HTTP/pull paths.
+_WS_SEND_LOCK_TIMEOUT = 0.25
+_WS_SEND_IO_TIMEOUT = 2.0
+_WS_CLOSE_LOCK_TIMEOUT = 2.5
+_WS_CLOSE_IO_TIMEOUT = 0.5
+_ws_state_fallback = {}
+_ws_state_fallback_guard = threading.Lock()
+
+
+def _ws_io_state(ws):
+    """Return per-WebSocket state without requiring changes to connection maps."""
+    try:
+        state = getattr(ws, '_noda_ws_io_state', None)
+        if state is None:
+            state = {'lock': Semaphore(1), 'closing': False, 'failed': False}
+            setattr(ws, '_noda_ws_io_state', state)
+        return state
+    except Exception:
+        # Very defensive fallback for WebSocket implementations which forbid
+        # custom attributes.  gevent-websocket normally allows them.
+        key = id(ws)
+        with _ws_state_fallback_guard:
+            state = _ws_state_fallback.get(key)
+            if state is None:
+                state = {'lock': Semaphore(1), 'closing': False, 'failed': False}
+                _ws_state_fallback[key] = state
+            return state
+
+
+def _ws_is_closed(ws):
+    if ws is None:
+        return True
+    try:
+        return bool(ws.closed)
+    except Exception:
+        return True
+
+
+def _ws_is_usable(ws):
+    if ws is None or _ws_is_closed(ws):
+        return False
+    try:
+        state = _ws_io_state(ws)
+        return not state.get('closing') and not state.get('failed')
+    except Exception:
+        return False
+
+
+def _safe_ws_send(ws, payload, *, context='', fail_if_busy=False):
+    """Best-effort WebSocket send which never propagates socket exceptions."""
+    if ws is None:
+        return False
+
+    state = _ws_io_state(ws)
+    if state.get('closing') or state.get('failed') or _ws_is_closed(ws):
+        return False
+
+    lock = state['lock']
+    acquired = False
+    try:
+        acquired = lock.acquire(timeout=_WS_SEND_LOCK_TIMEOUT)
+        if not acquired:
+            # Another greenlet is already writing (possibly waiting for a
+            # blocked TCP socket). Do not create a second gevent socket waiter.
+            if context:
+                print(f"WebSocket frame dropped ({context}): writer is busy")
+            # This is a non-fatal backpressure drop. Keep the connection alive
+            # unless the caller explicitly needs guaranteed delivery.
+            return not fail_if_busy
+
+        # close() may have marked the connection while we were waiting.
+        if state.get('closing') or state.get('failed') or _ws_is_closed(ws):
+            return False
+
+        with Timeout(_WS_SEND_IO_TIMEOUT):
+            ws.send(payload)
+        return True
+    except Timeout as exc:
+        state['failed'] = True
+        state['closing'] = True
+        try:
+            print(f"WebSocket send timeout{f' ({context})' if context else ''} after {_WS_SEND_IO_TIMEOUT}s")
+        except Exception:
+            pass
+        return False
+    except Exception as exc:
+        # Catch gevent ConcurrentObjectUseError as well as WebSocketError,
+        # BlockingIOError/OSError and any implementation-specific send error.
+        # Do not let a broken realtime channel escape into the WSGI server.
+        state['failed'] = True
+        state['closing'] = True
+        try:
+            print(f"WebSocket send suppressed{f' ({context})' if context else ''}: {type(exc).__name__}: {exc}")
+        except Exception:
+            pass
+        return False
+    finally:
+        if acquired:
+            try:
+                lock.release()
+            except Exception:
+                pass
+
+
+def _safe_ws_close(ws, code=None, *, context=''):
+    """Best-effort close which never races an in-progress WebSocket write."""
+    if ws is None:
+        return True
+
+    state = _ws_io_state(ws)
+    # Mark first so any new send is rejected before it can wait on the socket.
+    state['closing'] = True
+    lock = state['lock']
+    acquired = False
+    try:
+        acquired = lock.acquire(timeout=_WS_CLOSE_LOCK_TIMEOUT)
+        if not acquired:
+            # Most important safety rule: do NOT call ws.close() while another
+            # greenlet owns the writer.  Returning from the handler is safer;
+            # the transport can be cleaned up by gevent once the writer exits.
+            if context:
+                print(f"WebSocket close skipped ({context}): writer is busy")
+            return False
+
+        if _ws_is_closed(ws):
+            return True
+
+        with Timeout(_WS_CLOSE_IO_TIMEOUT):
+            if code is None:
+                ws.close()
+            else:
+                ws.close(code=code)
+        return True
+    except Timeout:
+        state['failed'] = True
+        try:
+            print(f"WebSocket close timeout{f' ({context})' if context else ''} after {_WS_CLOSE_IO_TIMEOUT}s")
+        except Exception:
+            pass
+        return False
+    except Exception as exc:
+        # Closing a dead socket is non-critical.  Suppress every exception so
+        # a client disconnect can never terminate the process.
+        state['failed'] = True
+        try:
+            print(f"WebSocket close suppressed{f' ({context})' if context else ''}: {type(exc).__name__}: {exc}")
+        except Exception:
+            pass
+        return False
+    finally:
+        if acquired:
+            try:
+                lock.release()
+            except Exception:
+                pass
+
+
 #Node client
 
 # Node browser WebSocket connections (separate channel from Rooms)
@@ -1944,7 +2115,7 @@ def _cleanup_node_ws():
     for c in node_ws_connections:
         ws = c.get("ws")
         try:
-            if ws is not None and not ws.closed:
+            if _ws_is_usable(ws):
                 alive.append(c)
         except Exception:
             pass
@@ -1976,9 +2147,7 @@ def broadcast_node_change(config_uid: str, class_name: str, node_id: str | None 
         if sub_classes is not None and class_name not in sub_classes:
             continue
 
-        try:
-            ws.send(json.dumps(payload))
-        except Exception:
+        if not _safe_ws_send(ws, json.dumps(payload), context='node broadcast'):
             dead.append(c)
 
     if dead:
@@ -1995,7 +2164,7 @@ def handle_nodes_websocket(ws):
     subscription = {"ws": ws, "config_uid": None, "classes": None}
     node_ws_connections.append(subscription)
 
-    while not ws.closed:
+    while _ws_is_usable(ws):
         try:
             msg = ws.receive()
             if msg is None:
@@ -2011,14 +2180,16 @@ def handle_nodes_websocket(ws):
                 else:
                     subscription["classes"] = set(classes)
 
-                ws.send(json.dumps({
+                if not _safe_ws_send(ws, json.dumps({
                     "type": "subscribed",
                     "config_uid": subscription["config_uid"],
                     "classes": list(subscription["classes"]) if subscription["classes"] is not None else None
-                }))
+                }), context='node subscribe ack'):
+                    break
 
             elif mtype == "ping":
-                ws.send(json.dumps({"type": "pong"}))
+                if not _safe_ws_send(ws, json.dumps({"type": "pong"}), context='node pong'):
+                    break
         except Exception:
             break
 
@@ -2035,7 +2206,7 @@ def _cleanup_discussion_ws():
     for c in discussion_ws_connections:
         ws = c.get("ws")
         try:
-            if ws is not None and not ws.closed:
+            if _ws_is_usable(ws):
                 alive.append(c)
         except Exception:
             pass
@@ -2070,9 +2241,7 @@ def broadcast_node_discussion_change(node_id: str, message=None, event: str = "m
         if sub_node_ids is not None and node_id not in sub_node_ids:
             continue
 
-        try:
-            ws.send(json.dumps(payload, ensure_ascii=False))
-        except Exception:
+        if not _safe_ws_send(ws, json.dumps(payload, ensure_ascii=False), context='discussion broadcast'):
             dead.append(c)
 
     if dead:
@@ -2090,7 +2259,7 @@ def handle_discussion_websocket(ws):
     subscription = {"ws": ws, "node_ids": None}
     discussion_ws_connections.append(subscription)
 
-    while not ws.closed:
+    while _ws_is_usable(ws):
         try:
             msg = ws.receive()
             if msg is None:
@@ -2114,14 +2283,16 @@ def handle_discussion_websocket(ws):
                             node_ids.add(value)
                     subscription["node_ids"] = node_ids
 
-                ws.send(json.dumps({
+                if not _safe_ws_send(ws, json.dumps({
                     "type": "subscribed",
                     "channel": "discussion",
                     "node_ids": list(subscription["node_ids"]) if subscription["node_ids"] is not None else None
-                }, ensure_ascii=False))
+                }, ensure_ascii=False), context='discussion subscribe ack'):
+                    break
 
             elif mtype == "ping":
-                ws.send(json.dumps({"type": "pong"}))
+                if not _safe_ws_send(ws, json.dumps({"type": "pong"}), context='discussion pong'):
+                    break
         except Exception:
             break
 
@@ -5064,11 +5235,11 @@ def handle_websocket(ws, room_uid):
         room = Room.query.filter_by(uid=room_uid).first()
     if room and (room.transport or 'websocket') != 'websocket':
         try:
-            ws.send(json.dumps({'error': 'This room uses FCM transport'}))
+            _safe_ws_send(ws, json.dumps({'error': 'This room uses FCM transport'}), context='wrong room transport')
         except Exception:
             pass
         try:
-            ws.close()
+            _safe_ws_close(ws, context='wrong room transport')
         except Exception:
             pass
         return
@@ -5087,10 +5258,7 @@ def handle_websocket(ws, room_uid):
         }
         
         for conn_user, conn_ws in list(active_connections[room_uid].items()):
-            try:
-                if not conn_ws.closed:
-                    conn_ws.send(json.dumps(user_connected_message))
-            except WebSocketError:
+            if not _safe_ws_send(conn_ws, json.dumps(user_connected_message), context='room user_connected'):
                 active_connections[room_uid].pop(conn_user, None)
 
         auth_success=False
@@ -5106,7 +5274,7 @@ def handle_websocket(ws, room_uid):
                      ).scalar_one_or_none()
                     
                      if not user_obj or not check_password_hash(user_obj.password, password):
-                         ws.close(code=4001)
+                         _safe_ws_close(ws, code=4001)
                          return
                        
                      
@@ -5139,7 +5307,7 @@ def handle_websocket(ws, room_uid):
                    
              except Exception as e:
                  print(f"Auth error: {str(e)}")
-                 ws.close(code=4001)
+                 _safe_ws_close(ws, code=4001)
                  return
         else:
              
@@ -5190,7 +5358,8 @@ def handle_websocket(ws, room_uid):
                 'room_uid': room_uid,
                 'message': f'Connection to the room  "{room_name}" has been established'
             }
-            ws.send(json.dumps(room_info))
+            if not _safe_ws_send(ws, json.dumps(room_info), context='room info'):
+                return
             
             
             if is_debug_room:
@@ -5203,10 +5372,7 @@ def handle_websocket(ws, room_uid):
                 
                 
                 for conn_user, conn_ws in list(active_connections[room_uid].items()):
-                    try:
-                        if not conn_ws.closed:
-                            conn_ws.send(json.dumps(debug_message))
-                    except WebSocketError:
+                    if not _safe_ws_send(conn_ws, json.dumps(debug_message), context='room debug_connected'):
                         active_connections[room_uid].pop(conn_user, None)
             
             
@@ -5225,16 +5391,19 @@ def handle_websocket(ws, room_uid):
                     handle_ws_command(room_uid, user, data, auth_success)
                 except json.JSONDecodeError:
                     print(f"Invalid JSON from {user}")
-                    ws.send(json.dumps({'error': 'Invalid JSON format'}))
+                    _safe_ws_send(ws, json.dumps({'error': 'Invalid JSON format'}), context='room invalid json')
                 
                 #time.sleep(0.1)    
 
         except (ValueError, json.JSONDecodeError) as e:
             print(f"Connection error: {str(e)}")
-            ws.send(json.dumps({'error': str(e)}))
+            _safe_ws_send(ws, json.dumps({'error': str(e)}), context='room connection error')
             
     except WebSocketError as e:
         print(f"WebSocket error: {str(e)}")
+    except Exception as e:
+        # A broken realtime channel must never escape into gevent's WSGI loop.
+        print(f"WebSocket handler error suppressed: {type(e).__name__}: {e}")
     finally:
         
         if user and room_uid in active_connections:
@@ -5247,14 +5416,10 @@ def handle_websocket(ws, room_uid):
             }
             
             for conn_user, conn_ws in list(active_connections[room_uid].items()):
-                try:
-                    if not conn_ws.closed:
-                        conn_ws.send(json.dumps(user_disconnected_message))
-                except WebSocketError:
+                if not _safe_ws_send(conn_ws, json.dumps(user_disconnected_message), context='room user_disconnected'):
                     active_connections[room_uid].pop(conn_user, None)
 
-        if not ws.closed:
-            ws.close()
+        _safe_ws_close(ws, context='room finally')
         print(f"Connection closed for {user} in room {room_uid}")
 
 def send_nodes_update(room_uid, user_id=None):
@@ -5288,16 +5453,13 @@ def send_nodes_update(room_uid, user_id=None):
                         'created_at': obj.created_at.isoformat()
                     })
                 
-                if objects_data:  
-                    try:
-                        if not ws.closed:
-                            ws.send(json.dumps({
-                                'type': 'nodes_update',
-                                'objects': objects_data
-                            }))
-                    except WebSocketError:
+                if objects_data:
+                    if not _safe_ws_send(ws, json.dumps({
+                        'type': 'nodes_update',
+                        'objects': objects_data
+                    }), context='room nodes_update'):
                         active_connections[room_uid].pop(user, None)
-                        print(f"Removed dead connection for {user}")       
+                        print(f"Removed dead connection for {user}")
 
 def send_tasks_update(room_uid):
     """Sends a task update to all clients in the room"""
@@ -5308,14 +5470,10 @@ def send_tasks_update(room_uid):
             
             if room_uid in active_connections:
                 for user, ws in list(active_connections[room_uid].items()):
-                    try:
-                        if not ws.closed: 
-                            ws.send(json.dumps({
-                                'type': 'tasks_update',
-                                'data': active_tasks
-                            }))
-                    except WebSocketError:
-                        
+                    if not _safe_ws_send(ws, json.dumps({
+                        'type': 'tasks_update',
+                        'data': active_tasks
+                    }), context='room tasks_update'):
                         active_connections[room_uid].pop(user, None)
                         print(f"Removed dead connection for {user}")
 
@@ -8352,7 +8510,7 @@ def execute_remote_method(room_uid, target_user, config_uid, class_name, node_id
     
     # Get the target user's WebSocket connection
     target_ws = active_connections[room_uid][target_user]
-    if target_ws.closed:
+    if not _ws_is_usable(target_ws):
         return jsonify({
             'success': False,
             'error': f'Connection with {target_user} was closed'
@@ -8402,25 +8560,23 @@ def execute_remote_method(room_uid, target_user, config_uid, class_name, node_id
     # Add request_id to the message
     message['request_id'] = request_id
     
-    try:
-        target_ws.send(json.dumps(message))
-        
-        
+    if _safe_ws_send(target_ws, json.dumps(message), context='remote method', fail_if_busy=True):
         return jsonify({
             'success': True,
             'request_id': request_id,
             'status': 'pending',
             'message': 'The request has been sent. Use /api/check-response to check the status.'
         }), 202
-        
-    except WebSocketError as e:
-        # Remove from pending on error
-        if request_id in pending_responses:
-            del pending_responses[request_id]
-        return jsonify({
-            'success': False,
-            'error': f'WebSocket Error: {str(e)}'
-        }), 500
+
+    # Best-effort WebSocket delivery failed or the writer was busy.  Treat it
+    # as a disconnected realtime channel instead of letting an exception reach
+    # gevent.
+    pending_responses.pop(request_id, None)
+    active_connections.get(room_uid, {}).pop(target_user, None)
+    return jsonify({
+        'success': False,
+        'error': f'WebSocket delivery to {target_user} failed'
+    }), 503
         
 
 
@@ -9546,10 +9702,7 @@ def send_objects_update(room_uid, config_uid, class_name, objects_data):
         }
         
         for user, ws in list(active_connections[room_uid].items()):
-            try:
-                if not ws.closed:
-                    ws.send(json.dumps(message))
-            except WebSocketError:
+            if not _safe_ws_send(ws, json.dumps(message), context='room objects_create'):
                 active_connections[room_uid].pop(user, None)
                 print(f"Removed dead connection for {user}")
 
@@ -13520,29 +13673,30 @@ def handle_ws_command(room_uid, user, data, auth_success):
                         tasks_db.commit()
                         
                         ws = active_connections[room_uid].get(user)
-                        if ws:
-                            ws.send(json.dumps({                                'type': 'task_assigned',
-                                'task': task
-                            }))
+                        if ws and not _safe_ws_send(ws, json.dumps({
+                            'type': 'task_assigned',
+                            'task': task
+                        }), context='task assigned'):
+                            active_connections[room_uid].pop(user, None)
                         send_tasks_update(room_uid)
                         return
                         
                 # If the task is not found
                 ws = active_connections[room_uid].get(user)
-                if ws:
-                    ws.send(json.dumps({
-                        'type': 'error',
-                        'message': 'Task not available'
-                    }))
+                if ws and not _safe_ws_send(ws, json.dumps({
+                    'type': 'error',
+                    'message': 'Task not available'
+                }), context='task unavailable'):
+                    active_connections[room_uid].pop(user, None)
     elif command == 'get_users':
         # Send a list of all connected users
         users_list = get_connected_users(room_uid)
         ws = active_connections[room_uid].get(user)
-        if ws and not ws.closed:
-            ws.send(json.dumps({
-                'type': 'users_update',
-                'users': users_list
-            }))                
+        if ws and not _safe_ws_send(ws, json.dumps({
+            'type': 'users_update',
+            'users': users_list
+        }), context='users update'):
+            active_connections[room_uid].pop(user, None)                
     elif command == 'acknowledge_objects':
         # The client confirms receipt of the objects
         object_ids = data.get('object_ids', [])
@@ -13562,11 +13716,11 @@ def handle_ws_command(room_uid, user, data, auth_success):
             
             # Send confirmation to the client
             ws = active_connections[room_uid].get(user)
-            if ws:
-                ws.send(json.dumps({
-                    'type': 'acknowledgment_confirmed',
-                    'object_ids': object_ids
-                }))
+            if ws and not _safe_ws_send(ws, json.dumps({
+                'type': 'acknowledgment_confirmed',
+                'object_ids': object_ids
+            }), context='acknowledgment confirmed'):
+                active_connections[room_uid].pop(user, None)
     elif command == 'remote_method_response':
         # Processing the response from the remote method
         request_id = data.get('request_id')
@@ -13626,10 +13780,11 @@ def handle_ws_command(room_uid, user, data, auth_success):
                         'expires_at': obj.expires_at.isoformat() if obj.expires_at else None
                     })
                 
-                ws.send(json.dumps({
+                if not _safe_ws_send(ws, json.dumps({
                     'type': 'objects_response',
                     'objects': objects_data
-                }))
+                }), context='objects response'):
+                    active_connections[room_uid].pop(user, None)
     elif command == 'debug':
         description = data.get("description")
         node_id = data.get("node_id")
@@ -13647,10 +13802,7 @@ def handle_ws_command(room_uid, user, data, auth_success):
             }
             
             for conn_user, ws in list(active_connections[room_uid].items()):
-                try:
-                    if not ws.closed:
-                        ws.send(json.dumps(debug_message))
-                except WebSocketError:
+                if not _safe_ws_send(ws, json.dumps(debug_message), context='room debug'):
                     active_connections[room_uid].pop(conn_user, None)
 
 
@@ -14722,6 +14874,18 @@ if __name__ == '__main__':
     
 
     # Create a custom WSGI server with WebSocket support
+    def _run_ws_handler(handler, ws, *args, label='websocket'):
+        """Contain all WebSocket failures inside the realtime channel."""
+        try:
+            handler(ws, *args)
+        except Timeout as exc:
+            print(f"WebSocket handler timeout suppressed ({label}): {exc}")
+        except Exception as exc:
+            print(f"WebSocket handler exception suppressed ({label}): {type(exc).__name__}: {exc}")
+        finally:
+            # Uses the same writer lock as sends, so close cannot race a send.
+            _safe_ws_close(ws, context=f'{label} handler exit')
+
     def application(environ, start_response):
         path = environ.get('PATH_INFO', '')
         
@@ -14735,19 +14899,19 @@ if __name__ == '__main__':
 
             # Node browser channel (separate from Rooms channel)
             if channel == 'nodes':
-                handle_nodes_websocket(ws)
+                _run_ws_handler(handle_nodes_websocket, ws, label='nodes')
                 return []
 
             # Node discussion channel for web-client Chat tabs.
             if channel == 'discussion':
-                handle_discussion_websocket(ws)
+                _run_ws_handler(handle_discussion_websocket, ws, label='discussion')
                 return []
 
             room_uid = parsed_params.get('room', [''])[0]
             android_id = parsed_params.get('android_id', [''])[0]
             device_model = parsed_params.get('device_model', [''])[0]
             if room_uid:
-                handle_websocket(ws, room_uid)
+                _run_ws_handler(handle_websocket, ws, room_uid, label=f'room:{room_uid}')
                 return []
         
         # All other requests are processed through Flask
