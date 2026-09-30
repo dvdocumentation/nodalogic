@@ -2214,9 +2214,15 @@ def render_nodalayout_html(
                         parts.append(f'<div class="nl-kv"><span class="nl-k">{escape(str(k))}</span><span class="nl-v">{vv}</span></div>')
                     inner = "".join(parts) or '<div class="nl-text text-muted">empty</div>'
 
+                try:
+                    row_data_attr = escape(json.dumps(r, ensure_ascii=False, separators=(",", ":")))
+                except Exception:
+                    row_data_attr = "{}"
+
                 cards.append(
                     f'<div class="nl-grid-card nl-clickable" data-nl-click="1" data-nl-listener="{tid}" '
-                    f'data-nl-table="{tid}" data-nl-row="{key}" data-nl-row-index="{i}"{row_style}>{inner}</div>'
+                    f'data-nl-table="{tid}" data-nl-row="{key}" data-nl-row-index="{i}" '
+                    f'data-nl-row-data="{row_data_attr}"{row_style}>{inner}</div>'
                 )
             return f'<div class="nl-grid" data-nl-table="{tid}"{style_attr}>' + "".join(cards) + "</div>"
 
@@ -2259,9 +2265,14 @@ def render_nodalayout_html(
                     tds.append(f"<td>{cell}</td>")
                 tds_html = "".join(tds)
 
+            try:
+                row_data_attr = escape(json.dumps(r, ensure_ascii=False, separators=(",", ":")))
+            except Exception:
+                row_data_attr = "{}"
+
             rows_html.append(
                 f'<tr class="nl-tr nl-clickable" data-nl-click="1" data-nl-listener="{tid}" data-nl-table="{tid}" '
-                f'data-nl-row="{key}" data-nl-row-index="{i}"{row_style}>' + tds_html + "</tr>"
+                f'data-nl-row="{key}" data-nl-row-index="{i}" data-nl-row-data="{row_data_attr}"{row_style}>' + tds_html + "</tr>"
             )
 
         colgroup = "<colgroup>" + "".join(f'<col style="width:{p:.4f}%"/>' for p in col_perc) + "</colgroup>"
