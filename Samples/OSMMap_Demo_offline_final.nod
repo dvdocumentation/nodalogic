@@ -1,0 +1,344 @@
+{
+  "name": "OSMMap Demo (offline)",
+  "server_name": "OSMMap Demo (offline)",
+  "uid": "OSMMapDemo",
+  "content_uid": "ee7a3b49-d623-45f4-9acb-87a5f81dc95c",
+  "version": "00.01.00",
+  "vendor": "NodaLogic",
+  "NodaLogicFormat": "NODALOGIC",
+  "NodaLogicType": "ANDROID_SERVER",
+  "nodes_handlers": "ZnJvbSBub2RlcyBpbXBvcnQgTm9kZQpmcm9tIG5vZGVzY2xpZW50IGltcG9ydCAoTWFwUG9pbnQsIE1hcFBvbHlsaW5lLCBNYXBDZW50ZXJHUFMsIE1hcENlbnRlciwgTWFwRml0LAogICAgICAgICAgICAgICAgICAgICAgICAgTWFwUmVtb3ZlLCBNYXBDYWxsLCBNYXBVc2VyTG9jYXRpb24sIERpYWxvZykKZnJvbSBhbmRyb2lkIGltcG9ydCB0b2FzdCwgc2hhcmVfbG9jYXRpb24KaW1wb3J0IHJhbmRvbQppbXBvcnQgdXVpZAoKTUFQX0lEID0gIm1hcCIKUExBQ0VTX01BUF9JRCA9ICJwbGFjZXNfbWFwIgpQTEFDRVNfVEFCTEVfSUQgPSAibXlfbG9jYXRpb25zX3RhYmxlIgpGTEFHX1NWRyA9ICc8c3ZnIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgaGVpZ2h0PSIyNHB4IiB2aWV3Qm94PSIwIC05NjAgOTYwIDk2MCIgd2lkdGg9IjI0cHgiIGZpbGw9IiMwMDAwMDAiPjxwYXRoIGQ9Ik0yMDAtODB2LTc2MGg2NDBsLTgwIDIwMCA4MCAyMDBIMjgwdjM2MGgtODBabTgwLTQ0MGg0NDJsLTQ4LTEyMCA0OC0xMjBIMjgwdjI0MFptMCAwdi0yNDAgMjQwWiIvPjwvc3ZnPicKU0hBUkVfU1ZHID0gJzxzdmcgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiBoZWlnaHQ9IjI0cHgiIHZpZXdCb3g9IjAgLTk2MCA5NjAgOTYwIiB3aWR0aD0iMjRweCIgZmlsbD0iIzAwMDAwMCI+PHBhdGggZD0iTTY4MC04MHEtNTAgMC04NS0zNXQtMzUtODVxMC02IDMtMjhMMjgyLTM5MnEtMTYgMTUtMzcgMjMuNXQtNDUgOC41cS01MCAwLTg1LTM1dC0zNS04NXEwLTUwIDM1LTg1dDg1LTM1cTI0IDAgNDUgOC41dDM3IDIzLjVsMjgxLTE2NHEtMi03LTIuNS0xMy41VDU2MC03NjBxMC01MCAzNS04NXQ4NS0zNXE1MCAwIDg1IDM1dDM1IDg1cTAgNTAtMzUgODV0LTg1IDM1cS0yNCAwLTQ1LTguNVQ1OTgtNjcyTDMxNy01MDhxMiA3IDIuNSAxMy41dC41IDE0LjVxMCA4LS41IDE0LjVUMzE3LTQ1MmwyODEgMTY0cTE2LTE1IDM3LTIzLjV0NDUtOC41cTUwIDAgODUgMzV0MzUgODVxMCA1MC0zNSA4NXQtODUgMzVabTAtODBxMTcgMCAyOC41LTExLjVUNzIwLTIwMHEwLTE3LTExLjUtMjguNVQ2ODAtMjQwcS0xNyAwLTI4LjUgMTEuNVQ2NDAtMjAwcTAgMTcgMTEuNSAyOC41VDY4MC0xNjBaTTIwMC00NDBxMTcgMCAyOC41LTExLjVUMjQwLTQ4MHEwLTE3LTExLjUtMjguNVQyMDAtNTIwcS0xNyAwLTI4LjUgMTEuNVQxNjAtNDgwcTAgMTcgMTEuNSAyOC41VDIwMC00NDBabTUwOC41LTI5MS41UTcyMC03NDMgNzIwLTc2MHQtMTEuNS0yOC41UTY5Ny04MDAgNjgwLTgwMHQtMjguNSAxMS41UTY0MC03NzcgNjQwLTc2MHQxMS41IDI4LjVRNjYzLTcyMCA2ODAtNzIwdDI4LjUtMTEuNVpNNjgwLTIwMFpNMjAwLTQ4MFptNDgwLTI4MFoiLz48L3N2Zz4nCkRFTEVURV9TVkcgPSAnPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGhlaWdodD0iMjRweCIgdmlld0JveD0iMCAtOTYwIDk2MCA5NjAiIHdpZHRoPSIyNHB4IiBmaWxsPSIjMDAwMDAwIj48cGF0aCBkPSJNMjgwLTEyMHEtMzMgMC01Ni41LTIzLjVUMjAwLTIwMHYtNTIwaC00MHYtODBoMjAwdi00MGgyNDB2NDBoMjAwdjgwaC00MHY1MjBxMCAzMy0yMy41IDU2LjVUNjgwLTEyMEgyODBabTQwMC02MDBIMjgwdjUyMGg0MDB2LTUyMFpNMzYwLTI4MGg4MHYtMzYwaC04MHYzNjBabTE2MCAwaDgwdi0zNjBoLTgwdjM2MFpNMjgwLTcyMHY1MjAtNTIwWiIvPjwvc3ZnPicKClVOSVZFUlNJVElFUyA9IFsKICAgICgibWlwdCIsICIxIMK3INCk0LjQt9GC0LXRhSAo0JzQpNCi0JgpIiwgNTUuOTI5MiwgMzcuNTIwNywgIiMxRTg4RTUiLCAiMSIpLAogICAgKCJiYXVtYW4iLCAiMiDCtyDQkdCw0YPQvNCw0L3QutCwIiwgNTUuNzY1OTQsIDM3LjY4NTQ5LCAiI0U1MzkzNSIsICIyIiksCiAgICAoIm1zdSIsICIzIMK3INCc0JPQoyIsIDU1LjcwMzA2LCAzNy41MzAyOCwgIiM0M0EwNDciLCAiMyIpLApdCiMgRXhhbXBsZSBvZiBhbiBhbHJlYWR5IGNhbGN1bGF0ZWQgYmFja2VuZCByb3V0ZS4gVGhpcyBpcyBhbiBpbGx1c3RyYXRpdmUgZ2VvbWV0cnksCiMgbm90IGFuIGF1dG9tYXRpY2FsbHkgY2FsY3VsYXRlZCByb2FkIHJvdXRlLiBSZXBsYWNlIHdpdGggeW91ciBBUEkgcmVzcG9uc2UgcG9pbnRzLgpQUkVQQVJFRF9ST1VURSA9IFtbNTUuOTI5MiwgMzcuNTIwN10sIFs1NS44NzcxLCAzNy41MzcyXSwgWzU1LjgyNjIsIDM3LjU3NzFdLAogICAgICAgICAgICAgICAgICBbNTUuNzY1OTQsIDM3LjY4NTQ5XSwgWzU1LjczMjUsIDM3LjYwNDZdLCBbNTUuNzAzMDYsIDM3LjUzMDI4XV0KCmNsYXNzIE1hcERlbW8oTm9kZSk6CiAgICBkZWYgX19pbml0X18oc2VsZiwgbW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpOgogICAgICAgIHN1cGVyKCkuX19pbml0X18obW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpCgogICAgZGVmIEluaXRNYXAoc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKICAgICAgICBNYXBDZW50ZXIoTUFQX0lELCBbNTUuODAsIDM3LjU5XSwgem9vbT0xMCwgYW5pbWF0ZWQ9RmFsc2UpCiAgICAgICAgZm9yIG9iamVjdF9pZCwgdGl0bGUsIGxhdCwgbG9uLCBjb2xvciwgbnVtYmVyIGluIFVOSVZFUlNJVElFUzoKICAgICAgICAgICAgTWFwUG9pbnQoTUFQX0lELCBvYmplY3RfaWQsIGxhdCwgbG9uLCB0aXRsZSwgc3ZnPUZMQUdfU1ZHLAogICAgICAgICAgICAgICAgICAgICBzdmdfc2l6ZT00Miwgc3ZnX2NvbG9yPWNvbG9yLCBudW1iZXI9bnVtYmVyLCB0ZXh0X3BsYWNlbWVudD0iYm90dG9tIikKICAgICAgICBzZWxmLl9kYXRhWyJtYXBfc3RhdHVzIl0gPSAi0KLQvtGH0LrQuCDQvdCwINC+0YTQu9Cw0LnQvdC+0LLQvtC5INC60LDRgNGC0LUuINCc0LDRgNGI0YDRg9GCIOKAlCDQs9C+0YLQvtCy0LDRjyDQv9C+0LvQuNC70LjQvdC40Y8g0LHQtdC3INC30LDQv9GA0L7RgdCwINCyINGB0LXRgtGMLiIKICAgICAgICByZXR1cm4gVHJ1ZSwgc2VsZi5fZGF0YQoKICAgIGRlZiBTaG93UHJlcGFyZWRSb3V0ZShzZWxmLCBpbnB1dF9kYXRhPU5vbmUpOgogICAgICAgICMgQSBiYWNrZW5kIGNhbiByZXR1cm4gcG9pbnRzIGluIFtsYXRpdHVkZSwgbG9uZ2l0dWRlXSBvcmRlciwgdGhlbiBjYWxsIE1hcFBvbHlsaW5lLgogICAgICAgIE1hcFBvbHlsaW5lKE1BUF9JRCwgInJvdXRlOmJhY2tlbmQiLCBQUkVQQVJFRF9ST1VURSwgY29sb3I9IiMxNTY1QzAiLCB3aWR0aD03KQogICAgICAgIE1hcEZpdChNQVBfSUQsIFBSRVBBUkVEX1JPVVRFLCBtYXhfem9vbT0xMykKICAgICAgICB0b2FzdCgi0JPQvtGC0L7QstCw0Y8g0L/QvtC70LjQu9C40L3QuNGPINC+0YLQvtCx0YDQsNC20LXQvdCwIikKICAgICAgICByZXR1cm4gVHJ1ZSwgc2VsZi5fZGF0YQoKICAgIGRlZiBDbGVhclByZXBhcmVkUm91dGUoc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKICAgICAgICBNYXBSZW1vdmUoTUFQX0lELCAicm91dGU6YmFja2VuZCIpCiAgICAgICAgcmV0dXJuIFRydWUsIHNlbGYuX2RhdGEKCiAgICBkZWYgR29HUFMoc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKICAgICAgICBNYXBDZW50ZXJHUFMoTUFQX0lELCAxNikKICAgICAgICByZXR1cm4gVHJ1ZSwgc2VsZi5fZGF0YQoKICAgIGRlZiBDZW50ZXJNU1Uoc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKICAgICAgICBNYXBDZW50ZXIoTUFQX0lELCBbNTUuNzAzMDYsIDM3LjUzMDI4XSwgem9vbT0xNCkKICAgICAgICByZXR1cm4gVHJ1ZSwgc2VsZi5fZGF0YQoKICAgIGRlZiBNYXBFdmVudChzZWxmLCBpbnB1dF9kYXRhPU5vbmUpOgogICAgICAgIGV2ID0gc2VsZi5fZGF0YS5nZXQoIm1hcF9ldmVudCIpIG9yIHt9CiAgICAgICAgZGF0YSA9IGV2LmdldCgiZGF0YSIpIG9yIHt9CiAgICAgICAga2luZCA9IGV2LmdldCgiZXZlbnQiKQogICAgICAgIGlmIGtpbmQgPT0gImxvbmdfdGFwIjoKICAgICAgICAgICAgTWFwUG9pbnQoTUFQX0lELCAibG9uZ190YXAiLCBkYXRhLmdldCgibGF0aXR1ZGUiKSwgZGF0YS5nZXQoImxvbmdpdHVkZSIpLAogICAgICAgICAgICAgICAgICAgICAi0JTQvtC70LPQuNC5INGC0LDQvyIsIHN2Zz1GTEFHX1NWRywgc3ZnX2NvbG9yPSIjRkI4QzAwIiwgc3ZnX3NpemU9NDIpCiAgICAgICAgZWxpZiBraW5kID09ICJvYmplY3RfdGFwIjoKICAgICAgICAgICAgdG9hc3QoItCi0L7Rh9C60LA6ICVzIiAlIChkYXRhLmdldCgib2JqZWN0X2lkIikgb3IgIiIpKQogICAgICAgIHJldHVybiBUcnVlLCBzZWxmLl9kYXRhCgoKY2xhc3MgU2F2ZWRQbGFjZXMoTm9kZSk6CiAgICBkZWYgX19pbml0X18oc2VsZiwgbW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpOgogICAgICAgIHN1cGVyKCkuX19pbml0X18obW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpCgogICAgZGVmIEluaXRQbGFjZXMoc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKICAgICAgICBsYXlvdXQgPSBbCiAgICAgICAgICAgIFt7InR5cGUiOiJUZXh0IiwidmFsdWUiOiLQnNC+0Lgg0YLQvtGH0LrQuCAo0L7RhNC70LDQudC9KSIsImJvbGQiOlRydWUsInNpemUiOjIwfV0sCiAgICAgICAgICAgIFt7InR5cGUiOiJUZXh0IiwidmFsdWUiOiLQndCw0LbQvNC40YLQtSDQvdCwINC60LDRgNGC0LUsINCy0LLQtdC00LjRgtC1INC90LDQt9Cy0LDQvdC40LUuINCd0LjQttC1IOKAlCDRgdC+0YXRgNCw0L3RkdC90L3Ri9C1INGC0L7Rh9C60LguINCd0LDQttC80LjRgtC1INC90LAg0YHRgtGA0L7QutGDOiDQutCw0YDRgtCwINC/0LXRgNC10LnQtNGR0YIg0Log0YLQvtGH0LrQtS4ifV0sCiAgICAgICAgICAgIFt7InR5cGUiOiJPU01NYXAiLCJpZCI6UExBQ0VTX01BUF9JRCwiaGVpZ2h0IjozMTAsImV2ZW50cyI6VHJ1ZX1dLAogICAgICAgICAgICBbeyJ0eXBlIjoiVGV4dCIsInZhbHVlIjoi0KHQvtGF0YDQsNC90ZHQvdC90YvQtSDRgtC+0YfQutC4IiwiYm9sZCI6VHJ1ZSwic2l6ZSI6MTd9XSwKICAgICAgICAgICAgW3sidHlwZSI6IlRhYmxlIiwiaWQiOlBMQUNFU19UQUJMRV9JRCwiaGVpZ2h0IjoyNTUsInZhbHVlIjoiQG15X2xvY2F0aW9ucyIsImxheW91dCI6W1sKICAgICAgICAgICAgICAgIHsidHlwZSI6IkNhcmQiLCJoZWlnaHQiOjExNCwicm93X2NsaWNrIjpUcnVlLCJ2YWx1ZSI6WwogICAgICAgICAgICAgICAgICAgIFt7InR5cGUiOiJUZXh0IiwidmFsdWUiOiJAbmFtZSIsImJvbGQiOlRydWUsInNpemUiOjE3LCJ3Ijo2fSwKICAgICAgICAgICAgICAgICAgICAgeyJ0eXBlIjoiQnV0dG9uIiwiaWQiOiJzaGFyZV9wb2ludCIsInNtYWxsIjpUcnVlLCJzdmciOlNIQVJFX1NWRywic3ZnX3NpemUiOjIyLAogICAgICAgICAgICAgICAgICAgICAgInN2Z19jb2xvciI6IiMyNDVDM0EiLCJiYWNrZ3JvdW5kIjoiIzNmNzM1MyIsIndpZHRoIjo0MCwiaGVpZ2h0Ijo0MH0sCiAgICAgICAgICAgICAgICAgICAgIHsidHlwZSI6IkJ1dHRvbiIsImlkIjoiZGVsZXRlX3BvaW50Iiwic21hbGwiOlRydWUsInN2ZyI6REVMRVRFX1NWRywic3ZnX3NpemUiOjIyLAogICAgICAgICAgICAgICAgICAgICAgInN2Z19jb2xvciI6IiNCNzFDMUMiLCJiYWNrZ3JvdW5kIjoiI2RiMzAzMCIsIndpZHRoIjo0MCwiaGVpZ2h0Ijo0MH1dLAogICAgICAgICAgICAgICAgICAgIFt7InR5cGUiOiJUZXh0IiwidmFsdWUiOiJAYWRkcmVzcyIsInNpemUiOjEzfV0sCiAgICAgICAgICAgICAgICAgICAgW3sidHlwZSI6IlRleHQiLCJ2YWx1ZSI6IkBsYXRpdHVkZSIsInNpemUiOjExLCJ3IjoyfSwKICAgICAgICAgICAgICAgICAgICAgeyJ0eXBlIjoiVGV4dCIsInZhbHVlIjoiQGxvbmdpdHVkZSIsInNpemUiOjExLCJ3IjoyfV0KICAgICAgICAgICAgICAgIF19CiAgICAgICAgICAgIF1dfV0KICAgICAgICBdCiAgICAgICAgc2VsZi5fcGxhY2VzX3RhYmxlX2VsZW1lbnQgPSBsYXlvdXRbNF1bMF0KICAgICAgICBsb2NhdGlvbnMgPSBzZWxmLl9kYXRhLmdldCgibXlfbG9jYXRpb25zIikKICAgICAgICBpZiBub3QgaXNpbnN0YW5jZShsb2NhdGlvbnMsIGxpc3QpOgogICAgICAgICAgICBsb2NhdGlvbnMgPSBbXQogICAgICAgICAgICBzZWxmLl9kYXRhWyJteV9sb2NhdGlvbnMiXSA9IGxvY2F0aW9ucwogICAgICAgICMgVGhlIFVJIGlzIHN0b3JlZCBpbiB0aGUgY2xhc3MgaW5pdF9zY3JlZW5fbGF5b3V0LCBub3QgZHluYW1pY2FsbHkgU2hvdygpLWVkLgogICAgICAgICMgTm9kZVRhc2tBY3Rpdml0eSByZWRyYXdzIHRoZSBjbGFzcyBsYXlvdXQgYWZ0ZXIgb25TaG93OyB3aXRoIFtdIHRoYXQgdXNlZAogICAgICAgICMgdG8gZXJhc2Ugb3VyIGR5bmFtaWMgVUksIGxlYXZpbmcgYSBjb21wbGV0ZWx5IGJsYW5rIHNjcmVlbi4KICAgICAgICBNYXBDZW50ZXIoUExBQ0VTX01BUF9JRCwgWzU1Ljc1MTIyNSwgMzcuNjI5NTQwXSwgem9vbT0xMCwgYW5pbWF0ZWQ9RmFsc2UpCiAgICAgICAgTWFwVXNlckxvY2F0aW9uKFBMQUNFU19NQVBfSUQsIHZpc2libGU9VHJ1ZSkKICAgICAgICBmaXQgPSBbXQogICAgICAgIGZvciBpbmRleCwgcG9pbnQgaW4gZW51bWVyYXRlKGxvY2F0aW9ucyk6CiAgICAgICAgICAgIHRyeToKICAgICAgICAgICAgICAgIGxhdCwgbG9uID0gZmxvYXQocG9pbnRbImxhdGl0dWRlIl0pLCBmbG9hdChwb2ludFsibG9uZ2l0dWRlIl0pCiAgICAgICAgICAgICAgICBwb2ludF9pZCA9IHN0cihwb2ludC5nZXQoImlkIikgb3IgInNhdmVkX2xlZ2FjeV8iICsgc3RyKGluZGV4KSkKICAgICAgICAgICAgICAgIHJlc3VsdCA9IE1hcFBvaW50KFBMQUNFU19NQVBfSUQsIHBvaW50X2lkLCBsYXQsIGxvbiwKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIHBvaW50LmdldCgibmFtZSIpIG9yICLQotC+0YfQutCwIiwgc3ZnPUZMQUdfU1ZHLCBzdmdfc2l6ZT00MiwKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIHN2Z19jb2xvcj1wb2ludC5nZXQoImNvbG9yIikgb3IgIiMzOTQ5QUIiLCB0ZXh0X3BsYWNlbWVudD0iYm90dG9tIikKICAgICAgICAgICAgICAgIGlmIGlzaW5zdGFuY2UocmVzdWx0LCBkaWN0KSBhbmQgcmVzdWx0LmdldCgib2siKSBpcyBGYWxzZToKICAgICAgICAgICAgICAgICAgICB0b2FzdCgi0J3QtSDRg9C00LDQu9C+0YHRjCDQvtGC0L7QsdGA0LDQt9C40YLRjCDRgtC+0YfQutGDOiAiICsgc3RyKHJlc3VsdC5nZXQoImVycm9yIikgb3IgcmVzdWx0KSkKICAgICAgICAgICAgICAgIGZpdC5hcHBlbmQoW2xhdCwgbG9uXSkKICAgICAgICAgICAgZXhjZXB0IChUeXBlRXJyb3IsIFZhbHVlRXJyb3IsIEtleUVycm9yKSBhcyBlOgogICAgICAgICAgICAgICAgdG9hc3QoItCe0YjQuNCx0LrQsCDQutC+0L7RgNC00LjQvdCw0YIg0YHQvtGF0YDQsNC90ZHQvdC90L7QuSDRgtC+0YfQutC4OiAiICsgc3RyKGUpKQogICAgICAgIGlmIGZpdDoKICAgICAgICAgICAgTWFwRml0KFBMQUNFU19NQVBfSUQsIGZpdCwgbWF4X3pvb209MTQsIGFuaW1hdGVkPUZhbHNlKQogICAgICAgIHJldHVybiBUcnVlLCBzZWxmLl9kYXRhCgogICAgZGVmIEdvUGxhY2VzR1BTKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgTWFwQ2VudGVyR1BTKFBMQUNFU19NQVBfSUQsIDE2KQogICAgICAgIHJldHVybiBUcnVlLCBzZWxmLl9kYXRhCgogICAgZGVmIFBsYWNlc01hcEV2ZW50KHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgZXYgPSBzZWxmLl9kYXRhLmdldCgibWFwX2V2ZW50Iikgb3Ige30KICAgICAgICBpZiBldi5nZXQoImV2ZW50IikgPT0gInRhcCI6CiAgICAgICAgICAgIGRhdGEgPSBldi5nZXQoImRhdGEiKSBvciB7fQogICAgICAgICAgICBpZiBkYXRhLmdldCgibGF0aXR1ZGUiKSBpcyBOb25lIG9yIGRhdGEuZ2V0KCJsb25naXR1ZGUiKSBpcyBOb25lOgogICAgICAgICAgICAgICAgcmV0dXJuIFRydWUsIHNlbGYuX2RhdGEKICAgICAgICAgICAgc2VsZi5fZGF0YVsiX3BlbmRpbmdfcG9pbnQiXSA9IHsibGF0aXR1ZGUiOiBkYXRhWyJsYXRpdHVkZSJdLCAibG9uZ2l0dWRlIjogZGF0YVsibG9uZ2l0dWRlIl19CiAgICAgICAgICAgIHNlbGYuX2RhdGFbIm5ld19wb2ludF9uYW1lIl0gPSAiIgogICAgICAgICAgICBEaWFsb2coInBvaW50X25hbWUiLCAi0J3QsNC30LLQsNC90LjQtSDRgtC+0YfQutC4IiwgItCU0L7QsdCw0LLQuNGC0YwiLCAi0J7RgtC80LXQvdCwIiwKICAgICAgICAgICAgICAgICAgIFtbeyJ0eXBlIjoiSW5wdXQiLCJpZCI6Im5ld19wb2ludF9uYW1lIiwiY2FwdGlvbiI6ItCd0LDQt9Cy0LDQvdC40LUiLCJ2YWx1ZSI6IkBuZXdfcG9pbnRfbmFtZSJ9XV0pCiAgICAgICAgcmV0dXJuIFRydWUsIHNlbGYuX2RhdGEKCiAgICBkZWYgQ29uZmlybVBvaW50TmFtZShzZWxmLCBpbnB1dF9kYXRhPU5vbmUpOgogICAgICAgIHBlbmRpbmcgPSBzZWxmLl9kYXRhLmdldCgiX3BlbmRpbmdfcG9pbnQiKSBvciB7fQogICAgICAgIGlmIG5vdCBwZW5kaW5nOiByZXR1cm4gVHJ1ZSwgc2VsZi5fZGF0YQogICAgICAgIGxvY2F0aW9ucyA9IHNlbGYuX2RhdGEuZ2V0KCJteV9sb2NhdGlvbnMiKQogICAgICAgIGlmIG5vdCBpc2luc3RhbmNlKGxvY2F0aW9ucywgbGlzdCk6IGxvY2F0aW9ucyA9IFtdCiAgICAgICAgbG9jYXRpb25zID0gbGlzdChsb2NhdGlvbnMpCiAgICAgICAgcG9pbnQgPSB7ImlkIjoic2F2ZWRfIiArIHV1aWQudXVpZDQoKS5oZXhbOjEyXSwKICAgICAgICAgICAgICAgICAibmFtZSI6c3RyKHNlbGYuX2RhdGEuZ2V0KCJuZXdfcG9pbnRfbmFtZSIsICIiKSBvciAiIikuc3RyaXAoKSBvciAi0KLQvtGH0LrQsCIsCiAgICAgICAgICAgICAgICAgImFkZHJlc3MiOiLQkNC00YDQtdGBINC90LUg0L7Qv9GA0LXQtNC10LvRkdC9ICjQvtGE0LvQsNC50L0pIiwKICAgICAgICAgICAgICAgICAibGF0aXR1ZGUiOmZsb2F0KHBlbmRpbmdbImxhdGl0dWRlIl0pLCAibG9uZ2l0dWRlIjpmbG9hdChwZW5kaW5nWyJsb25naXR1ZGUiXSksCiAgICAgICAgICAgICAgICAgImNvbG9yIjpyYW5kb20uY2hvaWNlKFsiIzM5NDlBQiIsICIjMDA4OTdCIiwgIiNGNDUxMUUiLCAiIzhFMjRBQSIsICIjNDNBMDQ3Il0pfQogICAgICAgIGxvY2F0aW9ucy5hcHBlbmQocG9pbnQpCiAgICAgICAgc2VsZi5fZGF0YVsibXlfbG9jYXRpb25zIl0gPSBsb2NhdGlvbnMKICAgICAgICBzZWxmLl9kYXRhWyJfcGVuZGluZ19wb2ludCJdID0ge30KICAgICAgICBzZWxmLl9kYXRhWyJuZXdfcG9pbnRfbmFtZSJdID0gIiIKICAgICAgICB0cnk6IHNlbGYuX3NhdmUoKQogICAgICAgIGV4Y2VwdCBFeGNlcHRpb246IHBhc3MKICAgICAgICB0YWJsZSA9IGRpY3Qoc2VsZi5fcGxhY2VzX3RhYmxlX2VsZW1lbnQpCiAgICAgICAgdGFibGVbInZhbHVlIl0gPSBsb2NhdGlvbnMKICAgICAgICBzZWxmLlVwZGF0ZVZpZXcoUExBQ0VTX1RBQkxFX0lELCB0YWJsZSkKICAgICAgICByZXN1bHQgPSBNYXBQb2ludChQTEFDRVNfTUFQX0lELCBwb2ludFsiaWQiXSwgcG9pbnRbImxhdGl0dWRlIl0sIHBvaW50WyJsb25naXR1ZGUiXSwgcG9pbnRbIm5hbWUiXSwKICAgICAgICAgICAgICAgICAgICAgICAgICBzdmc9RkxBR19TVkcsIHN2Z19zaXplPTQyLCBzdmdfY29sb3I9cG9pbnRbImNvbG9yIl0pCiAgICAgICAgTWFwQ2VudGVyKFBMQUNFU19NQVBfSUQsIFtwb2ludFsibGF0aXR1ZGUiXSwgcG9pbnRbImxvbmdpdHVkZSJdXSwgem9vbT0xNikKICAgICAgICBpZiBpc2luc3RhbmNlKHJlc3VsdCwgZGljdCkgYW5kIHJlc3VsdC5nZXQoIm9rIikgaXMgRmFsc2U6CiAgICAgICAgICAgIHRvYXN0KCLQotC+0YfQutCwINGB0L7RhdGA0LDQvdC10L3QsCwg0L3QviDQvNCw0YDQutC10YAg0L3QtSDQv9C+0LrQsNC30LDQvTogIiArIHN0cihyZXN1bHQuZ2V0KCJlcnJvciIpIG9yIHJlc3VsdCkpCiAgICAgICAgZWxzZToKICAgICAgICAgICAgdG9hc3QoItCi0L7Rh9C60LAg0YHQvtGF0YDQsNC90LXQvdCwOiAlcyIgJSBwb2ludFsibmFtZSJdKQogICAgICAgIHJldHVybiBUcnVlLCBzZWxmLl9kYXRhCgogICAgZGVmIENhbmNlbFBvaW50KHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgc2VsZi5fZGF0YVsiX3BlbmRpbmdfcG9pbnQiXSA9IHt9CiAgICAgICAgc2VsZi5fZGF0YVsibmV3X3BvaW50X25hbWUiXSA9ICIiCiAgICAgICAgcmV0dXJuIFRydWUsIHNlbGYuX2RhdGEKCiAgICBkZWYgQ2VudGVyUGxhY2Uoc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKICAgICAgICB0cnk6IHBvcyA9IGludChzZWxmLl9kYXRhLmdldChQTEFDRVNfVEFCTEVfSUQgKyAiX2lucHV0X3Bvc2l0aW9uIiwgLTEpKQogICAgICAgIGV4Y2VwdCBFeGNlcHRpb246IHBvcyA9IC0xCiAgICAgICAgbG9jYXRpb25zID0gc2VsZi5fZGF0YS5nZXQoIm15X2xvY2F0aW9ucyIpIG9yIFtdCiAgICAgICAgaWYgMCA8PSBwb3MgPCBsZW4obG9jYXRpb25zKToKICAgICAgICAgICAgcCA9IGxvY2F0aW9uc1twb3NdCiAgICAgICAgICAgIE1hcENlbnRlcihQTEFDRVNfTUFQX0lELCBbcFsibGF0aXR1ZGUiXSwgcFsibG9uZ2l0dWRlIl1dLCB6b29tPTE2KQogICAgICAgIHJldHVybiBUcnVlLCBzZWxmLl9kYXRhCgogICAgZGVmIERlbGV0ZVBsYWNlKHNlbGYsIGlucHV0X2RhdGE9Tm9uZSk6CiAgICAgICAgdHJ5OiBwb3MgPSBpbnQoc2VsZi5fZGF0YS5nZXQoUExBQ0VTX1RBQkxFX0lEICsgIl9pbnB1dF9wb3NpdGlvbiIsIC0xKSkKICAgICAgICBleGNlcHQgRXhjZXB0aW9uOiBwb3MgPSAtMQogICAgICAgIGxvY2F0aW9ucyA9IGxpc3Qoc2VsZi5fZGF0YS5nZXQoIm15X2xvY2F0aW9ucyIpIG9yIFtdKQogICAgICAgIGlmIDAgPD0gcG9zIDwgbGVuKGxvY2F0aW9ucyk6CiAgICAgICAgICAgIHBvaW50ID0gbG9jYXRpb25zLnBvcChwb3MpCiAgICAgICAgICAgIE1hcFJlbW92ZShQTEFDRVNfTUFQX0lELCBwb2ludC5nZXQoImlkIikpCiAgICAgICAgICAgIHNlbGYuX2RhdGFbIm15X2xvY2F0aW9ucyJdID0gbG9jYXRpb25zCiAgICAgICAgICAgIHRyeTogc2VsZi5fc2F2ZSgpCiAgICAgICAgICAgIGV4Y2VwdCBFeGNlcHRpb246IHBhc3MKICAgICAgICAgICAgdGFibGUgPSBkaWN0KHNlbGYuX3BsYWNlc190YWJsZV9lbGVtZW50KQogICAgICAgICAgICB0YWJsZVsidmFsdWUiXSA9IGxvY2F0aW9ucwogICAgICAgICAgICBzZWxmLlVwZGF0ZVZpZXcoUExBQ0VTX1RBQkxFX0lELCB0YWJsZSkKICAgICAgICAgICAgdG9hc3QoItCi0L7Rh9C60LAg0YPQtNCw0LvQtdC90LAiKQogICAgICAgIHJldHVybiBUcnVlLCBzZWxmLl9kYXRhCgogICAgZGVmIFNoYXJlUGxhY2Uoc2VsZiwgaW5wdXRfZGF0YT1Ob25lKToKICAgICAgICB0cnk6IHBvcyA9IGludChzZWxmLl9kYXRhLmdldChQTEFDRVNfVEFCTEVfSUQgKyAiX2lucHV0X3Bvc2l0aW9uIiwgLTEpKQogICAgICAgIGV4Y2VwdCBFeGNlcHRpb246IHBvcyA9IC0xCiAgICAgICAgbG9jYXRpb25zID0gc2VsZi5fZGF0YS5nZXQoIm15X2xvY2F0aW9ucyIpIG9yIFtdCiAgICAgICAgaWYgMCA8PSBwb3MgPCBsZW4obG9jYXRpb25zKToKICAgICAgICAgICAgcCA9IGxvY2F0aW9uc1twb3NdCiAgICAgICAgICAgIHNoYXJlX2xvY2F0aW9uKHBbImxhdGl0dWRlIl0sIHBbImxvbmdpdHVkZSJdLCBwLmdldCgibmFtZSIpIG9yICLQotC+0YfQutCwIikKICAgICAgICByZXR1cm4gVHJ1ZSwgc2VsZi5fZGF0YQo=",
+  "nodes_server_handlers": "ZnJvbSBub2RlcyBpbXBvcnQgTm9kZQoKY2xhc3MgTWFwRGVtbyhOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQoKY2xhc3MgU2F2ZWRQbGFjZXMoTm9kZSk6CiAgICBkZWYgX19pbml0X18oc2VsZiwgbm9kZV9pZD1Ob25lLCBjb25maWdfdWlkPU5vbmUpOgogICAgICAgIHN1cGVyKCkuX19pbml0X18obm9kZV9pZCwgY29uZmlnX3VpZCkK",
+  "nodes_handlers_meta": {},
+  "nodes_server_handlers_meta": {},
+  "ngenie_prompt": "YandexMap demo: map API, routing diagnostics and persistent saved places process.",
+  "classes": [
+    {
+      "name": "MapDemo",
+      "display_name": "OSMMap Demo",
+      "class_type": "custom_process",
+      "projection_type": "",
+      "has_storage": true,
+      "hidden": false,
+      "section": "OSM maps",
+      "section_code": "offline_maps",
+      "record_view": "OSMMap Demo",
+      "cover_image": "[[{\"type\":\"Text\",\"value\":\"OSMMap — возможности карты\",\"bold\":true,\"size\":18}],[{\"type\":\"Text\",\"value\":\"GPS, точки и полилиния офлайн\"}]]",
+      "init_screen_layout": "[[{\"type\":\"Text\",\"value\":\"OSMMap — офлайновая карта\",\"bold\":true,\"size\":20}],[{\"type\":\"Text\",\"value\":\"Импортируйте MBTiles через главное меню → Офлайновые карты. Пример без маршрутизации и геокодирования.\"}],[{\"type\":\"OSMMap\",\"id\":\"map\",\"height\":310,\"events\":true}],[{\"type\":\"VerticalScroll\",\"id\":\"osm_map_demo_scroll\",\"height\":-1,\"value\":[{\"type\":\"Button\",\"id\":\"prepared_route\",\"caption\":\"Показать готовую полилинию (из бэкенда)\"},{\"type\":\"Button\",\"id\":\"clear_prepared_route\",\"caption\":\"Убрать полилинию\"},{\"type\":\"Button\",\"id\":\"center_msu\",\"caption\":\"Центрировать на МГУ\"},{\"type\":\"Text\",\"value\":\"Долгий тап добавит маркер. Нажмите на маркер — получите его ID.\"}]}]]",
+      "init_screen_layout_web": "[[{\"type\":\"Text\",\"value\":\"OSMMap is an Android control. Open this demo in NodesClient.\"}]]",
+      "data_structure": "Последнее событие|map_event: object\nСтатус|map_status: string\nПоиск|search_query: string\nМаркеры поиска|search_marker_ids: object",
+      "ngenie_role": "service",
+      "ngenie_prompt": "",
+      "ngenie_description": "OSMMap integration demo",
+      "use_standard_commands": true,
+      "methods": [
+        {
+          "name": "InitMap",
+          "source": "internal",
+          "engine": "android_python",
+          "code": "InitMap"
+        },
+        {
+          "name": "GoGPS",
+          "source": "internal",
+          "engine": "android_python",
+          "code": "GoGPS"
+        },
+        {
+          "name": "CenterMSU",
+          "source": "internal",
+          "engine": "android_python",
+          "code": "CenterMSU"
+        },
+        {
+          "name": "MapEvent",
+          "source": "internal",
+          "engine": "android_python",
+          "code": "MapEvent"
+        },
+        {
+          "name": "ShowPreparedRoute",
+          "source": "internal",
+          "engine": "android_python",
+          "code": "ShowPreparedRoute"
+        },
+        {
+          "name": "ClearPreparedRoute",
+          "source": "internal",
+          "engine": "android_python",
+          "code": "ClearPreparedRoute"
+        }
+      ],
+      "events": [
+        {
+          "event": "onShow",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "InitMap",
+              "order": 1
+            }
+          ]
+        },
+        {
+          "event": "onInput",
+          "listener": "gps_fab",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "GoGPS",
+              "order": 1
+            }
+          ]
+        },
+        {
+          "event": "onInput",
+          "listener": "center_msu",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "CenterMSU",
+              "order": 1
+            }
+          ]
+        },
+        {
+          "event": "onInput",
+          "listener": "map",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "MapEvent",
+              "order": 1
+            }
+          ]
+        },
+        {
+          "event": "onInput",
+          "listener": "prepared_route",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "ShowPreparedRoute",
+              "order": 1
+            }
+          ]
+        },
+        {
+          "event": "onInput",
+          "listener": "clear_prepared_route",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "ClearPreparedRoute",
+              "order": 1
+            }
+          ]
+        }
+      ],
+      "indexes": [],
+      "version": "00.12.00",
+      "plug_in": "[{\"type\":\"FloatingButton\",\"id\":\"gps_fab\",\"svg\":\"<svg xmlns=\\\"http://www.w3.org/2000/svg\\\" height=\\\"24px\\\" viewBox=\\\"0 -960 960 960\\\" width=\\\"24px\\\" fill=\\\"#000000\\\"><path d=\\\"M440-42v-80q-125-14-214.5-103.5T122-440H42v-80h80q14-125 103.5-214.5T440-838v-80h80v80q125 14 214.5 103.5T838-520h80v80h-80q-14 125-103.5 214.5T520-122v80h-80Zm238-240q82-82 82-198t-82-198q-82-82-198-82t-198 82q-82 82-82 198t82 198q82 82 198 82t198-82Zm-311-85q-47-47-47-113t47-113q47-47 113-47t113 47q47 47 47 113t-47 113q-47 47-113 47t-113-47Zm169.5-56.5Q560-447 560-480t-23.5-56.5Q513-560 480-560t-56.5 23.5Q400-513 400-480t23.5 56.5Q447-400 480-400t56.5-23.5ZM480-480Z\\\"/></svg>\",\"svg_size\":24,\"svg_color\":\"#FFFFFF\"}]"
+    },
+    {
+      "name": "SavedPlaces",
+      "display_name": "Мои точки на карте",
+      "class_type": "custom_process",
+      "projection_type": "",
+      "has_storage": true,
+      "hidden": false,
+      "section": "OSM maps",
+      "section_code": "offline_maps",
+      "record_view": "Мои точки на карте",
+      "cover_image": "[[{\"type\":\"Text\",\"value\":\"Мои точки на карте\",\"bold\":true,\"size\":18}],[{\"type\":\"Text\",\"value\":\"Сохранение координат без геокодирования\"}]]",
+      "init_screen_layout": "[[{\"type\":\"Text\",\"value\":\"Мои точки (офлайн)\",\"bold\":true,\"size\":20}],[{\"type\":\"Text\",\"value\":\"Нажмите на карте, введите название. Нажмите на сохранённую строку для центрирования.\"}],[{\"type\":\"OSMMap\",\"id\":\"places_map\",\"height\":310,\"events\":true}],[{\"type\":\"Text\",\"value\":\"Сохранённые точки\",\"bold\":true,\"size\":17}],[{\"type\":\"Table\",\"id\":\"my_locations_table\",\"height\":-1,\"value\":\"@my_locations\",\"layout\":[[{\"type\":\"Card\",\"height\":114,\"row_click\":true,\"value\":[[{\"type\":\"Text\",\"value\":\"@name\",\"bold\":true,\"size\":17,\"w\":6},{\"type\":\"Button\",\"id\":\"share_point\",\"small\":true,\"svg\":\"<svg xmlns=\\\"http://www.w3.org/2000/svg\\\" height=\\\"24px\\\" viewBox=\\\"0 -960 960 960\\\" width=\\\"24px\\\" fill=\\\"#000000\\\"><path d=\\\"M680-80q-50 0-85-35t-35-85q0-6 3-28L282-392q-16 15-37 23.5t-45 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q24 0 45 8.5t37 23.5l281-164q-2-7-2.5-13.5T560-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-24 0-45-8.5T598-672L317-508q2 7 2.5 13.5t.5 14.5q0 8-.5 14.5T317-452l281 164q16-15 37-23.5t45-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Zm0-80q17 0 28.5-11.5T720-200q0-17-11.5-28.5T680-240q-17 0-28.5 11.5T640-200q0 17 11.5 28.5T680-160ZM200-440q17 0 28.5-11.5T240-480q0-17-11.5-28.5T200-520q-17 0-28.5 11.5T160-480q0 17 11.5 28.5T200-440Zm508.5-291.5Q720-743 720-760t-11.5-28.5Q697-800 680-800t-28.5 11.5Q640-777 640-760t11.5 28.5Q663-720 680-720t28.5-11.5ZM680-200ZM200-480Zm480-280Z\\\"/></svg>\",\"svg_size\":22,\"svg_color\":\"#245C3A\",\"background\":\"#3f7353\",\"width\":40,\"height\":40},{\"type\":\"Button\",\"id\":\"delete_point\",\"small\":true,\"svg\":\"<svg xmlns=\\\"http://www.w3.org/2000/svg\\\" height=\\\"24px\\\" viewBox=\\\"0 -960 960 960\\\" width=\\\"24px\\\" fill=\\\"#000000\\\"><path d=\\\"M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z\\\"/></svg>\",\"svg_size\":22,\"svg_color\":\"#B71C1C\",\"background\":\"#db3030\",\"width\":40,\"height\":40}],[{\"type\":\"Text\",\"value\":\"@address\",\"size\":13}],[{\"type\":\"Text\",\"value\":\"@latitude\",\"size\":11,\"w\":2},{\"type\":\"Text\",\"value\":\"@longitude\",\"size\":11,\"w\":2}]]}]]}]]",
+      "init_screen_layout_web": "[[{\"type\":\"Text\",\"value\":\"Этот процесс предназначен для Android NodesClient.\"}]]",
+      "data_structure": "Мои точки|my_locations: object\nНовое название|new_point_name: string",
+      "ngenie_role": "process",
+      "ngenie_prompt": "Пример штатной работы OSMMap + Table: массив словарей my_locations хранится прямо в _data процесса.",
+      "ngenie_description": "Автономное сохранение названия и координат точки без геокодирования",
+      "use_standard_commands": true,
+      "methods": [
+        {
+          "name": "InitPlaces",
+          "source": "internal",
+          "engine": "android_python",
+          "code": "InitPlaces"
+        },
+        {
+          "name": "GoPlacesGPS",
+          "source": "internal",
+          "engine": "android_python",
+          "code": "GoPlacesGPS"
+        },
+        {
+          "name": "PlacesMapEvent",
+          "source": "internal",
+          "engine": "android_python",
+          "code": "PlacesMapEvent"
+        },
+        {
+          "name": "ConfirmPointName",
+          "source": "internal",
+          "engine": "android_python",
+          "code": "ConfirmPointName"
+        },
+        {
+          "name": "CancelPoint",
+          "source": "internal",
+          "engine": "android_python",
+          "code": "CancelPoint"
+        },
+        {
+          "name": "DeletePlace",
+          "source": "internal",
+          "engine": "android_python",
+          "code": "DeletePlace"
+        },
+        {
+          "name": "SharePlace",
+          "source": "internal",
+          "engine": "android_python",
+          "code": "SharePlace"
+        },
+        {
+          "name": "CenterPlace",
+          "source": "internal",
+          "engine": "android_python",
+          "code": "CenterPlace"
+        }
+      ],
+      "events": [
+        {
+          "event": "onShow",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "InitPlaces",
+              "order": 1
+            }
+          ]
+        },
+        {
+          "event": "onInput",
+          "listener": "places_gps",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "GoPlacesGPS",
+              "order": 1
+            }
+          ]
+        },
+        {
+          "event": "onInput",
+          "listener": "places_map",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "PlacesMapEvent",
+              "order": 1
+            }
+          ]
+        },
+        {
+          "event": "onInput",
+          "listener": "point_name_positive",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "ConfirmPointName",
+              "order": 1
+            }
+          ]
+        },
+        {
+          "event": "onInput",
+          "listener": "point_name_negative",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "CancelPoint",
+              "order": 1
+            }
+          ]
+        },
+        {
+          "event": "onInput",
+          "listener": "my_locations_table_input_delete_point",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "DeletePlace",
+              "order": 1
+            }
+          ]
+        },
+        {
+          "event": "onInput",
+          "listener": "my_locations_table_input_share_point",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "SharePlace",
+              "order": 1
+            }
+          ]
+        },
+        {
+          "event": "onInput",
+          "listener": "my_locations_table_input_row",
+          "actions": [
+            {
+              "action": "run",
+              "source": "internal",
+              "server": "internal",
+              "method": "CenterPlace",
+              "order": 1
+            }
+          ]
+        }
+      ],
+      "indexes": [],
+      "version": "00.12.00",
+      "plug_in": "[{\"type\":\"FloatingButton\",\"id\":\"places_gps\",\"svg\":\"<svg xmlns=\\\"http://www.w3.org/2000/svg\\\" height=\\\"24px\\\" viewBox=\\\"0 -960 960 960\\\" width=\\\"24px\\\" fill=\\\"#000000\\\"><path d=\\\"M440-42v-80q-125-14-214.5-103.5T122-440H42v-80h80q14-125 103.5-214.5T440-838v-80h80v80q125 14 214.5 103.5T838-520h80v80h-80q-14 125-103.5 214.5T520-122v80h-80Zm238-240q82-82 82-198t-82-198q-82-82-198-82t-198 82q-82 82-82 198t82 198q82 82 198 82t198-82Zm-311-85q-47-47-47-113t47-113q47-47 113-47t113 47q47 47 47 113t-47 113q-47 47-113 47t-113-47Zm169.5-56.5Q560-447 560-480t-23.5-56.5Q513-560 480-560t-56.5 23.5Q400-513 400-480t23.5 56.5Q447-400 480-400t56.5-23.5ZM480-480Z\\\"/></svg>\",\"svg_size\":24,\"svg_color\":\"#FFFFFF\"}]"
+    }
+  ],
+  "datasets": [],
+  "sections": [
+    {
+      "name": "OSM maps",
+      "code": "offline_maps"
+    }
+  ],
+  "servers": [],
+  "rooms": [],
+  "CommonEvents": [],
+  "Timers": []
+}
