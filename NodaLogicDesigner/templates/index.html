@@ -23,6 +23,35 @@
     <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32x32.png') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='landing.css') }}">
+    <style>
+        body.landing-checking > * { visibility: hidden; }
+        #compact-landing { display: none; }
+        body.landing-compact > *:not(#compact-landing) { display: none !important; }
+        body.landing-compact #compact-landing { display: flex; }
+        #compact-landing { box-sizing:border-box; min-height:100vh; padding:24px; align-items:center; justify-content:center; background:#f4f8f6; color:#19392e; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
+        #compact-landing * { box-sizing:border-box; }
+        #compact-landing .compact-card { width:min(100%,440px); padding:30px; border:1px solid #dce9e1; border-radius:20px; background:#fff; box-shadow:0 16px 44px rgba(20,60,40,.08); }
+        #compact-landing .compact-top { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+        #compact-landing .compact-brand { font-size:25px; font-weight:800; letter-spacing:-.04em; }
+        #compact-landing .compact-lang { display:flex; gap:8px; font-size:13px; }
+        #compact-landing .compact-lang a { color:#35765a; text-decoration:none; }
+        #compact-landing .compact-lang a.active { font-weight:800; color:#153d2b; }
+        #compact-landing h1 { margin:30px 0 8px; font-size:27px; line-height:1.2; }
+        #compact-landing .compact-subtitle { margin:0 0 24px; color:#64776c; line-height:1.5; }
+        #compact-landing .compact-tabs { display:flex; gap:8px; margin-bottom:18px; }
+        #compact-landing button, #compact-landing input { font:inherit; }
+        #compact-landing .compact-tabs button { flex:1; padding:10px; border:1px solid #d7e5dc; border-radius:9px; background:#f5f8f6; color:#315b45; cursor:pointer; }
+        #compact-landing .compact-tabs button.active { background:#e3f2e8; border-color:#8cbea0; font-weight:700; }
+        #compact-landing .compact-panel { display:none; }
+        #compact-landing .compact-panel.active { display:block; }
+        #compact-landing label { display:block; margin:12px 0; font-size:13px; font-weight:650; }
+        #compact-landing input[type=email], #compact-landing input[type=password] { display:block; width:100%; margin-top:6px; padding:12px; border:1px solid #d3e0d8; border-radius:9px; background:#fff; }
+        #compact-landing .compact-submit { width:100%; margin-top:10px; padding:12px; border:0; border-radius:10px; background:#147451; color:#fff; font-weight:750; cursor:pointer; }
+        #compact-landing .compact-welcome { margin-top:24px; padding:18px; border-radius:12px; background:#edf6f0; }
+        #compact-landing .compact-welcome p { margin:0 0 12px; line-height:1.5; }
+        #compact-landing .compact-mode { display:block; margin-top:9px; padding:12px; border:1px solid #cfe1d5; border-radius:9px; color:#20583d; text-align:center; text-decoration:none; background:#fff; }
+        @media (max-width:480px) { #compact-landing { padding:14px; } #compact-landing .compact-card { padding:22px; } }
+    </style>
 
     <script type="application/ld+json">
     {
@@ -37,6 +66,7 @@
     </script>
 
     <meta name="msvalidate.01" content="40FEFBAC420E453778DCF164C5D01364" />
+    <meta name="yandex-verification" content="abfdacb985146e76" />
 
     <!-- Yandex.Metrika counter -->
 <script type="text/javascript">
@@ -51,9 +81,66 @@
 </script>
 <noscript><div><img src="https://mc.yandex.ru/watch/112947304" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
 <!-- /Yandex.Metrika counter -->
-
+<meta name="google-site-verification" content="rwGL_UIaAzS8oT9Aiofyz1I5C_pTCHJdFpRp8PygvGs" />
 </head>
-<body>
+<body class="landing-checking">
+<section id="compact-landing" aria-label="NodaLogic sign in">
+    <div class="compact-card">
+        <div class="compact-top">
+            <div class="compact-brand">NodaLogic</div>
+            <nav class="compact-lang" aria-label="Language">
+                <a href="{{ url_for('index', lang='ru') }}" class="{{ 'active' if not is_en else '' }}">RU</a>
+                <span>/</span>
+                <a href="{{ url_for('index', lang='en') }}" class="{{ 'active' if is_en else '' }}">EN</a>
+            </nav>
+        </div>
+        <h1>{% if is_en %}Welcome to NodaLogic{% else %}Добро пожаловать в NodaLogic{% endif %}</h1>
+        <p class="compact-subtitle">{% if is_en %}Sign in to continue to your workspace.{% else %}Авторизуйтесь, чтобы перейти к рабочему пространству.{% endif %}</p>
+        {% if landing_authenticated %}
+            <div class="compact-welcome">
+                <p>{% if is_en %}You are signed in. Choose where to go next.{% else %}Вы авторизованы. Выберите режим работы.{% endif %}</p>
+                <a class="compact-mode" href="{{ url_for('choose_mode') }}">{% if is_en %}Choose mode{% else %}Выбор режима{% endif %}</a>
+            </div>
+        {% else %}
+            <div class="compact-tabs" role="tablist">
+                <button type="button" class="active" data-compact-tab="login">{% if is_en %}Sign in{% else %}Войти{% endif %}</button>
+                <button type="button" data-compact-tab="register">{% if is_en %}Register{% else %}Регистрация{% endif %}</button>
+            </div>
+            <div class="compact-panel active" data-compact-panel="login">
+                <form method="POST" action="{{ url_for('index', lang=landing_lang) }}">
+                    <input type="hidden" name="form_type" value="login">
+                    <input type="hidden" name="next" value="{{ '/choose-mode' if request.args.get('next') == '/choose-mode' else '' }}">
+                    <input type="hidden" name="landing_lang" value="{{ landing_lang }}">
+                    <label>Email<input type="email" name="email" autocomplete="email" required></label>
+                    <label>{% if is_en %}Password{% else %}Пароль{% endif %}<input type="password" name="password" autocomplete="current-password" required></label>
+                    <button class="compact-submit" type="submit">{% if is_en %}Sign in{% else %}Войти{% endif %}</button>
+                </form>
+            </div>
+            <div class="compact-panel" data-compact-panel="register">
+                <form method="POST" action="{{ url_for('index', lang=landing_lang) }}">
+                    <input type="hidden" name="form_type" value="register">
+                    <input type="hidden" name="landing_lang" value="{{ landing_lang }}">
+                    <label>Email<input type="email" name="email" autocomplete="email" required></label>
+                    <label>{% if is_en %}Password{% else %}Пароль{% endif %}<input type="password" name="password" autocomplete="new-password" minlength="6" required></label>
+                    <button class="compact-submit" type="submit">{% if is_en %}Create account{% else %}Создать аккаунт{% endif %}</button>
+                </form>
+            </div>
+        {% endif %}
+    </div>
+</section>
+<script>
+(function () {
+    var root = document.getElementById('compact-landing');
+    if (!root) return;
+    root.querySelectorAll('[data-compact-tab]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            var tab = button.getAttribute('data-compact-tab');
+            root.querySelectorAll('[data-compact-tab]').forEach(function (item) { item.classList.toggle('active', item === button); });
+            root.querySelectorAll('[data-compact-panel]').forEach(function (panel) { panel.classList.toggle('active', panel.getAttribute('data-compact-panel') === tab); });
+        });
+    });
+})();
+</script>
 <header class="site-header">
     <div class="landing-container nav-wrap">
         <a class="brand" href="#top" aria-label="NodaLogic">
@@ -778,18 +865,10 @@
 
     <!-- APK releases: add a new entry to the list below for each published build. -->
     {% set apk_releases = [
-        {'date': '17.09.2026', 'version': '5.50.20',
-         'url': 'https://disk.yandex.ru/d/4pQMssREu8MoOw',
-         'description_ru': 'Совместимость с требованиями обфускации, начальный релиз карт.',
-         'description_en': 'Compatibility with obfuscation requirements; initial maps release.'},
-         {'date': '17.09.2026', 'version': '5.55.05',
-         'url': 'https://disk.yandex.ru/d/H3LLTvCbLPs11w',
-         'description_ru': 'Релиз Яндекс-карт. Новый механизм отслеживания изменений конфигурации. Распознавание речи командой listen. Исправлены ошибки',
-         'description_en': 'Yandex Maps release. New mechanism for tracking configuration changes. Speech recognition via the `listen` command. Bug fixes.'},
-          {'date': '23.09.2026', 'version': '5.55.20',
-         'url': 'https://disk.yandex.ru/d/inqPI184oCjesQ',
-         'description_ru': 'Селективный запуск сервиса. Доработан репозиторий и добавление конфигураций. Beta-версия',
-         'description_en': 'Selective service startup. The repository and configuration addition process have been improved. Bug fixes.Beta'}
+        {'date': '22.10.2026', 'version': '5.75.05',
+         'url': 'https://drive.google.com/open?id=0B86iSsodknj4dGx6aUlXbU83OU0&resourcekey=0-nkH-2dNJuR93cilyvWv_8w&usp=drive_fs',
+         'description_ru': 'Новые возможности разметки и работы с файлами, фото, фильтрами.',
+         'description_en': 'New features for markup and working with files, photos, and filters.'}
     ] %}
     <section id="android-releases" class="apk-releases" aria-labelledby="apk-releases-title">
         <style>
@@ -801,7 +880,8 @@
             .apk-releases .apk-kicker { margin: 0 0 5px; color: #29805a; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .13em; }
             .apk-releases h2 { margin: 0; color: #173d30; font-size: clamp(25px, 3vw, 34px); line-height: 1.2; }
             .apk-releases .apk-intro { margin: 0 0 29px; color: #60746a; line-height: 1.6; }
-            .apk-releases .apk-list { display: grid; gap: 13px; }
+            .apk-releases .apk-list { display: grid; gap: 13
+                px; }
             .apk-releases .apk-entry { display: flex; align-items: center; justify-content: space-between; gap: 25px; padding: 23px 26px; border: 1px solid #dbe9df; border-radius: 20px; background: #fff; box-shadow: 0 9px 28px rgba(18, 76, 50, .045); }
             .apk-releases .apk-details { min-width: 0; }
             .apk-releases .apk-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-bottom: 9px; }
@@ -937,7 +1017,10 @@
         authTab: {{ (auth_tab or 'login')|tojson }}
     };
 </script>
-<script src="{{ url_for('static', filename='landing.js') }}"></script>
+<script
+    src="{{ url_for('static', filename='landing.js') }}"
+    onload="document.body.classList.remove('landing-checking'); document.body.classList.add('landing-full')"
+    onerror="document.body.classList.remove('landing-checking'); document.body.classList.add('landing-compact')"></script>
 
 <style>
 .infostart-custom-btn {
