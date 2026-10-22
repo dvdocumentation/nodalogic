@@ -517,6 +517,9 @@
                                                     <option value="projection">{{ _('Projection') }}</option>
                                                     <option value="print_form">{{ _('PrintForm') }}</option>
                                                     <option value="data_node">{{ _('Data node') }}</option>
+                                                    {% for type_id, type_label in resource_spec_types.items() %}
+                                                    <option value="{{ type_id }}">{{ type_label }}</option>
+                                                    {% endfor %}
                                                     <option value="custom_task">{{ _('User task') }}</option>
                                                     <option value="background_task">{{ _('Background task') }}</option>
                                                     <option value="solo_object">{{ _('Solo Object') }}</option>
@@ -1202,6 +1205,8 @@
             <select class="form-select" name="event_name" id="commonEventNameSelect" required>
               <option value="onLaunch">onLaunch</option>
               <option value="onBarcode">onBarcode</option>
+              <option value="onInput">onInput — Android</option>
+              <option value="onInputWeb">onInputWeb — Web</option>
               <option value="onStartMenuCommand">onStartMenuCommand</option>
               <option value="onTimer">onTimer</option>
               <option value="onDialogResult">onDialogResult</option>
@@ -1405,6 +1410,17 @@
                         <input type="checkbox" class="form-check-input" id="sectionAllowClientExtensions" name="allow_client_extensions" checked>
                         <label class="form-check-label" for="sectionAllowClientExtensions">{{ _('Allow client extensions') }}</label>
                         <small class="text-muted d-block">{{ _('Allow mobile users to add local classes and documents to this section.') }}</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="sectionMobileFormNode" class="form-label">{{ _('Mobile section form node') }}</label>
+                        <input type="text" class="form-control" id="sectionMobileFormNode" name="mobile_form_node" placeholder="Config$Class$node-id">
+                        <small class="text-muted">{{ _('If set, the Android section shows this node form instead of the standard node list.') }}</small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="sectionWebFormNode" class="form-label">{{ _('Web section form node') }}</label>
+                        <input type="text" class="form-control" id="sectionWebFormNode" name="web_form_node" placeholder="Config$Class$node-id">
+                        <small class="text-muted">{{ _('If set, the web section shows this node form instead of the standard node list.') }}</small>
                     </div>
                     <div class="mb-3">
                         <label for="sectionCommands" class="form-label">{{ _('Commands') }}</label>
@@ -1755,6 +1771,8 @@ document.addEventListener('DOMContentLoaded', function() {
         sectionForm.reset();
         document.getElementById('section_id').value = '';
         document.getElementById('sectionAllowClientExtensions').checked = true;
+        document.getElementById('sectionMobileFormNode').value = '';
+        document.getElementById('sectionWebFormNode').value = '';
         sectionForm.action = "{{ url_for('add_section', config_uid=config.uid) }}";
     });
 
@@ -1778,6 +1796,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('sectionHideMobileClient').checked = !!data.hide_mobile_client;
                 document.getElementById('sectionHideWebClient').checked = !!data.hide_web_client;
                 document.getElementById('sectionAllowClientExtensions').checked = data.allow_client_extensions !== false;
+                document.getElementById('sectionMobileFormNode').value = data.mobile_form_node || '';
+                document.getElementById('sectionWebFormNode').value = data.web_form_node || '';
                 
                 sectionForm.action = "{{ url_for('update_section', section_id='') }}" + sectionId;
                 sectionModal.show();
@@ -3635,8 +3655,24 @@ fetch(`{{ url_for('save_common_layouts', config_uid=config.uid) }}`, {
 }
 
 
+.event-badge {
+    font-size: 0.85em;
+    padding: 0.35em 0.65em;
+}
+
 .event-onlaunch {
     background-color: #6f42c1;
+    color: white;
+}
+
+/* Common input events used by section-hosted node forms. */
+.event-oninput {
+    background-color: #f0ad4e;
+    color: #212529;
+}
+
+.event-oninputweb {
+    background-color: #0d6efd;
     color: white;
 }
 

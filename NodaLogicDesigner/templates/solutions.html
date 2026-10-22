@@ -1,37 +1,87 @@
 {% extends "base.html" %}
 
-{% block title %}{{ _('Solutions') }} · NodaLogic{% endblock %}
+{% block title %}N-Reactor · NodaLogic{% endblock %}
 
 {% block content %}
 <div class="container mt-4">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
     <div>
-      <h2 class="mb-1">{{ _('Solutions') }}</h2>
+      <h2 class="mb-1">N-Reactor</h2>
       <div class="text-muted small">{{ _('Business templates that create configurations through nGenie Code.') }}</div>
     </div>
     <div class="d-flex gap-2">
+      {% if is_admin %}
+      <a href="{{ url_for('solutions_admin_billing') }}" class="btn btn-outline-success"><i class="bi bi-wallet2 me-1"></i>Оплата / лимиты</a>
+      <a href="{{ url_for('solutions_admin_patterns') }}" class="btn btn-outline-primary me-2"><i class="bi bi-boxes me-1"></i>Паттерны</a>
+      <a href="{{ url_for('solutions_admin_diagnostics_inbox') }}" class="btn btn-outline-danger">
+        <i class="bi bi-inbox"></i> Диагностики
+        {% if new_diagnostics_count %}<span class="badge text-bg-danger ms-1">{{ new_diagnostics_count }}</span>{% endif %}
+      </a>
+      {% endif %}
       <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">
         <i class="bi bi-arrow-left"></i> {{ _('Back') }}
       </a>
     </div>
   </div>
 
+  <div class="card shadow-sm mb-4 border-success-subtle">
+    <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
+      <div>
+        <div class="small text-muted">Баланс N-Reactor</div>
+        {% if billing_account.token_billing_exempt %}
+          <div class="fs-4 fw-semibold text-success"><i class="bi bi-infinity me-1"></i>Без списания токенов</div>
+          <div class="small text-muted">{% if billing_account.admin_bypass %}Администратор платформы{% else %}Разрешено администратором{% endif %}</div>
+        {% else %}
+          <div class="fs-4 fw-semibold font-monospace">{{ '{:,}'.format(billing_account.token_balance).replace(',', ' ') }} токенов</div>
+          <div class="small text-muted">Списываются фактические входящие + исходящие токены каждого LLM-запроса.</div>
+        {% endif %}
+      </div>
+      <div class="text-end" style="min-width:320px">
+        <div class="fw-semibold mb-2">{{ '{:,}'.format(token_price.tokens).replace(',', ' ') }} токенов = {{ token_price.display }}</div>
+        <form method="post" action="{{ url_for('solutions_buy_tokens') }}" class="d-flex gap-2 justify-content-end align-items-center">
+          <div class="input-group input-group-sm" style="max-width:210px">
+            <input id="tokenPurchaseAmount" class="form-control text-end" type="number" name="token_amount" min="{{ token_price.minimum_purchase_tokens }}" step="10000" value="500000" required>
+            <span class="input-group-text">токенов</span>
+          </div>
+          <button class="btn btn-success btn-sm" type="submit" {% if not checkout_available %}disabled{% endif %}>
+            <i class="bi bi-credit-card me-1"></i>Купить
+          </button>
+        </form>
+        <div class="small text-muted mt-1">Можно купить меньше 1 млн. Цена рассчитывается пропорционально: <strong id="tokenPurchaseEstimate"></strong>. {% if not checkout_available %}ЮKassa не настроена.{% endif %}</div>
+      </div>
+    </div>
+  </div>
+
   <div class="card shadow-sm mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
-      <h5 class="mb-0">{{ _('Create solution') }}</h5>
+      <div>
+        <h5 class="mb-0">Каталог N-Reactor</h5>
+        <div class="small text-muted">Решения создаются с нуля, фичи встраиваются в существующую .nod-конфигурацию.</div>
+      </div>
       <span class="badge text-bg-light border">nGenie Code</span>
     </div>
     <div class="card-body">
-      <div class="row g-3">
+      {% set catalog_count = (templates|length) + (features|length) %}
+      {% set catalog_columns = ((catalog_count + 1) // 2) if catalog_count > 0 else 1 %}
+      {% set catalog_min_width = (catalog_columns * 360) + ((catalog_columns - 1) * 16) %}
+      <div class="nreactor-catalog-scroll pb-2">
+        <div class="nreactor-catalog-grid" style="--catalog-columns: {{ catalog_columns }}; --catalog-min-width: {{ catalog_min_width }}px;">
         {% for tpl in templates %}
-        <div class="col-md-6 col-xl-4">
+        <div class="nreactor-catalog-item">
           <div class="card h-100 border-primary-subtle">
             <div class="card-body d-flex flex-column">
               <div class="d-flex align-items-center gap-2 mb-2">
                 <i class="bi {{ tpl.icon or 'bi-stars' }} text-primary fs-4"></i>
                 <h5 class="card-title mb-0">{{ tpl.name }}</h5>
+                <span class="badge text-bg-primary">Решение</span>
               </div>
               <p class="card-text text-muted small flex-grow-1">{{ tpl.description or _('No description') }}</p>
+              {% if tpl.price %}
+              <div class="mb-2">
+                {% if tpl.price.promo_active %}<span class="text-muted text-decoration-line-through me-2">{{ tpl.price.regular_display }}</span>{% endif %}
+                <span class="fw-semibold fs-5">{{ tpl.price.current_display }}</span>
+              </div>
+              {% endif %}
               <form method="POST" action="{{ url_for('solutions_create') }}" class="mt-2">
                 <input type="hidden" name="template_key" value="{{ tpl.key }}">
                 <div class="mb-2">
@@ -46,16 +96,96 @@
           </div>
         </div>
         {% endfor %}
+
+        {% for feature in features %}
+        <div class="nreactor-catalog-item">
+          <div class="card h-100 border-info-subtle">
+            <div class="card-body d-flex flex-column">
+              <div class="d-flex align-items-start gap-2 mb-2">
+                <i class="bi {{ feature.icon or 'bi-puzzle' }} text-info fs-4"></i>
+                <div class="flex-grow-1">
+                  <div class="d-flex flex-wrap gap-2 align-items-center">
+                    <h5 class="card-title mb-0">{{ feature.name }}</h5>
+                    <span class="badge text-bg-info">Фича</span>
+                  </div>
+                  {% if feature.version %}<div class="small text-muted">v{{ feature.version }}</div>{% endif %}
+                </div>
+              </div>
+              <p class="card-text text-muted small flex-grow-1">{{ feature.description }}</p>
+              {% if feature.tags %}
+              <div class="d-flex flex-wrap gap-1 mb-2">
+                {% for tag in feature.tags %}<span class="badge text-bg-light border">{{ tag }}</span>{% endfor %}
+              </div>
+              {% endif %}
+              {% if feature.price_current %}
+              <div class="mb-2">
+                {% if feature.price_current.promo_active %}<span class="text-muted text-decoration-line-through me-2">{{ feature.price_current.regular_display }}</span>{% endif %}
+                <span class="fw-semibold fs-5">{{ feature.price_current.current_display }}</span>
+              </div>
+              {% endif %}
+              <button type="button" class="btn btn-info w-100 mt-2" data-bs-toggle="modal" data-bs-target="#featureModal{{ loop.index }}">
+                <i class="bi bi-puzzle me-1"></i>Интегрировать фичу
+              </button>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+        </div>
       </div>
     </div>
   </div>
 
-  <div class="card shadow-sm">
+  {% for feature in features %}
+  <div class="modal fade" id="featureModal{{ loop.index }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content">
+        <form method="POST" enctype="multipart/form-data" action="{{ url_for('solutions_feature_create', feature_key=feature.key) }}">
+          <div class="modal-header">
+            <div>
+              <div class="d-flex align-items-center gap-2">
+                <h5 class="modal-title mb-0">{{ feature.name }}</h5>
+                <span class="badge text-bg-info">Фича</span>
+              </div>
+              <div class="small text-muted mt-1">Фича будет встроена в отдельную рабочую копию вашей конфигурации.</div>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">Ваша конфигурация .nod</label>
+              <input class="form-control" type="file" name="config_file" accept=".nod,application/json" required>
+              <div class="form-text">Исходный файл не изменяется.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Куда и как встроить</label>
+              <textarea class="form-control" name="placement_instructions" rows="5" required placeholder="Например: класс WMSReceiveLine, поле marking_code; проверять при подтверждении строки приёмки."></textarea>
+            </div>
+            <div>
+              <label class="form-label">Название попытки <span class="text-muted">(необязательно)</span></label>
+              <input class="form-control" name="name" placeholder="{{ feature.name }}">
+            </div>
+          </div>
+          <div class="modal-footer d-flex justify-content-between align-items-center">
+            <div class="small text-muted">
+              {% if feature.price_current %}Получение готовой изменённой конфигурации: <strong>{{ feature.price_current.current_display }}</strong>{% endif %}
+            </div>
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+              <button type="submit" class="btn btn-info"><i class="bi bi-puzzle me-1"></i>Подготовить интеграцию</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+  <div class="card shadow-sm mb-4">
     <div class="card-header">
-      <h5 class="mb-0">{{ _('My solutions') }}</h5>
+      <h5 class="mb-0">Мои решения и интеграции</h5>
     </div>
     <div class="card-body p-0">
-      {% if solutions %}
+      {% if solutions or feature_runs %}
       <div class="list-group list-group-flush">
         {% for s in solutions %}
         <div class="list-group-item py-3">
@@ -63,14 +193,14 @@
             <div class="flex-grow-1" style="min-width: 260px;">
               <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
                 <h5 class="mb-0">{{ s.name or s.template_name or s.template_key }}</h5>
+                <span class="badge text-bg-primary">Решение</span>
                 <span class="badge text-bg-light border">{{ s.template_key }}</span>
                 <span class="badge text-bg-primary">{{ s.status or 'draft' }}</span>
                 <span class="badge text-bg-secondary">{{ s.stage or 'created' }}</span>
               </div>
               <div class="text-muted small mb-1">{{ s.description or s.template_name }}</div>
-              {% if s.config_uid %}
-              <div class="small"><strong>{{ _('Configuration') }}:</strong> <code>{{ s.config_uid }}</code></div>
-              {% endif %}
+              <div class="small"><strong>Код решения:</strong> <code>{{ s.delivery_ref or '' }}</code></div>
+              <div class="small"><strong>Выпуск:</strong> <span class="badge {{ 'text-bg-success' if s.release_status == 'unlocked' else 'text-bg-warning' }}">{{ s.release_status or 'locked' }}</span></div>
               {% if s.updated_at %}
               <div class="small text-muted">{{ _('Updated') }}: {{ format_datetime(s.updated_at) }}</div>
               {% endif %}
@@ -79,10 +209,12 @@
               <a class="btn btn-sm btn-outline-primary" href="{{ url_for('solutions_work', solution_uid=s.uid) }}">
                 <i class="bi bi-chat-dots"></i> {{ _('Open solution') }}
               </a>
-              {% if s.config_uid %}
-              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('edit_config', uid=s.config_uid) }}" target="_blank">
-                <i class="bi bi-pencil"></i> {{ _('Configuration') }}
-              </a>
+              {% if s.specification_html and s.design_graph_json and s.design_graph_json.get('nodes') %}
+              <form method="POST" action="{{ url_for('solutions_clone_attempt', solution_uid=s.uid) }}" onsubmit="return confirm('Создать новую попытку из последнего утверждённого ТЗ и схемы — сразу перед генерацией?');">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">
+                  <i class="bi bi-copy"></i> Новая попытка
+                </button>
+              </form>
               {% endif %}
               <form method="POST" action="{{ url_for('solutions_delete', solution_uid=s.uid) }}" onsubmit="return confirm('{{ _('Delete solution?') }}');">
                 <button type="submit" class="btn btn-sm btn-outline-danger">
@@ -93,13 +225,92 @@
           </div>
         </div>
         {% endfor %}
+
+        {% for s in feature_runs %}
+        <div class="list-group-item py-3">
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div class="flex-grow-1" style="min-width:260px">
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                <h5 class="mb-0">{{ s.name or s.template_name }}</h5>
+                <span class="badge text-bg-info">Фича</span>
+                {% if s._feature_catalog %}<span class="badge text-bg-light border">{{ s._feature_catalog.name }}</span>{% endif %}
+                <span class="badge text-bg-primary">{{ s.status or 'draft' }}</span>
+                <span class="badge text-bg-secondary">{{ s.stage or 'feature_ready' }}</span>
+              </div>
+              <div class="text-muted small">{{ s.description }}</div>
+              {% if s._feature_price %}<div class="small mt-1"><strong>Цена результата:</strong> {{ s._feature_price.current_display }}</div>{% endif %}
+              {% if s.updated_at %}<div class="small text-muted">{{ _('Updated') }}: {{ format_datetime(s.updated_at) }}</div>{% endif %}
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <a class="btn btn-sm btn-outline-info" href="{{ url_for('solutions_feature_work', solution_uid=s.uid) }}"><i class="bi bi-puzzle"></i> Открыть интеграцию</a>
+              <form method="POST" action="{{ url_for('solutions_delete', solution_uid=s.uid) }}" onsubmit="return confirm('Удалить эту интеграцию и её рабочую копию конфигурации?');">
+                <input type="hidden" name="delete_config" value="1">
+                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> {{ _('Delete') }}</button>
+              </form>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
       </div>
       {% else %}
       <div class="alert alert-info m-3">
-        <i class="bi bi-info-circle"></i> {{ _('No solutions yet.') }}
+        <i class="bi bi-info-circle"></i> Пока нет ни решений, ни интеграций фич.
       </div>
       {% endif %}
     </div>
   </div>
 </div>
+<style>
+  .nreactor-catalog-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-inline: contain;
+  }
+
+  .nreactor-catalog-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--catalog-columns), minmax(0, 1fr));
+    grid-template-rows: repeat(2, auto);
+    grid-auto-flow: row;
+    gap: 1rem;
+    width: max(100%, var(--catalog-min-width));
+  }
+
+  .nreactor-catalog-item {
+    min-width: 0;
+  }
+
+  @media (max-width: 575.98px) {
+    .nreactor-catalog-grid {
+      grid-template-columns: repeat(var(--catalog-columns), minmax(290px, 1fr));
+      width: max(100%, var(--catalog-min-width));
+    }
+  }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.addEventListener('pageshow', function (event) {
+  // A browser may restore the list from the back-forward cache after create,
+  // delete or rename. Force one real GET so the cards reflect the database.
+  if (event.persisted) window.location.reload();
+});
+(function () {
+  const input = document.getElementById('tokenPurchaseAmount');
+  const estimate = document.getElementById('tokenPurchaseEstimate');
+  if (!input || !estimate) return;
+  const baseTokens = {{ token_price.tokens|int }};
+  const baseAmount = Number({{ token_price.amount_value|tojson }});
+  const currency = {{ token_price.currency|tojson }};
+  function updateEstimate() {
+    const tokens = Math.max(0, Number(input.value || 0));
+    const amount = Math.round((baseAmount * tokens / baseTokens) * 100) / 100;
+    estimate.textContent = amount.toFixed(2) + ' ' + currency;
+  }
+  input.addEventListener('input', updateEstimate);
+  updateEstimate();
+})();
+</script>
 {% endblock %}

@@ -120,6 +120,9 @@
             <label for="classType" class="form-label">{{ _('Class type') }}</label>
             <select class="form-select" id="classType" name="class_type">
               <option value="">{{ _('-- Not specified --') }}</option>
+              {% for type_id, type_label in resource_spec_types.items() %}
+              <option value="{{ type_id }}" {% if class_obj.class_type == type_id %}selected{% endif %}>{{ type_label }}</option>
+              {% endfor %}
               <option value="custom_process" {% if class_obj.class_type == 'custom_process' %}selected{% endif %}>{{ _('Custom process') }}</option>
               <option value="projection" {% if class_obj.class_type == 'projection' %}selected{% endif %}>{{ _('Projection') }}</option>
               <option value="print_form" {% if class_obj.class_type == 'print_form' %}selected{% endif %}>{{ _('PrintForm') }}</option>
@@ -548,6 +551,13 @@
                    {% if class_obj.migration_send_via_queue %}checked{% endif %}>
             <label class="form-check-label" for="migrationSendViaQueue">{{ _('Send via a queue') }}</label>
             <small class="text-muted d-block">{{ _('Send migration objects through the room delivery queue.') }}</small>
+          </div>
+
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="migrationShowContractNodesInSection" name="migration_show_contract_nodes_in_section"
+                   {% if class_obj.migration_show_contract_nodes_in_section %}checked{% endif %}>
+            <label class="form-check-label" for="migrationShowContractNodesInSection">{{ _('Display contract-transferred nodes in section') }}</label>
+            <small class="text-muted d-block">{{ _('On Android, show nodes received through contracts in the regular class section. Disabled by default to keep large reference catalogs lazy.') }}</small>
           </div>
 
           <div class="mb-3">

@@ -1,0 +1,37 @@
+<section class="nl-article-comments" id="comments">
+    <h2>{{ 'Comments' if article_lang == 'en' else 'Комментарии' }}</h2>
+    <p class="nl-article-comments-lead">
+        {{ 'Comments are public; posting is available to registered NodaLogic users.' if article_lang == 'en' else 'Комментарии видны всем; оставлять их могут зарегистрированные пользователи NodaLogic.' }}
+    </p>
+    {% if comment_error %}<div class="nl-comment-error">{{ comment_error }}</div>{% endif %}
+    <div class="nl-comment-list">
+        {% if comments %}
+            {% for comment in comments %}
+                <article class="nl-comment">
+                    <div class="nl-comment-head">
+                        <span class="nl-comment-author">{{ comment.author }}</span>
+                        <time class="nl-comment-date">{{ comment.created_display }}</time>
+                    </div>
+                    <div class="nl-comment-body">{{ comment.body }}</div>
+                </article>
+            {% endfor %}
+        {% else %}
+            <div class="nl-comment-empty">{{ 'No comments yet.' if article_lang == 'en' else 'Комментариев пока нет.' }}</div>
+        {% endif %}
+    </div>
+    {% if article_authenticated %}
+        <form class="nl-comment-form" method="post" action="{{ article_url }}#comments">
+            <input type="hidden" name="csrf_token" value="{{ comment_csrf }}">
+            <textarea name="comment" maxlength="4000" required placeholder="{{ 'Write a comment…' if article_lang == 'en' else 'Напишите комментарий…' }}"></textarea>
+            <button type="submit">{{ 'Post comment' if article_lang == 'en' else 'Отправить комментарий' }}</button>
+        </form>
+    {% else %}
+        <div class="nl-comment-login">
+            {% if article_lang == 'en' %}
+                To comment, <a href="{{ login_url }}">sign in or register</a> on NodaLogic.
+            {% else %}
+                Чтобы оставить комментарий, <a href="{{ login_url }}">войдите или зарегистрируйтесь</a> в NodaLogic.
+            {% endif %}
+        </div>
+    {% endif %}
+</section>

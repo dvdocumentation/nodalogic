@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}N-Reactor · Оплата и лимиты{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+    <div>
+      <h2 class="mb-1">Оплата и лимиты N-Reactor</h2>
+      <div class="text-muted small">Цены решений и фич хранятся в billing DB. Цена токенов берётся из <code>solutions/models.json</code>.</div>
+    </div>
+    <a href="{{ url_for('solutions_page') }}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> N-Reactor</a>
+  </div>
+
+  {% if yookassa_configured %}
+  <div class="alert alert-success"><i class="bi bi-check-circle me-1"></i>ЮKassa настроена. Shop ID: <code>{{ yookassa_shop_id }}</code>. Новые платежи принимаются через API.</div>
+  {% else %}
+  <div class="alert alert-warning"><i class="bi bi-exclamation-triangle me-1"></i>ЮKassa пока не активна: задайте секретный ключ в <code>YOOKASSA_SECRET_KEY</code> или в приватном <code>instance/yookassa_credentials.json</code>.</div>
+  {% endif %}
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <strong>Цены цифровых товаров</strong>
+      <span class="small text-muted">Только для администратора</span>
+    </div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('solutions_admin_prices_update') }}">
+        <div class="table-responsive">
+          <table class="table align-middle mb-3">
+            <thead>
+              <tr><th>Продукт</th><th>Язык</th><th>Обычная цена</th><th>Акционная цена</th><th>Валюта</th></tr>
+            </thead>
+            <tbody>
+            {% for product_code, product_name in [('wms','WMS'),('custom','Произвольное решение')] %}
+              {% for locale, locale_name in [('ru','RU'),('en','EN')] %}
+                {% set price = product_prices[locale][product_code] %}
+                <tr>
+                  <td class="fw-semibold">{{ product_name }}</td>
+                  <td><span class="badge text-bg-light border">{{ locale_name }}</span></td>
+                  <td><input class="form-control form-control-sm" name="{{ product_code }}_{{ locale }}_regular" value="{{ price.regular_amount_value }}" required></td>
+                  <td>
+                    <input class="form-control form-control-sm" name="{{ product_code }}_{{ locale }}_promo" value="{{ price.promo_amount_value }}" placeholder="нет акции">
+                    <div class="form-text">Пусто = без акции</div>
+                  </td>
+                  <td><input class="form-control form-control-sm text-uppercase" name="{{ product_code }}_{{ locale }}_currency" value="{{ price.currency }}" maxlength="3" required></td>
+                </tr>
+              {% endfor %}
+            {% endfor %}
+            {% for row in feature_prices or [] %}
+              {% set product_code = row.feature.product_code %}
+              {% for locale, locale_name in [('ru','RU'),('en','EN')] %}
+                {% set price = row[locale] %}
+                <tr class="table-info">
+                  <td class="fw-semibold"><span class="badge text-bg-info me-1">Фича</span>{{ row.feature.name }}</td>
+                  <td><span class="badge text-bg-light border">{{ locale_name }}</span></td>
+                  <td><input class="form-control form-control-sm" name="{{ product_code }}_{{ locale }}_regular" value="{{ price.regular_amount_value }}" required></td>
+                  <td>
+                    <input class="form-control form-control-sm" name="{{ product_code }}_{{ locale }}_promo" value="{{ price.promo_amount_value }}" placeholder="нет акции">
+                    <div class="form-text">Пусто = без акции</div>
+                  </td>
+                  <td><input class="form-control form-control-sm text-uppercase" name="{{ product_code }}_{{ locale }}_currency" value="{{ price.currency }}" maxlength="3" required></td>
+                </tr>
+              {% endfor %}
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div class="small text-muted">При акции обычная цена показывается зачёркнутой, а в платёж уходит акционная цена. Уже созданный платёж сохраняет сумму, с которой был создан.</div>
+          <button class="btn btn-primary" type="submit"><i class="bi bi-check2 me-1"></i>Сохранить цены</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-4 border-success-subtle">
+    <div class="card-body">
+      <div class="fw-semibold mb-1">Цена токенов</div>
+      <div class="fs-5">{{ '{:,}'.format(token_price.tokens).replace(',', ' ') }} токенов = {{ token_price.display }}</div>
+      <div class="small text-muted mt-1">Минимальная покупка: {{ '{:,}'.format(token_price.minimum_purchase_tokens).replace(',', ' ') }} токенов. Для изменения тарифа отредактируйте <code>billing.token_price_per_million</code> в <code>solutions/models.json</code>.</div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-header"><strong>Пользователи</strong></div>
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Пользователь</th>
+            <th>Баланс</th>
+            <th style="min-width:170px">Токены бесплатно</th>
+            <th style="min-width:190px">Бесплатные скачивания</th>
+            <th style="min-width:190px">Корректировка токенов</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+          {% set user = row.user %}
+          {% set billing = row.billing %}
+          <tr>
+            <td>
+              <div class="fw-semibold">{{ user.email }}</div>
+              <div class="small text-muted">ID {{ user.id }} · решений: {{ row.solution_count }} · интеграций фич: {{ row.feature_count }}</div>
+              {% if billing.admin_bypass %}<span class="badge text-bg-warning mt-1">ADMIN — полный bypass</span>{% endif %}
+            </td>
+            <td class="font-monospace fw-semibold">{{ '{:,}'.format(billing.token_balance).replace(',', ' ') }}</td>
+            <td colspan="4" class="p-0">
+              <form method="post" action="{{ url_for('solutions_admin_billing_update', user_id=user.id) }}" class="row g-2 align-items-center m-0 p-2">
+                <div class="col-lg-3">
+                  <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" name="token_billing_exempt" value="1" id="billingExempt{{ user.id }}" {% if billing.token_billing_exempt_explicit %}checked{% endif %} {% if billing.admin_bypass %}disabled{% endif %}>
+                    <label class="form-check-label small" for="billingExempt{{ user.id }}">Не списывать токены</label>
+                  </div>
+                </div>
+                <div class="col-lg-3">
+                  <div class="input-group input-group-sm">
+                    <span class="input-group-text">Лимит</span>
+                    <input class="form-control" type="number" min="0" step="1" name="free_download_limit" value="{{ billing.free_download_limit }}">
+                  </div>
+                  <div class="small text-muted mt-1">использовано {{ billing.free_download_count }}, осталось {{ billing.free_download_remaining }}</div>
+                </div>
+                <div class="col-lg-3">
+                  <input class="form-control form-control-sm font-monospace" name="token_adjustment" value="0" placeholder="+1000000 / -100000">
+                  <div class="small text-muted mt-1">0 — не менять баланс</div>
+                </div>
+                <div class="col-lg-3 text-end">
+                  <button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-check2"></i> Сохранить</button>
+                </div>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

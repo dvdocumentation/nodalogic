@@ -5,98 +5,446 @@
 {% block content %}
 <div class="container-fluid mt-3 solution-work-page">
   <style>
+    .solution-work-page { overflow-anchor:none; }
     .solution-top-card { border: 1px solid rgba(111,66,193,.18); }
+    .solution-journey { margin:.25rem 0 1.35rem; overflow-x:hidden; overflow-y:visible; padding:0; }
+    .solution-journey-track { position:relative; display:flex; align-items:center; width:100%; min-width:0; box-sizing:border-box; padding:12.9rem 5.45rem 5.8rem; }
+    .solution-journey-stop { position:relative; width:18px; height:18px; flex:0 0 18px; border:2px solid #b7aec8; border-radius:50%; background:#fff; z-index:3; transition:.2s ease; }
+    .solution-journey-stop.is-complete { border-color:#6f42c1; background:#6f42c1; box-shadow:0 0 0 3px rgba(111,66,193,.10); }
+    .solution-journey-stop.is-current { border-color:#5b32aa; background:#fff; box-shadow:0 0 0 5px rgba(111,66,193,.16); }
+    .solution-journey-stop.is-complete.is-current { border-color:#5b32aa; background:#6f42c1; box-shadow:0 0 0 5px rgba(111,66,193,.16); }
+    .solution-journey-label { position:absolute; left:50%; bottom:calc(30px + (var(--label-tier, 0) * 43px)); transform:translateX(-50%); width:166px; text-align:center; font-size:.68rem; line-height:1.15; font-weight:600; color:#756d83; white-space:normal; overflow-wrap:normal; word-break:normal; hyphens:auto; z-index:4; }
+    .solution-journey-label::after { content:''; position:absolute; left:50%; top:calc(100% + 3px); width:1px; height:calc(10px + (var(--label-tier, 0) * 43px)); background:#d5cede; transform:translateX(-50%); }
+    .solution-journey-stop.is-complete .solution-journey-label, .solution-journey-stop.is-current .solution-journey-label { color:#4b2c86; }
+    .solution-journey-stop.is-complete .solution-journey-label::after, .solution-journey-stop.is-current .solution-journey-label::after { background:rgba(111,66,193,.58); }
+    .solution-journey-segment { height:3px; flex:var(--journey-weight) 1 0; min-width:0; background:linear-gradient(to right,#6f42c1 0 var(--segment-progress,0%),#d9d3e4 var(--segment-progress,0%) 100%); position:relative; z-index:1; }
+    .solution-journey-current-marker { position:absolute; top:calc(12.9rem + 24px); left:0; width:14px; height:27px; transform:translateX(-50%); z-index:5; pointer-events:none; transition:left .2s ease; }
+    .solution-journey-current-marker::before { content:''; position:absolute; left:6px; top:8px; width:2px; height:16px; background:#5b32aa; }
+    .solution-journey-current-marker::after { content:''; position:absolute; left:1px; top:0; width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:9px solid #5b32aa; }
+    .solution-journey-ready-band { position:absolute; top:calc(12.9rem + 58px); min-height:42px; display:flex; align-items:center; justify-content:center; padding:.45rem .8rem; border:1px solid rgba(111,66,193,.35); border-radius:.45rem; background:rgba(111,66,193,.07); color:#5b477b; font-size:.71rem; line-height:1.15; text-align:center; z-index:2; }
+    .solution-journey-ready-leader { position:absolute; top:calc(12.9rem + 18px); height:40px; border-left:1px dashed rgba(111,66,193,.55); z-index:2; pointer-events:none; }
+    .solution-journey-caption { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:.1rem; }
+    .solution-journey-caption .small { color:#8a8392; }
+    @media (max-width: 1100px) {
+      .solution-journey-track { padding-left:4.8rem; padding-right:4.8rem; }
+      .solution-journey-label { width:146px; font-size:.61rem; }
+      .solution-journey-ready-band { font-size:.65rem; }
+    }
     .solution-html-box { min-height: 110px; max-height: 300px; overflow:auto; border:1px solid #e7e1f7; border-radius:.75rem; background:#fff; padding:1rem; }
     .solution-html-box:empty::before { content: attr(data-empty); color:#8a8597; font-size:.9rem; }
     .solution-clarification-block { margin-bottom:.8rem; padding-bottom:.8rem; border-bottom:1px solid #eee; }
     .solution-clarification-block:last-child { border-bottom:0; margin-bottom:0; padding-bottom:0; }
-    .solution-ngenie-card { border: 1px solid rgba(111,66,193,.35); min-height: 66vh; }
+    .solution-ngenie-card { border: 1px solid rgba(111,66,193,.35); min-height: 72vh; overflow-anchor:none; }
+    .solution-graph-card { border:1px solid #283247; min-height:84vh; overflow:hidden; background:#0c1118; }
+    .solution-graph-frame { width:100%; height:84vh; min-height:760px; border:0; display:block; background:#0c1118; }
     .solution-ngenie-header { background:#6f42c1; color:#fff; }
-    .ngenie-chat-box { min-height: 44vh; height: 54vh; overflow:auto; background:#fbfaff; border:1px solid #e5ddff; border-radius:.75rem; padding:1rem; }
+    .solution-work-tabs .nav-link { font-weight:600; }
+    .solution-work-tab-content { border:1px solid #e1d9f4; border-top:0; border-radius:0 0 .75rem .75rem; padding:1rem; background:#fff; }
+    .ngenie-chat-box { min-height: 48vh; height: 58vh; overflow:auto; overflow-anchor:none; overscroll-behavior:contain; background:#fbfaff; border:1px solid #e5ddff; border-radius:.75rem; padding:1rem; }
     .ngenie-msg { margin-bottom:.75rem; padding:.65rem .8rem; border-radius:.7rem; max-width: 94%; white-space: pre-wrap; }
     .ngenie-msg-user { margin-left:auto; background:#ede7ff; }
     .ngenie-msg-bot { margin-right:auto; background:#fff; border:1px solid #e6e1f5; }
     .ngenie-msg-meta { display:block; margin-top:.25rem; color:#7a7485; font-size:.75rem; white-space:normal; }
+    .ngenie-generation-event { margin-bottom:.8rem; border:1px solid #ddd6f2; border-radius:.8rem; background:#fff; overflow:hidden; white-space:normal; }
+    .ngenie-generation-event-header { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:.6rem .75rem; background:#f7f4ff; border-bottom:1px solid #ece7f7; }
+    .ngenie-generation-event-title { font-weight:700; color:#4b2c86; }
+    .ngenie-generation-event-body { padding:.7rem .75rem; }
+    .ngenie-generation-event table { width:100%; margin-top:.55rem; border-collapse:collapse; font-size:.84rem; }
+    .ngenie-generation-event th,.ngenie-generation-event td { border:1px solid #e7e3ef; padding:.38rem .5rem; vertical-align:top; }
+    .ngenie-generation-event th { width:11rem; background:#faf9fc; font-weight:600; }
+    .ngenie-generation-event .ngenie-generation-issues { width:100%; table-layout:fixed; }
+    .ngenie-generation-event .ngenie-generation-issues th { width:auto; }
+    .ngenie-generation-issues th:nth-child(1) { width:5%; text-align:center; }
+    .ngenie-generation-issues th:nth-child(2) { width:65%; }
+    .ngenie-generation-issues th:nth-child(3) { width:14%; }
+    .ngenie-generation-issues th:nth-child(4) { width:16%; }
+    .ngenie-generation-issues th,.ngenie-generation-issues td { overflow-wrap:anywhere; word-break:break-word; }
+    .ngenie-generation-event-ok { border-color:#b9dfc6; }
+    .ngenie-generation-event-warning { border-color:#f1d39b; }
+    .ngenie-generation-event-error { border-color:#e9aaaa; }
+    .ngenie-generation-live { border-color:#b9a8ea; box-shadow:0 4px 16px rgba(75,44,134,.08); }
+    .ngenie-generation-live .ngenie-generation-event-header { background:#f1ecff; }
+    .ngenie-semantic-progress-summary { display:flex; gap:.45rem; flex-wrap:wrap; margin:.6rem 0 .7rem; }
+    /* Semantic issue tables must stay inside the chat card. The generic event
+       rule gives every TH an 11rem width, which made the fourth column disappear. */
+    .ngenie-generation-event .ngenie-semantic-progress-table { width:100%; table-layout:fixed; }
+    .ngenie-generation-event .ngenie-semantic-progress-table th { width:auto; }
+    .ngenie-generation-event .ngenie-semantic-progress-table th:nth-child(1) { width:22%; }
+    .ngenie-generation-event .ngenie-semantic-progress-table th:nth-child(2) { width:46%; }
+    .ngenie-generation-event .ngenie-semantic-progress-table th:nth-child(3) { width:14%; }
+    .ngenie-generation-event .ngenie-semantic-progress-table th:nth-child(4) { width:18%; }
+    .ngenie-semantic-progress-table th,.ngenie-semantic-progress-table td { overflow-wrap:anywhere; word-break:break-word; }
+    .ngenie-semantic-progress-table td:first-child { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.78rem; }
+    .ngenie-semantic-progress-table .badge { white-space:normal; text-align:left; }
+    .ngenie-semantic-skip-btn { margin-top:.35rem; width:100%; white-space:normal; }
+    .ngenie-semantic-targets { display:flex; gap:.25rem; flex-wrap:wrap; }
+    .ngenie-semantic-task-area { color:#6c757d; font-size:.78rem; margin-bottom:.15rem; }
+    .ngenie-semantic-task-text { white-space:normal; }
+    .ngenie-semantic-artifacts { margin-top:.25rem; display:flex; gap:.25rem; flex-wrap:wrap; }
+    .ngenie-generation-live-next { margin-top:.55rem; padding:.45rem .55rem; border-radius:.45rem; background:#faf8ff; color:#5e5270; font-size:.84rem; }
     .ngenie-question-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:.75rem; margin-top:.6rem; white-space:normal; }
     .ngenie-question-card { border:1px solid #d8cdf8; border-radius:.75rem; padding:.75rem; background:#fff; }
     .ngenie-question-card-wide { grid-column: 1 / -1; }
     .ngenie-question-card h6 { margin:0 0 .35rem 0; }
-    .ngenie-question-field { margin-top:.55rem; }
+    .ngenie-question-field { margin-top:.7rem; }
+    .ngenie-question-field textarea { min-height: 4.5rem; resize: vertical; }
+    .ngenie-question-required { color:#dc3545; margin-left:.2rem; }
+    .ngenie-question-actions { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.75rem; margin-top:1rem; padding-top:.8rem; border-top:1px solid #eee; }
+    .solution-design-summary { grid-column:1 / -1; border:1px solid #cfc1f4; border-radius:.9rem; padding:1rem 1.1rem; background:linear-gradient(180deg,#fbf9ff,#f5f0ff); box-shadow:0 8px 24px rgba(111,66,193,.08); }
+    .solution-design-summary h3,.solution-design-summary h4,.solution-design-summary h5 { color:#4b2c86; margin-top:0; }
+    .solution-design-summary ul { margin-bottom:.25rem; }
+    .solution-approval-card { border-color:#b9a2ef; box-shadow:0 0 0 .12rem rgba(111,66,193,.06); }
+    .ngenie-question-card.ngenie-question-inactive { background:#f8f8fa; opacity:.88; }
+    .ngenie-question-card.ngenie-question-inactive input,
+    .ngenie-question-card.ngenie-question-inactive textarea,
+    .ngenie-question-card.ngenie-question-inactive select { cursor:not-allowed; }
     .ngenie-choice-list { display:flex; flex-wrap:wrap; gap:.35rem; }
     .ngenie-choice-list .btn { white-space:normal; text-align:left; }
     .ngenie-working { border-left: 4px solid #6f42c1; box-shadow: 0 0 0 .15rem rgba(111,66,193,.08); padding:.35rem .5rem; border-radius:.45rem; }
     .ngenie-pulse-dot { display:inline-block; width:.55rem; height:.55rem; border-radius:50%; background:#6f42c1; margin-right:.35rem; animation: ngeniePulse 1s infinite alternate; }
     @keyframes ngeniePulse { from { opacity:.25; transform:scale(.9); } to { opacity:1; transform:scale(1.15); } }
+    @media (max-width: 991.98px) {
+      .solution-graph-frame { height:78vh; min-height:620px; }
+      .solution-work-tab-content { padding:.5rem; }
+    }
   </style>
 
   <div class="card solution-top-card shadow-sm mb-3">
     <div class="card-body">
       <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
         <div>
-          <h2 class="mb-1">{{ solution.name or solution.template_name or solution.template_key }}</h2>
+          <div class="d-flex align-items-center gap-2 mb-1">
+            <h2 class="mb-0" id="solutionTitleText">{{ solution.name or solution.template_name or solution.template_key }}</h2>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#solutionRenameModal" title="Изменить название">
+              <i class="bi bi-pencil"></i>
+            </button>
+          </div>
           {% if solution.description %}<div class="text-muted">{{ solution.description }}</div>{% endif %}
           <div class="small mt-1">
             <span class="badge text-bg-light border">{{ solution.template_key }}</span>
             <span class="badge text-bg-primary">{{ solution.status or 'draft' }}</span>
             <span class="badge text-bg-secondary">{{ solution.stage or 'created' }}</span>
+            {% if billing_account.token_billing_exempt %}
+              <span class="badge text-bg-success" id="solutionTokenBalanceBadge" data-token-exempt="1"><i class="bi bi-infinity me-1"></i>Токены без списания</span>
+            {% else %}
+              <span class="badge text-bg-light border text-dark" id="solutionTokenBalanceBadge" data-token-exempt="0"><i class="bi bi-wallet2 me-1"></i>{{ '{:,}'.format(billing_account.token_balance).replace(',', ' ') }} токенов</span>
+            {% endif %}
           </div>
         </div>
         <div class="d-flex flex-wrap gap-2">
-          <a class="btn btn-outline-secondary" href="{{ url_for('solutions_page') }}"><i class="bi bi-arrow-left"></i> {{ _('Solutions') }}</a>
-          <a class="btn btn-outline-primary" target="_blank" href="{{ url_for('edit_config', uid=config.uid) }}"><i class="bi bi-box-arrow-up-right"></i> {{ _('Configuration') }}</a>
+          <a class="btn btn-outline-secondary" href="{{ url_for('solutions_page') }}"><i class="bi bi-arrow-left"></i> N-Reactor</a>
+          {% if solution.specification_html and solution.design_graph_json and solution.design_graph_json.get('nodes') %}
+          <form method="POST" action="{{ url_for('solutions_clone_attempt', solution_uid=solution.uid) }}" class="d-inline" onsubmit='return confirm({{ _("Создать новую попытку из последнего утверждённого ТЗ и схемы — сразу перед генерацией?")|tojson }});'>
+            <button type="submit" class="btn btn-outline-primary" title="Создать новую попытку из последнего утверждённого ТЗ — сразу перед генерацией">
+              <i class="bi bi-copy"></i> Новая попытка
+            </button>
+          </form>
+          {% endif %}
+          <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#solutionReleaseModal">
+            <i class="bi bi-key"></i> Получение решения
+            <span id="solutionReleaseButtonStatus" class="badge {{ 'text-bg-success' if download_allowed else 'text-bg-warning' }} ms-1">{{ 'available' if download_allowed else 'locked' }}</span>
+          </button>
+          <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#solutionSubmitDiagnosticsModal">
+            <i class="bi bi-send"></i> Отправить диагностику
+          </button>
+          {% if is_admin %}
+          <button type="button" class="btn btn-outline-warning" id="adminUploadSolutionConfigBtn" title="Заменить конфигурацию этого Solution содержимым доработанного .nod, сохранив UID решения"><i class="bi bi-upload"></i> Загрузить конфу в решение</button>
+          <input type="file" id="adminUploadSolutionConfigInput" accept=".nod,application/json" class="d-none">
+          <a class="btn btn-outline-primary" href="{{ url_for('solutions_admin_diagnostics', solution_uid=solution.uid) }}"><i class="bi bi-file-earmark-zip"></i> Диагностический ZIP</a>
+          <a class="btn btn-outline-dark" href="{{ url_for('solutions_admin_diagnostics_inbox') }}"><i class="bi bi-inbox"></i> Присланные диагностики</a>
+          {% endif %}
         </div>
       </div>
+      <div class="solution-journey-caption">
+        <div class="small fw-semibold text-uppercase">{{ _('Этапы решения') }}</div>
+        <div class="small" id="solutionJourneyCurrentLabel"></div>
+      </div>
+      <div class="solution-journey" id="solutionJourney" data-current-index="{{ solution_progress_index }}" data-max-reached-index="{{ solution_progress_reached_index }}" aria-label="{{ _('Этапы решения') }}">
+        <div class="solution-journey-track" id="solutionJourneyTrack">
+          {% for stop in solution_progress_stops %}
+          <div class="solution-journey-stop" data-journey-step="{{ loop.index0 }}">
+            <span class="solution-journey-label" style="--label-tier:{{ stop.tier }}">{{ stop.label }}</span>
+          </div>
+          {% if not loop.last %}
+          <div class="solution-journey-segment" data-journey-segment="{{ loop.index0 }}" style="--journey-weight:{{ stop.weight }}"></div>
+          {% endif %}
+          {% endfor %}
+          <span class="solution-journey-current-marker" id="solutionJourneyCurrentMarker" aria-hidden="true"></span>
+          <span class="solution-journey-ready-leader" id="solutionJourneyReadyLeaderStart" aria-hidden="true"></span>
+          <span class="solution-journey-ready-leader" id="solutionJourneyReadyLeaderEnd" aria-hidden="true"></span>
+          <div class="solution-journey-ready-band" id="solutionJourneyReadyBand" data-start-step="7">{{ _('Решение развернуто, его можно полномасштабно тестировать и скачать, если оно устраивает.') }}</div>
+        </div>
+      </div>
+
       <div class="row g-3">
         <div class="col-lg-6">
           <div class="d-flex justify-content-between align-items-center mb-1">
-            <h5 class="mb-0">{{ _('Specification') }}</h5>
+            <h5 class="mb-0">{{ _('Техническое задание') }}</h5>
             <span class="small text-muted">HTML</span>
           </div>
-          <div id="solutionSpecificationHtml" class="solution-html-box" data-empty="{{ _('Specification is not prepared yet.') }}">{{ solution.specification_html|safe }}</div>
+          <div id="solutionSpecificationHtml" class="solution-html-box" data-empty="{{ _('Техническое задание ещё не подготовлено.') }}">{{ solution.specification_html|safe }}</div>
         </div>
         <div class="col-lg-6">
           <div class="d-flex justify-content-between align-items-center mb-1">
-            <h5 class="mb-0">{{ _('Clarifications') }}</h5>
+            <h5 class="mb-0">{{ _('Уточнения') }}</h5>
             <span class="small text-muted">HTML</span>
           </div>
-          <div id="solutionClarificationsHtml" class="solution-html-box" data-empty="{{ _('No saved clarifications yet.') }}">{{ solution.clarifications_html|safe }}</div>
+          <div id="solutionClarificationsHtml" class="solution-html-box" data-empty="{{ _('Сохранённых уточнений пока нет.') }}">{{ solution.clarifications_html|safe }}</div>
+        </div>
+      </div>
+
+      </div>
+    </div>
+
+  <div class="modal fade" id="solutionSubmitDiagnosticsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form method="POST" action="{{ url_for('solutions_submit_diagnostics', solution_uid=solution.uid) }}" id="solutionSubmitDiagnosticsForm">
+          <input type="hidden" name="submission_token" id="solutionDiagnosticSubmissionToken" value="">
+          <div class="modal-header">
+            <h5 class="modal-title">Отправить диагностику</h5>
+            <button type="button" class="btn-close" id="solutionDiagnosticCloseBtn" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small text-muted mb-3">Будет собран текущий очищенный диагностический ZIP. Его сможет скачать только администратор NodaLogic. Архив можно отправлять и во время генерации; завершённые и текущий LLM-вызовы попадут в него по мере сохранения checkpoint.</p>
+            <label class="form-label" for="solutionDiagnosticComment">Комментарий</label>
+            <textarea class="form-control" id="solutionDiagnosticComment" name="comment" rows="3" placeholder="Что происходило перед ошибкой или что нужно проверить"></textarea>
+            <div class="small text-muted mt-2 d-none" id="solutionDiagnosticProgressText">Собираю диагностический архив и отправляю администратору. Это может занять несколько секунд.</div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" id="solutionDiagnosticCancelBtn" data-bs-dismiss="modal">Отмена</button>
+            <button type="submit" class="btn btn-danger position-relative overflow-hidden" id="solutionDiagnosticSubmitBtn" style="min-width:150px">
+              <span id="solutionDiagnosticSubmitIdle"><i class="bi bi-send me-1"></i>Отправить</span>
+              <span id="solutionDiagnosticSubmitBusy" class="d-none"><span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Отправляю…</span>
+              <span id="solutionDiagnosticButtonProgress" class="position-absolute start-0 bottom-0 bg-light" style="height:3px;width:0%;opacity:.72;transition:width .35s ease"></span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="solutionRenameModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form id="solutionRenameForm">
+          <div class="modal-header">
+            <h5 class="modal-title">Название решения</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+          </div>
+          <div class="modal-body">
+            <label class="form-label" for="solutionRenameInput">Название</label>
+            <input id="solutionRenameInput" class="form-control" maxlength="200" value="{{ solution.name or solution.template_name or solution.template_key }}" required>
+            <div id="solutionRenameMessage" class="small mt-2"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+            <button type="submit" class="btn btn-primary">Сохранить</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="solutionReleaseModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Покупка и получение решения</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3" id="solutionReleaseBox">
+            <div class="col-lg-7">
+              <div class="border rounded-3 p-3 h-100">
+                <div class="small text-muted mb-1">Цифровой товар</div>
+                <div class="d-flex justify-content-between align-items-start gap-3">
+                  <div>
+                    <div class="fw-semibold fs-5">{{ solution.name or solution.template_name or solution.template_key }}</div>
+                    <div class="small text-muted">Исходный код конфигурации NodaLogic (.nod)</div>
+                  </div>
+                  <div class="text-end text-nowrap">
+                    {% if solution_price.promo_active %}<div class="small text-danger text-decoration-line-through">{{ solution_price.regular_display }}</div>{% endif %}
+                    <div class="fs-4 fw-bold">{{ solution_price.current_display }}</div>
+                  </div>
+                </div>
+                <hr>
+                <div class="small text-muted">Код заказа</div>
+                <div class="input-group mt-1">
+                  <input id="solutionDeliveryRef" class="form-control font-monospace" readonly value="{{ solution.delivery_ref or '' }}">
+                  <button class="btn btn-outline-secondary" type="button" id="copySolutionDeliveryRef">Копировать</button>
+                </div>
+                <div class="small text-muted mt-2">Код используется для привязки будущего платежа YuKassa к конкретному Solution.</div>
+              </div>
+            </div>
+            <div class="col-lg-5">
+              <div class="border rounded-3 p-3 h-100 d-flex flex-column">
+                <div class="small text-muted">Право на скачивание</div>
+                {% if download_access.reason == 'admin' %}
+                  <div class="alert alert-success py-2 mt-2 mb-3"><i class="bi bi-shield-check me-1"></i>Администратор — оплата не требуется.</div>
+                {% elif download_access.reason == 'paid' %}
+                  <div class="alert alert-success py-2 mt-2 mb-3"><i class="bi bi-check-circle me-1"></i>Решение оплачено / разблокировано.</div>
+                {% elif download_access.reason == 'admin_free_allowance' %}
+                  <div class="alert alert-info py-2 mt-2 mb-3"><i class="bi bi-gift me-1"></i>Администратор разрешил бесплатное скачивание. Осталось: {{ download_access.free_download_remaining }}.</div>
+                {% elif download_access.reason == 'solution_not_ready' %}
+                  <div class="alert alert-warning py-2 mt-2 mb-3">Сначала решение должно быть выпущено конвейером.</div>
+                {% else %}
+                  <div class="alert alert-warning py-2 mt-2 mb-3"><i class="bi bi-lock me-1"></i>Для скачивания требуется покупка решения.</div>
+                {% endif %}
+
+                <div class="small text-muted mb-2">Статус выпуска: <span id="solutionReleaseStatus" class="badge {{ 'bg-success' if solution.release_status == 'unlocked' else 'bg-warning text-dark' }}">{{ solution.release_status or 'locked' }}</span></div>
+                {% if download_allowed %}
+                  <a id="solutionDownloadLink" class="btn btn-success mt-auto" href="{{ url_for('solutions_download', solution_uid=solution.uid) }}"><i class="bi bi-download me-1"></i>Скачать .nod</a>
+                {% elif download_access.reason == 'solution_not_ready' %}
+                  <button class="btn btn-secondary mt-auto" type="button" disabled><i class="bi bi-hourglass-split me-1"></i>Покупка после выпуска</button>
+                {% else %}
+                  <form method="post" action="{{ url_for('solutions_buy_solution', solution_uid=solution.uid) }}" class="mt-auto">
+                    <button class="btn btn-primary w-100" type="submit" {% if not checkout_available %}disabled{% endif %}><i class="bi bi-credit-card me-1"></i>Купить за {{ solution_price.current_display }}</button>
+                  </form>
+                  {% if not checkout_available %}<div class="small text-muted text-center mt-2">ЮKassa не настроена</div>{% endif %}
+                  <details class="mt-3 small">
+                    <summary class="text-muted" style="cursor:pointer">Есть код ручной активации</summary>
+                    <form id="solutionUnlockForm" method="post" action="{{ url_for('solutions_unlock', solution_uid=solution.uid) }}" class="mt-2">
+                      <div class="input-group input-group-sm">
+                        <input id="solutionLicenseToken" name="token" class="form-control" autocomplete="off" placeholder="NLS-...">
+                        <button class="btn btn-outline-primary" type="submit">Проверить</button>
+                      </div>
+                    </form>
+                  </details>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          <div id="solutionUnlockMessage" class="alert mt-3 mb-0 d-none" role="alert"></div>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="card solution-ngenie-card shadow-sm mb-4">
-    <div class="card-header solution-ngenie-header d-flex justify-content-between align-items-center">
-      <div>
-        <h5 class="mb-0">nGenie Code</h5>
-        <div class="small opacity-75">{{ _('Solution workspace') }}</div>
-      </div>
-      <button type="button" class="btn btn-sm btn-light" id="ngenieCodeNewChatBtn">{{ _('New chat') }}</button>
-    </div>
-    <div class="card-body d-flex flex-column">
-      <div id="ngenieCodeChat" class="ngenie-chat-box mb-3 flex-grow-1">
-        <div class="ngenie-msg ngenie-msg-bot">{{ _('Loading chat history...') }}</div>
-      </div>
-
-      <form id="aiGeneratorForm" enctype="multipart/form-data">
-        <input type="hidden" id="aiProvider" value="ngenie_code">
-        <div class="row g-2 align-items-end">
-          <div class="col-lg-8">
-            <label for="aiPrompt" class="form-label">{{ _('Prompt for nGenie Code') }}</label>
-            <textarea class="form-control" id="aiPrompt" rows="4" placeholder="{{ _('Describe what to change or clarify in this solution...') }}"></textarea>
+  <ul class="nav nav-tabs solution-work-tabs" id="solutionWorkspaceTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="solutionChatTab" data-bs-toggle="tab" data-bs-target="#solutionChatPane" type="button" role="tab" aria-controls="solutionChatPane" aria-selected="true">
+        <i class="bi bi-chat-dots me-1"></i>Диалог и вопросы
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="solutionGraphTab" data-bs-toggle="tab" data-bs-target="#solutionGraphPane" type="button" role="tab" aria-controls="solutionGraphPane" aria-selected="false">
+        <i class="bi bi-diagram-3 me-1"></i>Схема решения
+        <span id="solutionGraphStatusBadge" class="badge text-bg-secondary ms-1">{{ solution.design_graph_status or 'empty' }}</span>
+      </button>
+    </li>
+  </ul>
+  <div class="tab-content solution-work-tab-content mb-4" id="solutionWorkspaceTabContent">
+    <div class="tab-pane fade show active" id="solutionChatPane" role="tabpanel" aria-labelledby="solutionChatTab" tabindex="0">
+      <div class="card solution-ngenie-card shadow-sm mb-0">
+        <div class="card-header solution-ngenie-header d-flex justify-content-between align-items-center">
+          <div>
+            <h5 class="mb-0">nGenie Code</h5>
+            <div class="small opacity-75">{{ _('Solution workspace') }}</div>
           </div>
-          <div class="col-lg-3">
-            <label for="ngenieCodeAttachments" class="form-label">{{ _('Attachments') }}</label>
-            <input type="file" class="form-control" id="ngenieCodeAttachments" name="attachments" multiple>
-          </div>
-          <div class="col-lg-1 d-grid">
-            <button type="submit" class="btn text-white" style="background:#6f42c1" id="aiGenerateBtn"><i class="bi bi-magic"></i></button>
+          <div class="d-flex gap-2 align-items-center flex-wrap justify-content-end">
+            <select class="form-select form-select-sm bg-white" id="solutionLanguageSelect" style="width:auto;min-width:165px" title="{{ _('Язык содержимого этого Solution') }}">
+              <option value="__system__">{{ _('Как системный язык') }} · {{ system_solution_language.name }}</option>
+              {% for language in solution_language_options %}
+              <option value="{{ language.code }}" data-language-name="{{ language.name }}" {% if solution_language and solution_language.code == language.code %}selected{% endif %}>{{ language.name }}</option>
+              {% endfor %}
+              <option value="__custom__">{{ _('Другой язык…') }}</option>
+            </select>
+            <select class="form-select form-select-sm bg-white" id="solutionModelSelect" style="width:auto;min-width:190px" title="Модель для всего pipeline этого Solution">
+              {% for model in solution_models %}
+              <option value="{{ model.key }}" {% if selected_solution_model and selected_solution_model.key == model.key %}selected{% endif %}>{{ model.label }}</option>
+              {% endfor %}
+            </select>
+            {% if is_admin %}
+            <a class="btn btn-sm btn-outline-light" href="{{ url_for('solutions_admin_diagnostics', solution_uid=solution.uid) }}" title="Скачать диагностический ZIP (только администратор)"><i class="bi bi-file-earmark-zip me-1"></i>Диагностика</a>
+            {% endif %}
+            <button type="button" class="btn btn-sm btn-danger d-none" id="runtimeErrorsBtn" data-bs-toggle="modal" data-bs-target="#runtimeErrorsModal" title="Ошибки, обнаруженные при проверке сгенерированного решения"><i class="bi bi-bug me-1"></i>Ошибки <span class="badge text-bg-light ms-1" id="runtimeErrorsCount">0</span></button>
+            <button type="button" class="btn btn-sm btn-warning d-none" id="returnToApprovalBtn"><i class="bi bi-arrow-up-circle me-1"></i>Вернуться к утверждению</button>
+            <button type="button" class="btn btn-sm btn-danger d-none" id="stopGenerationBtn" title="Остановить генерацию после текущего запроса к модели"><i class="bi bi-stop-circle me-1"></i>Стоп</button>
+            <button type="button" class="btn btn-sm btn-outline-light" id="recoverWorkflowTopBtn" title="Продолжить сохранённый кандидат или перезапустить текущий этап"><i class="bi bi-arrow-clockwise me-1"></i>Продолжить / Перезапустить</button>
+            <button type="button" class="btn btn-sm btn-light" id="ngenieCodeNewChatBtn" disabled>Новый этап</button>
           </div>
         </div>
-      </form>
-      <div class="mt-2">
-        <div id="aiGeneratorStatus" class="small text-muted"></div>
-        <pre id="aiGeneratorError" class="mt-2 text-danger" style="white-space: pre-wrap; display:none;"></pre>
+        <div class="card-body d-flex flex-column">
+          <div id="ngenieCodeChat" class="ngenie-chat-box mb-3 flex-grow-1">
+            <div class="ngenie-msg ngenie-msg-bot">{{ _('Loading chat history...') }}</div>
+          </div>
+
+          <div id="aiPromptBlockedHint" class="alert alert-light border py-2 mb-3 d-none">
+            <div class="d-flex align-items-center justify-content-between gap-2">
+              <span id="aiPromptBlockedText"><i class="bi bi-lock-fill me-1"></i>Сначала заполните активный блок вопросов и нажмите «Ответить». После этого станет доступен обычный запрос к nGenie Code.</span>
+              <button type="button" class="btn btn-sm btn-outline-secondary flex-shrink-0" id="recoverWorkflowBtn" title="Продолжить с сохранённого кандидата или перезапустить текущий шаг"><i class="bi bi-arrow-clockwise me-1"></i>Продолжить / Перезапустить</button>
+            </div>
+          </div>
+          <div class="form-check form-switch small mb-2">
+            <input class="form-check-input" type="checkbox" role="switch" id="platformLimitationsMode" {% if (solution.meta_json or {}).get('platform_limitations_mode') %}checked{% endif %}>
+            <label class="form-check-label" for="platformLimitationsMode">Экспериментально: фиксировать ограничения платформы</label>
+            <div class="form-text mt-0">Только при включении модель может признать требование ТЗ нереализуемым текущими возможностями платформы. Такой факт сохраняется и попадает администратору. По умолчанию модель обязана искать реализацию, а не списывать задачу на платформу.</div>
+          </div>
+          <div class="form-check form-switch small mb-3">
+            <input class="form-check-input" type="checkbox" role="switch" id="handlerDeltaMode">
+            <label class="form-check-label" for="handlerDeltaMode">Экспериментально: локальные правки handler-файлов</label>
+            <div class="form-text mt-0">По умолчанию выключено: Android/Server handler исправляется целиком, как раньше. При включении только repair-итерации могут вернуть точные SEARCH/REPLACE-правки к полному исходному файлу; первая генерация всё равно создаёт полный handler. Pipeline применяет patch к полному файлу и затем целиком проверяет syntax, сохранность классов/методов и JSON↔Python contract. AST-сборки handler-файла нет.</div>
+          </div>
+          <form id="aiGeneratorForm" enctype="multipart/form-data">
+            <input type="hidden" id="aiProvider" value="ngenie_code">
+            <div class="row g-2 align-items-end">
+              <div class="col-lg-8">
+                <label for="aiPrompt" class="form-label">{{ _('Prompt for nGenie Code') }}</label>
+                <textarea class="form-control" id="aiPrompt" rows="4" placeholder="{{ _('Describe what to change or clarify in this solution...') }}" disabled></textarea>
+              </div>
+              <div class="col-lg-3">
+                <label for="ngenieCodeAttachments" class="form-label">{{ _('Attachments') }}</label>
+                <input type="file" class="form-control" id="ngenieCodeAttachments" name="attachments" multiple disabled>
+              </div>
+              <div class="col-lg-1 d-grid">
+                <button type="submit" class="btn text-white" style="background:#6f42c1" id="aiGenerateBtn" disabled><i class="bi bi-magic"></i></button>
+              </div>
+            </div>
+          </form>
+          <div class="mt-2">
+            <div id="aiGeneratorStatus" class="small text-muted"></div>
+            <pre id="aiGeneratorError" class="mt-2 text-danger" style="white-space: pre-wrap; display:none;"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="tab-pane fade" id="solutionGraphPane" role="tabpanel" aria-labelledby="solutionGraphTab" tabindex="0">
+      <div class="card solution-graph-card shadow-sm mb-0">
+        <div class="card-header d-flex justify-content-between align-items-center text-white" style="background:#151c29;border-bottom-color:#283247">
+          <div>
+            <h5 class="mb-0">Схема решения</h5>
+            <div class="small opacity-75">Полноразмерный редактор узлов, свойств и взаимодействий из nl_graph</div>
+          </div>
+          <a class="btn btn-sm btn-outline-light" href="{{ url_for('solution_graph.graph_page', solution_uid=solution.uid) }}" target="_blank" rel="noopener" title="Открыть схему в отдельном окне"><i class="bi bi-box-arrow-up-right"></i></a>
+        </div>
+        <iframe id="solutionGraphFrame" class="solution-graph-frame" src="{{ url_for('solution_graph.graph_page', solution_uid=solution.uid) }}" title="Схема решения"></iframe>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="runtimeErrorsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="bi bi-bug me-1"></i>Ошибки проверки решения</h5>
+          <div class="small text-muted">Сервер автоматически собирает ошибки выполнения, относящиеся к этой Solution. Можно передать их nGenie одним запросом.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <div id="runtimeErrorsLoading" class="text-muted">Загружаю журнал ошибок…</div>
+        <div id="runtimeErrorsEmpty" class="alert alert-success d-none mb-0">Необработанных runtime-ошибок нет.</div>
+        <div id="runtimeErrorsList" class="d-flex flex-column gap-2"></div>
+      </div>
+      <div class="modal-footer d-flex justify-content-between">
+        <button type="button" class="btn btn-outline-secondary" id="runtimeErrorsResolveBtn"><i class="bi bi-check2-all me-1"></i>Очистить список</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Закрыть</button>
+          <button type="button" class="btn btn-danger" id="runtimeErrorsToChatBtn"><i class="bi bi-chat-left-text me-1"></i>Вставить в запрос nGenie</button>
+        </div>
       </div>
     </div>
   </div>
@@ -104,11 +452,147 @@
 
 <script>
 (function () {
-  const aiGenerateUrl = {{ url_for('ai_generate', uid=config.uid)|tojson }};
-  const ngenieChatUrl = {{ url_for('ngenie_code_chat', uid=config.uid)|tojson }};
-  const ngenieNewChatUrl = {{ url_for('ngenie_code_chat_new', uid=config.uid)|tojson }};
-  const ngenieQuestionAnswerUrl = {{ ('/config/%s/ngenie-code-question-answers' % config.uid)|tojson }};
+  const aiGenerateUrl = {{ url_for('solutions_generate_api', solution_uid=solution.uid)|tojson }};
+  const generationStatusUrl = {{ url_for('solutions_generation_status_api', solution_uid=solution.uid)|tojson }};
+  const generationStopUrl = {{ url_for('solutions_generation_stop_api', solution_uid=solution.uid)|tojson }};
+  const validationIssueSkipUrl = {{ url_for('solutions_validation_issue_skip_api', solution_uid=solution.uid)|tojson }};
+  const platformLimitationsModeUrl = {{ url_for('solutions_platform_limitations_mode_api', solution_uid=solution.uid)|tojson }};
+  const solutionModelUrl = {{ url_for('solutions_model_api', solution_uid=solution.uid)|tojson }};
+  const solutionLanguageUrl = {{ url_for('solutions_language_api', solution_uid=solution.uid)|tojson }};
+  {% if is_admin %}const adminUploadSolutionConfigUrl = {{ url_for('solutions_admin_upload_config', solution_uid=solution.uid)|tojson }};{% endif %}
+  const ngenieChatUrl = {{ url_for('solutions_chat_api', solution_uid=solution.uid)|tojson }};
+  const ngenieNewChatUrl = {{ url_for('solutions_chat_new_api', solution_uid=solution.uid)|tojson }};
+  const recoverWorkflowUrl = {{ url_for('solutions_recover_workflow_api', solution_uid=solution.uid)|tojson }};
+  const ngenieQuestionAnswerUrl = {{ url_for('solutions_question_answers_api', solution_uid=solution.uid)|tojson }};
   const solutionSummaryUrl = {{ url_for('solutions_summary_api', solution_uid=solution.uid)|tojson }};
+  const solutionRenameUrl = {{ url_for('solutions_rename', solution_uid=solution.uid)|tojson }};
+  const solutionUnlockUrl = {{ url_for('solutions_unlock', solution_uid=solution.uid)|tojson }};
+  const runtimeErrorsUrl = {{ url_for('solutions_runtime_errors_api', solution_uid=solution.uid)|tojson }};
+  const runtimeErrorsReportUrl = {{ url_for('solutions_runtime_errors_report_api', solution_uid=solution.uid)|tojson }};
+  const runtimeErrorsResolveUrl = {{ url_for('solutions_runtime_errors_resolve_api', solution_uid=solution.uid)|tojson }};
+  const solutionUid = {{ solution.uid|tojson }};
+  const initialPendingQuestionKey = {{ (initial_pending_question_key or '')|tojson }};
+  const initialSolutionChat = {{ (initial_solution_chat or [])|tojson }};
+  const solutionUiTranslations = {{ (solution_ui_translations or {})|tojson }};
+  const initialJourneyIndex = {{ solution_progress_index or 0 }};
+  const initialJourneyReachedIndex = {{ solution_progress_reached_index or 0 }};
+
+  function tr(text) {
+    const key = String(text == null ? '' : text);
+    return Object.prototype.hasOwnProperty.call(solutionUiTranslations, key) ? solutionUiTranslations[key] : key;
+  }
+
+  function cleanGenerationUiText(text) {
+    return String(text == null ? '' : text)
+      .replace(/;\s*запущен после проверки лимита\s*\d+\s*мин\./gi, '.')
+      .replace(/;\s*лимит времени отключён администратором\./gi, '.')
+      .replace(/Все найденные проблемы каждого runtime отправляются ОДНИМ списком в ОДИН полный BODY repair\.\s*/g, '')
+      .replace(/\s+\./g, '.').trim();
+  }
+
+  function localizePipelineText(text) {
+    let result = cleanGenerationUiText(text);
+    Object.keys(solutionUiTranslations)
+      .filter(key => key.length >= 4 && solutionUiTranslations[key] && solutionUiTranslations[key] !== key)
+      .sort((a, b) => b.length - a.length)
+      .forEach(key => { if (result.includes(key)) result = result.split(key).join(solutionUiTranslations[key]); });
+    return result;
+  }
+
+  function translateSolutionUi(root) {
+    if (!root) return;
+    const translateTextNode = (node) => {
+      const parent = node.parentElement;
+      if (!parent || parent.closest('.ngenie-msg, .ngenie-question-card')) return;
+      const raw = node.nodeValue || '';
+      const trimmed = raw.trim();
+      if (!trimmed || !Object.prototype.hasOwnProperty.call(solutionUiTranslations, trimmed)) return;
+      const start = raw.indexOf(trimmed);
+      node.nodeValue = raw.slice(0, start) + tr(trimmed) + raw.slice(start + trimmed.length);
+    };
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach(translateTextNode);
+    const elements = root.querySelectorAll ? root.querySelectorAll('[title],[placeholder],[aria-label]') : [];
+    elements.forEach(el => {
+      ['title','placeholder','aria-label'].forEach(attr => {
+        const value = el.getAttribute(attr);
+        if (value && Object.prototype.hasOwnProperty.call(solutionUiTranslations, value)) el.setAttribute(attr, tr(value));
+      });
+    });
+  }
+
+  function setSolutionJourneyProgress(index, reachedIndex = null) {
+    const journey = document.getElementById('solutionJourney');
+    const track = document.getElementById('solutionJourneyTrack');
+    if (!journey || !track) return;
+    const stops = Array.from(journey.querySelectorAll('[data-journey-step]'));
+    const segments = Array.from(journey.querySelectorAll('[data-journey-segment]'));
+    const marker = document.getElementById('solutionJourneyCurrentMarker');
+    const readyBand = document.getElementById('solutionJourneyReadyBand');
+    const readyLeaderStart = document.getElementById('solutionJourneyReadyLeaderStart');
+    const readyLeaderEnd = document.getElementById('solutionJourneyReadyLeaderEnd');
+    const maxIndex = Math.max(0, stops.length - 1);
+    const parsed = Number(index);
+    const current = Math.max(0, Math.min(maxIndex, Number.isFinite(parsed) ? parsed : 0));
+    const previousReached = Number(journey.dataset.maxReachedIndex);
+    const parsedReached = Number(reachedIndex);
+    const serverReached = Number.isFinite(parsedReached)
+      ? Math.max(0, Math.min(maxIndex, parsedReached))
+      : current;
+    const reached = Math.max(
+      current,
+      serverReached,
+      Number.isFinite(previousReached) ? Math.max(0, Math.min(maxIndex, previousReached)) : 0
+    );
+    journey.dataset.currentIndex = String(current);
+    journey.dataset.maxReachedIndex = String(reached);
+
+    const stopCenter = (i) => {
+      const stop = stops[Math.max(0, Math.min(maxIndex, i))];
+      return stop ? (stop.offsetLeft + stop.offsetWidth / 2) : 0;
+    };
+    const lo = Math.floor(current);
+    const hi = Math.min(maxIndex, Math.ceil(current));
+    const fraction = current - lo;
+    const currentX = hi === lo ? stopCenter(lo) : stopCenter(lo) + (stopCenter(hi) - stopCenter(lo)) * fraction;
+
+    stops.forEach((stop, i) => {
+      stop.classList.toggle('is-complete', i < reached);
+      const exactCurrent = Math.abs(current - i) < 0.001;
+      stop.classList.toggle('is-current', exactCurrent);
+      if (exactCurrent) stop.setAttribute('aria-current', 'step'); else stop.removeAttribute('aria-current');
+    });
+    segments.forEach((segment, i) => {
+      let pct = 0;
+      if (reached >= i + 1) pct = 100;
+      else if (reached > i) pct = Math.max(0, Math.min(100, (reached - i) * 100));
+      segment.style.setProperty('--segment-progress', pct + '%');
+    });
+    if (marker) marker.style.left = currentX + 'px';
+
+    if (readyBand && stops.length > 7) {
+      const startStep = Math.max(0, Math.min(maxIndex, Number(readyBand.dataset.startStep) || 7));
+      const startX = stopCenter(startStep);
+      const endX = stopCenter(maxIndex);
+      readyBand.style.left = startX + 'px';
+      readyBand.style.width = Math.max(0, endX - startX) + 'px';
+      if (readyLeaderStart) readyLeaderStart.style.left = startX + 'px';
+      if (readyLeaderEnd) readyLeaderEnd.style.left = endX + 'px';
+    }
+
+    const currentLabel = document.getElementById('solutionJourneyCurrentLabel');
+    const labelIndex = Math.max(0, Math.min(maxIndex, Math.ceil(current - 1e-9)));
+    const label = stops[labelIndex]?.querySelector('.solution-journey-label')?.textContent?.trim() || '';
+    if (currentLabel) currentLabel.textContent = label ? (tr('Сейчас') + ': ' + label) : '';
+  }
+
+  window.addEventListener('resize', () => {
+    const journey = document.getElementById('solutionJourney');
+    if (journey) setSolutionJourneyProgress(Number(journey.dataset.currentIndex || 0), Number(journey.dataset.maxReachedIndex || 0));
+  });
+
 
   const form = document.getElementById('aiGeneratorForm');
   const promptInput = document.getElementById('aiPrompt');
@@ -120,16 +604,177 @@
   const newChatBtn = document.getElementById('ngenieCodeNewChatBtn');
   const specEl = document.getElementById('solutionSpecificationHtml');
   const clarEl = document.getElementById('solutionClarificationsHtml');
+  const deliveryRefEl = document.getElementById('solutionDeliveryRef');
+  const releaseStatusEl = document.getElementById('solutionReleaseStatus');
+  const downloadLinkEl = document.getElementById('solutionDownloadLink');
+  const copyDeliveryRefBtn = document.getElementById('copySolutionDeliveryRef');
+  const releaseButtonStatusEl = document.getElementById('solutionReleaseButtonStatus');
+  const solutionTokenBalanceBadge = document.getElementById('solutionTokenBalanceBadge');
+  const unlockForm = document.getElementById('solutionUnlockForm');
+  const unlockTokenInput = document.getElementById('solutionLicenseToken');
+  const unlockMessageEl = document.getElementById('solutionUnlockMessage');
+  const renameForm = document.getElementById('solutionRenameForm');
+  const renameInput = document.getElementById('solutionRenameInput');
+  const renameMessageEl = document.getElementById('solutionRenameMessage');
+  const solutionTitleText = document.getElementById('solutionTitleText');
+  const promptBlockedHintEl = document.getElementById('aiPromptBlockedHint');
+  const promptBlockedTextEl = document.getElementById('aiPromptBlockedText');
+  const recoverWorkflowBtn = document.getElementById('recoverWorkflowBtn');
+  const recoverWorkflowTopBtn = document.getElementById('recoverWorkflowTopBtn');
+  const stopGenerationBtn = document.getElementById('stopGenerationBtn');
+  const platformLimitationsModeEl = document.getElementById('platformLimitationsMode');
+  const handlerDeltaModeEl = document.getElementById('handlerDeltaMode');
+  const solutionModelEl = document.getElementById('solutionModelSelect');
+  const solutionLanguageEl = document.getElementById('solutionLanguageSelect');
+  const adminUploadSolutionConfigBtn = document.getElementById('adminUploadSolutionConfigBtn');
+  const adminUploadSolutionConfigInput = document.getElementById('adminUploadSolutionConfigInput');
+  const solutionGraphFrame = document.getElementById('solutionGraphFrame');
+  const solutionGraphStatusBadge = document.getElementById('solutionGraphStatusBadge');
+  const solutionGraphTab = document.getElementById('solutionGraphTab');
+  const solutionChatTab = document.getElementById('solutionChatTab');
+  const solutionWorkspaceTabs = document.getElementById('solutionWorkspaceTabs');
+  const returnToApprovalBtn = document.getElementById('returnToApprovalBtn');
+  const runtimeErrorsBtn = document.getElementById('runtimeErrorsBtn');
+  const runtimeErrorsCount = document.getElementById('runtimeErrorsCount');
+  const runtimeErrorsModal = document.getElementById('runtimeErrorsModal');
+  const runtimeErrorsLoading = document.getElementById('runtimeErrorsLoading');
+  const runtimeErrorsEmpty = document.getElementById('runtimeErrorsEmpty');
+  const runtimeErrorsList = document.getElementById('runtimeErrorsList');
+  const runtimeErrorsToChatBtn = document.getElementById('runtimeErrorsToChatBtn');
+  const runtimeErrorsResolveBtn = document.getElementById('runtimeErrorsResolveBtn');
+  const solutionSubmitDiagnosticsForm = document.getElementById('solutionSubmitDiagnosticsForm');
+  const solutionDiagnosticSubmissionToken = document.getElementById('solutionDiagnosticSubmissionToken');
+  const solutionDiagnosticComment = document.getElementById('solutionDiagnosticComment');
+  const solutionDiagnosticSubmitBtn = document.getElementById('solutionDiagnosticSubmitBtn');
+  const solutionDiagnosticSubmitIdle = document.getElementById('solutionDiagnosticSubmitIdle');
+  const solutionDiagnosticSubmitBusy = document.getElementById('solutionDiagnosticSubmitBusy');
+  const solutionDiagnosticButtonProgress = document.getElementById('solutionDiagnosticButtonProgress');
+  const solutionDiagnosticProgressText = document.getElementById('solutionDiagnosticProgressText');
+  const solutionDiagnosticCancelBtn = document.getElementById('solutionDiagnosticCancelBtn');
+  const solutionDiagnosticCloseBtn = document.getElementById('solutionDiagnosticCloseBtn');
+  let diagnosticProgressTimer = null;
+  let currentRuntimeErrors = [];
+  let currentRuntimeErrorPrompt = '';
+  let preparedRuntimeErrorIds = [];
+  let preparedRuntimeErrorPromptSnapshot = '';
   let aiRequestInProgress = false;
+  let historyLoaded = false;
+  let activeQuestionBlock = null;
+  let activeApprovalBlock = null;
+  let currentDesignSummaryHtml = {{ (solution.design_summary_html or '')|tojson }};
+  let approvalDiscussionActive = {{ (((solution.meta_json or {}).get('approval_discussion') or {}).get('active') or false)|tojson }};
   let progressTimer = null;
   let progressStartedAt = 0;
+  let generationStatusTimer = null;
+  let generationActiveOnServer = false;
+  let liveGenerationCard = null;
+  let liveGenerationRequestId = '';
+  const seenGenerationEventIds = new Set();
+  // Authoritative user skip ledger comes from generation-status separately from
+  // immutable events, so the UI stays correct after F5 and during a long run.
+  const skippedSemanticIssueIds = new Set();
+  const skippedValidationIssueTexts = new Set();
+  const graphFlushWaiters = new Map();
+  let chatNeedsAuthoritativeRefresh = false;
+
+  function newDiagnosticSubmissionToken() {
+    try {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+      if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+        const bytes = new Uint32Array(4);
+        window.crypto.getRandomValues(bytes);
+        return Array.from(bytes).map(v => v.toString(16).padStart(8, '0')).join('');
+      }
+    } catch (_) {}
+    return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
+  }
+
+  function prepareDiagnosticSubmissionToken() {
+    if (solutionDiagnosticSubmissionToken && !solutionDiagnosticSubmissionToken.value) {
+      solutionDiagnosticSubmissionToken.value = newDiagnosticSubmissionToken();
+    }
+  }
+
+  function startDiagnosticSubmitUi() {
+    if (!solutionSubmitDiagnosticsForm || !solutionDiagnosticSubmitBtn) return;
+    solutionSubmitDiagnosticsForm.dataset.submitting = '1';
+    solutionDiagnosticSubmitBtn.disabled = true;
+    if (solutionDiagnosticCancelBtn) solutionDiagnosticCancelBtn.disabled = true;
+    if (solutionDiagnosticCloseBtn) solutionDiagnosticCloseBtn.disabled = true;
+    if (solutionDiagnosticComment) solutionDiagnosticComment.readOnly = true;
+    if (solutionDiagnosticSubmitIdle) solutionDiagnosticSubmitIdle.classList.add('d-none');
+    if (solutionDiagnosticSubmitBusy) solutionDiagnosticSubmitBusy.classList.remove('d-none');
+    if (solutionDiagnosticProgressText) solutionDiagnosticProgressText.classList.remove('d-none');
+    let progress = 7;
+    if (solutionDiagnosticButtonProgress) solutionDiagnosticButtonProgress.style.width = progress + '%';
+    if (diagnosticProgressTimer) window.clearInterval(diagnosticProgressTimer);
+    diagnosticProgressTimer = window.setInterval(() => {
+      // This is deliberately an activity indicator, not a fake server percentage:
+      // it approaches 92% while the normal form POST is assembling the ZIP.
+      progress = Math.min(92, progress + Math.max(1, Math.round((92 - progress) * 0.09)));
+      if (solutionDiagnosticButtonProgress) solutionDiagnosticButtonProgress.style.width = progress + '%';
+      if (progress >= 92 && diagnosticProgressTimer) {
+        window.clearInterval(diagnosticProgressTimer);
+        diagnosticProgressTimer = null;
+      }
+    }, 450);
+  }
+
+  prepareDiagnosticSubmissionToken();
+  if (solutionSubmitDiagnosticsForm) {
+    solutionSubmitDiagnosticsForm.addEventListener('submit', function (event) {
+      if (solutionSubmitDiagnosticsForm.dataset.submitting === '1') {
+        event.preventDefault();
+        return false;
+      }
+      prepareDiagnosticSubmissionToken();
+      startDiagnosticSubmitUi();
+      return true;
+    });
+  }
 
   function cssEscape(v) {
     if (window.CSS && CSS.escape) return CSS.escape(String(v));
     return String(v).replace(/[^A-Za-z0-9_-]/g, '\\$&');
   }
 
-  function appendNGenieMessage(kind, text, metaText) {
+  function capturePageViewport(anchor) {
+    const stableAnchor = anchor || solutionWorkspaceTabs || chatBox;
+    return {
+      anchor: stableAnchor,
+      anchorTop: stableAnchor && stableAnchor.isConnected ? stableAnchor.getBoundingClientRect().top : null,
+      scrollX: window.scrollX || window.pageXOffset || 0,
+      scrollY: window.scrollY || window.pageYOffset || 0,
+    };
+  }
+
+  function restorePageViewport(snapshot) {
+    if (!snapshot) return;
+    const apply = function () {
+      const root = document.documentElement;
+      const previousBehavior = root.style.scrollBehavior;
+      root.style.scrollBehavior = 'auto';
+      try {
+        if (snapshot.anchor && snapshot.anchor.isConnected && snapshot.anchorTop !== null) {
+          const delta = snapshot.anchor.getBoundingClientRect().top - snapshot.anchorTop;
+          if (Math.abs(delta) > 0.5) window.scrollBy(0, delta);
+        } else if (Math.abs((window.scrollY || 0) - snapshot.scrollY) > 0.5) {
+          window.scrollTo(snapshot.scrollX, snapshot.scrollY);
+        }
+      } finally {
+        root.style.scrollBehavior = previousBehavior;
+      }
+    };
+    apply();
+    window.requestAnimationFrame(apply);
+    window.setTimeout(apply, 0);
+    window.setTimeout(apply, 60);
+  }
+
+  function appendNGenieMessage(kind, text, metaText, options) {
+    const opts = options || {};
+    const pageViewport = opts.preservePage === false ? null : capturePageViewport();
+    const previousScrollTop = chatBox.scrollTop;
     const div = document.createElement('div');
     div.className = 'ngenie-msg ' + (kind === 'user' ? 'ngenie-msg-user' : 'ngenie-msg-bot');
     div.textContent = text || '';
@@ -140,13 +785,32 @@
       div.appendChild(meta);
     }
     chatBox.appendChild(div);
-    chatBox.scrollTop = chatBox.scrollHeight;
+    if (opts.preserveScroll) chatBox.scrollTop = previousScrollTop;
+    else if (opts.autoScroll !== false) chatBox.scrollTop = chatBox.scrollHeight;
+    restorePageViewport(pageViewport);
     return div;
+  }
+
+  function scrollQuestionBlockIntoView(block) {
+    if (!block) return;
+    const pageViewport = capturePageViewport();
+    window.requestAnimationFrame(() => {
+      const targetTop = Math.max(0, block.offsetTop - chatBox.offsetTop - 8);
+      chatBox.scrollTo({ top: targetTop, behavior: 'smooth' });
+      restorePageViewport(pageViewport);
+    });
   }
 
   function normalizeQuestionField(field, index) {
     if (field && typeof field === 'object' && !Array.isArray(field)) {
-      return Object.assign({ id: field.id || ('field_' + (index + 1)), type: 'text' }, field);
+      const normalized = Object.assign({ id: field.id || ('field_' + (index + 1)), type: 'text' }, field);
+      const aliases = {
+        integet: 'integer', int: 'integer', string: 'text', bool: 'boolean',
+        single: 'single_choice', multi: 'multi_choice', multiline: 'textarea',
+        long_text: 'textarea', text_area: 'textarea'
+      };
+      normalized.type = aliases[String(normalized.type || 'text').toLowerCase()] || String(normalized.type || 'text').toLowerCase();
+      return normalized;
     }
     const raw = String(field || '').trim();
     let left = raw, type = 'text';
@@ -163,7 +827,11 @@
       id = (parts[1] || id).trim();
     }
     id = id.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || ('field_' + (index + 1));
-    const aliases = { integet: 'integer', int: 'integer', string: 'text', bool: 'boolean', single: 'single_choice', multi: 'multi_choice' };
+    const aliases = {
+      integet: 'integer', int: 'integer', string: 'text', bool: 'boolean',
+      single: 'single_choice', multi: 'multi_choice', multiline: 'textarea',
+      long_text: 'textarea', text_area: 'textarea'
+    };
     return { id, caption, type: aliases[type] || type || 'text' };
   }
 
@@ -185,11 +853,76 @@
     return el ? el.value : '';
   }
 
-  function isAnswered(value, field) {
-    if (field.required === false) return true;
+  function fieldIsRequired(field, questionAnswers) {
+    const rule = field && typeof field.required_when === 'object' ? field.required_when : null;
+    if (rule) {
+      const actual = questionAnswers ? questionAnswers[String(rule.field || '')] : undefined;
+      if (Object.prototype.hasOwnProperty.call(rule, 'contains')) {
+        const expected = String(rule.contains ?? '');
+        return Array.isArray(actual) ? actual.map(String).includes(expected) : String(actual ?? '') === expected;
+      }
+      if (Array.isArray(rule.one_of)) {
+        const allowed = rule.one_of.map(String);
+        return Array.isArray(actual) ? actual.map(String).some(v => allowed.includes(v)) : allowed.includes(String(actual ?? ''));
+      }
+      const expected = rule.value !== undefined ? rule.value : rule.equals;
+      return String(actual ?? '') === String(expected ?? '');
+    }
+    return field.required !== false;
+  }
+
+  function approvalQuestionBaseId(q) {
+    if (!q || typeof q !== 'object') return '';
+    return String(q.original_id || q.id || q.key || '').split('__r', 1)[0];
+  }
+
+  function isApprovalQuestion(q) {
+    return ['approve_wms_design', 'approve_wms_spec', 'approve_solution_design'].includes(approvalQuestionBaseId(q));
+  }
+
+  function questionsContainApproval(questions) {
+    return (questions || []).some(isApprovalQuestion);
+  }
+
+  function ensureApprovalDecisionOptions(questions) {
+    (questions || []).forEach(q => {
+      if (!isApprovalQuestion(q)) return;
+      const fields = Array.isArray(q.fields) ? q.fields : (q.fields = []);
+      let decision = fields.find(f => f && typeof f === 'object' && String(f.id || '') === 'decision');
+      if (!decision) {
+        decision = {id:'decision', caption:tr('Решение'), type:'single_choice', required:true, do_not_save:true};
+        fields.unshift(decision);
+      }
+      decision.type = 'single_choice';
+      decision.required = true;
+      decision.do_not_save = true;
+      decision.options = [
+        {value:'accept', text:tr('Утвердить ТЗ и текущую схему')},
+        {value:'discuss', text:tr('Хочу задать несколько вопросов перед принятием решения')},
+        {value:'reject', text:tr('Нужны правки модели')}
+      ];
+    });
+    return questions;
+  }
+
+  function isAnswered(value, field, questionAnswers) {
+    if (!fieldIsRequired(field, questionAnswers || {})) return true;
     if (Array.isArray(value)) return value.length > 0;
     if (typeof value === 'boolean') return true;
     return String(value ?? '').trim() !== '';
+  }
+
+  function answersCompleteForQuestions(questions, answers) {
+    let allDone = true;
+    (questions || []).forEach((q, qi) => {
+      const qid = q.id || ('q_' + (qi + 1));
+      const qAnswers = answers && typeof answers[qid] === 'object' ? answers[qid] : {};
+      (q.fields || []).forEach((rawField, fi) => {
+        const field = normalizeQuestionField(rawField, fi);
+        if (!isAnswered(qAnswers[field.id], field, qAnswers)) allDone = false;
+      });
+    });
+    return allDone;
   }
 
   function collectQuestionAnswers(root, questions) {
@@ -199,15 +932,173 @@
       const qid = q.id || ('q_' + (qi + 1));
       const card = root.querySelector(`[data-q-id="${cssEscape(qid)}"]`);
       const qAnswers = {};
-      (q.fields || []).forEach((rawField, fi) => {
-        const field = normalizeQuestionField(rawField, fi);
-        const value = card ? getFieldValue(card, field) : '';
-        qAnswers[field.id] = value;
-        if (!isAnswered(value, field)) allDone = false;
+      const fields = (q.fields || []).map((rawField, fi) => normalizeQuestionField(rawField, fi));
+      fields.forEach(field => { qAnswers[field.id] = card ? getFieldValue(card, field) : ''; });
+      fields.forEach(field => {
+        if (!isAnswered(qAnswers[field.id], field, qAnswers)) allDone = false;
       });
       answers[qid] = qAnswers;
     });
     return { answers, allDone };
+  }
+
+  function mergeAnswerMaps(base, extra) {
+    const out = {};
+    [base, extra].forEach(source => {
+      if (!source || typeof source !== 'object') return;
+      Object.keys(source).forEach(qid => {
+        const value = source[qid];
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+          out[qid] = Object.assign({}, out[qid] || {}, value);
+        } else {
+          out[qid] = value;
+        }
+      });
+    });
+    return out;
+  }
+
+  function questionDraftKey(questions) {
+    const ids = (questions || []).map(q => q.id || q.key || '').join('|');
+    return 'nodalogic.solution.question-draft.' + solutionUid + '.' + ids;
+  }
+
+  function loadQuestionDraft(questions) {
+    try {
+      const raw = window.localStorage.getItem(questionDraftKey(questions));
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveQuestionDraft(questions, answers) {
+    try {
+      window.localStorage.setItem(questionDraftKey(questions), JSON.stringify(answers || {}));
+    } catch (e) {}
+  }
+
+  function clearQuestionDraft(questions) {
+    try { window.localStorage.removeItem(questionDraftKey(questions)); } catch (e) {}
+  }
+
+  function updateComposerAvailability() {
+    const blockedByQuestion = !!activeQuestionBlock && !approvalDiscussionActive;
+    const disabled = !historyLoaded || blockedByQuestion || aiRequestInProgress || generationActiveOnServer;
+    if (promptInput) promptInput.disabled = disabled;
+    if (attachmentsInput) attachmentsInput.disabled = disabled;
+    if (generateBtn) generateBtn.disabled = disabled;
+    if (newChatBtn) newChatBtn.disabled = disabled || approvalDiscussionActive;
+    if (promptBlockedHintEl) {
+      promptBlockedHintEl.classList.toggle('d-none', !blockedByQuestion);
+      if (blockedByQuestion && promptBlockedTextEl) {
+        promptBlockedTextEl.innerHTML = activeQuestionBlock && activeQuestionBlock.dataset.approvalBlock === '1'
+          ? '<i class="bi bi-check2-square me-1"></i>Сейчас выберите действие в карточке утверждения выше: <b>утвердить</b>, <b>задать вопросы</b> или <b>попросить правки</b>, затем нажмите «Ответить». Обычный чат откроется при выборе режима вопросов.'
+          : '<i class="bi bi-lock-fill me-1"></i>Сначала заполните активный блок вопросов и нажмите «Ответить». После этого станет доступен обычный запрос к nGenie Code.';
+      }
+    }
+    if (returnToApprovalBtn) returnToApprovalBtn.classList.toggle('d-none', !approvalDiscussionActive || !activeApprovalBlock);
+    if (promptInput && approvalDiscussionActive) {
+      promptInput.placeholder = tr('Задайте вопрос по предложенному решению. Можно попросить объяснить или изменить конкретную часть...');
+    }
+  }
+
+  function setApprovalDiscussionMode(active) {
+    approvalDiscussionActive = !!active;
+    updateComposerAvailability();
+  }
+
+  function setQuestionControlsDisabled(block, disabled) {
+    block.querySelectorAll('input, textarea, select').forEach(el => { el.disabled = !!disabled; });
+  }
+
+  function markQuestionBlockSubmitted(block, label) {
+    if (!block) return;
+    const pageViewport = capturePageViewport();
+    block.dataset.questionActive = '0';
+    block.dataset.questionSubmitted = '1';
+    block.dataset.questionSubmitting = '0';
+    setQuestionControlsDisabled(block, true);
+    block.querySelectorAll('.ngenie-question-card').forEach(card => card.classList.add('ngenie-question-inactive'));
+    if (block.__answerButton) {
+      block.__answerButton.disabled = true;
+      block.__answerButton.innerHTML = '<i class="bi bi-check2-circle me-1"></i>' + tr('Ответ отправлен');
+      block.__answerButton.className = 'btn btn-sm btn-outline-success';
+    }
+    if (block.__validationEl) {
+      block.__validationEl.textContent = label || tr('Ответ отправлен. План решения продолжен.');
+      block.__validationEl.className = 'small text-success';
+    }
+    if (activeQuestionBlock === block) activeQuestionBlock = null;
+    if (activeApprovalBlock === block) activeApprovalBlock = null;
+    updateComposerAvailability();
+    restorePageViewport(pageViewport);
+  }
+
+  function activateQuestionBlock(block) {
+    if (!block) return;
+    if (activeQuestionBlock && activeQuestionBlock !== block) {
+      markQuestionBlockSubmitted(activeQuestionBlock, tr('Этот блок уже не активен.'));
+    }
+    activeQuestionBlock = block;
+    if (block.dataset.approvalBlock === '1') activeApprovalBlock = block;
+    block.dataset.questionActive = '1';
+    block.dataset.questionSubmitted = '0';
+    setQuestionControlsDisabled(block, false);
+    block.querySelectorAll('.ngenie-question-card').forEach(card => card.classList.remove('ngenie-question-inactive'));
+    updateQuestionBlockValidation(block);
+    updateComposerAvailability();
+  }
+
+  function setQuestionBlockSubmitting(block) {
+    if (!block) return;
+    const pageViewport = capturePageViewport();
+    block.dataset.questionSubmitting = '1';
+    setQuestionControlsDisabled(block, true);
+    if (block.__answerButton) {
+      block.__answerButton.disabled = true;
+      block.__answerButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>' + tr('Отправляю');
+    }
+    if (block.__validationEl) {
+      block.__validationEl.textContent = tr('Сохраняю ответы и продолжаю методический план...');
+      block.__validationEl.className = 'small text-muted';
+    }
+    restorePageViewport(pageViewport);
+  }
+
+  function restoreQuestionBlockAfterError(block, message) {
+    if (!block) return;
+    const pageViewport = capturePageViewport();
+    block.dataset.questionSubmitting = '0';
+    setQuestionControlsDisabled(block, false);
+    activeQuestionBlock = block;
+    if (block.__answerButton) {
+      block.__answerButton.innerHTML = '<i class="bi bi-send me-1"></i>' + tr('Ответить');
+      block.__answerButton.className = 'btn btn-primary';
+    }
+    if (block.__validationEl) {
+      block.__validationEl.textContent = message || tr('Не удалось отправить ответ. Повторите попытку.');
+      block.__validationEl.className = 'small text-danger';
+    }
+    updateQuestionBlockValidation(block, true);
+    updateComposerAvailability();
+    restorePageViewport(pageViewport);
+  }
+
+  function updateQuestionBlockValidation(block, keepError) {
+    if (!block || block.dataset.questionActive !== '1' || block.dataset.questionSubmitting === '1') return;
+    const pageViewport = capturePageViewport();
+    const state = collectQuestionAnswers(block, block.__questions || []);
+    saveQuestionDraft(block.__questions || [], state.answers);
+    if (block.__answerButton) block.__answerButton.disabled = !state.allDone || aiRequestInProgress;
+    if (block.__validationEl && !keepError) {
+      block.__validationEl.textContent = state.allDone
+        ? tr('Все обязательные поля заполнены. Нажмите «Ответить».')
+        : tr('Заполните все обязательные поля, отмеченные звездочкой.');
+      block.__validationEl.className = 'small ' + (state.allDone ? 'text-success' : 'text-muted');
+    }
+    restorePageViewport(pageViewport);
   }
 
   function renderQuestionField(card, qid, rawField, index, onChange, savedValue) {
@@ -220,6 +1111,12 @@
       const label = document.createElement('label');
       label.className = 'form-label small mb-1';
       label.textContent = field.caption;
+      if (field.required !== false || (field.required_when && typeof field.required_when === 'object')) {
+        const required = document.createElement('span');
+        required.className = 'ngenie-question-required';
+        required.textContent = '*';
+        label.appendChild(required);
+      }
       wrap.appendChild(label);
     }
     const options = Array.isArray(field.options) ? field.options : [];
@@ -257,7 +1154,7 @@
       sel.dataset.qField = field.id;
       const empty = document.createElement('option');
       empty.value = '';
-      empty.textContent = field.placeholder || 'Выберите...';
+      empty.textContent = field.placeholder || tr('Выберите...');
       sel.appendChild(empty);
       options.forEach((opt, oi) => {
         const o = document.createElement('option');
@@ -276,6 +1173,16 @@
       box.checked = initialValue !== undefined ? !!initialValue : false;
       box.addEventListener('change', onChange);
       wrap.appendChild(box);
+    } else if (type === 'textarea') {
+      const textarea = document.createElement('textarea');
+      textarea.className = 'form-control form-control-sm';
+      textarea.dataset.qField = field.id;
+      textarea.rows = Math.max(2, Number(field.rows || field.min_rows || 2));
+      if (field.placeholder) textarea.placeholder = field.placeholder;
+      if (initialValue !== undefined && initialValue !== null) textarea.value = initialValue;
+      textarea.addEventListener('input', onChange);
+      textarea.addEventListener('change', onChange);
+      wrap.appendChild(textarea);
     } else {
       const inp = document.createElement('input');
       inp.className = 'form-control form-control-sm';
@@ -288,14 +1195,21 @@
       if (field.max !== undefined) inp.max = field.max;
       inp.addEventListener('input', onChange);
       inp.addEventListener('change', onChange);
-      inp.addEventListener('blur', onChange);
       wrap.appendChild(inp);
+    }
+    if (field.description) {
+      const help = document.createElement('div');
+      help.className = 'form-text';
+      help.textContent = field.description;
+      wrap.appendChild(help);
     }
     card.appendChild(wrap);
   }
 
   function questionAnswersToText(questions, answers) {
-    const lines = ['Ответы на уточняющие вопросы:'];
+    // Question captions are already localized to the Solution language. Avoid a
+    // fixed Russian/English heading in the user-visible answer message.
+    const lines = [];
     (questions || []).forEach((q, qi) => {
       const qid = q.id || ('q_' + (qi + 1));
       const qTitle = q.text || q.question || qid;
@@ -313,32 +1227,39 @@
     return lines.join('\n');
   }
 
-  function scheduleQuestionAnswersSave(container, questions, answers, action, resume) {
-    const payloadHash = JSON.stringify({ answers, action, resume });
-    if (container.__ngenieLastSaveHash === payloadHash) return;
-    container.__ngenieLastSaveHash = payloadHash;
-    clearTimeout(container.__ngenieSaveTimer);
-    container.__ngenieSaveTimer = setTimeout(() => sendQuestionAnswers(questions, answers, action, resume), resume ? 20 : 350);
-  }
+  function appendNGenieQuestions(text, questions, metaText, savedAnswers, options) {
+    const pageViewport = capturePageViewport();
+    const div = appendNGenieMessage('bot', text || '', metaText || '', { autoScroll: false });
+    const qs = ensureApprovalDecisionOptions(Array.isArray(questions) ? questions : []);
+    const interactive = !options || options.interactive !== false;
+    const draftAnswers = interactive ? loadQuestionDraft(qs) : {};
+    const answers = mergeAnswerMaps(savedAnswers || {}, draftAnswers);
+    div.__questions = qs;
+    div.dataset.questionBlock = '1';
+    const approvalBlock = questionsContainApproval(qs);
+    if (approvalBlock) div.dataset.approvalBlock = '1';
 
-  function appendNGenieQuestions(text, questions, metaText, savedAnswers) {
-    const div = appendNGenieMessage('bot', text || '', metaText || '');
-    const qs = Array.isArray(questions) ? questions : [];
     const grid = document.createElement('div');
     grid.className = 'ngenie-question-grid';
     div.appendChild(grid);
-    const answers = savedAnswers || {};
-    function onChange() {
-      const state = collectQuestionAnswers(div, qs);
-      const action = String((qs[0] && qs[0].action) || 'nothing').toLowerCase();
-      const normalizedAction = action === 'none' ? 'nothing' : action;
-      const resume = (normalizedAction === 'straight' && state.allDone) || (normalizedAction === 'if_all' && state.allDone);
-      scheduleQuestionAnswersSave(div, qs, state.answers, normalizedAction, resume);
+    if (approvalBlock) {
+      const summaryHtml = String((qs.find(isApprovalQuestion) || {}).design_summary_html || currentDesignSummaryHtml || '').trim();
+      if (summaryHtml) {
+        const summary = document.createElement('div');
+        summary.className = 'solution-design-summary';
+        summary.innerHTML = summaryHtml;
+        grid.appendChild(summary);
+      }
     }
+
+    function onChange() {
+      updateQuestionBlockValidation(div);
+    }
+
     qs.forEach((q, qi) => {
       const qid = q.id || ('q_' + (qi + 1));
       const card = document.createElement('div');
-      card.className = 'ngenie-question-card' + (String(q.layout || 'card').toLowerCase() === 'wide' ? ' ngenie-question-card-wide' : '');
+      card.className = 'ngenie-question-card' + (String(q.layout || 'card').toLowerCase() === 'wide' ? ' ngenie-question-card-wide' : '') + (isApprovalQuestion(q) ? ' solution-approval-card' : '');
       card.dataset.qId = qid;
       const titleText = q.text || q.question || '';
       if (q.text_html) {
@@ -368,52 +1289,313 @@
       });
       grid.appendChild(card);
     });
-    chatBox.scrollTop = chatBox.scrollHeight;
+
+    const actions = document.createElement('div');
+    actions.className = 'ngenie-question-actions';
+    const validation = document.createElement('div');
+    validation.className = 'small text-muted';
+    const answerButton = document.createElement('button');
+    answerButton.type = 'button';
+    answerButton.className = 'btn btn-primary';
+    answerButton.innerHTML = '<i class="bi bi-send me-1"></i>' + tr('Ответить');
+    actions.appendChild(validation);
+    actions.appendChild(answerButton);
+    div.appendChild(actions);
+    div.__validationEl = validation;
+    div.__answerButton = answerButton;
+
+    answerButton.addEventListener('click', async function () {
+      if (aiRequestInProgress || div.dataset.questionActive !== '1') return;
+      const state = collectQuestionAnswers(div, qs);
+      if (!state.allDone) {
+        updateQuestionBlockValidation(div);
+        return;
+      }
+      const action = String((qs[0] && qs[0].action) || 'if_all').toLowerCase();
+      const normalizedAction = action === 'none' ? 'nothing' : action;
+      setQuestionBlockSubmitting(div);
+      if (answersApproveSolutionGraph(qs, state.answers)) {
+        if (div.__validationEl) {
+          div.__validationEl.textContent = tr('Сохраняю текущую ревизию схемы перед утверждением…');
+          div.__validationEl.className = 'small text-muted';
+        }
+        try {
+          await flushSolutionGraph();
+        } catch (err) {
+          restoreQuestionBlockAfterError(div, tr('Не удалось сохранить схему') + ': ' + (err.message || err));
+          return;
+        }
+      }
+      sendQuestionAnswers(qs, state.answers, normalizedAction, true, div);
+    });
+
+    if (interactive) activateQuestionBlock(div);
+    else markQuestionBlockSubmitted(div, tr('Ответ на этот блок уже отправлен.'));
+    if (options && options.scrollIntoView) scrollQuestionBlockIntoView(div);
+    else if (!options || options.autoScroll !== false) chatBox.scrollTop = chatBox.scrollHeight;
+    restorePageViewport(pageViewport);
     return div;
   }
 
   async function readJsonResponse(res) {
     const text = await res.text();
     if (!text) return {};
-    try { return JSON.parse(text); } catch (e) { return { status:'error', message:text.slice(0, 4000) || ('HTTP ' + res.status) }; }
+    try { return JSON.parse(text); } catch (e) {
+      const looksLikeHtml = /^\s*<!doctype html|^\s*<html/i.test(text);
+      return {
+        status: 'error',
+        message: looksLikeHtml
+          ? ('Сервер вернул HTML вместо JSON (HTTP ' + res.status + '). Проверьте, что установлен актуальный backend-патч Solutions.')
+          : (text.slice(0, 4000) || ('HTTP ' + res.status))
+      };
+    }
   }
 
-  function renderNGenieHistory(messages) {
+  function solutionEventsToMessages(events) {
+    return (Array.isArray(events) ? events : []).map((event, index) => {
+      const meta = Object.assign({}, (event && typeof event.meta === 'object') ? event.meta : {});
+      if (event && event.kind && !meta.kind) meta.kind = event.kind;
+      ['questions', 'answers', 'question_key', 'source', 'payload'].forEach(key => {
+        if (event && event[key] !== undefined && meta[key] === undefined) meta[key] = event[key];
+      });
+      if (meta.kind === 'question_answers' && !meta.question_answers && meta.payload) {
+        meta.question_answers = meta.payload;
+      }
+      return {
+        id: 'solution-' + index,
+        role: event && event.role === 'user' ? 'user' : 'assistant',
+        content: (event && (event.content || event.message)) || '',
+        created_at: (event && (event.created_at || event.at)) || '',
+        meta: meta,
+      };
+    });
+  }
+
+  function mergeChatMessages(primary, fallback) {
+    const mainRows = Array.isArray(primary) ? primary : [];
+    if (mainRows.length) {
+      // The persistent nGenie chat is authoritative.  Solution.chat_json is an
+      // audit/recovery journal, not a second visible conversation.  Appending it
+      // after the main chat made already-sent runtime reports and old answers
+      // reappear at the bottom after every successful generation/reload.
+      return mainRows.slice();
+    }
+    // Use the Solution journal only when the real chat is genuinely unavailable.
+    // Current pending forms are restored separately from plan_state below.
+    return (Array.isArray(fallback) ? fallback : []).filter(row => {
+      const meta = row && row.meta && typeof row.meta === 'object' ? row.meta : {};
+      if (meta.kind === 'questions' && Array.isArray(meta.questions)) return true;
+      return Boolean(String((row && row.content) || '').trim());
+    });
+  }
+
+  function questionRowKey(row) {
+    const meta = row && row.meta && typeof row.meta === 'object' ? row.meta : {};
+    if (meta.kind !== 'questions' || !Array.isArray(meta.questions)) return '';
+    return meta.question_key || JSON.stringify((meta.questions || []).map(q => q.id || q.key || ''));
+  }
+
+  function questionAnswerPayload(row) {
+    const meta = row && row.meta && typeof row.meta === 'object' ? row.meta : {};
+    const qa = meta.question_answers || meta.payload || {};
+    return qa && typeof qa === 'object' ? qa : {};
+  }
+
+  function answerRowCompletesQuestions(row, questions) {
+    const meta = row && row.meta && typeof row.meta === 'object' ? row.meta : {};
+    if (String(meta.kind || '').toLowerCase() !== 'question_answers') return false;
+    const qa = questionAnswerPayload(row);
+    const answerQuestions = Array.isArray(qa.questions) ? qa.questions : [];
+    if (answerQuestions.length) {
+      const expected = (questions || []).map(q => String(q.id || q.key || ''));
+      const actual = answerQuestions.map(q => String(q.id || q.key || ''));
+      if (expected.join('|') !== actual.join('|')) return false;
+    }
+    const answers = qa.answers && typeof qa.answers === 'object' ? qa.answers : {};
+    for (const [qid, row] of Object.entries(answers)) {
+      const base = String(qid || '').split('__r', 1)[0];
+      if (['approve_wms_design','approve_wms_spec','approve_solution_design'].includes(base) && row && typeof row === 'object') {
+        if (String(row.decision || '').toLowerCase() === 'discuss') return false;
+      }
+    }
+    return answersCompleteForQuestions(questions, answers);
+  }
+
+  function renderNGenieHistory(messages, pendingQuestionKeyOverride, pendingQuestionsOverride) {
+    const pageViewport = capturePageViewport();
     chatBox.innerHTML = '';
-    const seenQuestionKeys = new Set();
-    (messages || []).forEach(row => {
+    // History re-render removes the progress cards too; allow the next status
+    // fetch to append the retained generation event trail again.
+    seenGenerationEventIds.clear();
+    liveGenerationCard = null;
+    liveGenerationRequestId = '';
+    activeQuestionBlock = null;
+    activeApprovalBlock = null;
+    const rows = Array.isArray(messages) ? messages : [];
+    // A plan prompt may intentionally re-issue a question with the same logical
+    // key after the design was rebuilt. The old implementation picked the FIRST
+    // occurrence of that key, so an answer from the previous revision marked the
+    // new approval card as already answered. Always bind the active state to the
+    // LATEST occurrence of the pending key.
+    const firstQuestionIndexByKey = new Map();
+    const lastQuestionIndexByKey = new Map();
+    const lastQuestionRowByKey = new Map();
+    rows.forEach((row, index) => {
+      const key = questionRowKey(row);
+      if (!key) return;
+      if (!firstQuestionIndexByKey.has(key)) firstQuestionIndexByKey.set(key, index);
+      lastQuestionIndexByKey.set(key, index);
+      lastQuestionRowByKey.set(key, row);
+    });
+    const uniqueQuestionKeys = Array.from(lastQuestionIndexByKey.keys());
+    const hasPendingOverride = pendingQuestionKeyOverride !== undefined && pendingQuestionKeyOverride !== null;
+    const requestedPendingKey = String(pendingQuestionKeyOverride || '').trim();
+    const pendingKey = hasPendingOverride
+      ? requestedPendingKey
+      : (uniqueQuestionKeys.length ? uniqueQuestionKeys[uniqueQuestionKeys.length - 1] : '');
+    const pendingRow = pendingKey ? lastQuestionRowByKey.get(pendingKey) : null;
+    const pendingQuestions = Array.isArray(pendingQuestionsOverride) && pendingQuestionsOverride.length
+      ? pendingQuestionsOverride
+      : (pendingRow && pendingRow.meta ? (pendingRow.meta.questions || []) : []);
+    const pendingIsApproval = questionsContainApproval(pendingQuestions);
+    const pendingQuestionIds = new Set((pendingQuestions || []).map(q => String(q.id || q.key || '')));
+    const pendingStartIndex = pendingKey ? lastQuestionIndexByKey.get(pendingKey) : -1;
+    const pendingAnswered = hasPendingOverride ? false : (pendingStartIndex >= 0 && rows.slice(pendingStartIndex + 1).some(row => answerRowCompletesQuestions(row, pendingQuestions)));
+
+    const seenHistoricalQuestionKeys = new Set();
+    rows.forEach((row, rowIndex) => {
       const role = row.role === 'user' ? 'user' : 'bot';
       const meta = row.meta || {};
       if (meta.kind === 'questions' && Array.isArray(meta.questions)) {
-        const qKey = meta.question_key || JSON.stringify((meta.questions || []).map(q => q.id || q.key || ''));
-        if (seenQuestionKeys.has(qKey)) return;
-        seenQuestionKeys.add(qKey);
-        appendNGenieQuestions(row.content || '', meta.questions, row.created_at || '', meta.answers || {});
+        const qKey = questionRowKey(row);
+        const isPendingOccurrence = qKey === pendingKey && rowIndex === pendingStartIndex;
+        if (pendingIsApproval && questionsContainApproval(meta.questions) && !isPendingOccurrence) {
+          // Old approval cards are audit history only. Showing an inactive old
+          // revision next to the current recovery card is misleading and was a
+          // major source of apparent dead-ends.
+          return;
+        }
+        if (qKey === pendingKey && !isPendingOccurrence) {
+          // Keep the actual user/assistant answer messages in history, but do not
+          // render stale copies of the same approval form.
+          return;
+        }
+        if (!isPendingOccurrence) {
+          if (seenHistoricalQuestionKeys.has(qKey)) return;
+          seenHistoricalQuestionKeys.add(qKey);
+        }
+        const rowIds = (meta.questions || []).map(q => String(q.id || q.key || ''));
+        const supersededByCombinedPending = qKey !== pendingKey && pendingQuestionIds.size > 1 && rowIds.length > 0 && rowIds.every(id => pendingQuestionIds.has(id));
+        if (supersededByCombinedPending) return;
+        const interactive = isPendingOccurrence && !pendingAnswered;
+        appendNGenieQuestions(row.content || '', meta.questions, row.created_at || '', meta.answers || {}, { interactive });
       } else {
+        // Audit-only events such as question_answers may intentionally have no
+        // human-readable content. Do not render them as an empty bubble with only
+        // a timestamp.
+        if (!String(row.content || '').trim()) return;
         appendNGenieMessage(role, row.content || '', row.created_at || '');
       }
     });
-    if (!messages || !messages.length) appendNGenieMessage('bot', 'nGenie Code готов к работе с решением.');
+    if (!rows.length) appendNGenieMessage('bot', 'nGenie Code готов к работе с решением.');
+    historyLoaded = true;
+    updateComposerAvailability();
+    restorePageViewport(pageViewport);
+  }
+
+  function forceQuestionUiActionable() {
+    if (!activeQuestionBlock) return false;
+    // The server has just declared this block pending.  Never allow a stale
+    // historical disabled state to win over that declaration.
+    activeQuestionBlock.dataset.questionActive = '1';
+    activeQuestionBlock.dataset.questionSubmitted = '0';
+    activeQuestionBlock.dataset.questionSubmitting = '0';
+    setQuestionControlsDisabled(activeQuestionBlock, false);
+    activeQuestionBlock.querySelectorAll('.ngenie-question-card').forEach(card => card.classList.remove('ngenie-question-inactive'));
+    if (activeQuestionBlock.__answerButton) {
+      activeQuestionBlock.__answerButton.className = 'btn btn-primary';
+      activeQuestionBlock.__answerButton.innerHTML = '<i class="bi bi-send me-1"></i>' + tr('Ответить');
+    }
+    updateQuestionBlockValidation(activeQuestionBlock);
+    updateComposerAvailability();
+    return true;
   }
 
   function loadNGenieHistory() {
-    fetch(ngenieChatUrl, { headers: { 'Accept': 'application/json' } })
+    historyLoaded = false;
+    updateComposerAvailability();
+    const fallbackMessages = solutionEventsToMessages(initialSolutionChat);
+    fetch(ngenieChatUrl, { headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' }, cache: 'no-store' })
       .then(async res => ({ ok: res.ok, data: await readJsonResponse(res) }))
-      .then(({ ok, data }) => renderNGenieHistory(ok && data.status === 'ok' ? (data.messages || []) : []))
-      .catch(() => renderNGenieHistory([]));
+      .then(({ ok, data }) => {
+        const serverMessages = ok && data.status === 'ok' && Array.isArray(data.messages) ? data.messages : [];
+        const pendingKey = Object.prototype.hasOwnProperty.call(data || {}, 'pending_question_key')
+          ? String(data.pending_question_key || '')
+          : initialPendingQuestionKey;
+        if (Object.prototype.hasOwnProperty.call(data || {}, 'approval_discussion_active')) {
+          approvalDiscussionActive = !!data.approval_discussion_active;
+        }
+        renderNGenieHistory(
+          mergeChatMessages(serverMessages, fallbackMessages),
+          pendingKey,
+          Array.isArray(data.pending_questions) ? data.pending_questions : []
+        );
+        // Server plan_state is authoritative. If an old/partially broken chat
+        // history does not contain the current pending form, restore it directly
+        // from the pending payload instead of leaving the user in a dead-end.
+        if (pendingKey && !activeQuestionBlock && Array.isArray(data.pending_questions) && data.pending_questions.length) {
+          appendNGenieQuestions(data.pending_question_message || 'Нужно принять решение или ответить на вопросы.', data.pending_questions, '', {}, { interactive: true });
+        }
+        if (pendingKey && activeQuestionBlock) forceQuestionUiActionable();
+        // Generation progress is rendered inside the same scrollable chat.  Fetch
+        // it even when no generation is currently active so the last repair/review
+        // rounds remain visible after a page reload.
+        pollGenerationStatus();
+      })
+      .catch(() => {
+        renderNGenieHistory(fallbackMessages, initialPendingQuestionKey);
+        pollGenerationStatus();
+      });
+  }
+
+  function setRecoveryButtonsDisabled(disabled) {
+    [recoverWorkflowBtn, recoverWorkflowTopBtn].filter(Boolean).forEach(btn => {
+      btn.disabled = !!disabled;
+    });
   }
 
   function setBusy(busy, label) {
     aiRequestInProgress = !!busy;
-    if (generateBtn) generateBtn.disabled = !!busy;
+    setRecoveryButtonsDisabled(aiRequestInProgress || generationActiveOnServer);
     if (busy) {
-      generateBtn.dataset.originalHtml = generateBtn.dataset.originalHtml || generateBtn.innerHTML;
-      generateBtn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>';
+      if (generateBtn) {
+        generateBtn.dataset.originalHtml = generateBtn.dataset.originalHtml || generateBtn.innerHTML;
+        generateBtn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>';
+      }
+      if (stopGenerationBtn) stopGenerationBtn.classList.remove('d-none');
       startProgress(label || 'nGenie Code работает...');
+      startGenerationStatusPolling();
     } else {
-      if (generateBtn.dataset.originalHtml) generateBtn.innerHTML = generateBtn.dataset.originalHtml;
+      if (generateBtn && generateBtn.dataset.originalHtml) generateBtn.innerHTML = generateBtn.dataset.originalHtml;
+      if (stopGenerationBtn) {
+        stopGenerationBtn.classList.add('d-none');
+        stopGenerationBtn.disabled = false;
+        stopGenerationBtn.innerHTML = '<i class="bi bi-stop-circle me-1"></i>Стоп';
+      }
+      // The browser request that started/continued a Solution may finish while
+      // the server-side foreground worker is still running.  Do not kill the
+      // authoritative status polling in that race: that used to freeze the live
+      // card (and the token balance badge) at e.g. "17 сек" after switching tabs.
       stopProgress();
+      if (generationActiveOnServer) {
+        if (!generationStatusTimer) generationStatusTimer = setInterval(pollGenerationStatus, 2000);
+        pollGenerationStatus();
+      } else {
+        stopGenerationStatusPolling();
+      }
     }
+    if (activeQuestionBlock) updateQuestionBlockValidation(activeQuestionBlock);
+    updateComposerAvailability();
   }
 
   function formatElapsed(ms) {
@@ -438,37 +1620,959 @@
     statusEl.classList.remove('ngenie-working');
   }
 
+  function stopGenerationStatusPolling() {
+    if (generationStatusTimer) clearInterval(generationStatusTimer);
+    generationStatusTimer = null;
+  }
+
+  function generationStageCaption(stage) {
+    const raw = String(stage || '').toLowerCase();
+    if (!raw) return tr('Подготовка');
+    if (raw === 'starting' || raw === 'generation_prepare') return tr('Подготовка раунда');
+    if (raw === 'json_patch_initial' || raw.startsWith('metadata_full_initial') || raw.startsWith('metadata_full_maintenance')) return tr('Metadata / JSON · 1 из 3');
+    if (raw.startsWith('android_handlers')) return tr('Android handler · 2 из 3');
+    if (raw.startsWith('server_handlers')) return tr('Server handler · 3 из 3');
+    if (raw.startsWith('json_patch_repair') || raw.startsWith('metadata_full_repair')) return tr('Repair metadata / JSON · 1 из 3');
+    if (raw.includes('android_handler') && raw.includes('repair')) return tr('Repair Android handler · 2 из 3');
+    if (raw.includes('server_handler') && raw.includes('repair')) return tr('Repair Server handler · 3 из 3');
+    if (raw === 'candidate_built' || raw.includes('mechanical') || raw.includes('draft_safety')) return tr('Техническая проверка полного пакета');
+    if (raw === 'solution_release_review' || raw.includes('release_review')) return tr('FULL semantic audit по утверждённому ТЗ/схеме');
+    if (raw.includes('semantic_closure')) return tr('Semantic closure checks · локально, без LLM');
+    if (raw.includes('draft_deploy') || raw === 'draft_applied' || raw.includes('checkpoint')) return tr('Сохранение / deploy RUNNABLE checkpoint');
+    if (raw.includes('acceptance_author')) return tr('Генерация runtime-тестов');
+    if (raw.includes('server_acceptance')) return tr('Автоматическое тестирование · все сценарии');
+    if (raw === 'repair_started' || raw.includes('repair_progress')) return tr('Сборка атомарного repair-пакета');
+    if (raw === 'generation_budget_pause') return tr('Пауза по 60-минутному лимиту');
+    if (raw === 'finished') return tr('Готово');
+    return String(stage || tr('Текущий этап')).replace(/_/g, ' ');
+  }
+
+  function generationNextCaption(stage) {
+    const raw = String(stage || '').toLowerCase();
+    if (raw === 'starting' || raw === 'generation_prepare' || raw === 'json_patch_initial' || raw.startsWith('metadata_full_initial') || raw.startsWith('metadata_full_maintenance') || raw.startsWith('json_patch_repair') || raw.startsWith('metadata_full_repair')) return tr('Дальше: Android handler → Server handler → техническая проверка полного пакета.');
+    if (raw.startsWith('android_handlers') || (raw.includes('android_handler') && raw.includes('repair'))) return tr('Дальше: Server handler → техническая проверка полного JSON+Android+Server пакета.');
+    if (raw.startsWith('server_handlers') || (raw.includes('server_handler') && raw.includes('repair'))) return tr('Дальше: technical gate → FULL semantic audit (только если ещё не был) / local closure checks.');
+    if (raw === 'candidate_built' || raw.includes('mechanical') || raw.includes('draft_safety')) return tr('Дальше: один FULL semantic audit → deploy → все runtime tests → общий repair-пул.');
+    if (raw === 'solution_release_review' || raw.includes('release_review')) return tr('Дальше: deploy → выполнить все runtime tests; semantic blockers пока только накапливаются.');
+    if (raw.includes('semantic_closure')) return tr('Дальше: deploy → повторно выполнить все runtime tests → новый общий пул ошибок при необходимости.');
+    if (raw === 'repair_started' || raw.includes('repair_progress')) return tr('Дальше: завершить весь repair-пакет → technical → local semantic closure → deploy → все runtime tests.');
+    if (raw.includes('checkpoint')) return tr('Дальше: полный runtime-suite; после repair повторного LLM semantic verify нет.');
+    if (raw === 'generation_budget_pause') return tr('Дальше: «Продолжить / Перезапустить» продолжит с последнего согласованного RUNNABLE checkpoint.');
+    return tr('Следующий этап определяется pipeline автоматически; перед каждым новым LLM-вызовом проверяется foreground control (если администратор не отключил временной лимит).');
+  }
+
+  function removeLiveGenerationCard() {
+    if (liveGenerationCard && liveGenerationCard.isConnected) liveGenerationCard.remove();
+    liveGenerationCard = null;
+    liveGenerationRequestId = '';
+  }
+
+  function upsertLiveGenerationCard(g) {
+    if (!g || !g.active) {
+      removeLiveGenerationCard();
+      return;
+    }
+    const requestId = String(g.request_id || '');
+    if (!liveGenerationCard || !liveGenerationCard.isConnected || liveGenerationRequestId !== requestId) {
+      removeLiveGenerationCard();
+      liveGenerationRequestId = requestId;
+      liveGenerationCard = document.createElement('div');
+      liveGenerationCard.className = 'ngenie-generation-event ngenie-generation-live';
+      liveGenerationCard.dataset.requestId = requestId;
+      chatBox.appendChild(liveGenerationCard);
+    }
+
+    const elapsed = formatElapsed((Number(g.elapsed_seconds || 0)) * 1000);
+    const calls = Number(g.llm_calls_started || 0);
+    const rawMaxSeconds = Number(g.max_seconds);
+    const unlimitedTime = Number.isFinite(rawMaxSeconds) && rawMaxSeconds <= 0;
+    const maxSeconds = unlimitedTime ? 0 : (Number.isFinite(rawMaxSeconds) && rawMaxSeconds > 0 ? rawMaxSeconds : 3600);
+    const maxMinutes = unlimitedTime ? 0 : Math.max(1, Math.round(maxSeconds / 60));
+    const detail = localizePipelineText(g.detail || tr('nGenie Code выполняет текущий этап'));
+    const stageCaption = generationStageCaption(g.stage);
+
+    liveGenerationCard.innerHTML = '';
+    const header = document.createElement('div');
+    header.className = 'ngenie-generation-event-header';
+    const title = document.createElement('div');
+    title.className = 'ngenie-generation-event-title';
+    title.textContent = 'Сейчас · ' + stageCaption;
+    const badge = document.createElement('span');
+    badge.className = 'badge text-bg-primary';
+    badge.textContent = 'в работе';
+    header.appendChild(title);
+    header.appendChild(badge);
+    liveGenerationCard.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'ngenie-generation-event-body';
+    const summary = document.createElement('div');
+    summary.textContent = detail;
+    body.appendChild(summary);
+
+    const table = document.createElement('table');
+    const tbody = document.createElement('tbody');
+    [
+      ['Этап pipeline', stageCaption],
+      ['Время текущего раунда', unlimitedTime ? (elapsed + ' · без лимита') : (elapsed + ' из ' + maxMinutes + ' мин')],
+      ['LLM-вызовов начато', String(calls)],
+      ['Request ID', requestId ? requestId.slice(0, 12) : '—']
+    ].forEach(([caption, value]) => {
+      const tr = document.createElement('tr');
+      const th = document.createElement('th');
+      const td = document.createElement('td');
+      th.textContent = caption;
+      td.textContent = value;
+      tr.appendChild(th); tr.appendChild(td); tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    body.appendChild(table);
+
+    const next = document.createElement('div');
+    next.className = 'ngenie-generation-live-next';
+    next.textContent = generationNextCaption(g.stage);
+    body.appendChild(next);
+    liveGenerationCard.appendChild(body);
+    // Keep the live card after newly arrived immutable event cards. appendChild
+    // moves the existing node without duplicating it.
+    chatBox.appendChild(liveGenerationCard);
+
+    const nearBottom = (chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight) < 140;
+    if (nearBottom) chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  function normalizeSemanticIssueId(value) {
+    return String(value || '').trim().toUpperCase();
+  }
+
+  function normalizeValidationIssueText(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
+  function semanticIssueIsSkipped(issueId, issueText) {
+    const normalized = normalizeSemanticIssueId(issueId);
+    if (normalized && skippedSemanticIssueIds.has(normalized)) return true;
+    const textKey = normalizeValidationIssueText(issueText);
+    return !!textKey && skippedValidationIssueTexts.has(textKey);
+  }
+
+  function refreshSemanticProgressSummaries() {
+    document.querySelectorAll('table[data-semantic-progress-table="1"]').forEach(table => {
+      const rows = Array.from(table.querySelectorAll('tbody tr[data-semantic-issue-id]'));
+      const total = Number(table.dataset.semanticTotal || rows.length) || rows.length;
+      let closed = 0;
+      let skipped = 0;
+      rows.forEach(row => {
+        const base = String(row.dataset.semanticBaseStatus || '').toLowerCase();
+        const issueId = normalizeSemanticIssueId(row.dataset.semanticIssueId || '');
+        if (base === 'closed') closed += 1;
+        else if (base === 'skipped' || semanticIssueIsSkipped(issueId)) skipped += 1;
+      });
+      const remaining = Math.max(0, total - closed - skipped);
+      const summary = table.parentElement ? table.parentElement.querySelector('[data-semantic-progress-summary="1"]') : null;
+      if (!summary) return;
+      const totalBadge = summary.querySelector('[data-semantic-summary="total"]');
+      const closedBadge = summary.querySelector('[data-semantic-summary="closed"]');
+      const skippedBadge = summary.querySelector('[data-semantic-summary="skipped"]');
+      const remainingBadge = summary.querySelector('[data-semantic-summary="remaining"]');
+      if (totalBadge) totalBadge.textContent = tr('Всего') + ': ' + total;
+      if (closedBadge) closedBadge.textContent = tr('Подтверждено закрыто') + ': ' + closed;
+      if (skippedBadge) skippedBadge.textContent = tr('Пропущено') + ': ' + skipped;
+      if (remainingBadge) {
+        remainingBadge.textContent = tr('Осталось') + ': ' + remaining;
+        remainingBadge.className = 'badge ' + (remaining ? 'text-bg-warning' : 'text-bg-success');
+      }
+    });
+  }
+
+  function refreshRenderedSemanticSkipStates() {
+    document.querySelectorAll('[data-validation-issue-row="1"]').forEach(row => {
+      const issueId = normalizeSemanticIssueId(row.dataset.semanticIssueId || '');
+      const issueText = String(row.dataset.validationIssueText || '');
+      const baseStatus = String(row.dataset.semanticBaseStatus || '').toLowerCase();
+      const skipped = baseStatus !== 'closed' && (baseStatus === 'skipped' || semanticIssueIsSkipped(issueId, issueText));
+      const badge = row.querySelector('[data-semantic-state-badge="1"]');
+      const button = row.querySelector('[data-semantic-skip-button="1"]');
+      if (skipped) {
+        if (badge) {
+          badge.className = 'badge text-bg-secondary';
+          badge.textContent = 'Пропущено';
+        }
+        if (button) {
+          button.disabled = true;
+          button.className = 'btn btn-sm btn-outline-secondary ngenie-semantic-skip-btn';
+          button.textContent = 'Пропущено';
+        }
+      }
+    });
+    refreshSemanticProgressSummaries();
+  }
+
+  function setSkippedSemanticIssueIds(values, rows) {
+    skippedSemanticIssueIds.clear();
+    skippedValidationIssueTexts.clear();
+    (Array.isArray(values) ? values : []).forEach(value => {
+      const normalized = normalizeSemanticIssueId(value);
+      if (normalized) skippedSemanticIssueIds.add(normalized);
+    });
+    (Array.isArray(rows) ? rows : []).forEach(row => {
+      if (!row || typeof row !== 'object') return;
+      const normalized = normalizeSemanticIssueId(row.issue_id || '');
+      if (normalized) skippedSemanticIssueIds.add(normalized);
+      const textKey = normalizeValidationIssueText(row.issue || '');
+      if (textKey) skippedValidationIssueTexts.add(textKey);
+    });
+    refreshRenderedSemanticSkipStates();
+  }
+
+  function skipSemanticIssue(issueId, issueText, button) {
+    const normalized = normalizeSemanticIssueId(issueId);
+    const rawIssueText = String(issueText || '');
+    if (!normalized && !rawIssueText.trim()) return;
+    if (semanticIssueIsSkipped(normalized, rawIssueText)) {
+      refreshRenderedSemanticSkipStates();
+      return;
+    }
+    if (button) {
+      button.disabled = true;
+      button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Сохраняю';
+    }
+    fetch(validationIssueSkipUrl, {
+      method: 'POST',
+      headers: { 'Accept':'application/json', 'Content-Type':'application/json' },
+      body: JSON.stringify({ issue_id: normalized, issue: rawIssueText })
+    })
+    .then(async res => ({ ok: res.ok, data: await readJsonResponse(res) }))
+    .then(({ ok, data }) => {
+      if (!ok || data.status !== 'ok') throw new Error(data.message || 'Не удалось пропустить замечание');
+      const authoritative = Array.isArray(data.skipped_validation_issue_ids)
+        ? data.skipped_validation_issue_ids
+        : (Array.isArray(data.skipped_semantic_issue_ids) ? data.skipped_semantic_issue_ids : Array.from(skippedSemanticIssueIds));
+      const authoritativeRows = Array.isArray(data.skipped_validation_issues) ? data.skipped_validation_issues : [];
+      setSkippedSemanticIssueIds(authoritative, authoritativeRows);
+      appendNGenieMessage('bot', data.message || 'Замечание помечено как пропущенное.');
+      pollGenerationStatus();
+    })
+    .catch(err => {
+      if (button) {
+        button.disabled = false;
+        button.textContent = 'Пропустить';
+      }
+      showError(err.message || String(err));
+    });
+  }
+
+  function semanticProgressStatusMeta(rawStatus) {
+    const status = String(rawStatus || 'queued').toLowerCase();
+    const map = {
+      queued: [tr('Ожидает repair'), 'text-bg-secondary'],
+      repairing: [tr('В repair'), 'text-bg-primary'],
+      failed: [tr('Ошибка repair'), 'text-bg-danger'],
+      technical_failed: [tr('Не прошёл technical'), 'text-bg-danger'],
+      // Legacy events from older runs used runtime_failed for every semantic
+      // issue whenever the *global* runtime gate was red. That never proved the
+      // individual issue failed at runtime, so render it as the honest pending
+      // verification state as well. New runs no longer write this status.
+      runtime_failed: [tr('Ожидает local closure'), 'text-bg-info'],
+      deployed_pending_verify: [tr('Ожидает local closure'), 'text-bg-info'],
+      remaining: [tr('Не закрыто'), 'text-bg-warning'],
+      closed: [tr('Подтверждено закрыто'), 'text-bg-success'],
+      skipped: [tr('Пропущено'), 'text-bg-secondary']
+    };
+    return map[status] || [status || '—', 'text-bg-light border'];
+  }
+
+  function semanticTargetCaption(target) {
+    const map = {metadata:'JSON', android_python:'Android', server_python:'Server'};
+    return map[String(target || '')] || String(target || '');
+  }
+
+  function appendSemanticProgress(body, progress) {
+    if (!progress || typeof progress !== 'object' || !Array.isArray(progress.issues)) return;
+    const total = Number(progress.total ?? progress.issues.length) || 0;
+
+    const summary = document.createElement('div');
+    summary.className = 'ngenie-semantic-progress-summary';
+    summary.dataset.semanticProgressSummary = '1';
+    [
+      ['total', tr('Всего') + ': ' + total, 'text-bg-light border'],
+      ['closed', tr('Подтверждено закрыто') + ': 0', 'text-bg-success'],
+      ['skipped', tr('Пропущено') + ': 0', 'text-bg-secondary'],
+      ['remaining', tr('Осталось') + ': ' + total, total ? 'text-bg-warning' : 'text-bg-success']
+    ].forEach(([key, text, cls]) => {
+      const badge = document.createElement('span');
+      badge.dataset.semanticSummary = key;
+      badge.className = 'badge ' + cls;
+      badge.textContent = text;
+      summary.appendChild(badge);
+    });
+    body.appendChild(summary);
+
+    const table = document.createElement('table');
+    table.className = 'ngenie-semantic-progress-table';
+    table.dataset.semanticProgressTable = '1';
+    table.dataset.semanticTotal = String(total);
+    const thead = document.createElement('thead');
+    const hr = document.createElement('tr');
+    ['Issue ID', 'Что требуется исправить', 'Слои', 'Состояние'].forEach((caption, idx) => {
+      const th = document.createElement('th');
+      th.textContent = caption;
+      if (idx === 1) th.style.width = 'auto';
+      hr.appendChild(th);
+    });
+    thead.appendChild(hr); table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+
+    progress.issues.forEach(row => {
+      if (!row || typeof row !== 'object') return;
+      const tr = document.createElement('tr');
+      const normalizedIssueId = normalizeSemanticIssueId(row.issue_id || '');
+      const baseStatus = String(row.status || 'queued').toLowerCase();
+      tr.dataset.semanticIssueId = normalizedIssueId;
+      tr.dataset.semanticBaseStatus = baseStatus;
+      tr.dataset.validationIssueRow = '1';
+      tr.dataset.validationIssueText = String(row.issue || '');
+      const idCell = document.createElement('td');
+      idCell.textContent = String(row.issue_id || '—');
+
+      const taskCell = document.createElement('td');
+      if (row.area) {
+        const area = document.createElement('div');
+        area.className = 'ngenie-semantic-task-area';
+        area.textContent = String(row.area);
+        taskCell.appendChild(area);
+      }
+      const task = document.createElement('div');
+      task.className = 'ngenie-semantic-task-text';
+      task.textContent = String(row.issue || '');
+      taskCell.appendChild(task);
+
+      const targetCell = document.createElement('td');
+      const targetWrap = document.createElement('div');
+      targetWrap.className = 'ngenie-semantic-targets';
+      const targets = Array.isArray(row.targets) ? row.targets : [];
+      targets.forEach(target => {
+        const badge = document.createElement('span');
+        badge.className = 'badge text-bg-light border';
+        badge.textContent = semanticTargetCaption(target);
+        targetWrap.appendChild(badge);
+      });
+      if (!targets.length) targetWrap.textContent = '—';
+      targetCell.appendChild(targetWrap);
+
+      const artifacts = row.artifacts && typeof row.artifacts === 'object' ? row.artifacts : {};
+      if (Object.keys(artifacts).length) {
+        const artifactWrap = document.createElement('div');
+        artifactWrap.className = 'ngenie-semantic-artifacts';
+        Object.entries(artifacts).forEach(([target, state]) => {
+          const badge = document.createElement('span');
+          const st = String(state || 'pending');
+          badge.className = 'badge ' + (st === 'done' ? 'text-bg-success' : st === 'failed' ? 'text-bg-danger' : 'text-bg-secondary');
+          badge.textContent = semanticTargetCaption(target) + ': ' + (st === 'done' ? 'готово' : st === 'failed' ? 'ошибка' : 'ожидает');
+          artifactWrap.appendChild(badge);
+        });
+        targetCell.appendChild(artifactWrap);
+      }
+
+      const stateCell = document.createElement('td');
+      const effectiveSkipped = baseStatus !== 'closed' && (baseStatus === 'skipped' || semanticIssueIsSkipped(normalizedIssueId, String(row.issue || '')));
+      const [stateText, stateClass] = effectiveSkipped ? ['Пропущено', 'text-bg-secondary'] : semanticProgressStatusMeta(baseStatus);
+      const stateBadge = document.createElement('span');
+      stateBadge.dataset.semanticStateBadge = '1';
+      stateBadge.className = 'badge ' + stateClass;
+      stateBadge.textContent = stateText;
+      stateCell.appendChild(stateBadge);
+      if (normalizedIssueId && baseStatus !== 'closed') {
+        const skipBtn = document.createElement('button');
+        skipBtn.type = 'button';
+        skipBtn.dataset.semanticSkipButton = '1';
+        skipBtn.className = 'btn btn-sm ' + (effectiveSkipped ? 'btn-outline-secondary' : 'btn-outline-warning') + ' ngenie-semantic-skip-btn';
+        skipBtn.textContent = effectiveSkipped ? 'Пропущено' : 'Пропустить';
+        skipBtn.disabled = effectiveSkipped;
+        skipBtn.addEventListener('click', function () {
+          skipSemanticIssue(normalizedIssueId, String(row.issue || ''), skipBtn);
+        });
+        stateCell.appendChild(skipBtn);
+      }
+
+      tr.appendChild(idCell); tr.appendChild(taskCell); tr.appendChild(targetCell); tr.appendChild(stateCell);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    body.appendChild(table);
+    refreshRenderedSemanticSkipStates();
+  }
+
+  function appendGenerationEventCard(event) {
+    if (!event || !event.id || seenGenerationEventIds.has(String(event.id))) return;
+    seenGenerationEventIds.add(String(event.id));
+    const pageViewport = capturePageViewport();
+    const nearBottom = (chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight) < 90;
+    const card = document.createElement('div');
+    const state = String(event.status || 'info').toLowerCase();
+    card.className = 'ngenie-generation-event ngenie-generation-event-' + (['ok','warning','error'].includes(state) ? state : 'info');
+
+    const header = document.createElement('div');
+    header.className = 'ngenie-generation-event-header';
+    const title = document.createElement('div');
+    title.className = 'ngenie-generation-event-title';
+    title.textContent = event.title || 'Этап генерации';
+    const badge = document.createElement('span');
+    badge.className = 'badge ' + (state === 'ok' ? 'text-bg-success' : state === 'warning' ? 'text-bg-warning' : state === 'error' ? 'text-bg-danger' : 'text-bg-light border');
+    badge.textContent = state === 'ok' ? 'готово' : state === 'warning' ? 'есть замечания' : state === 'error' ? 'ошибка' : 'в работе';
+    header.appendChild(title);
+    header.appendChild(badge);
+    card.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'ngenie-generation-event-body';
+    if (event.summary) {
+      const summary = document.createElement('div');
+      summary.textContent = localizePipelineText(event.summary);
+      body.appendChild(summary);
+    }
+    const metrics = event.metrics && typeof event.metrics === 'object' ? event.metrics : {};
+    if (metrics.semantic_progress && typeof metrics.semantic_progress === 'object') {
+      appendSemanticProgress(body, metrics.semantic_progress);
+    }
+    const metricEntries = Object.entries(metrics).filter(([key, value]) => key !== 'semantic_progress' && value !== '' && value !== null && value !== undefined);
+    if (metricEntries.length) {
+      const table = document.createElement('table');
+      const tbody = document.createElement('tbody');
+      metricEntries.forEach(([key, value]) => {
+        const tr = document.createElement('tr');
+        const th = document.createElement('th');
+        const td = document.createElement('td');
+        const captions = {issues:'Замечаний', blocking_issues:'Блокирующих замечаний', warnings:'Неблокирующих рекомендаций', remaining_issues:'Осталось замечаний', auto_changes:'Автоисправлений', classes:'Классов', android_groups:'Android repair-групп', server_groups:'Server repair-групп', metadata:'Правка метаданных', draft_applied:'Рабочий черновик применён', resumed:'Продолжение кандидата', source:'Источник кандидата', round:'Раунд repair', repair_rounds:'Раундов repair', llm_call:'LLM-вызов', llm_calls_started:'LLM-вызовов начато', budget_checked:'Временной budget проверен', time_limit_disabled:'Лимит времени отключён', android_calls:'Android LLM-вызовов', server_calls:'Server LLM-вызовов', android_issues:'Android замечаний', server_issues:'Server замечаний', unrouted_questions:'Неразобранных замечаний', llm_input_tokens:'LLM input, токенов (накопительно)', llm_output_tokens:'LLM output, токенов (накопительно)', llm_total_tokens:'LLM всего токенов (накопительно)', cache_hit_tokens:'Prompt cache hit, токенов', cache_miss_tokens:'Prompt cache miss, токенов'};
+        th.textContent = captions[key] || key;
+        td.textContent = typeof value === 'boolean' ? (value ? 'да' : 'нет') : String(value);
+        tr.appendChild(th); tr.appendChild(td); tbody.appendChild(tr);
+      });
+      table.appendChild(tbody); body.appendChild(table);
+    }
+    const issues = Array.isArray(event.issues) ? event.issues.filter(Boolean) : [];
+    const reportedIssueCount = Number((event.metrics && (event.metrics.issues ?? event.metrics.blocking_issues ?? event.metrics.remaining_issues)) || 0);
+    if (!issues.length && reportedIssueCount > 0) {
+      const missingDetails = document.createElement('div');
+      missingDetails.className = 'alert alert-warning py-2 px-3 mt-2 mb-0 small';
+      missingDetails.textContent = 'В этом старом событии сервер сохранил только количество замечаний (' + reportedIssueCount + '), без их текста. В новых проверках ниже будет показан полный список.';
+      body.appendChild(missingDetails);
+    }
+    if (issues.length) {
+      const issuePreviewLimit = 8;
+      const table = document.createElement('table');
+      table.className = 'ngenie-generation-issues';
+      const thead = document.createElement('thead');
+      const hr = document.createElement('tr');
+      const h1 = document.createElement('th'); h1.textContent = '№';
+      const h2 = document.createElement('th'); h2.textContent = 'Что не прошло'; h2.style.width = 'auto';
+      const h3 = document.createElement('th'); h3.textContent = 'Состояние'; h3.style.whiteSpace = 'nowrap';
+      const h4 = document.createElement('th'); h4.textContent = 'Действие'; h4.style.whiteSpace = 'nowrap';
+      hr.appendChild(h1); hr.appendChild(h2); hr.appendChild(h3); hr.appendChild(h4); thead.appendChild(hr); table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      issues.forEach((issue, index) => {
+        const rawIssue = String(issue || '');
+        const idMatch = rawIssue.match(/\[ID:([^\]]+)\]/i);
+        const issueId = idMatch ? String(idMatch[1] || '').trim() : '';
+        const isSkipped = /\[SKIPPED\]/i.test(rawIssue) || semanticIssueIsSkipped(issueId, rawIssue);
+        const isWarning = /\[WARNING\]/i.test(rawIssue);
+        const isPlatform = /\[PLATFORM\]/i.test(rawIssue);
+        const isBlocker = !isWarning && !isPlatform;
+        const tr = document.createElement('tr');
+        tr.dataset.validationIssueRow = '1';
+        tr.dataset.validationIssueText = rawIssue;
+        tr.dataset.semanticIssueId = normalizeSemanticIssueId(issueId);
+        tr.dataset.semanticBaseStatus = isSkipped ? 'skipped' : (isBlocker ? 'blocker' : 'warning');
+        const no = document.createElement('td'); no.textContent = String(index + 1);
+        const text = document.createElement('td'); text.textContent = rawIssue;
+        const stateCell = document.createElement('td');
+        const stateBadge = document.createElement('span');
+        stateBadge.dataset.semanticStateBadge = '1';
+        stateBadge.className = 'badge ' + (isSkipped ? 'text-bg-secondary' : isPlatform ? 'text-bg-info' : isWarning ? 'text-bg-warning' : 'text-bg-danger');
+        stateBadge.textContent = isSkipped ? 'Пропущено' : isPlatform ? 'Ограничение платформы' : isWarning ? 'Warning' : 'Blocker';
+        stateCell.appendChild(stateBadge);
+        const actionCell = document.createElement('td');
+        if (isBlocker || isSkipped) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'btn btn-sm ' + (isSkipped ? 'btn-outline-secondary' : 'btn-outline-warning');
+          btn.textContent = isSkipped ? 'Пропущено' : 'Пропустить';
+          btn.disabled = isSkipped;
+          btn.dataset.semanticSkipButton = '1';
+          btn.addEventListener('click', function () {
+            if (btn.disabled) return;
+            skipSemanticIssue(issueId, rawIssue, btn);
+          });
+          actionCell.appendChild(btn);
+        } else {
+          const muted = document.createElement('span');
+          muted.className = 'text-muted small';
+          muted.textContent = isPlatform ? 'зафиксировано' : isWarning ? 'не блокирует' : 'техническая';
+          actionCell.appendChild(muted);
+        }
+        if (index >= issuePreviewLimit) tr.classList.add('d-none', 'ngenie-generation-issue-extra');
+        tr.appendChild(no); tr.appendChild(text); tr.appendChild(stateCell); tr.appendChild(actionCell); tbody.appendChild(tr);
+      });
+      table.appendChild(tbody); body.appendChild(table);
+      if (issues.length > issuePreviewLimit) {
+        const toggleWrap = document.createElement('div');
+        toggleWrap.className = 'mt-2';
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'btn btn-sm btn-outline-secondary';
+        toggle.textContent = 'Показать все ' + issues.length + ' замечаний';
+        toggle.dataset.expanded = '0';
+        toggle.addEventListener('click', function () {
+          const expand = toggle.dataset.expanded !== '1';
+          tbody.querySelectorAll('.ngenie-generation-issue-extra').forEach(row => row.classList.toggle('d-none', !expand));
+          toggle.dataset.expanded = expand ? '1' : '0';
+          toggle.textContent = expand ? 'Свернуть до первых ' + issuePreviewLimit : 'Показать все ' + issues.length + ' замечаний';
+        });
+        toggleWrap.appendChild(toggle);
+        body.appendChild(toggleWrap);
+      }
+    }
+    card.appendChild(body);
+    chatBox.appendChild(card);
+    if (nearBottom) chatBox.scrollTop = chatBox.scrollHeight;
+    restorePageViewport(pageViewport);
+  }
+
+  function renderBillingSnapshot(billing) {
+    if (!solutionTokenBalanceBadge || !billing || typeof billing !== 'object') return;
+    if (billing.token_billing_exempt) {
+      solutionTokenBalanceBadge.className = 'badge text-bg-success';
+      solutionTokenBalanceBadge.innerHTML = '<i class="bi bi-infinity me-1"></i>Токены без списания';
+    } else {
+      const balance = Number(billing.token_balance || 0);
+      solutionTokenBalanceBadge.className = 'badge text-bg-light border text-dark';
+      solutionTokenBalanceBadge.innerHTML = '<i class="bi bi-wallet2 me-1"></i>' + balance.toLocaleString('ru-RU') + ' токенов';
+    }
+  }
+
+  function renderGenerationStatus(g) {
+    if (!g) return;
+    renderBillingSnapshot(g.billing);
+    if (g.solution_progress_index !== undefined && g.solution_progress_index !== null) {
+      setSolutionJourneyProgress(g.solution_progress_index, g.solution_progress_reached_index);
+    }
+    generationActiveOnServer = !!g.active;
+    setRecoveryButtonsDisabled(aiRequestInProgress || generationActiveOnServer);
+    updateComposerAvailability();
+    setSkippedSemanticIssueIds(
+      Array.isArray(g.skipped_validation_issue_ids) ? g.skipped_validation_issue_ids : (Array.isArray(g.skipped_semantic_issue_ids) ? g.skipped_semantic_issue_ids : []),
+      Array.isArray(g.skipped_validation_issues) ? g.skipped_validation_issues : []
+    );
+    (Array.isArray(g.events) ? g.events : []).forEach(appendGenerationEventCard);
+    refreshRenderedSemanticSkipStates();
+    upsertLiveGenerationCard(g);
+    if (!g.active) {
+      statusEl.classList.remove('ngenie-working');
+      if (stopGenerationBtn) {
+        stopGenerationBtn.classList.add('d-none');
+        stopGenerationBtn.disabled = false;
+        stopGenerationBtn.innerHTML = '<i class="bi bi-stop-circle me-1"></i>Стоп';
+      }
+      // A page opened in the middle of generation starts with only one status
+      // request. Once an active run is discovered below we arm polling; when it
+      // finishes we can safely stop that recovery polling again.
+      if (!aiRequestInProgress) stopGenerationStatusPolling();
+      return;
+    }
+    // Important after F5/server page reload: loadNGenieHistory() performs one
+    // status read. If that read discovers an already-running worker, keep polling
+    // every two seconds so the chat continues to show new technical/semantic
+    // events even though this browser did not start the generation request.
+    if (!generationStatusTimer) generationStatusTimer = setInterval(pollGenerationStatus, 2000);
+    const elapsed = formatElapsed((Number(g.elapsed_seconds || 0)) * 1000);
+    const detail = localizePipelineText(g.detail || tr('nGenie Code работает'));
+    statusEl.innerHTML = '<span class="ngenie-pulse-dot"></span>' + generationStageCaption(g.stage) + ' · ' + detail + ' · ' + elapsed;
+    statusEl.classList.add('ngenie-working');
+    if (stopGenerationBtn) {
+      stopGenerationBtn.classList.remove('d-none');
+      if (g.cancel_requested) {
+        stopGenerationBtn.disabled = true;
+        stopGenerationBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Останавливаю';
+      }
+    }
+  }
+
+  function pollGenerationStatus() {
+    fetch(generationStatusUrl, { headers: { 'Accept':'application/json', 'Cache-Control':'no-cache' }, cache:'no-store' })
+      .then(async res => ({ ok: res.ok, data: await readJsonResponse(res) }))
+      .then(({ ok, data }) => {
+        if (ok && data.status === 'ok' && data.generation) renderGenerationStatus(data.generation);
+      })
+      .catch(() => {});
+  }
+
+  function startGenerationStatusPolling() {
+    stopGenerationStatusPolling();
+    pollGenerationStatus();
+    generationStatusTimer = setInterval(pollGenerationStatus, 2000);
+  }
+
   function showError(text) {
+    // Any request/apply failure must leave the workspace actionable.  Errors are
+    // recoverable states, not workflow locks: keep chat/retry controls enabled.
+    aiRequestInProgress = false;
+    historyLoaded = true;
+    stopProgress();
+    if (generateBtn && generateBtn.dataset.originalHtml) generateBtn.innerHTML = generateBtn.dataset.originalHtml;
+    if (activeQuestionBlock && activeQuestionBlock.dataset.questionSubmitting === '1') {
+      activeQuestionBlock.dataset.questionSubmitting = '0';
+      setQuestionControlsDisabled(activeQuestionBlock, false);
+      updateQuestionBlockValidation(activeQuestionBlock, true);
+    }
+    setRecoveryButtonsDisabled(generationActiveOnServer);
+    updateComposerAvailability();
     errorEl.style.display = 'block';
     errorEl.textContent = text || '';
     appendNGenieMessage('bot', text || 'Ошибка запроса');
   }
 
+  function reloadSolutionGraph() {
+    try {
+      if (solutionGraphFrame && solutionGraphFrame.contentWindow) {
+        solutionGraphFrame.contentWindow.postMessage({ type: 'solution-graph-reload' }, '*');
+      }
+    } catch (e) {}
+  }
+
+  function recoverWorkflowFromServer(triggerButton) {
+    const pageViewport = capturePageViewport(activeQuestionBlock || solutionWorkspaceTabs);
+    const buttons = [recoverWorkflowBtn, recoverWorkflowTopBtn].filter(Boolean);
+    setRecoveryButtonsDisabled(true);
+    if (triggerButton) triggerButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Восстанавливаю';
+    errorEl.style.display = 'none';
+    fetch(recoverWorkflowUrl, {
+      method: 'POST',
+      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+      body: '{}'
+    })
+    .then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }))
+    .then(({ ok, status, data }) => {
+      if (!ok || data.status !== 'ok') throw new Error(data.message || ('HTTP ' + status));
+      activeQuestionBlock = null;
+      activeApprovalBlock = null;
+      // For an already-approved design this action means Continue/Restart, not Roll back.
+      // IMPORTANT: do not set historyLoaded=false before the generation branch.
+      // If apply/generation fails, there is no subsequent history reload and the
+      // composer would otherwise remain disabled forever.
+      if (String(data.plan_type || '').toLowerCase() === 'generate' && data.generate_prompt) {
+        historyLoaded = true;
+        updateComposerAvailability();
+        handleQuestionAnswerResponse(data, null, true);
+      } else {
+        historyLoaded = false;
+        loadNGenieHistory();
+        refreshSolutionSummary();
+        reloadSolutionGraph();
+        statusEl.textContent = data.message || 'Готово к продолжению.';
+      }
+    })
+    .catch(err => showError('Не удалось восстановить этап: ' + (err.message || err)))
+    .finally(() => {
+      setRecoveryButtonsDisabled(aiRequestInProgress || generationActiveOnServer);
+      if (recoverWorkflowBtn) recoverWorkflowBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Продолжить / Перезапустить';
+      if (recoverWorkflowTopBtn) recoverWorkflowTopBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Продолжить / Перезапустить';
+      restorePageViewport(pageViewport);
+    });
+  }
+
+  if (recoverWorkflowBtn) recoverWorkflowBtn.addEventListener('click', function () { recoverWorkflowFromServer(recoverWorkflowBtn); });
+  if (recoverWorkflowTopBtn) recoverWorkflowTopBtn.addEventListener('click', function () { recoverWorkflowFromServer(recoverWorkflowTopBtn); });
+
+
+  window.addEventListener('message', function (event) {
+    if (solutionGraphFrame && event.source !== solutionGraphFrame.contentWindow) return;
+    const data = event.data || {};
+    if (data.type === 'solution-graph-saved') {
+      if (solutionGraphStatusBadge) {
+        solutionGraphStatusBadge.textContent = data.status || 'draft';
+        solutionGraphStatusBadge.className = 'badge ms-1 ' + (data.status === 'approved' ? 'text-bg-success' : data.status === 'draft' ? 'text-bg-warning' : 'text-bg-secondary');
+      }
+      // A semantic graph save creates a new revision and may invalidate the old
+      // approval card. Do not keep using the local chat snapshot: on return to
+      // the chat tab re-read the server-authoritative pending action.
+      chatNeedsAuthoritativeRefresh = true;
+      return;
+    }
+    if (data.type === 'solution-graph-flushed') {
+      const waiter = graphFlushWaiters.get(String(data.requestId || ''));
+      if (!waiter) return;
+      graphFlushWaiters.delete(String(data.requestId || ''));
+      window.clearTimeout(waiter.timer);
+      if (data.ok) waiter.resolve(data);
+      else waiter.reject(new Error(data.message || 'Редактор схемы не смог сохранить изменения.'));
+    }
+  });
+
+
+  if (solutionGraphTab) {
+    solutionGraphTab.addEventListener('shown.bs.tab', function () {
+      try {
+        solutionGraphFrame?.contentWindow?.postMessage({ type: 'solution-graph-resize' }, '*');
+      } catch (e) {}
+      // Bootstrap hides only the pane, but browsers can throttle timers around
+      // tab/iframe work. Reconcile immediately instead of trusting a local timer.
+      pollGenerationStatus();
+      refreshSolutionSummary();
+    });
+  }
+
+  if (solutionChatTab) {
+    solutionChatTab.addEventListener('shown.bs.tab', function () {
+      // Always reconcile with server state when returning from the graph.  It is
+      // intentionally cheap and removes dependence on postMessage delivery: even
+      // after iframe reloads or browser quirks the user cannot return to a stale
+      // inactive approval card.
+      chatNeedsAuthoritativeRefresh = false;
+      loadNGenieHistory();
+      refreshSolutionSummary();
+      pollGenerationStatus();
+    });
+  }
+
+  // Returning to the browser after a background tab was throttled must recover
+  // from server state immediately. The server remains authoritative for elapsed
+  // time, active stage, pending approval and billing balance.
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible') return;
+    pollGenerationStatus();
+    refreshSolutionSummary();
+    if (generationActiveOnServer && !generationStatusTimer) {
+      generationStatusTimer = setInterval(pollGenerationStatus, 2000);
+    }
+  });
+  window.addEventListener('focus', function () {
+    pollGenerationStatus();
+    refreshSolutionSummary();
+  });
+
+  // Элементы Bootstrap внутри прокручиваемого чата получают фокус после клика.
+  // Некоторые браузеры при этом дополнительно прокручивают всю страницу, хотя
+  // пользователь работает только с внутренним scroll-контейнером. Сохраняем
+  // положение вкладок относительно viewport и восстанавливаем только window,
+  // не вмешиваясь во внутреннюю прокрутку чата.
+  let chatClickViewport = null;
+  chatBox.addEventListener('pointerdown', function (event) {
+    if (!event.target.closest('button, label, .btn, input[type="radio"], input[type="checkbox"]')) return;
+    chatClickViewport = capturePageViewport();
+  }, true);
+  chatBox.addEventListener('keydown', function (event) {
+    if (!['Enter', ' '].includes(event.key)) return;
+    if (!event.target.closest('button, label, .btn, input[type="radio"], input[type="checkbox"]')) return;
+    chatClickViewport = capturePageViewport();
+  }, true);
+  chatBox.addEventListener('focusin', function () {
+    if (chatClickViewport) restorePageViewport(chatClickViewport);
+  }, true);
+  chatBox.addEventListener('click', function () {
+    if (!chatClickViewport) return;
+    const snapshot = chatClickViewport;
+    restorePageViewport(snapshot);
+    window.setTimeout(() => {
+      if (chatClickViewport === snapshot) chatClickViewport = null;
+    }, 160);
+  });
+  chatBox.addEventListener('change', function () {
+    if (chatClickViewport) restorePageViewport(chatClickViewport);
+  });
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  }
+
+  function updateRuntimeErrorsBadge(count) {
+    const n = Math.max(0, Number(count || 0));
+    if (runtimeErrorsCount) runtimeErrorsCount.textContent = String(n);
+    if (runtimeErrorsBtn) runtimeErrorsBtn.classList.toggle('d-none', n <= 0);
+  }
+
+  function renderRuntimeErrors(errors) {
+    currentRuntimeErrors = Array.isArray(errors) ? errors : [];
+    updateRuntimeErrorsBadge(currentRuntimeErrors.length);
+    if (runtimeErrorsLoading) runtimeErrorsLoading.classList.add('d-none');
+    if (runtimeErrorsEmpty) runtimeErrorsEmpty.classList.toggle('d-none', currentRuntimeErrors.length > 0);
+    if (!runtimeErrorsList) return;
+    runtimeErrorsList.innerHTML = '';
+    currentRuntimeErrors.forEach((err, index) => {
+      const card = document.createElement('div');
+      card.className = 'card border-danger-subtle';
+      const where = [err.class_name ? ('класс ' + err.class_name) : '', err.method_name ? ('метод ' + err.method_name) : '', err.event_name ? ('событие ' + err.event_name) : ''].filter(Boolean).join(' · ');
+      const repeats = Number(err.occurrence_count || 1);
+      const tb = String(err.traceback_text || '').split('\n').slice(-8).join('\n');
+      card.innerHTML = `
+        <div class="card-body py-2">
+          <div class="d-flex justify-content-between gap-3 align-items-start">
+            <div><strong>${index + 1}. ${escapeHtml(where || err.source || 'runtime')}</strong><div class="small text-muted">${escapeHtml(err.last_seen || '')}</div></div>
+            ${repeats > 1 ? `<span class="badge text-bg-danger">×${repeats}</span>` : ''}
+          </div>
+          <div class="mt-2"><code>${escapeHtml(err.exception_type || 'Exception')}</code>: ${escapeHtml(err.message || '')}</div>
+          ${tb ? `<details class="mt-2"><summary class="small text-muted">Traceback</summary><pre class="small mt-2 mb-0" style="white-space:pre-wrap">${escapeHtml(tb)}</pre></details>` : ''}
+        </div>`;
+      runtimeErrorsList.appendChild(card);
+    });
+    if (runtimeErrorsToChatBtn) runtimeErrorsToChatBtn.disabled = currentRuntimeErrors.length === 0;
+    if (runtimeErrorsResolveBtn) runtimeErrorsResolveBtn.disabled = currentRuntimeErrors.length === 0;
+  }
+
+  function refreshRuntimeErrors(showLoading) {
+    if (showLoading && runtimeErrorsLoading) runtimeErrorsLoading.classList.remove('d-none');
+    return fetch(runtimeErrorsUrl, { headers: { 'Accept':'application/json', 'Cache-Control':'no-cache' }, cache:'no-store' })
+      .then(async res => ({ ok: res.ok, data: await readJsonResponse(res) }))
+      .then(({ok, data}) => {
+        if (!ok || data.status !== 'ok') throw new Error(data.message || 'Не удалось загрузить ошибки');
+        currentRuntimeErrorPrompt = data.prompt || '';
+        renderRuntimeErrors(data.errors || []);
+        return data;
+      })
+      .catch(err => {
+        if (runtimeErrorsLoading) { runtimeErrorsLoading.textContent = err.message; runtimeErrorsLoading.classList.remove('d-none'); }
+        return null;
+      });
+  }
+
+  function putRuntimeErrorsIntoComposer() {
+    if (!currentRuntimeErrors.length) return;
+    const text = String(currentRuntimeErrorPrompt || '').trim();
+    if (!text) return;
+    preparedRuntimeErrorIds = currentRuntimeErrors.map(x => x.id).filter(Boolean);
+    preparedRuntimeErrorPromptSnapshot = text;
+    promptInput.value = text;
+    // Merely inserting the text is not yet a hand-off.  The errors disappear
+    // only when the user really presses Send below.
+    if (window.bootstrap && runtimeErrorsModal) bootstrap.Modal.getOrCreateInstance(runtimeErrorsModal).hide();
+    promptInput.disabled = false;
+    generateBtn.disabled = false;
+    window.setTimeout(() => { promptInput.focus(); promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length); }, 150);
+    statusEl.textContent = 'Ошибки вставлены в запрос. При необходимости допишите комментарий и отправьте nGenie.';
+  }
+
+  function setRuntimeErrorsReported(errorIds, reopen) {
+    const ids = Array.isArray(errorIds) ? errorIds.filter(Boolean) : [];
+    if (!ids.length) return Promise.resolve(null);
+    return fetch(runtimeErrorsReportUrl, {
+      method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
+      body: JSON.stringify({error_ids: ids, mode: reopen ? 'reopen' : 'report'})
+    })
+      .then(async res => ({ok:res.ok, data:await readJsonResponse(res)}))
+      .then(({ok,data}) => {
+        if (!ok || data.status !== 'ok') throw new Error(data.message || 'Не удалось обновить журнал ошибок');
+        return refreshRuntimeErrors(false);
+      })
+      .catch(() => null);
+  }
+
+
+  function clearRuntimeErrors() {
+    if (!currentRuntimeErrors.length) return;
+    if (!confirm(tr('Убрать текущие ошибки из рабочего списка? В диагностическом ZIP история сохранится.'))) return;
+    fetch(runtimeErrorsResolveUrl, {
+      method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body:'{}'
+    })
+      .then(async res => ({ok:res.ok, data:await readJsonResponse(res)}))
+      .then(({ok,data}) => {
+        if (!ok || data.status !== 'ok') throw new Error(data.message || 'Не удалось очистить ошибки');
+        currentRuntimeErrorPrompt = '';
+        renderRuntimeErrors([]);
+      })
+      .catch(err => showError(err.message));
+  }
+
+  function answersApproveSolutionGraph(questions, answers) {
+    return (questions || []).some((q, index) => {
+      const qid = String(q.id || q.key || ('q_' + (index + 1)));
+      const base = qid.split('__r', 1)[0];
+      if (!['approve_wms_design', 'approve_wms_spec', 'approve_solution_design'].includes(base)) return false;
+      const row = answers && typeof answers[qid] === 'object' ? answers[qid] : {};
+      return ['accept', 'accepted', 'approve', 'approved', 'принять', 'утвердить'].includes(String(row.decision || '').trim().toLowerCase());
+    });
+  }
+
+  function flushSolutionGraph() {
+    return new Promise((resolve, reject) => {
+      if (!solutionGraphFrame || !solutionGraphFrame.contentWindow) {
+        reject(new Error('Редактор схемы еще не загружен.'));
+        return;
+      }
+      const requestId = 'flush_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+      const timer = window.setTimeout(() => {
+        graphFlushWaiters.delete(requestId);
+        reject(new Error('Истекло время ожидания сохранения схемы.'));
+      }, 12000);
+      graphFlushWaiters.set(requestId, {resolve, reject, timer});
+      solutionGraphFrame.contentWindow.postMessage({type:'solution-graph-flush', requestId}, '*');
+    });
+  }
+
   function refreshSolutionSummary() {
-    fetch(solutionSummaryUrl, { headers: { 'Accept': 'application/json' } })
+    fetch(solutionSummaryUrl, { headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' }, cache: 'no-store' })
       .then(async res => ({ ok: res.ok, data: await readJsonResponse(res) }))
       .then(({ ok, data }) => {
         if (!ok || data.status !== 'ok' || !data.solution) return;
         specEl.innerHTML = data.solution.specification_html || '';
+        currentDesignSummaryHtml = data.solution.design_summary_html || currentDesignSummaryHtml || '';
         clarEl.innerHTML = data.solution.clarifications_html || '';
+        renderBillingSnapshot(data.solution.billing);
+        const discussion = data.solution.approval_discussion && typeof data.solution.approval_discussion === 'object' ? data.solution.approval_discussion : {};
+        setApprovalDiscussionMode(!!discussion.active);
+        if (solutionTitleText) solutionTitleText.textContent = data.solution.name || '';
+        if (renameInput && data.solution.name) renameInput.value = data.solution.name;
+        if (deliveryRefEl) deliveryRefEl.value = data.solution.delivery_ref || '';
+        if (solutionGraphStatusBadge) {
+          const gs = data.solution.design_graph_status || 'empty';
+          solutionGraphStatusBadge.textContent = gs + (data.solution.design_graph_revision ? (' · rev ' + data.solution.design_graph_revision) : '');
+          solutionGraphStatusBadge.className = 'badge ms-1 ' + (gs === 'approved' ? 'text-bg-success' : gs === 'draft' ? 'text-bg-warning' : 'text-bg-secondary');
+        }
+        if (releaseStatusEl) {
+          releaseStatusEl.textContent = data.solution.release_status || 'locked';
+          releaseStatusEl.className = 'badge ' + (data.solution.release_status === 'unlocked' ? 'bg-success' : 'bg-warning text-dark');
+        }
+        if (releaseButtonStatusEl) {
+          const accessReady = !!data.solution.download_available;
+          releaseButtonStatusEl.textContent = accessReady ? 'available' : 'locked';
+          releaseButtonStatusEl.className = 'badge ms-1 ' + (accessReady ? 'text-bg-success' : 'text-bg-warning');
+        }
+        if (downloadLinkEl) {
+          downloadLinkEl.classList.toggle('d-none', !data.solution.download_available);
+          if (data.solution.download_url) downloadLinkEl.href = data.solution.download_url;
+        }
+        if (data.solution.progress_index !== undefined && data.solution.progress_index !== null) {
+          setSolutionJourneyProgress(data.solution.progress_index, data.solution.progress_reached_index);
+        }
       })
       .catch(() => {});
   }
 
   function handleQuestionAnswerResponse(data, pendingMsg, resume) {
     if (Array.isArray(data.ngenie_code_questions) && data.ngenie_code_questions.length) {
+      if (questionsContainApproval(data.ngenie_code_questions)) setApprovalDiscussionMode(false);
       if (pendingMsg) pendingMsg.textContent = data.message || 'Нужно уточнить еще несколько данных';
-      appendNGenieQuestions(data.message || 'Нужно уточнить еще несколько данных', data.ngenie_code_questions, '', data.answers || {});
+      appendNGenieQuestions(data.message || 'Нужно уточнить еще несколько данных', data.ngenie_code_questions, '', data.answers || {}, { interactive: true, scrollIntoView: true });
       refreshSolutionSummary();
-      return;
+      reloadSolutionGraph();
+      return false;
     }
     const ptype = String(data.plan_type || data.type || '').toLowerCase();
+    if (ptype === 'discussion') {
+      setApprovalDiscussionMode(data.approval_discussion_active !== false);
+      if (pendingMsg) pendingMsg.textContent = data.message || 'Можно задавать вопросы по проекту перед утверждением.';
+      refreshSolutionSummary();
+      return false;
+    }
     if (ptype === 'generate' && data.generate_prompt) {
       if (pendingMsg) pendingMsg.textContent = data.message || 'Начинаю генерацию конфигурации по утвержденному решению.';
       const fd = new FormData();
       fd.append('prompt', data.generate_prompt);
       fd.append('llm', 'ngenie_code');
       fd.append('solution_plan_generate', '1');
+      if (solutionModelEl) fd.append('solution_model', solutionModelEl.value);
+      if (handlerDeltaModeEl && handlerDeltaModeEl.checked) fd.append('handler_delta_mode', '1');
+      setBusy(true, 'nGenie Code генерирует конфигурацию');
       fetch(aiGenerateUrl, { method: 'POST', body: fd, headers: { 'Accept': 'application/json' } })
         .then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }))
         .then(({ ok, status, data }) => {
@@ -480,19 +2584,25 @@
         })
         .catch(err => showError(err.message))
         .finally(() => setBusy(false));
-      return;
+      return true;
     }
     if (resume && pendingMsg) pendingMsg.textContent = data.message || 'План решения обновлен.';
     refreshSolutionSummary();
+    reloadSolutionGraph();
+    return false;
   }
 
-  function sendQuestionAnswers(questions, answers, action, resume) {
-    if (resume && aiRequestInProgress) return;
+  function sendQuestionAnswers(questions, answers, action, resume, sourceBlock) {
+    if (resume && aiRequestInProgress) {
+      restoreQuestionBlockAfterError(sourceBlock, 'Дождитесь завершения текущего запроса.');
+      return;
+    }
     const prompt = questionAnswersToText(questions, answers);
     let pendingMsg = null;
+    let keepBusyForGeneration = false;
     if (resume) {
-      appendNGenieMessage('user', prompt);
-      pendingMsg = appendNGenieMessage('bot', 'Ответы сохранены. Продолжаю план решения.');
+      appendNGenieMessage('user', prompt, '', { preserveScroll: true });
+      pendingMsg = appendNGenieMessage('bot', 'Ответы сохраняются. Продолжаю план решения.', '', { preserveScroll: true });
       errorEl.style.display = 'none';
       setBusy(true, 'nGenie Code выполняет plan.py');
     }
@@ -503,17 +2613,171 @@
     })
     .then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }))
     .then(({ ok, status, data }) => {
-      if (!ok || data.status !== 'ok') { if (resume) showError(data.message || ('HTTP ' + status)); return; }
-      handleQuestionAnswerResponse(data, pendingMsg, resume);
+      if (!ok || data.status !== 'ok') throw new Error(data.message || ('HTTP ' + status));
+      const responseType = String(data.plan_type || data.type || '').toLowerCase();
+      if (responseType === 'discussion') {
+        clearQuestionDraft(questions);
+        setApprovalDiscussionMode(true);
+        if (sourceBlock) {
+          sourceBlock.dataset.questionSubmitting = '0';
+          sourceBlock.dataset.questionActive = '1';
+          setQuestionControlsDisabled(sourceBlock, false);
+          sourceBlock.querySelectorAll('input[data-q-field="decision"]').forEach(el => { el.checked = false; });
+          if (sourceBlock.__answerButton) {
+            sourceBlock.__answerButton.disabled = true;
+            sourceBlock.__answerButton.innerHTML = '<i class="bi bi-send me-1"></i>' + tr('Ответить');
+            sourceBlock.__answerButton.className = 'btn btn-primary';
+          }
+          if (sourceBlock.__validationEl) {
+            sourceBlock.__validationEl.textContent = 'Режим вопросов включен. Задавайте вопросы ниже; затем вернитесь к этой карточке для утверждения.';
+            sourceBlock.__validationEl.className = 'small text-primary';
+          }
+          activeQuestionBlock = sourceBlock;
+          activeApprovalBlock = sourceBlock;
+        }
+        keepBusyForGeneration = handleQuestionAnswerResponse(data, pendingMsg, resume);
+        updateComposerAvailability();
+      } else {
+        clearQuestionDraft(questions);
+        if (questionsContainApproval(questions)) setApprovalDiscussionMode(false);
+        markQuestionBlockSubmitted(sourceBlock, tr('Ответ отправлен. План решения продолжен.'));
+        keepBusyForGeneration = handleQuestionAnswerResponse(data, pendingMsg, resume);
+      }
     })
-    .catch(err => { if (resume) showError(err.message); })
-    .finally(() => { if (resume) setBusy(false); else refreshSolutionSummary(); });
+    .catch(err => {
+      if (pendingMsg) pendingMsg.textContent = tr('Не удалось сохранить ответы.');
+      if (resume) showError(err.message);
+      restoreQuestionBlockAfterError(sourceBlock, err.message);
+    })
+    .finally(() => {
+      if (!keepBusyForGeneration) setBusy(false);
+      if (!resume) refreshSolutionSummary();
+    });
+  }
+
+  if (copyDeliveryRefBtn && deliveryRefEl) {
+    copyDeliveryRefBtn.addEventListener('click', async function () {
+      try {
+        await navigator.clipboard.writeText(deliveryRefEl.value || '');
+        copyDeliveryRefBtn.textContent = 'Скопировано';
+        setTimeout(() => { copyDeliveryRefBtn.textContent = 'Копировать'; }, 1200);
+      } catch (e) {
+        deliveryRefEl.select();
+        document.execCommand('copy');
+      }
+    });
+  }
+
+  if (renameForm && renameInput) {
+    renameForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      const name = (renameInput.value || '').trim();
+      if (!name) {
+        renameMessageEl.textContent = 'Введите название.';
+        renameMessageEl.className = 'small mt-2 text-danger';
+        return;
+      }
+      const submitBtn = renameForm.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
+      fetch(solutionRenameUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ name: name })
+      })
+      .then(async res => ({ ok: res.ok, data: await readJsonResponse(res) }))
+      .then(({ ok, data }) => {
+        if (!ok || data.status !== 'ok') throw new Error(data.message || tr('Не удалось сохранить название'));
+        if (solutionTitleText) solutionTitleText.textContent = data.name || name;
+        renameInput.value = data.name || name;
+        renameMessageEl.textContent = data.message || 'Название сохранено.';
+        renameMessageEl.className = 'small mt-2 text-success';
+        window.setTimeout(() => {
+          const modalEl = document.getElementById('solutionRenameModal');
+          if (modalEl && window.bootstrap) bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+        }, 350);
+      })
+      .catch(err => {
+        renameMessageEl.textContent = err.message || tr('Не удалось сохранить название');
+        renameMessageEl.className = 'small mt-2 text-danger';
+      })
+      .finally(() => { if (submitBtn) submitBtn.disabled = false; });
+    });
+  }
+
+  if (unlockForm && unlockTokenInput) {
+    unlockForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      const token = (unlockTokenInput.value || '').trim();
+      if (!token) {
+        unlockMessageEl.textContent = 'Введите ключ после покупки.';
+        unlockMessageEl.className = 'alert alert-warning mt-3 mb-0';
+        return;
+      }
+      const submitBtn = unlockForm.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
+      fetch(solutionUnlockUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ token: token })
+      })
+      .then(async res => ({ ok: res.ok, data: await readJsonResponse(res) }))
+      .then(({ ok, data }) => {
+        if (!ok || data.status !== 'ok') throw new Error(data.message || 'Ключ не подтвержден');
+        unlockMessageEl.textContent = data.message || 'Ключ принят.';
+        unlockMessageEl.className = 'alert alert-success mt-3 mb-0';
+        unlockTokenInput.value = '';
+        refreshSolutionSummary();
+      })
+      .catch(err => {
+        unlockMessageEl.textContent = err.message || 'Ключ не подтвержден';
+        unlockMessageEl.className = 'alert alert-danger mt-3 mb-0';
+      })
+      .finally(() => { if (submitBtn) submitBtn.disabled = false; });
+    });
+  }
+
+  if (runtimeErrorsModal) runtimeErrorsModal.addEventListener('show.bs.modal', function () { refreshRuntimeErrors(true); });
+  if (runtimeErrorsToChatBtn) runtimeErrorsToChatBtn.addEventListener('click', putRuntimeErrorsIntoComposer);
+  if (runtimeErrorsResolveBtn) runtimeErrorsResolveBtn.addEventListener('click', clearRuntimeErrors);
+  window.addEventListener('focus', function () { refreshRuntimeErrors(false); });
+  if (solutionChatTab) solutionChatTab.addEventListener('shown.bs.tab', function () { refreshRuntimeErrors(false); });
+
+  if (stopGenerationBtn) {
+    stopGenerationBtn.addEventListener('click', function () {
+      if (!confirm(tr('Остановить текущую генерацию? Уже сохранённый/развёрнутый checkpoint останется. Рабочее место будет разблокировано сразу, а поздний ответ текущего запроса будет отброшен.'))) return;
+      stopGenerationBtn.disabled = true;
+      stopGenerationBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Останавливаю';
+      fetch(generationStopUrl, { method:'POST', headers:{ 'Accept':'application/json' } })
+        .then(async res => ({ ok:res.ok, data:await readJsonResponse(res) }))
+        .then(({ ok, data }) => {
+          if (!ok || data.status !== 'ok') throw new Error(data.message || 'Не удалось остановить генерацию');
+          // Stop is terminal from the workspace point of view. Do not keep the UI
+          // hostage to the old browser fetch while its provider request unwinds.
+          aiRequestInProgress = false;
+          generationActiveOnServer = false;
+          historyLoaded = true;
+          stopProgress();
+          setRecoveryButtonsDisabled(false);
+          updateComposerAvailability();
+          statusEl.textContent = data.message || 'Генерация остановлена.';
+          statusEl.classList.remove('ngenie-working');
+          stopGenerationBtn.classList.add('d-none');
+          stopGenerationBtn.disabled = false;
+          stopGenerationBtn.innerHTML = '<i class="bi bi-stop-circle me-1"></i>Стоп';
+          pollGenerationStatus();
+        })
+        .catch(err => {
+          stopGenerationBtn.disabled = false;
+          stopGenerationBtn.innerHTML = '<i class="bi bi-stop-circle me-1"></i>Стоп';
+          showError(err.message);
+        });
+    });
   }
 
   if (newChatBtn) {
     newChatBtn.addEventListener('click', function () {
-      if (aiRequestInProgress) return;
-      if (!confirm('{{ _('Clear nGenie Code chat for this configuration?') }}')) return;
+      if (aiRequestInProgress || activeQuestionBlock) return;
+      if (!confirm(tr('Начать новый этап чата? Предыдущая история сохранится в диагностике.'))) return;
       fetch(ngenieNewChatUrl, { method: 'POST', headers: { 'Accept': 'application/json' } })
         .then(async res => ({ ok: res.ok, data: await readJsonResponse(res) }))
         .then(({ ok, data }) => { if (ok && data.status === 'ok') renderNGenieHistory(data.messages || []); else showError(data.message || 'Не удалось очистить чат'); })
@@ -521,38 +2785,232 @@
     });
   }
 
+  if (returnToApprovalBtn) {
+    returnToApprovalBtn.addEventListener('click', function () {
+      if (!activeApprovalBlock) return;
+      scrollQuestionBlockIntoView(activeApprovalBlock);
+      if (activeApprovalBlock.__validationEl) {
+        activeApprovalBlock.__validationEl.textContent = tr('Вы вернулись к утверждению. Выберите решение и нажмите «Ответить».');
+        activeApprovalBlock.__validationEl.className = 'small text-primary';
+      }
+    });
+  }
+
+  function ensureSolutionLanguageOption(code, name) {
+    if (!solutionLanguageEl || !code) return;
+    let option = Array.from(solutionLanguageEl.options).find(opt => opt.value === code);
+    if (!option) {
+      option = document.createElement('option');
+      option.value = code;
+      option.dataset.languageName = name || code;
+      option.textContent = name || code;
+      const custom = Array.from(solutionLanguageEl.options).find(opt => opt.value === '__custom__');
+      solutionLanguageEl.insertBefore(option, custom || null);
+    }
+    solutionLanguageEl.value = code;
+  }
+
+  if (solutionLanguageEl) {
+    solutionLanguageEl.addEventListener('change', async function () {
+      const previous = solutionLanguageEl.dataset.previous || '';
+      const selected = solutionLanguageEl.value;
+      let requestLanguage;
+      if (selected === '__custom__') {
+        const customName = window.prompt(tr('Введите язык решения (например: Қазақша, Slovenščina, Bahasa Indonesia):'), '');
+        if (!customName || !customName.trim()) {
+          if (previous) solutionLanguageEl.value = previous;
+          return;
+        }
+        requestLanguage = { code: customName.trim(), name: customName.trim() };
+      } else if (selected === '__system__') {
+        requestLanguage = { code: '__system__' };
+      } else {
+        const option = solutionLanguageEl.options[solutionLanguageEl.selectedIndex];
+        requestLanguage = { code: selected, name: option?.dataset?.languageName || option?.textContent || selected };
+      }
+
+      solutionLanguageEl.disabled = true;
+      try {
+        if (statusEl) statusEl.textContent = tr('Меняю язык решения…');
+        const res = await fetch(solutionLanguageUrl, {
+          method:'POST',
+          headers:{'Content-Type':'application/json','Accept':'application/json'},
+          body:JSON.stringify({language:requestLanguage})
+        });
+        const data = await readJsonResponse(res);
+        if (!res.ok || data.status !== 'ok') throw new Error(data.message || ('HTTP ' + res.status));
+        const code = String(data.language?.code || selected || '').trim();
+        const name = String(data.language?.name || code).trim();
+        ensureSolutionLanguageOption(code, name);
+        solutionLanguageEl.dataset.previous = code;
+        if (statusEl) statusEl.textContent = tr('Язык решения') + ': ' + name;
+        // Re-render the active questionnaire/welcome in the new Solution language.
+        // Historic model/user messages are intentionally not rewritten.
+        loadNGenieHistory();
+      } catch (err) {
+        if (previous) solutionLanguageEl.value = previous;
+        showError(err.message || String(err));
+      } finally {
+        solutionLanguageEl.disabled = false;
+      }
+    });
+    solutionLanguageEl.dataset.previous = {{ (solution_language.code if solution_language else '')|tojson }};
+  }
+
+  if (solutionModelEl) {
+    solutionModelEl.addEventListener('change', async function () {
+      const previous = solutionModelEl.dataset.previous || '';
+      solutionModelEl.disabled = true;
+      try {
+        const res = await fetch(solutionModelUrl, {
+          method:'POST',
+          headers:{'Content-Type':'application/json','Accept':'application/json'},
+          body:JSON.stringify({model:solutionModelEl.value})
+        });
+        const data = await readJsonResponse(res);
+        if (!res.ok || data.status !== 'ok') throw new Error(data.message || ('HTTP ' + res.status));
+        solutionModelEl.dataset.previous = data.model?.key || solutionModelEl.value;
+        if (statusEl) statusEl.textContent = 'Модель решения: ' + (data.model?.label || solutionModelEl.value);
+      } catch (err) {
+        if (previous) solutionModelEl.value = previous;
+        showError(err.message || String(err));
+      } finally { solutionModelEl.disabled = false; }
+    });
+    solutionModelEl.dataset.previous = solutionModelEl.value;
+  }
+
+  if (adminUploadSolutionConfigBtn && adminUploadSolutionConfigInput) {
+    adminUploadSolutionConfigBtn.addEventListener('click', () => adminUploadSolutionConfigInput.click());
+    adminUploadSolutionConfigInput.addEventListener('change', async function () {
+      const file = adminUploadSolutionConfigInput.files?.[0];
+      if (!file) return;
+      if (!confirm(tr('Заменить текущую конфигурацию Solution содержимым этого .nod? UID файла будет проигнорирован, UID решения сохранится.'))) {
+        adminUploadSolutionConfigInput.value = '';
+        return;
+      }
+      adminUploadSolutionConfigBtn.disabled = true;
+      const originalHtml = adminUploadSolutionConfigBtn.innerHTML;
+      adminUploadSolutionConfigBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Загрузка…';
+      try {
+        const fd = new FormData();
+        fd.append('config', file);
+        const res = await fetch(adminUploadSolutionConfigUrl, {method:'POST', body:fd, headers:{'Accept':'application/json'}});
+        const data = await readJsonResponse(res);
+        if (!res.ok || data.status !== 'ok') throw new Error(data.message || ('HTTP ' + res.status));
+        if (statusEl) statusEl.textContent = data.message || 'Конфигурация загружена в решение.';
+        loadNGenieHistory();
+        refreshSolutionSummary();
+      } catch (err) { showError(err.message || String(err)); }
+      finally {
+        adminUploadSolutionConfigBtn.disabled = false;
+        adminUploadSolutionConfigBtn.innerHTML = originalHtml;
+        adminUploadSolutionConfigInput.value = '';
+      }
+    });
+  }
+
+
+  if (platformLimitationsModeEl) {
+    platformLimitationsModeEl.addEventListener('change', async function () {
+      const enabled = !!platformLimitationsModeEl.checked;
+      platformLimitationsModeEl.disabled = true;
+      try {
+        const res = await fetch(platformLimitationsModeUrl, {
+          method: 'POST',
+          headers: { 'Accept':'application/json', 'Content-Type':'application/json' },
+          body: JSON.stringify({ enabled })
+        });
+        const data = await readJsonResponse(res);
+        if (!res.ok || data.status !== 'ok') throw new Error(data.message || tr('Не удалось сохранить режим'));
+        appendNGenieMessage('bot', data.message || 'Настройка сохранена.');
+      } catch (err) {
+        platformLimitationsModeEl.checked = !enabled;
+        showError(err.message || String(err));
+      } finally {
+        platformLimitationsModeEl.disabled = false;
+      }
+    });
+  }
+
   form.addEventListener('submit', function (e) {
     e.preventDefault();
-    if (aiRequestInProgress) return;
+    if (aiRequestInProgress || generationActiveOnServer) return;
+    if (activeQuestionBlock && !approvalDiscussionActive) {
+      updateQuestionBlockValidation(activeQuestionBlock);
+      scrollQuestionBlockIntoView(activeQuestionBlock);
+      return;
+    }
     const prompt = (promptInput.value || '').trim();
     if (!prompt && (!attachmentsInput || !attachmentsInput.files.length)) {
       promptInput.focus();
       return;
     }
+    const submittedRuntimeErrorIds = preparedRuntimeErrorIds.slice();
+    const runtimeRepair = submittedRuntimeErrorIds.length > 0;
     appendNGenieMessage('user', prompt || 'Вложение');
     const pending = appendNGenieMessage('bot', 'nGenie Code работает...');
     const fd = new FormData(form);
     fd.append('prompt', prompt);
     fd.append('llm', 'ngenie_code');
+    if (solutionModelEl) fd.append('solution_model', solutionModelEl.value);
+    if (handlerDeltaModeEl && handlerDeltaModeEl.checked) fd.append('handler_delta_mode', '1');
+    if (runtimeRepair) fd.append('runtime_error_repair', '1');
     setBusy(true, 'nGenie Code работает');
     errorEl.style.display = 'none';
+    if (runtimeRepair) {
+      // The errors have now really gone to chat: remove exactly these rows from
+      // the active badge/list.  Diagnostics keep them, and recurrence reopens.
+      setRuntimeErrorsReported(submittedRuntimeErrorIds, false);
+      preparedRuntimeErrorIds = [];
+      preparedRuntimeErrorPromptSnapshot = '';
+    }
     fetch(aiGenerateUrl, { method:'POST', body: fd, headers: { 'Accept':'application/json' } })
       .then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }))
       .then(({ ok, status, data }) => {
-        if (!ok || data.status !== 'ok') { pending.remove(); showError(data.message || ('HTTP ' + status)); return; }
+        if (!ok || data.status !== 'ok') {
+          pending.remove();
+          if (runtimeRepair) setRuntimeErrorsReported(submittedRuntimeErrorIds, true);
+          showError(data.message || ('HTTP ' + status));
+          return;
+        }
         pending.textContent = data.message || 'Готово';
-        if (Array.isArray(data.ngenie_code_questions) && data.ngenie_code_questions.length) appendNGenieQuestions(data.message || 'Нужно уточнить данные', data.ngenie_code_questions);
+        const ptype = String(data.plan_type || data.type || '').toLowerCase();
+        if (ptype || (Array.isArray(data.ngenie_code_questions) && data.ngenie_code_questions.length)) {
+          handleQuestionAnswerResponse(data, pending, true);
+        } else {
+          loadNGenieHistory();
+          refreshSolutionSummary();
+        }
         promptInput.value = '';
         if (attachmentsInput) attachmentsInput.value = '';
-        loadNGenieHistory();
-        refreshSolutionSummary();
       })
-      .catch(err => { pending.remove(); showError(err.message); })
+      .catch(err => {
+        pending.remove();
+        if (runtimeRepair) setRuntimeErrorsReported(submittedRuntimeErrorIds, true);
+        showError(err.message);
+      })
       .finally(() => setBusy(false));
   });
 
+  setSolutionJourneyProgress(initialJourneyIndex, initialJourneyReachedIndex);
+  translateSolutionUi(document.querySelector('.solution-work-page'));
+  const solutionUiRoot = document.querySelector('.solution-work-page');
+  if (solutionUiRoot && window.MutationObserver) {
+    const uiObserver = new MutationObserver(records => {
+      records.forEach(record => record.addedNodes.forEach(node => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const holder = node.parentElement;
+          if (holder) translateSolutionUi(holder);
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          translateSolutionUi(node);
+        }
+      }));
+    });
+    uiObserver.observe(solutionUiRoot, { childList:true, subtree:true });
+  }
   loadNGenieHistory();
   refreshSolutionSummary();
+  refreshRuntimeErrors(false);
 })();
 </script>
 {% endblock %}

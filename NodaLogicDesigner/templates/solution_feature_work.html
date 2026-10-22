@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+
+{% block title %}{{ feature.name }} · N-Reactor{% endblock %}
+
+{% block content %}
+<style>
+  .feature-dialog-feed { max-height:58vh; overflow-y:auto; overscroll-behavior:contain; background:#fbfcfe; border:1px solid #dee2e6; border-radius:.75rem; padding:1rem; }
+  .feature-chat { min-height:0; }
+  .feature-chat:empty { display:none; }
+  .feature-msg { max-width:88%; padding:.7rem .85rem; border-radius:.8rem; margin:.45rem 0; white-space:pre-wrap; }
+  .feature-msg.user { margin-left:auto; background:#e8f1ff; }
+  .feature-msg.assistant { margin-right:auto; background:#fff; border:1px solid #e4e7eb; }
+  .feature-question { border:1px solid #b6d4fe; background:#fff; border-radius:.75rem; padding:1rem; margin-top:.75rem; }
+  .feature-question .form-label { font-weight:600; }
+  .feature-spec { max-height:42vh; overflow:auto; }
+  .feature-thinking { display:flex; align-items:center; gap:.55rem; color:#6c757d; }
+  .feature-thinking-dots { display:inline-flex; gap:.18rem; align-items:center; }
+  .feature-thinking-dots span { width:.38rem; height:.38rem; border-radius:50%; background:currentColor; opacity:.35; animation:featureThinking 1.15s infinite ease-in-out; }
+  .feature-thinking-dots span:nth-child(2) { animation-delay:.16s; }
+  .feature-thinking-dots span:nth-child(3) { animation-delay:.32s; }
+  @keyframes featureThinking { 0%, 80%, 100% { transform:translateY(0); opacity:.3; } 40% { transform:translateY(-.22rem); opacity:.9; } }
+</style>
+<div class="container mt-4 mb-5">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+        <h2 class="mb-0">{{ feature.name }}</h2>
+        <span class="badge text-bg-info">Фича</span>
+        {% if solution.status in ['generated','ready','released'] %}<span class="badge text-bg-success">Интегрировано</span>{% else %}<span class="badge text-bg-light border">Подготовка интеграции</span>{% endif %}
+      </div>
+      <div class="text-muted">{{ feature.description }}</div>
+    </div>
+    <a href="{{ url_for('solutions_page') }}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> N-Reactor</a>
+  </div>
+
+  <div class="alert alert-info">
+    <i class="bi bi-shield-check me-1"></i>
+    Работа ведётся в <strong>отдельной копии</strong> загруженной конфигурации. Исходный .nod не изменяется.
+  </div>
+  {% if feature.catalog_missing %}
+  <div class="alert alert-warning">Пакет этой фичи сейчас отсутствует в каталоге. Уже готовый результат можно получить, но продолжить интеграцию нельзя, пока пакет не будет возвращён.</div>
+  {% endif %}
+
+  <div class="row g-4">
+    <div class="col-lg-8">
+      <div class="card shadow-sm mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center gap-2">
+          <strong>Диалог и уточнения</strong>
+          <div class="d-flex align-items-center gap-2">
+            <label for="featureModel" class="small text-muted mb-0">Модель</label>
+            <select id="featureModel" class="form-select form-select-sm" style="width:auto;min-width:150px">
+              {% for model in solution_models %}
+                <option value="{{ model.key }}" {% if selected_solution_model and selected_solution_model.key == model.key %}selected{% endif %}>{{ model.name or model.key }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="card-body">
+          <div id="featureDialogFeed" class="feature-dialog-feed">
+            <div id="featureChat" class="feature-chat"><div class="text-muted small">Загружаю диалог…</div></div>
+            <div id="featureQuestionHost"></div>
+          </div>
+          {% if solution.status not in ['generated','ready','released'] %}
+          <form id="featureChatForm" class="d-flex gap-2 mt-3">
+            <textarea id="featureChatInput" class="form-control" rows="2" placeholder="Дополните постановку задачи или ответьте своими словами…"></textarea>
+            <button id="featureChatSubmit" class="btn btn-primary align-self-stretch" type="submit"><i class="bi bi-send"></i></button>
+          </form>
+          {% endif %}
+          <div id="featureError" class="alert alert-danger mt-3 d-none"></div>
+        </div>
+      </div>
+
+      <div id="featureSpecCard" class="card shadow-sm mb-4 {% if not solution.specification_html %}d-none{% endif %}">
+        <div class="card-header"><strong>Техническое задание интеграции</strong></div>
+        <div id="featureSpec" class="card-body feature-spec">{{ solution.specification_html|safe }}</div>
+      </div>
+
+      <div id="featureProgress" class="card shadow-sm mb-4 border-info d-none">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <strong id="featureProgressTitle">N-Reactor выполняет интеграцию…</strong>
+          <button id="featureStop" class="btn btn-sm btn-outline-danger" type="button">Стоп</button>
+        </div>
+        <div class="card-body">
+          <div id="featureProgressDetail" class="small text-muted">Подготовка…</div>
+          <div class="progress mt-3"><div id="featureProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" style="width:8%"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="card shadow-sm mb-4">
+        <div class="card-header"><strong>Задача</strong></div>
+        <div class="card-body">
+          <div class="small text-muted mb-1">Исходная конфигурация</div>
+          <div class="mb-3"><strong>{{ source_info.source_name or config.name }}</strong><br><span class="small text-muted">{{ source_info.file_name or '' }}</span></div>
+          <div class="small text-muted mb-1">Исходная формулировка</div>
+          <div class="border rounded p-2 bg-body-tertiary" style="white-space:pre-wrap">{{ placement_instructions }}</div>
+        </div>
+      </div>
+
+      {% if solution.status in ['generated','ready','released'] %}
+      <div class="card shadow-sm mb-4 border-success">
+        <div class="card-header"><strong>Результат готов</strong></div>
+        <div class="card-body">
+          <div class="alert alert-success small">Фича интегрирована. Конфигурация развернута в Client и доступна для проверки.</div>
+          {% if client_url %}<a class="btn btn-outline-success w-100 mb-2" href="{{ client_url }}"><i class="bi bi-box-arrow-up-right me-1"></i>Открыть в Client</a>{% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="card shadow-sm mb-4">
+        <div class="card-header"><strong>Стоимость результата</strong></div>
+        <div class="card-body">
+          {% if price.promo_active %}<div class="text-muted text-decoration-line-through">{{ price.regular_display }}</div>{% endif %}
+          <div class="fs-3 fw-semibold">{{ price.current_display }}</div>
+          <div class="small text-muted mt-1">Токены работы N-Reactor учитываются отдельно. Оплата открывает скачивание изменённой конфигурации.</div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm">
+        <div class="card-header"><strong>Получить конфигурацию</strong></div>
+        <div class="card-body">
+          {% if solution.status not in ['generated','ready','released'] %}
+            <div class="text-muted small">После утверждения ТЗ N-Reactor выполнит интеграцию и развернёт результат в Client.</div>
+          {% elif release_access.allowed %}
+            {% if release_access.reason == 'admin_free_allowance' %}<div class="alert alert-warning small">Будет использовано одно бесплатное скачивание.</div>{% endif %}
+            <a class="btn btn-success w-100" href="{{ url_for('solutions_feature_download', solution_uid=solution.uid) }}"><i class="bi bi-download me-1"></i>Скачать конфигурацию</a>
+          {% else %}
+            <div class="small text-muted mb-3">Результат уже можно тестировать в Client. Для скачивания .nod требуется оплата.</div>
+            <form method="post" action="{{ url_for('solutions_buy_feature', solution_uid=solution.uid) }}">
+              <button class="btn btn-success w-100" type="submit" {% if not checkout_available %}disabled{% endif %}><i class="bi bi-credit-card me-1"></i>Оплатить {{ price.current_display }}</button>
+            </form>
+            {% if not checkout_available %}<div class="small text-muted mt-2">ЮKassa не настроена.</div>{% endif %}
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const generated = {{ (solution.status in ['generated','ready','released'])|tojson }};
+  const catalogMissing = {{ (feature.catalog_missing|default(false))|tojson }};
+  const chatUrl = {{ url_for('solutions_chat_api', solution_uid=solution.uid)|tojson }};
+  const planUrl = {{ url_for('solutions_feature_plan_api', solution_uid=solution.uid)|tojson }};
+  const answersUrl = {{ url_for('solutions_question_answers_api', solution_uid=solution.uid)|tojson }};
+  const generateUrl = {{ url_for('solutions_feature_generate_api', solution_uid=solution.uid)|tojson }};
+  const statusUrl = {{ url_for('solutions_generation_status_api', solution_uid=solution.uid)|tojson }};
+  const stopUrl = {{ url_for('solutions_generation_stop_api', solution_uid=solution.uid)|tojson }};
+  const modelUrl = {{ url_for('solutions_model_api', solution_uid=solution.uid)|tojson }};
+  const feed = document.getElementById('featureDialogFeed');
+  const chat = document.getElementById('featureChat');
+  const questionHost = document.getElementById('featureQuestionHost');
+  const form = document.getElementById('featureChatForm');
+  const input = document.getElementById('featureChatInput');
+  const model = document.getElementById('featureModel');
+  const error = document.getElementById('featureError');
+  const progress = document.getElementById('featureProgress');
+  const progressTitle = document.getElementById('featureProgressTitle');
+  const progressDetail = document.getElementById('featureProgressDetail');
+  const progressBar = document.getElementById('featureProgressBar');
+  const stop = document.getElementById('featureStop');
+  const submit = document.getElementById('featureChatSubmit');
+  let busy = false, polling = null, activeQuestions = [];
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function setPlanningState(active, text) {
+    const old = document.getElementById('featureThinking');
+    if (old) old.remove();
+    if (input) input.disabled = !!active;
+    if (submit) submit.disabled = !!active;
+    if (model) model.disabled = !!active;
+    if (!active) return;
+    const div = document.createElement('div');
+    div.id = 'featureThinking';
+    div.className = 'feature-msg assistant feature-thinking';
+    div.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>' +
+      '<span>' + esc(text || 'N-Reactor анализирует задачу…') + '</span>' +
+      '<span class="feature-thinking-dots" aria-hidden="true"><span></span><span></span><span></span></span>';
+    chat.appendChild(div);
+    feed.scrollTop = feed.scrollHeight;
+  }
+  function showError(msg) { error.textContent = msg || 'Ошибка'; error.classList.remove('d-none'); }
+  function clearError() { error.classList.add('d-none'); error.textContent = ''; }
+  function addMessage(role, text, kind) {
+    if (!text) return;
+    const div = document.createElement('div');
+    div.className = 'feature-msg ' + (role === 'user' ? 'user' : 'assistant');
+    if (kind === 'generation_success') div.classList.add('border','border-success');
+    div.textContent = text;
+    chat.appendChild(div);
+  }
+  function fieldOptions(field) { return Array.isArray(field.options) ? field.options : []; }
+  function renderQuestions(message, questions) {
+    activeQuestions = Array.isArray(questions) ? questions : [];
+    questionHost.innerHTML = '';
+    if (!activeQuestions.length) return;
+    const box = document.createElement('div');
+    box.className = 'feature-question';
+    if (message) box.insertAdjacentHTML('beforeend', '<div class="mb-3">' + esc(message) + '</div>');
+    activeQuestions.forEach((q, qi) => {
+      const title = document.createElement('div');
+      title.className = 'fw-semibold mb-2';
+      title.innerHTML = q.text_html || esc(q.text || q.question || 'Уточнение');
+      box.appendChild(title);
+      (q.fields || []).forEach((f, fi) => {
+        const fid = String(f.id || ('f_' + qi + '_' + fi));
+        const wrap = document.createElement('div'); wrap.className = 'mb-3';
+        const label = document.createElement('label'); label.className='form-label small'; label.textContent = f.caption || f.text || fid; wrap.appendChild(label);
+        const type = String(f.type || 'text').toLowerCase();
+        if (type === 'single_choice' || type === 'radio') {
+          fieldOptions(f).forEach((o, oi) => {
+            const value = typeof o === 'object' ? (o.value ?? o.id ?? o.text) : o;
+            const text = typeof o === 'object' ? (o.text ?? o.caption ?? o.value) : o;
+            const id = 'fq_' + qi + '_' + fi + '_' + oi;
+            wrap.insertAdjacentHTML('beforeend', '<div class="form-check"><input class="form-check-input" type="radio" name="'+esc(fid)+'" id="'+id+'" value="'+esc(value)+'"><label class="form-check-label" for="'+id+'">'+esc(text)+'</label></div>');
+          });
+        } else if (type === 'textarea') {
+          wrap.insertAdjacentHTML('beforeend','<textarea class="form-control" data-field="'+esc(fid)+'" rows="'+esc(f.rows || 3)+'" placeholder="'+esc(f.placeholder || '')+'"></textarea>');
+        } else if (type === 'checkbox' || type === 'boolean') {
+          wrap.innerHTML = '<div class="form-check"><input class="form-check-input" data-field="'+esc(fid)+'" type="checkbox" id="fc_'+qi+'_'+fi+'"><label class="form-check-label" for="fc_'+qi+'_'+fi+'">'+esc(f.caption || f.text || fid)+'</label></div>';
+        } else {
+          wrap.insertAdjacentHTML('beforeend','<input class="form-control" data-field="'+esc(fid)+'" type="'+(type === 'number' ? 'number' : 'text')+'" placeholder="'+esc(f.placeholder || '')+'">');
+        }
+        wrap.dataset.fieldId = fid; box.appendChild(wrap);
+      });
+    });
+    const btn = document.createElement('button'); btn.className='btn btn-primary'; btn.type='button'; btn.textContent='Ответить';
+    btn.addEventListener('click', submitAnswers); box.appendChild(btn); questionHost.appendChild(box);
+  }
+  function collectAnswers() {
+    const out = {};
+    activeQuestions.forEach((q, qi) => {
+      const qid = String(q.id || q.key || ('q_' + qi)); out[qid] = {};
+      (q.fields || []).forEach((f, fi) => {
+        const fid = String(f.id || ('f_' + qi + '_' + fi));
+        const type = String(f.type || 'text').toLowerCase();
+        if (type === 'single_choice' || type === 'radio') {
+          const el = questionHost.querySelector('input[name="'+CSS.escape(fid)+'"]:checked'); out[qid][fid] = el ? el.value : '';
+        } else {
+          const el = questionHost.querySelector('[data-field="'+CSS.escape(fid)+'"]');
+          out[qid][fid] = el ? ((type === 'checkbox' || type === 'boolean') ? !!el.checked : el.value) : '';
+        }
+      });
+    });
+    return out;
+  }
+  async function loadChat() {
+    const r = await fetch(chatUrl, {cache:'no-store'}); const data = await r.json();
+    chat.innerHTML='';
+    (data.messages || []).forEach(row => addMessage(row.role, row.content, row.meta && row.meta.kind));
+    renderQuestions(data.pending_question_message || '', data.pending_questions || []);
+    feed.scrollTop = feed.scrollHeight;
+    return data;
+  }
+  async function runPlan(message) {
+    if (busy || generated || catalogMissing) return;
+    busy = true; clearError();
+    setPlanningState(true, message ? 'N-Reactor анализирует уточнение и конфигурацию…' : 'N-Reactor анализирует конфигурацию и постановку задачи…');
+    try {
+      const r = await fetch(planUrl, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:message || ''})});
+      const data = await r.json(); if (!r.ok || data.status === 'error') throw new Error(data.message || 'Ошибка анализа задачи');
+      if (data.specification_html) { document.getElementById('featureSpec').innerHTML=data.specification_html; document.getElementById('featureSpecCard').classList.remove('d-none'); }
+      setPlanningState(false);
+      await loadChat();
+      if (String(data.plan_type || '').toLowerCase() === 'generate') await startGeneration();
+    } catch(e) { setPlanningState(false); showError(e.message || String(e)); }
+    finally { busy=false; setPlanningState(false); }
+  }
+  async function submitAnswers() {
+    if (busy || !activeQuestions.length) return;
+    busy=true; clearError();
+    setPlanningState(true, 'N-Reactor анализирует ответы и уточняет ТЗ…');
+    try {
+      const answers=collectAnswers();
+      const action = (activeQuestions[0] && activeQuestions[0].action) || 'straight';
+      const r=await fetch(answersUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({questions:activeQuestions,answers,action,resume:true})});
+      const data=await r.json(); if(!r.ok || data.status==='error') throw new Error(data.message || 'Не удалось сохранить ответы');
+      if (data.specification_html) { document.getElementById('featureSpec').innerHTML=data.specification_html; document.getElementById('featureSpecCard').classList.remove('d-none'); }
+      setPlanningState(false);
+      await loadChat();
+      if(String(data.plan_type||'').toLowerCase()==='generate') await startGeneration();
+    } catch(e){ setPlanningState(false); showError(e.message || String(e)); }
+    finally{ busy=false; setPlanningState(false); }
+  }
+  async function pollStatus() {
+    try {
+      const r=await fetch(statusUrl,{cache:'no-store'}); const data=await r.json(); const g=data.generation||{};
+      if(g.active){ progress.classList.remove('d-none'); progressTitle.textContent=g.stage || 'N-Reactor выполняет интеграцию…'; progressDetail.textContent=g.detail || 'Выполняется текущий этап…'; const n=Number(g.solution_progress_index||0); progressBar.style.width=Math.max(8,Math.min(98,(n/12)*100))+'%'; }
+      return !!g.active;
+    } catch(_){ return false; }
+  }
+  async function startGeneration() {
+    if (busy && progress.dataset.started === '1') return;
+    clearError(); progress.dataset.started='1'; progress.classList.remove('d-none'); progressDetail.textContent='Запускаю интеграцию…';
+    if(!polling) polling=setInterval(pollStatus,1500); pollStatus();
+    try {
+      const r=await fetch(generateUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({solution_model:model?model.value:''})});
+      const data=await r.json(); if(!r.ok || data.status==='error') throw new Error(data.message || 'Ошибка интеграции');
+      await loadChat(); window.location.reload();
+    } catch(e){ showError(e.message || String(e)); progress.dataset.started='0'; }
+    finally { if(polling){clearInterval(polling);polling=null;} }
+  }
+  if(form) form.addEventListener('submit', async e => { e.preventDefault(); const msg=(input.value||'').trim(); if(!msg) return; input.value=''; await runPlan(msg); });
+  if(model) model.addEventListener('change',()=>fetch(modelUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:model.value})}).catch(()=>{}));
+  if(stop) stop.addEventListener('click', async()=>{ await fetch(stopUrl,{method:'POST'}); progressDetail.textContent='Остановка запрошена. Сохранённый checkpoint останется доступен.'; });
+
+  (async function init(){
+    try {
+      const active=await pollStatus();
+      const data=await loadChat();
+      if(active){ progress.classList.remove('d-none'); polling=setInterval(async()=>{ if(!(await pollStatus())){clearInterval(polling);polling=null; await loadChat(); window.location.reload();}},1500); return; }
+      if(!generated && !catalogMissing && !(data.pending_questions||[]).length) await runPlan('');
+    } catch(e){ showError(e.message || String(e)); }
+  })();
+})();
+</script>
+{% endblock %}
