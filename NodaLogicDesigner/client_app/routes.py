@@ -256,7 +256,7 @@ PROJECTION_HTML_TYPE = "html_projection"
 PROJECTION_TRANSIENT_SAVE_FIELDS = {"_projection_objects", "_projection_html"}
 PRINT_FORM_CLASS_TYPE = "print_form"
 PRINT_FORM_TEMPLATE_HTML_JINJA = "html_jinja"
-SINGLETON_CLASS_TYPES = {"custom_process", PROJECTION_CLASS_TYPE}
+SINGLETON_CLASS_TYPES = {"custom_process", PROJECTION_CLASS_TYPE, "resource_binding"}
 
 def _class_type_value(cls_or_type: Any) -> str:
     if isinstance(cls_or_type, dict):
@@ -763,14 +763,52 @@ def _client_extension_raw_cover_html(
         return ""
 
 
-def _client_extension_config_section_meta(repos: List[models.Repo], section_code: str) -> Optional[Dict[str, Any]]:
+def _client_extension_config_section_meta_with_repo(repos: List[models.Repo], section_code: str):
+    """Return (section_meta, repo) for a configured section.
+
+    Keeping the owning repo matters for section-form nodes: a compact reference
+    like ``Class$singleton`` must be resolved in the configuration that owns the
+    section, not in an arbitrary repo that happens to contain the same class name.
+    """
     code = str(section_code or "")
     for repo in repos or []:
         parsed = get_parsed_config(repo, models.db) or {}
         for sec in normalize_sections(parsed.get("cfg") or {}):
             if str(sec.get("code") or "") == code:
-                return sec
-    return None
+                return sec, repo
+    return None, None
+
+
+def _client_extension_config_section_meta(repos: List[models.Repo], section_code: str) -> Optional[Dict[str, Any]]:
+    meta, _repo = _client_extension_config_section_meta_with_repo(repos, section_code)
+    return meta
+
+
+def _client_db_section_form_ref(repo: Optional[models.Repo], section_code: str, field_name: str) -> str:
+    """Best-effort fallback to the live server Configuration row.
+
+    Repo.cached_json can legitimately be one refresh behind immediately after a
+    configuration is imported/updated. Section forms are structural UI metadata,
+    so do not silently fall back to the normal list just because that cached JSON
+    predates the new ``web_form_node``/``mobile_form_node`` fields.
+    """
+    if repo is None or not getattr(repo, "config_uid", None):
+        return ""
+    try:
+        import __main__ as main
+        Configuration = main.Configuration
+        cfg_obj = models.db.session.execute(
+            select(Configuration).where(Configuration.uid == str(repo.config_uid))
+        ).scalar_one_or_none()
+        if cfg_obj is None:
+            return ""
+        for sec in (getattr(cfg_obj, "sections", None) or []):
+            if str(getattr(sec, "code", "") or "") != str(section_code or ""):
+                continue
+            return str(getattr(sec, field_name, "") or "").strip()
+    except Exception:
+        return ""
+    return ""
 
 
 def _client_extension_section_allowed(repos: List[models.Repo], state: Dict[str, Any], section_code: str) -> bool:
@@ -3680,6 +3718,8 @@ def normalize_sections(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
             "allow_client_extensions": _client_extension_bool(
                 s.get("allow_client_extensions", s.get("allowClientExtensions")), default=True
             ),
+            "mobile_form_node": str(s.get("mobile_form_node") or s.get("mobileFormNode") or "").strip(),
+            "web_form_node": str(s.get("web_form_node") or s.get("webFormNode") or "").strip(),
         })
     return out
 
@@ -4015,6 +4055,8 @@ def fetch_config_from_local_db(config_uid: str, user=None) -> Dict[str, Any]:
             "commands": s.commands,
             "hide_mobile_client": bool(getattr(s, "hide_mobile_client", False)),
             "hide_web_client": bool(getattr(s, "hide_web_client", False)),
+            "mobile_form_node": getattr(s, "mobile_form_node", "") or "",
+            "web_form_node": getattr(s, "web_form_node", "") or "",
         })
 
     common_events = []
@@ -4299,6 +4341,8 @@ def build_global_sections(repos: List[models.Repo], db) -> List[Dict[str, Any]]:
                     "name": sec["name"],
                     "is_extension": False,
                     "allow_client_extensions": _client_extension_bool(sec.get("allow_client_extensions"), default=True),
+                    "mobile_form_node": str(sec.get("mobile_form_node") or ""),
+                    "web_form_node": str(sec.get("web_form_node") or ""),
                 }
 
     # User-created sections are account-level and are not tied to a particular
@@ -4448,7 +4492,7 @@ def _text_like_index_ids_for_class(config_uid: str, class_name: str, q: str, lim
     return out if has_index_rows else None
 
 
-def _nodes_storage_page(config_uid: str, class_name: str, *, offset: int, limit: int, q: str = "", index_name: str = "", index_value: str = "") -> List[Dict[str, Any]]:
+def _nodes_storage_page(config_uid: str, class_name: str, *, offset: int, limit: int, q: str = "", index_name: str = "", index_value: str = "", index_filters: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """Read nodes directly from the same storage as /api/.../page (no HTTP call)."""
     storage_key = f"{class_name}_{config_uid}"
     db_path = os.path.join("node_storage", f"{storage_key}.sqlite")
@@ -4488,6 +4532,15 @@ def _nodes_storage_page(config_uid: str, class_name: str, *, offset: int, limit:
                 if obj is not None:
                     items.append(obj)
             return items
+
+        if index_filters:
+            try:
+                node_cls = _load_server_node_class(config_uid, class_name)
+                finder = getattr(node_cls, "find_ids_by_index_filters", None)
+                ids = finder(index_filters, config_uid, limit=offset + limit) if callable(finder) else []
+            except Exception:
+                ids = []
+            return fetch_items_by_ids(ids)
 
         if index_name and index_value != "":
             try:
@@ -4572,7 +4625,7 @@ def _api_get_remote(repo: models.Repo, path: str, *, params: Optional[dict] = No
     return resp.json()
 
 
-def _fetch_nodes_for_class(repo: models.Repo, *, config_uid: str, class_name: str, q: str, limit: int, index_name: str = "", index_value: str = "", user=None, parsed_config: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+def _fetch_nodes_for_class(repo: models.Repo, *, config_uid: str, class_name: str, q: str, limit: int, index_name: str = "", index_value: str = "", index_filters: Optional[List[Dict[str, Any]]] = None, user=None, parsed_config: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Fetch nodes either locally (same server) or remotely (repo.base_url override)."""
     # Default: no base_url override or points to this server -> read local storage.
     # If base_url is configured and does not match current host, do remote HTTP.
@@ -4591,7 +4644,7 @@ def _fetch_nodes_for_class(repo: models.Repo, *, config_uid: str, class_name: st
         if actor is not None and not _client_user_can_access_class(config_uid, class_name, user=actor):
             return []
         with _nodes_config_context(config_uid, parsed_config):
-            items = _nodes_storage_page(config_uid, class_name, offset=0, limit=limit, q=q, index_name=index_name, index_value=index_value)
+            items = _nodes_storage_page(config_uid, class_name, offset=0, limit=limit, q=q, index_name=index_name, index_value=index_value, index_filters=index_filters)
         return _client_filter_nodes_for_acl(config_uid, class_name, items, user=actor) if actor is not None else items
 
     # Remote
@@ -4599,12 +4652,18 @@ def _fetch_nodes_for_class(repo: models.Repo, *, config_uid: str, class_name: st
         payload = _api_get_remote(
             repo,
             f"/api/config/{config_uid}/node/{class_name}/page",
-            params=({"offset": 0, "limit": limit, "q": q} if q else {"offset": 0, "limit": limit}) | ({"index_name": index_name, "index_value": index_value} if index_name and index_value != "" else {}),
+            params=({"offset": 0, "limit": limit, "q": q} if q else {"offset": 0, "limit": limit})
+            | ({"index_filters": json.dumps(index_filters, ensure_ascii=False)} if index_filters else {})
+            | ({"index_name": index_name, "index_value": index_value} if index_name and index_value != "" else {}),
         )
         items = payload.get("items", [])
         return items if isinstance(items, list) else []
     except Exception:
-        # fallback to full list
+        # Advanced section filters must never degrade to a full-node JSON scan
+        # or silently return unfiltered data from an older remote server.
+        if index_filters:
+            return []
+        # Legacy fallback is retained for existing callers/configurations.
         try:
             all_nodes = _api_get_remote(repo, f"/api/config/{config_uid}/node/{class_name}")
         except Exception:
@@ -12300,6 +12359,341 @@ def api_node_save():
                         }), 500
 
 
+
+# ---------- Reactive NodaLayout API ----------
+
+def _reactive_layout_field_meta(parsed: Dict[str, Any], class_name: str) -> Dict[str, str]:
+    """Collect configured field ids/captions from a class NodaLayout recursively."""
+    out: Dict[str, str] = {}
+    cls = ((parsed or {}).get("classes") or {}).get(class_name) or {}
+    spec = _first_usable_layout(cls.get("init_screen_layout_web"), cls.get("init_screen_layout"))
+    spec = resolve_common_layout(parsed, spec)
+    if isinstance(spec, str):
+        try:
+            spec = json.loads(spec)
+        except Exception:
+            spec = None
+
+    field_types = {
+        "Input", "TextInput", "Switch", "CheckBox", "Spinner", "NodeInput",
+        "DatasetInput", "DatasetField", "ExtensionPicture", "ExtensionGeoTag", "Reactive",
+    }
+
+    def walk(obj: Any) -> None:
+        if isinstance(obj, list):
+            for item in obj:
+                walk(item)
+            return
+        if not isinstance(obj, dict):
+            return
+        typ = str(obj.get("type") or "")
+        fid = str(obj.get("id") or "").strip()
+        if fid and typ in field_types:
+            out.setdefault(fid, str(obj.get("caption") or fid))
+        for key in ("value", "layout"):
+            walk(obj.get(key))
+        vn = obj.get("virtual_node")
+        if isinstance(vn, dict):
+            walk(vn.get("layout"))
+            walk(vn.get("cover"))
+
+    walk(spec)
+    return out
+
+
+def _reactive_local_node(repo: models.Repo, class_name: str, node_id: str):
+    parsed = get_parsed_config(repo, models.db) or {}
+    cls_cfg = (parsed.get("classes") or {}).get(class_name) or {}
+    if not cls_cfg:
+        raise ValueError("class not found")
+
+    base_url = (repo.base_url or "").strip().rstrip("/")
+    current = (request.host_url or "").rstrip("/")
+    if base_url and base_url != current:
+        raise ValueError("Reactive editor currently requires a local repository")
+
+    node_class = _load_server_node_class(repo.config_uid, class_name)
+    singleton = _is_singleton_class_type(cls_cfg)
+    candidates = []
+    if singleton:
+        candidates.append(_normalize_custom_process_uid(repo.config_uid, class_name, node_id))
+    candidates.append(node_id)
+
+    node = None
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            node = node_class.get(candidate, repo.config_uid)
+        except Exception:
+            node = None
+        if node:
+            break
+
+    if not node and singleton:
+        # New singleton nodes must always use the internal id.  Older web code
+        # accidentally created an object whose internal id itself was
+        # ``config$Class``; Node.get above still finds that legacy form.
+        canonical_uid = _normalize_custom_process_uid(repo.config_uid, class_name, node_id)
+        try:
+            internal_id = _nodes_mod.extract_internal_id(canonical_uid) or "singleton"
+        except Exception:
+            internal_id = "singleton"
+        node = node_class(internal_id, repo.config_uid)
+    if not node:
+        raise ValueError("node not found")
+
+    try:
+        node._schema_class_name = class_name
+    except Exception:
+        pass
+
+    if not _is_singleton_class_type(cls_cfg):
+        data = node.get_data() or {}
+        if _client_repo_is_local(repo) and not _client_user_can_access_node(repo.config_uid, class_name, node_id, data):
+            raise PermissionError("Forbidden")
+    return node, parsed, cls_cfg
+
+
+def _reactive_json_value(value: Any) -> Any:
+    try:
+        json.dumps(value, ensure_ascii=False)
+        return value
+    except Exception:
+        return str(value)
+
+
+def _reactive_layout_specs(layout: Any) -> List[Dict[str, Any]]:
+    """Collect Reactive elements from an already resolved NodaLayout."""
+    obj = layout
+    if isinstance(obj, str):
+        raw = obj.strip()
+        if not raw:
+            return []
+        try:
+            obj = json.loads(raw)
+        except Exception:
+            return []
+
+    out: List[Dict[str, Any]] = []
+
+    def walk(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                walk(item)
+            return
+        if not isinstance(value, dict):
+            return
+        if str(value.get("type") or "").strip().lower() == "reactive":
+            out.append(value)
+        # Nested layouts/tables/virtual nodes can contain normal NodaLayout
+        # elements too.  Walking all structured children is safe and keeps the
+        # feature usable outside the simple top-level demo.
+        for child in value.values():
+            if isinstance(child, (list, dict)):
+                walk(child)
+
+    walk(obj)
+    return out
+
+
+def _ensure_reactive_layout_defaults(node: Any, layout: Any) -> List[str]:
+    """Install layout default_formula once, server-side.
+
+    The web editor also asks the state API to ensure a default, but doing it
+    here means a Reactive field already works on the very first server render
+    and does not depend on JavaScript initialization.  User-edited formulas are
+    never overwritten.
+    """
+    touched: List[str] = []
+    if node is None:
+        return touched
+    for el in _reactive_layout_specs(layout):
+        field = str(el.get("id") or "").strip()
+        formula = el.get("default_formula", el.get("formula", ""))
+        formula = "" if formula is None else str(formula)
+        if not field or not formula.strip():
+            continue
+        try:
+            if node.get_reactive_formula(field) is None:
+                node.set_reactive_formula(
+                    field,
+                    formula,
+                    async_mode=bool(el.get("async", el.get("async_mode", False))),
+                )
+                touched.append(field)
+        except Exception:
+            # A malformed configured default must not make the whole node form
+            # disappear.  The editor/API will show the formula error when the
+            # user opens that Reactive field.
+            continue
+    return touched
+
+
+@client_bp.route("/api/reactive/classes", methods=["POST"])
+@login_required
+def api_reactive_classes():
+    j = request.get_json(silent=True) or {}
+    repo_id = int(j.get("repo_id") or 0)
+    if not repo_id:
+        return jsonify({"ok": False, "error": "bad args"}), 400
+    repo = _get_repo_or_404(repo_id)
+    parsed = get_parsed_config(repo, models.db) or {}
+    items = []
+    for name, cls in ((parsed.get("classes") or {}).items()):
+        if not isinstance(cls, dict) or bool(cls.get("hidden")):
+            continue
+        items.append({
+            "name": str(name),
+            "caption": str(cls.get("display_name") or name),
+            "singleton": bool(_is_singleton_class_type(cls)),
+        })
+    items.sort(key=lambda x: (x["caption"].lower(), x["name"].lower()))
+    return jsonify({"ok": True, "items": items})
+
+
+@client_bp.route("/api/reactive/fields", methods=["POST"])
+@login_required
+def api_reactive_fields():
+    j = request.get_json(silent=True) or {}
+    repo_id = int(j.get("repo_id") or 0)
+    class_name = str(j.get("class_name") or "").strip()
+    node_id = str(j.get("node_id") or "").strip()
+    if not repo_id or not class_name:
+        return jsonify({"ok": False, "error": "bad args"}), 400
+    repo = _get_repo_or_404(repo_id)
+    parsed = get_parsed_config(repo, models.db) or {}
+    if class_name not in (parsed.get("classes") or {}):
+        return jsonify({"ok": False, "error": "class not found"}), 404
+
+    meta = _reactive_layout_field_meta(parsed, class_name)
+    values: Dict[str, Any] = {}
+    if node_id:
+        try:
+            node, _parsed, _cls = _reactive_local_node(repo, class_name, node_id)
+            data = node.get_data() or {}
+            if isinstance(data, dict):
+                values.update(data)
+        except PermissionError:
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        except Exception:
+            values = {}
+
+    names = set(meta)
+    names.update(str(k) for k in values.keys() if str(k) and not str(k).startswith("_"))
+    items = []
+    for name in sorted(names, key=lambda x: x.lower()):
+        val = values.get(name)
+        items.append({
+            "name": name,
+            "caption": meta.get(name, name),
+            "value": _reactive_json_value(val),
+        })
+    return jsonify({"ok": True, "items": items})
+
+
+@client_bp.route("/api/reactive/state", methods=["POST"])
+@login_required
+def api_reactive_state():
+    j = request.get_json(silent=True) or {}
+    repo_id = int(j.get("repo_id") or 0)
+    class_name = str(j.get("class_name") or "").strip()
+    node_id = str(j.get("node_id") or "").strip()
+    field = str(j.get("field") or "").strip()
+    ensure_default = bool(j.get("ensure_default"))
+    default_formula = str(j.get("default_formula") or "")
+    default_async = bool(j.get("default_async"))
+    if not repo_id or not class_name or not node_id or not field:
+        return jsonify({"ok": False, "error": "bad args"}), 400
+    repo = _get_repo_or_404(repo_id)
+    try:
+        node, _parsed, _cls = _reactive_local_node(repo, class_name, node_id)
+        formula = node.get_reactive_formula(field)
+        if formula is None and ensure_default and default_formula.strip():
+            node.set_reactive_formula(field, default_formula, async_mode=default_async)
+        state = node.get_reactive_state(field)
+        deps = node.get_reactive_dependencies(field)
+        data = node.get_data() or {}
+        value = data.get(field) if isinstance(data, dict) else None
+        return jsonify({
+            "ok": True,
+            "state": state,
+            "formula": node.get_reactive_formula(field),
+            "dependencies": deps,
+            "value": _reactive_json_value(value),
+        })
+    except PermissionError:
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@client_bp.route("/api/reactive/formula", methods=["POST"])
+@login_required
+def api_reactive_formula():
+    j = request.get_json(silent=True) or {}
+    repo_id = int(j.get("repo_id") or 0)
+    class_name = str(j.get("class_name") or "").strip()
+    node_id = str(j.get("node_id") or "").strip()
+    field = str(j.get("field") or "").strip()
+    formula = str(j.get("formula") or "")
+    async_mode = bool(j.get("async"))
+    if not repo_id or not class_name or not node_id or not field:
+        return jsonify({"ok": False, "error": "bad args"}), 400
+    repo = _get_repo_or_404(repo_id)
+    try:
+        node, _parsed, _cls = _reactive_local_node(repo, class_name, node_id)
+        if formula.strip():
+            state = node.set_reactive_formula(field, formula, async_mode=async_mode)
+        else:
+            node.remove_reactive_formula(field, keep_value=True)
+            state = node.get_reactive_state(field)
+        deps = node.get_reactive_dependencies(field)
+        data = node.get_data() or {}
+        value = data.get(field) if isinstance(data, dict) else None
+        return jsonify({
+            "ok": True,
+            "state": state,
+            "formula": node.get_reactive_formula(field),
+            "dependencies": deps,
+            "value": _reactive_json_value(value),
+        })
+    except PermissionError:
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@client_bp.route("/api/reactive/states", methods=["POST"])
+@login_required
+def api_reactive_states():
+    j = request.get_json(silent=True) or {}
+    repo_id = int(j.get("repo_id") or 0)
+    class_name = str(j.get("class_name") or "").strip()
+    node_id = str(j.get("node_id") or "").strip()
+    fields = j.get("fields") or []
+    if not repo_id or not class_name or not node_id or not isinstance(fields, list):
+        return jsonify({"ok": False, "error": "bad args"}), 400
+    repo = _get_repo_or_404(repo_id)
+    try:
+        node, _parsed, _cls = _reactive_local_node(repo, class_name, node_id)
+        data = node.get_data() or {}
+        out = {}
+        for raw_field in fields[:100]:
+            field = str(raw_field or "").strip()
+            if not field:
+                continue
+            out[field] = {
+                "state": node.get_reactive_state(field),
+                "value": _reactive_json_value(data.get(field) if isinstance(data, dict) else None),
+            }
+        return jsonify({"ok": True, "items": out})
+    except PermissionError:
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
 @client_bp.route("/api/projection/kanban/data", methods=["POST"])
 @login_required
 def api_projection_kanban_data():
@@ -12516,6 +12910,11 @@ def api_projection_schedule_move():
         return jsonify({"ok": False, "error": "bad args"}), 400
 
     repo = _get_repo_or_404(repo_id)
+    parsed_projection = get_parsed_config(repo, models.db) or {}
+    projection_class = projection_uid.split('$')[1] if '$' in projection_uid else ''
+    projection_meta = (parsed_projection.get('classes') or {}).get(projection_class) or {}
+    if _projection_move_is_readonly(repo, projection_meta, projection_class, projection_uid):
+        return jsonify({'ok': False, 'error': 'Проекция доступна только для просмотра'}), 409
     try:
         obj_repo, cls_name, internal_id = _resolve_projection_object(repo, object_uid)
         data = _fetch_node_data_for_repo(obj_repo, cls_name, internal_id) or {}
@@ -12590,6 +12989,9 @@ def api_projection_gantt_data():
     period_end = _parse_projection_datetime(data.get("_projection_period_end"), period_start + timedelta(days=30)) or (period_start + timedelta(days=30))
     if period_end <= period_start:
         period_end = period_start + timedelta(days=30)
+
+    # Projection contents are provided by the configuration's onRunProjection
+    # handler through node_data. The platform knows nothing about APS/MES.
 
     tasks = _normalize_gantt_tasks(data.get("_projection_tasks") or data.get("tasks"))
     objects = []
@@ -12711,6 +13113,17 @@ def api_projection_html_data():
     })
 
 
+def _projection_move_is_readonly(repo, cls_cfg, class_name, projection_uid):
+    """Generic projection-level edit guard; independent of domain-specific class names."""
+    if cls_cfg.get('projection_editable') is False:
+        return True
+    try:
+        node_data = _get_projection_node_data(repo, cls_cfg, class_name, projection_uid)
+    except Exception:
+        return False
+    return _boolish_projection_value(node_data.get('_projection_readonly'))
+
+
 @client_bp.route("/api/projection/gantt/move", methods=["POST"])
 @login_required
 def api_projection_gantt_move():
@@ -12724,6 +13137,11 @@ def api_projection_gantt_move():
     if not repo_id or not projection_uid or not object_uid:
         return jsonify({"ok": False, "error": "bad args"}), 400
     repo = _get_repo_or_404(repo_id)
+    parsed_projection = get_parsed_config(repo, models.db) or {}
+    projection_class = projection_uid.split('$')[1] if '$' in projection_uid else ''
+    projection_meta = (parsed_projection.get('classes') or {}).get(projection_class) or {}
+    if _projection_move_is_readonly(repo, projection_meta, projection_class, projection_uid):
+        return jsonify({'ok': False, 'error': 'Проекция доступна только для просмотра'}), 409
     try:
         obj_repo, cls_name, internal_id = _resolve_projection_object(repo, object_uid)
         data = _fetch_node_data_for_repo(obj_repo, cls_name, internal_id) or {}
@@ -13506,6 +13924,28 @@ def api_section_data():
     q_lower = q.lower()
     index_name = (request.args.get("index_name") or "").strip()
     index_value = request.args.get("index_value")
+    raw_index_filters = (request.args.get("index_filters") or "").strip()
+    index_filters: List[Dict[str, Any]] = []
+    if raw_index_filters:
+        try:
+            parsed_filters = json.loads(raw_index_filters)
+            if isinstance(parsed_filters, list):
+                for flt in parsed_filters[:16]:
+                    if not isinstance(flt, dict):
+                        continue
+                    fname = str(flt.get("name") or flt.get("index_name") or "").strip()
+                    if not fname:
+                        continue
+                    index_filters.append({
+                        "name": fname,
+                        "op": str(flt.get("op") or flt.get("operator") or "eq").strip().lower(),
+                        "value": flt.get("value"),
+                        # Type comes from the server-produced filter metadata in the web UI.
+                        # Older clients omit it; Node keeps its legacy/default behavior then.
+                        "filter_type": str(flt.get("filter_type") or "").strip(),
+                    })
+        except Exception:
+            index_filters = []
     tag_filter = (request.args.get("tag") or "").strip()
 
     if section_code == RAW_NODES_SECTION_CODE:
@@ -13521,7 +13961,46 @@ def api_section_data():
     repos = models.Repo.query.filter_by(user_id=_ngenie_effective_user_id()).all()
     extension_state = _client_extension_load_state()
     extension_section_meta = _client_extension_section(extension_state, section_code)
-    configured_section_meta = _client_extension_config_section_meta(repos, section_code) if section_code not in (RAW_NODES_SECTION_CODE, DASHBOARD_SECTION_CODE) else None
+    if section_code not in (RAW_NODES_SECTION_CODE, DASHBOARD_SECTION_CODE):
+        configured_section_meta, configured_section_repo = _client_extension_config_section_meta_with_repo(repos, section_code)
+    else:
+        configured_section_meta, configured_section_repo = None, None
+    section_form_url = ""
+    if configured_section_meta is not None:
+        raw_section_node = str((configured_section_meta or {}).get("web_form_node") or "").strip()
+        if not raw_section_node:
+            # A freshly imported configuration may already be present in the main
+            # DB while this user's Repo still contains the previous cached JSON.
+            raw_section_node = _client_db_section_form_ref(configured_section_repo, section_code, "web_form_node")
+        if raw_section_node:
+            try:
+                parts = raw_section_node.split("$")
+                if len(parts) >= 3:
+                    cfg_uid, form_class, form_node_id = parts[0], parts[1], "$".join(parts[2:])
+                elif len(parts) == 2:
+                    cfg_uid, form_class, form_node_id = "", parts[0], parts[1]
+                else:
+                    cfg_uid = form_class = form_node_id = ""
+                # Compact Class$node references belong to the section's own repo.
+                target_repo = configured_section_repo
+                if cfg_uid:
+                    target_repo = next((r for r in repos if str(r.config_uid or "") == cfg_uid), None)
+                if target_repo is None and form_class:
+                    for candidate_repo in repos:
+                        candidate_parsed = get_parsed_config(candidate_repo, models.db) or {}
+                        if form_class in ((candidate_parsed.get("classes") or {}) if isinstance(candidate_parsed, dict) else {}):
+                            target_repo = candidate_repo
+                            break
+                if target_repo is not None and form_class and form_node_id:
+                    section_form_url = url_for(
+                        "client.node_form",
+                        config_uid=target_repo.config_uid,
+                        class_name=form_class,
+                        node_id=form_node_id,
+                        section_form="1",
+                    )
+            except Exception:
+                section_form_url = ""
     section_is_extension = extension_section_meta is not None
     section_allow_extensions = True if section_is_extension else _client_extension_bool(
         (configured_section_meta or {}).get("allow_client_extensions"), default=True
@@ -13862,6 +14341,7 @@ def api_section_data():
                 limit=DEFAULT_LIMIT_PER_CLASS,
                 index_name=index_name,
                 index_value=index_value,
+                index_filters=index_filters,
                 parsed_config=parsed,
             )
             for n in nodes:
@@ -14019,6 +14499,7 @@ def api_section_data():
             "is_dashboard": bool(is_dashboard),
             "is_extension_section": bool(section_is_extension),
             "allow_client_extensions": bool(section_allow_extensions),
+            "section_form_url": section_form_url,
         }
     }))
 
@@ -15373,7 +15854,8 @@ def print_form_open(repo_id: int, print_class_name: str):
         data_json=data_json,
         use_standard_commands=False,
         has_onshowweb=False,
-        api_event_web=url_for("client.api_node_event_web"),
+        api_event_web=(url_for("client.api_common_event_web") if request.args.get("section_form") == "1" else url_for("client.api_node_event_web")),
+        section_form_mode=(request.args.get("section_form") == "1"),
         api_save_url=url_for("client.api_node_save"),
         api_delete_url=url_for("client.api_node_delete"),
         api_register_url=url_for("client.api_node_register"),
@@ -15914,6 +16396,28 @@ def node_form(config_uid: str, class_name: str, node_id: str):
     if not cls:
         abort(404)
 
+    # Native module types must NEVER silently render the generic node form.
+    # If a deployment missed resource_specs/, report the missing module.
+    if _class_type_value(cls) in {"resource_binding", "resource_specification"}:
+        try:
+            from resource_specs import bp as _rs_bp
+        except ImportError:
+            abort(503, description='Модуль resource_specs отсутствует на сервере')
+        if _rs_bp.name not in current_app.blueprints:
+            abort(503, description='Модуль resource_specs не зарегистрирован на сервере')
+        return redirect(url_for('resource_specs.editor', config_uid=config_uid,
+                                class_name=class_name, node_id=node_id))
+
+    # Older N50 demo import stored the same schemas as generic NodaLogic
+    # classes. Offer an explicit metadata-only upgrade rather than silently
+    # opening an unusable text form or silently mutating classes on GET.
+    try:
+        from resource_specs.node_types import is_legacy_demo
+        if class_name in {'RSBinding', 'RSSpecification'} and is_legacy_demo(parsed):
+            return redirect(url_for('resource_specs.upgrade_legacy_demo', config_uid=config_uid))
+    except ImportError:
+        pass
+
     # class-level PlugIn for Web (stored as JSON text in class.plug_in_web)
     def _parse_plugins(s: str):
         s = (s or "").strip()
@@ -15989,12 +16493,24 @@ def node_form(config_uid: str, class_name: str, node_id: str):
 
             
             if is_custom_process:
+                canonical_uid = _normalize_custom_process_uid(repo.config_uid, class_name, node_id)
                 try:
-                    node = node_class.get(node_id, repo.config_uid)
+                    node = node_class.get(canonical_uid, repo.config_uid)
                 except Exception:
                     node = None
                 if not node:
-                    node = node_class(node_id, repo.config_uid)
+                    # Try the exact route value as a final compatibility lookup
+                    # for singleton nodes created by older web versions.
+                    try:
+                        node = node_class.get(node_id, repo.config_uid)
+                    except Exception:
+                        node = None
+                if not node:
+                    try:
+                        internal_id = _nodes_mod.extract_internal_id(canonical_uid) or "singleton"
+                    except Exception:
+                        internal_id = "singleton"
+                    node = node_class(internal_id, repo.config_uid)
             else:
                 node = node_class.get(node_id, repo.config_uid)
                 if not node:
@@ -16112,7 +16628,8 @@ def node_form(config_uid: str, class_name: str, node_id: str):
             data_json=data_json,
             use_standard_commands=use_std,
             has_onshowweb=has_onshowweb,
-            api_event_web=url_for("client.api_node_event_web"),
+            api_event_web=(url_for("client.api_common_event_web") if request.args.get("section_form") == "1" else url_for("client.api_node_event_web")),
+        section_form_mode=(request.args.get("section_form") == "1"),
             api_save_url=url_for("client.api_node_save"),
             api_delete_url=url_for("client.api_node_delete"),
             api_register_url=url_for("client.api_node_register"),
@@ -16161,6 +16678,21 @@ def node_form(config_uid: str, class_name: str, node_id: str):
     layout = resolve_common_layout(parsed, layout)
     layout = _client_extension_merge_layout(layout, node_data)
 
+    # Install Reactive default formulas before the first HTML render.  This is
+    # intentionally server-side as well as in the editor API: a calculated
+    # value must not depend on whether the browser happened to initialise its
+    # JavaScript editor successfully.
+    try:
+        if layout is not None and not (base_url and base_url != current) and locals().get("node") is not None:
+            reactive_fields = _ensure_reactive_layout_defaults(node, layout)
+            if reactive_fields and isinstance(node_data, dict):
+                fresh_reactive_data = node.get_data() or {}
+                if isinstance(fresh_reactive_data, dict):
+                    for reactive_field in reactive_fields:
+                        node_data[reactive_field] = fresh_reactive_data.get(reactive_field)
+    except Exception:
+        pass
+
     if layout is not None and isinstance(node_data, dict):
         _fill_nodeinput_views(repo, parsed, layout, node_data)
 
@@ -16196,7 +16728,8 @@ def node_form(config_uid: str, class_name: str, node_id: str):
         data_json=data_json,
         use_standard_commands=use_std,
         has_onshowweb=has_onshowweb,
-        api_event_web=url_for("client.api_node_event_web"),
+        api_event_web=(url_for("client.api_common_event_web") if request.args.get("section_form") == "1" else url_for("client.api_node_event_web")),
+        section_form_mode=(request.args.get("section_form") == "1"),
         api_save_url=url_for("client.api_node_save"),
         api_delete_url=url_for("client.api_node_delete"),
         api_register_url=url_for("client.api_node_register"),
@@ -16379,7 +16912,8 @@ def raw_node_form(raw_node_id: str):
         data_json=data_json,
         use_standard_commands=use_std,
         has_onshowweb=has_onshowweb,
-        api_event_web=url_for("client.api_node_event_web"),
+        api_event_web=(url_for("client.api_common_event_web") if request.args.get("section_form") == "1" else url_for("client.api_node_event_web")),
+        section_form_mode=(request.args.get("section_form") == "1"),
         api_save_url=url_for("client.api_extension_raw_node_save") if extension_managed else url_for("client.api_node_save"),
         api_delete_url=url_for("client.api_extension_raw_node_delete") if extension_managed else url_for("client.api_node_delete"),
         api_register_url=url_for("client.api_node_register"),
@@ -17865,6 +18399,10 @@ def api_common_event_web():
         return jsonify({"ok": False, "error": "bad args"}), 400
     if not isinstance(payload, dict):
         payload = {}
+    if isinstance(payload.get("full_data"), dict):
+        merged_payload = dict(payload.get("full_data") or {})
+        merged_payload.update({k: v for k, v in payload.items() if k != "full_data"})
+        payload = merged_payload
 
     repo = _get_repo_or_404(repo_id)
     parsed = get_parsed_config(repo, models.db) or {}
@@ -17939,7 +18477,18 @@ def api_common_event_web():
                     fn = ns.get(m)
                     if not callable(fn):
                         raise ValueError(f"CommonEvent function '{m}' not found/callable in handlers")
-                    fn(payload)  # function(input_data)
+                    result = fn(payload)  # function(input_data)
+                    # Use the same (ok, data) convention as ordinary node methods.
+                    # Previously the web CommonEvents endpoint discarded the return
+                    # value, so section-form filters could run successfully while the
+                    # browser never received their calculated table/total fields.
+                    if isinstance(result, (tuple, list)) and len(result) >= 2:
+                        if result[0] is False:
+                            raise ValueError(str(result[1] or f"CommonEvent '{m}' rejected"))
+                        if isinstance(result[1], dict):
+                            payload = result[1]
+                    elif isinstance(result, dict):
+                        payload = result
 
                 post_m = str(a.get("postExecuteMethod") or a.get("post_execute_method") or "").strip().lower()
                 if post_m == "nodascript":
@@ -17992,7 +18541,33 @@ def api_common_event_web():
             except Exception:
                 layout_html = ""
 
-        resp = {"ok": True}
+        # A section-hosted node form sends class_name/node_id with every common
+        # event. Re-render its configured layout against the returned data so
+        # structural controls (especially Table @value / nodes_source) are rebuilt,
+        # not merely scalar inputs refreshed in-place.
+        section_form_class = str(j.get("class_name") or "").strip()
+        section_form_node_id = str(j.get("node_id") or "").strip()
+        if layout_html is None and section_form_class:
+            try:
+                class_obj = ((parsed.get("classes") or {}).get(section_form_class) or {})
+                section_layout = _first_usable_layout(
+                    class_obj.get("init_screen_layout_web"),
+                    class_obj.get("init_screen_layout"),
+                )
+                section_layout = resolve_common_layout(parsed, section_layout)
+                if section_layout is not None:
+                    if isinstance(payload, dict):
+                        _fill_nodeinput_views(repo, parsed, section_layout, payload)
+                    layout_html = render_nodalayout_html(
+                        section_layout,
+                        payload if isinstance(payload, dict) else {},
+                        assets_base_dir=_userfiles_dir_for_repo(repo),
+                        context=_nl_context(repo, class_name=section_form_class, node_id=section_form_node_id),
+                    )
+            except Exception:
+                layout_html = ""
+
+        resp = {"ok": True, "node_data": payload}
         if ui_message is not None:
             resp["message"] = ui_message
         if ui_dialog_payload is not None:

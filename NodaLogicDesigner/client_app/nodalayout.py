@@ -19,10 +19,10 @@ Layout = Union[str, List[List[Dict[str, Any]]]]
 # included here; editor_routes adds those separately when validating a complete
 # generated configuration.
 NODALAYOUT_WEB_ELEMENT_TYPES = frozenset({
-    "Text", "Picture", "HTML", "Button", "Input", "TextInput", "Switch", "CheckBox",
+    "Text", "Picture", "Files", "Divider", "Separator", "VerticalDivider", "HTML", "Button", "Input", "TextInput", "Switch", "CheckBox",
     "Table", "Parameters", "NodeChildren", "Spinner",
     "DatasetField", "DatasetInput", "DatasetLink", "DataSetLink",
-    "NodeInput", "NodeLink", "ExtensionPicture", "ExtensionGeoTag",
+    "NodeInput", "NodeLink", "ExtensionPicture", "ExtensionGeoTag", "Reactive",
     "VerticalLayout", "HorizontalLayout", "VerticalScroll", "HorizontalScroll", "Card",
     "Tabs", "Tab", "CodeFrame", "ImageSlider", "PictureGallery",
     "gauge", "pie", "bar", "line", "Gauge", "Pie", "Bar", "Line",
@@ -127,6 +127,86 @@ def _truthy(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in ("1", "true", "yes", "on", "y", "да")
     return bool(value)
+
+
+def _layout_svg_uri(raw: Any) -> str:
+    """Render SVG as an IMAGE, never as untrusted inline HTML."""
+    svg = str(raw or "").strip()
+    if not svg or len(svg) > 120000 or not re.match(r"^(?:<\?xml[^>]*>\s*)?<svg(?:\s|>)", svg, re.I):
+        return ""
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+
+
+def _nl_value(el: Dict[str, Any], data: Dict[str, Any]) -> Any:
+    raw = el.get("value")
+    if isinstance(raw, str) and raw.startswith("@"):
+        return data.get(raw[1:])
+    if isinstance(raw, str) and raw.lstrip().startswith(("[", "{")):
+        try:
+            return json.loads(raw)
+        except (ValueError, TypeError):
+            pass
+    return raw
+
+
+def _nl_files(items: Any) -> List[Dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    out = []
+    for x in items[:200]:
+        if isinstance(x, dict):
+            out.append(x)
+        elif isinstance(x, str) and x.strip():
+            out.append({"url": x, "name": os.path.basename(x.split("?", 1)[0]) or "File"})
+    return out
+
+
+def _nl_file_href(item: Dict[str, Any], ctx: Dict[str, Any]) -> str:
+    from urllib.parse import urlsplit
+    uri = str(item.get("url") or item.get("uri") or item.get("path") or "").strip()
+    if not uri:
+        return ""
+    parsed = urlsplit(uri)
+    if parsed.scheme in ("http", "https"):
+        return uri
+    if str(item.get("storage") or "").lower() in ("server", "flask"):
+        uid = str(ctx.get("config_uid") or "").strip()
+        if uid and re.fullmatch(r"[\w.\-]+", uid) and not uri.startswith("/"):
+            return f"/api/userfiles/{quote(uid, safe='')}/raw/{quote(uri, safe='')}"
+    # Do not expose Android file:// or /storage/... as a clickable browser link.
+    if uri.startswith(("/api/", "/client/")):
+        return uri
+    return ""
+
+
+# Use the same Material vector paths in the web and Android UI.
+_NL_MEDIA_PATHS = {'document': 'M240,80Q207,80 183.5,103.5Q160,127 160,160L160,800Q160,833 183.5,856.5Q207,880 240,880L720,880Q753,880 776.5,856.5Q800,833 800,800L800,320L560,80L240,80ZM520,160L720,360L520,360L520,160ZM240,160L440,160L440,440L720,440L720,800L240,800L240,160ZM320,560L640,560L640,620L320,620L320,560ZM320,680L600,680L600,740L320,740L320,680Z', 'add': 'M440,520L200,520L200,440L440,440L440,200L520,200L520,440L760,440L760,520L520,520L520,760L440,760L440,520Z', 'edit': 'M200,760L257,760L648,369L591,312L200,703L200,760ZM120,840L120,670L648,143Q660,132 674.5,126Q689,120 705,120Q721,120 736,126Q751,132 762,144L817,200Q829,211 834.5,226Q840,241 840,256Q840,272 834.5,286.5Q829,301 817,313L290,840L120,840ZM760,256L760,256L704,200L704,200L760,256ZM619,341L591,312L591,312L648,369L648,369L619,341Z', 'delete': 'M280,840Q247,840 223.5,816.5Q200,793 200,760L200,240L160,240L160,160L360,160L360,120L600,120L600,160L800,160L800,240L760,240L760,760Q760,793 736.5,816.5Q713,840 680,840L280,840ZM680,240L280,240L280,760Q280,760 280,760Q280,760 280,760L680,760Q680,760 680,760Q680,760 680,760L680,240ZM360,680L440,680L440,320L360,320L360,680ZM520,680L600,680L600,320L520,320L520,680ZM280,240L280,240L280,760Q280,760 280,760Q280,760 280,760L280,760Q280,760 280,760Q280,760 280,760L280,240Z', 'offline': 'M280,680L680,680L680,600L280,600L280,680ZM480,560L640,400L584,344L520,406L520,240L440,240L440,406L376,344L320,400L480,560ZM480,880Q397,880 324,848.5Q251,817 197,763Q143,709 111.5,636Q80,563 80,480Q80,397 111.5,324Q143,251 197,197Q251,143 324,111.5Q397,80 480,80Q563,80 636,111.5Q709,143 763,197Q817,251 848.5,324Q880,397 880,480Q880,563 848.5,636Q817,709 763,763Q709,817 636,848.5Q563,880 480,880ZM480,800Q614,800 707,707Q800,614 800,480Q800,346 707,253Q614,160 480,160Q346,160 253,253Q160,346 160,480Q160,614 253,707Q346,800 480,800ZM480,480Q480,480 480,480Q480,480 480,480Q480,480 480,480Q480,480 480,480Q480,480 480,480Q480,480 480,480Q480,480 480,480Q480,480 480,480Z', 'pdf': 'M360-460h40v-80h40q17 0 28.5-11.5T480-580v-40q0-17-11.5-28.5T440-660h-80v200Zm40-120v-40h40v40h-40Zm120 120h80q17 0 28.5-11.5T640-500v-120q0-17-11.5-28.5T600-660h-80v200Zm40-40v-120h40v120h-40Zm120 40h40v-80h40v-40h-40v-40h40v-40h-80v200ZM320-240q-33 0-56.5-23.5T240-320v-480q0-33 23.5-56.5T320-880h480q33 0 56.5 23.5T880-800v480q0 33-23.5 56.5T800-240H320Zm0-80h480v-480H320v480ZM160-80q-33 0-56.5-23.5T80-160v-560h80v560h560v80H160Zm160-720v480-480Z'}
+
+
+def _nl_media_icon(kind: str, cls: str = "") -> str:
+    path = _NL_MEDIA_PATHS.get(kind) or _NL_MEDIA_PATHS["offline"]
+    return (f'<svg class="nl-material-icon {escape(cls, quote=True)}" viewBox="0 0 960 960" '
+            f'width="20" height="20" fill="currentColor" aria-hidden="true" focusable="false">'
+            f'<path d="{escape(path, quote=True)}"/></svg>')
+
+
+def _nl_file_icon(name: str) -> str:
+    ext = str(name).lower().rsplit(".", 1)[-1]
+    return {"pdf": "filetype-pdf", "doc": "filetype-doc", "docx": "filetype-docx",
+            "xls": "filetype-xls", "xlsx": "filetype-xlsx", "csv": "filetype-csv",
+            "zip": "file-zip", "rar": "file-zip", "png": "file-image", "jpg": "file-image",
+            "jpeg": "file-image", "webp": "file-image", "mp4": "file-play", "txt": "file-text"}.get(ext, "file-earmark")
+
+
+def _nl_file_size(n: Any) -> str:
+    try:
+        size = float(n)
+        if size < 0: return ""
+        if size < 1024: return f"{int(size)} B"
+        if size < 1048576: return f"{size/1024:.0f} KB"
+        return f"{size/1048576:.1f} MB"
+    except (TypeError, ValueError, OverflowError):
+        return ""
 
 
 def _element_s3_enabled(el: Dict[str, Any], node_data: Dict[str, Any]) -> bool:
@@ -972,8 +1052,48 @@ def _render_xy_svg(kind: str, el: Dict[str, Any], node_data: Dict[str, Any]) -> 
     return f'<svg class="nl-chart-svg" viewBox="0 0 700 380" role="img" aria-label="{escape(kind)} chart">' + "".join(parts) + "</svg>"
 
 
+def _render_sparkline_svg(el: Dict[str, Any], node_data: Dict[str, Any]) -> str:
+    """Compact data-driven line chart; native SVG on the web, Canvas on Android."""
+    rows = _chart_point_rows(el.get("value"), node_data)
+    if rows:
+        first_series = str(rows[0].get("legend", rows[0].get("series", "Value")))
+        rows = [r for r in rows if str(r.get("legend", r.get("series", "Value"))) == first_series]
+    values = [_as_float(r.get("y", r.get("value", 0)), 0) for r in rows]
+    if not values:
+        return '<svg class="nl-chart-svg" viewBox="0 0 320 48" aria-label="empty sparkline"></svg>'
+    lo, hi = min(values), max(values)
+    span = hi - lo
+    if span < 1e-9:
+        span = max(1, abs(hi) * .1)
+    pad = span * .18
+    lo -= pad
+    hi += pad
+    points = [(3 + i * 314 / max(1, len(values) - 1), 44 - (value - lo) * 40 / (hi - lo)) for i, value in enumerate(values)]
+    smooth = _truthy(el.get("smooth", True))
+    path = f"M {points[0][0]:.2f} {points[0][1]:.2f}"
+    for i in range(len(points) - 1):
+        x1, y1 = points[i]
+        x2, y2 = points[i + 1]
+        if smooth and len(points) > 2:
+            p0x, p0y = points[max(0, i - 1)]
+            p3x, p3y = points[min(len(points) - 1, i + 2)]
+            path += (f" C {x1 + (x2 - p0x) / 6:.2f} {y1 + (y2 - p0y) / 6:.2f},"
+                     f" {x2 - (p3x - x1) / 6:.2f} {y2 - (p3y - y1) / 6:.2f},"
+                     f" {x2:.2f} {y2:.2f}")
+        else:
+            path += f" L {x2:.2f} {y2:.2f}"
+    color = _safe_color(_layout_value(el.get("color"), node_data), "#479f97")
+    return (f'<svg class="nl-chart-svg" viewBox="0 0 320 48" preserveAspectRatio="none" '
+            f'role="img" aria-label="sparkline">'
+            f'<path d="{escape(path)}" fill="none" stroke="{escape(color)}" '
+            'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+            '</svg>')
+
+
 def _render_indicator_chart_html(kind: str, el: Dict[str, Any], node_data: Dict[str, Any], style_attr: str) -> str:
     kind = kind.lower()
+    if kind == "line" and _truthy(el.get("sparkline", False)):
+        return f'<div class="nl-chart nl-chart-sparkline"{style_attr}>{_render_sparkline_svg(el, node_data)}</div>'
     if kind == "gauge":
         svg = _render_gauge_svg(el, node_data)
     elif kind == "pie":
@@ -1076,6 +1196,21 @@ def render_nodalayout_html(
                 card_inner = "".join(render_inline(ch) for ch in cv if isinstance(ch, (dict, str)))
             elif isinstance(cv, dict):
                 card_inner = render_inline(cv)
+            svg_uri = _layout_svg_uri(el.get("svg"))
+            if svg_uri:
+                position = str(el.get("image_position") or "left").lower()
+                if position not in ("left", "right", "top", "bottom"):
+                    position = "left"
+                try:
+                    svg_size = max(12, min(256, int(el.get("svg_size") or 36)))
+                except (ValueError, TypeError):
+                    svg_size = 36
+                image = (f'<img class="nl-card-svg" width="{svg_size}" height="{svg_size}" '
+                         f'src="{escape(svg_uri)}" alt="" aria-hidden="true" />')
+                inner = f'<div class="nl-card-content">{card_inner}</div>'
+                card_inner = (image + inner if position in ("left", "top") else inner + image)
+                return (f'<div class="nl-card nl-card-icon nl-card-icon-{position}"{style_attr}>'
+                        f'{card_inner}</div>')
             return f'<div class="nl-card"{style_attr}>{card_inner}</div>'
 
         # Tabs / Tab
@@ -1210,37 +1345,108 @@ def render_nodalayout_html(
                 f'</div>'
             )
 
+        if t in ("Divider", "Separator"):
+            return f'<hr class="nl-divider"{style_attr} aria-hidden="true" />'
+
+        if t == "VerticalDivider":
+            # A vertical rule stretches beside other elements in a horizontal
+            # row; when used alone it has a small intrinsic height.  Unlike
+            # Divider it must never claim the full row width.
+            return f'<div class="nl-vertical-divider"{style_attr} aria-hidden="true"></div>'
+
         if t == "Picture":
             raw_tpl = el.get("value")
-            raw = _resolve_vars(str(raw_tpl or ""), node_data)
-            src = _picture_src_for_element(el, raw, node_data, assets_base_dir)
+            svg_src = _layout_svg_uri(el.get("svg"))
+            editable = _truthy(el.get("editable")) and not svg_src
+            key = str(raw_tpl)[1:] if isinstance(raw_tpl, str) and raw_tpl.startswith("@") else str(el.get("id") or "")
+            editable = editable and bool(key)
+            raw = str(node_data[key] or "") if editable and key in node_data else _resolve_vars(str(raw_tpl or ""), node_data)
+            src = svg_src or _picture_src_for_element(el, raw, node_data, assets_base_dir)
             alt = escape(str(el.get("caption") or ""))
-            cover = bool(el.get("cover"))
-            fit_mode = "cover" if cover else "contain"
+            cover = _truthy(el.get("cover"))
+            fit = str(el.get("fit") or "").lower()
+            fit_mode = fit if fit in ("contain", "cover") else ("cover" if cover else "contain")
+            width = el.get("width")
+            height = el.get("height")
+            wstyle = f'width:{int(width)}px;' if isinstance(width, (float, int)) and width > 0 else ''
+            hstyle = f'height:{int(height)}px;' if isinstance(height, (float, int)) and height > 0 else ''
+            # Width/height belong to the rounded Picture viewport, not the img.
+            # Otherwise a 250x170 image overflows the same-sized editable frame
+            # by its border and reveals squared-off image corners.
+            pic_extra_css = ["display:block", f"object-fit:{fit_mode}", "object-position:center", "border-radius:inherit", "padding:0", "margin:0"]
+            pic_style = _style_attr({k:v for k,v in el.items() if k not in ("width", "height")}, extra_css=pic_extra_css)
+            tpl = _tpl_attr("src", raw_tpl) if not svg_src else ""
+            image = (f'<img class="nl-picture"{pic_style}{tpl} src="{escape(src, quote=True)}" alt="{alt}" loading="lazy"/>'
+                     if src else '<span class="nl-picture-placeholder"><i class="bi bi-image"></i></span>')
+            # An actual photo opens at its native resolution. Edit controls stay outside the link.
+            if src and not svg_src and not str(src).startswith('data:'):
+                image = (f'<a class="nl-picture-open" href="{escape(src, quote=True)}" '
+                         f'target="_blank" rel="noopener noreferrer" title="Open original image">{image}</a>')
+            frame_class = 'nl-layout-picture has-dimensions' if (wstyle or hstyle) else 'nl-layout-picture'
+            if editable:
+                buttons = (f'<span class="nl-picture-actions">'
+                           f'<button type="button" data-nl-picture-change="1" title="Replace image" aria-label="Replace image">{_nl_media_icon("edit")}</button>'
+                           f'<button type="button" data-nl-picture-delete="1" title="Delete image" aria-label="Delete image">{_nl_media_icon("delete")}</button>'
+                           '</span>')
+                picture_sync = "s3" if _element_s3_enabled(el, node_data) else "server"
+                return (f'<div class="{frame_class} is-editable" data-nl-picture-field="{escape(key)}" '
+                        f'data-nl-picture-sync="{picture_sync}" '
+                        f'style="{wstyle}{hstyle}">{image}{buttons}' 
+                        '<input type="file" accept="image/*" data-nl-picture-input hidden /></div>')
+            return f'<div class="{frame_class}" style="{wstyle}{hstyle}">{image}</div>'
 
-            # If picture is constrained (both width & height are px), use object-fit to keep aspect ratio.
-            wv = el.get("width")
-            hv = el.get("height")
-            constrained = isinstance(wv, (int, float)) and wv > 0 and isinstance(hv, (int, float)) and hv > 0
-
-            pic_extra_css: List[str] = []
-            # Avoid baseline gap + make sizing predictable
-            pic_extra_css.append("display:block")
-            if constrained or cover:
-                pic_extra_css.append(f"object-fit:{fit_mode}")
-
-            style_attr = _style_attr(el, extra_css=pic_extra_css)
-
-            tpl = _tpl_attr("src", raw_tpl)
-
-            if src:
-                return (
-                    f'<span class="nl-picture-wrap" style="position:relative;display:inline-block">'
-                    f'<span class="spinner-border spinner-border-sm text-secondary" role="status" style="position:absolute;left:50%;top:50%;z-index:1"></span>'
-                    f'<img class="nl-picture"{style_attr}{tpl} src="{escape(src)}" alt="{alt}" loading="lazy" onload="this.previousElementSibling.style.display=\'none\'" onerror="this.previousElementSibling.style.display=\'none\'"/>'
-                    f'</span>'
-                )
-            return f'<div class="nl-picture nl-empty"{style_attr}{tpl}></div>'
+        if t == "Files":
+            raw_field = el.get("value")
+            field = raw_field[1:] if isinstance(raw_field, str) and raw_field.startswith("@") else str(el.get("id") or "")
+            editable = _truthy(el.get("editable")) and bool(field)
+            items = _nl_files(node_data[field] if editable and field in node_data else _nl_value(el, node_data))
+            cls = ' nl-files-editable' if editable else ''
+            controls = (f'<button type="button" class="nl-files-add" data-nl-files-add="1" title="Add file" aria-label="Add file">{_nl_media_icon("add")}</button>' if editable else '')
+            initial = escape(json.dumps(items, ensure_ascii=False), quote=True)
+            parts = [f'<div class="nl-files{cls}" data-nl-files-field="{escape(field)}" '
+                     f'data-nl-files-initial="{initial}" data-nl-files-sync="{escape(str(el.get("sync") or "server"))}"{style_attr}>',
+                     f'<div class="nl-files-head"><span>{escape(str(el.get("caption") or ""))}</span>{controls}</div>']
+            for i, item in enumerate(items):
+                name = str(item.get("name") or item.get("filename") or "")
+                ref = str(item.get("url") or item.get("uri") or item.get("path") or "")
+                name = name or os.path.basename(ref.split("?", 1)[0]) or "File"
+                descr = str(item.get("description") or "")
+                href = _nl_file_href(item, ctx_target)
+                icon = _nl_file_icon(name)
+                state = str(item.get("sync_status") or item.get("sync") or "").lower()
+                if state not in ("pending", "uploading", "error", "synced", "local", "cached"):
+                    state = "synced" if str(item.get("storage") or "").lower() in ("server", "flask", "s3") or href else "local"
+                # "synced" means uploaded, NOT available offline. The browser
+                # cannot infer Android pinned-cache state from a public URL.
+                offline = _truthy(item.get("offline_available")) or state == "cached"
+                indicator_title = "Available offline" if offline else (
+                    "Upload failed" if state == "error" else "Not cached offline")
+                indicator_cls = "is-offline" if offline else ("is-error" if state == "error" else "")
+                status_icon = _nl_media_icon("offline", "nl-file-offline " + indicator_cls)
+                size_label = _nl_file_size(item.get("size"))
+                name_text = f'<span class="nl-file-name">{escape(name)}</span>'
+                if href:
+                    name_text = (f'<a class="nl-file-open" href="{escape(href, quote=True)}" '
+                                 f'target="_blank" rel="noopener noreferrer">{name_text}</a>')
+                inline_status = (f'<span class="nl-file-status" title="{escape(indicator_title)}" '
+                                 f'aria-label="{escape(indicator_title)}">{status_icon}</span>')
+                buttons = (f'<button type="button" class="nl-files-delete" data-nl-files-delete="{i}" '
+                           f'title="Remove attachment" aria-label="Remove attachment">{_nl_media_icon("delete")}</button>'
+                           if editable else '')
+                file_ext = name.lower().rsplit(".", 1)[-1]
+                file_kind = "pdf" if file_ext == "pdf" else "document"
+                file_color_class = ("nl-file-pdf" if file_ext == "pdf" else
+                                    "nl-file-sheet" if file_ext in ("xls", "xlsx", "csv") else
+                                    "nl-file-doc" if file_ext in ("doc", "docx", "rtf") else "nl-file-generic")
+                left_icon = _nl_media_icon(file_kind, "nl-file-type-icon " + file_color_class)
+                parts.append(f'<div class="nl-file-row">{left_icon}'
+                             f'<div class="nl-file-body"><div class="nl-file-title">{name_text}{inline_status}</div>'
+                             f'<span class="nl-file-description">{escape(descr or size_label)}</span></div>'
+                             f'{buttons}</div>')
+            if not items:
+                parts.append('<div class="nl-files-empty">No files</div>')
+            parts.append('<input type="file" multiple data-nl-files-input hidden /></div>')
+            return "".join(parts)
 
         if t == "ExtensionTags":
             # One shared node-level _tags array; field id is layout-only.
@@ -1454,6 +1660,61 @@ def render_nodalayout_html(
             if not items:
                 return f'<div class="nl-picturegallery nl-empty"{style_attr}></div>'
             return f'<div class="nl-picturegallery"{style_attr}>' + "".join(items) + '</div>'
+
+        # Reactive: one logical calculated field.  The formula lives in the
+        # server-side Reactive sidecar, while node_data[id] is the cached value.
+        # Editing is handled by the node form JS so the element remains useful in
+        # ordinary/static NodaLayout JSON without special handlers.
+        if t == "Reactive":
+            fid = str(el.get("id") or "").strip() or "reactive"
+            caption_raw = _resolve_vars(str(el.get("caption") or fid), node_data)
+            value = node_data.get(fid)
+            if value is None:
+                display = ""
+            elif isinstance(value, (dict, list)):
+                try:
+                    display = json.dumps(value, ensure_ascii=False)
+                except Exception:
+                    display = str(value)
+            else:
+                display = str(value)
+            default_formula = el.get("default_formula", el.get("formula", ""))
+            default_formula = "" if default_formula is None else str(default_formula)
+            async_mode = _truthy(el.get("async", el.get("async_mode", False)))
+            editable = not _truthy(el.get("readonly", False))
+            label_html = f'<div class="nl-label">{escape(caption_raw)}</div>' if caption_raw else ""
+            edit_html = (
+                '<button type="button" class="nl-reactive-edit" data-nl-reactive-edit="1" '
+                'title="Edit formula" aria-label="Edit formula" '
+                'style="border:0!important;background:transparent!important;box-shadow:none!important;padding:2px;width:28px;height:28px;">'
+                '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" '
+                'style="display:block;margin:auto;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">'
+                '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>'
+                '</svg></button>'
+                if editable else ""
+            )
+            reactive_ctx = []
+            if ctx_target.get("repo_id") is not None:
+                reactive_ctx.append(f'data-nl-reactive-repo="{escape(str(ctx_target.get("repo_id")))}"')
+            if ctx_target.get("class_name") is not None:
+                reactive_ctx.append(f'data-nl-reactive-class="{escape(str(ctx_target.get("class_name")))}"')
+            if ctx_target.get("node_id") is not None:
+                reactive_ctx.append(f'data-nl-reactive-node="{escape(str(ctx_target.get("node_id")))}"')
+            reactive_ctx_attr = (" " + " ".join(reactive_ctx)) if reactive_ctx else ""
+            return (
+                f'<div class="nl-field nl-reactive" data-nl-reactive="1" '
+                f'data-nl-reactive-field="{escape(fid)}" '
+                f'data-nl-reactive-default="{escape(default_formula)}" '
+                f'data-nl-reactive-async="{1 if async_mode else 0}"{reactive_ctx_attr}{style_attr}>'
+                f'{label_html}'
+                f'<div class="nl-reactive-line">'
+                f'<div class="nl-reactive-value" data-nl-reactive-value="1">{escape(display)}</div>'
+                f'<span class="nl-reactive-status" data-nl-reactive-status="1"></span>'
+                f'{edit_html}'
+                f'</div>'
+                f'<div class="nl-reactive-editor" data-nl-reactive-editor="1" hidden></div>'
+                f'</div>'
+            )
 
                 # NodeInput (readonly input + pick button, value is "Class$Id")
         if t == "NodeInput":
@@ -2417,8 +2678,10 @@ def render_nodalayout_html(
                 # Some elements are containers and should take full row width by default.
                 # Tabs in particular looked "shrunken" because their wrapper cell is a flex item
                 # with auto width; mark them as full-width like Table/NodeChildren.
-                if el.get("type") in ("Table", "NodeChildren", "Tabs", "CodeFrame"):
+                if el.get("type") in ("Table", "NodeChildren", "Tabs", "CodeFrame", "Divider", "Separator", "Files"):
                     cell_cls += " nl-cell-full"
+                elif el.get("type") == "VerticalDivider":
+                    cell_cls += " nl-cell-vertical-divider"
                 elif isinstance(el.get("width"), (int, float)) and int(el.get("width")) == -1:
                     cell_cls += " nl-cell-full"
                 #elif el.get("type") in ("Input", "TextInput") and el.get("width") is None:
@@ -2493,6 +2756,70 @@ DEFAULT_NL_CSS = """
 .nl-title-value{display:flex;gap:8px;align-items:baseline}
 .nl-tv-title{opacity:.8}
 .nl-tv-value{font-weight:700}
+
+/* Lightweight business UI elements, shared with mobile NodaLayout. */
+.nl-card-icon{display:flex!important;gap:12px;align-items:center;min-width:0}
+.nl-card-icon-top{flex-direction:column;align-items:stretch}
+.nl-card-icon-bottom{flex-direction:column;align-items:stretch}
+.nl-card-icon-top > .nl-card-svg,.nl-card-icon-bottom > .nl-card-svg{align-self:center;max-width:100%}
+.nl-card-icon-right{flex-direction:row}
+.nl-card-icon .nl-card-svg{flex:0 0 auto;object-fit:contain;max-width:35%}
+.nl-card-icon .nl-card-content{flex:1 1 auto;min-width:0}
+.nl-divider{display:block;width:100%;min-width:100%;box-sizing:border-box;border:0;border-top:1px solid rgba(127,137,148,.28);margin:12px 0;opacity:1}
+/* Vertical rules live in horizontal rows or HorizontalLayout; stretch only
+   along the cross-axis, never consume available horizontal space. */
+.nl-vertical-divider{display:block;box-sizing:border-box;flex:0 0 1px;align-self:stretch;width:1px;min-width:1px;min-height:24px;background:rgba(127,137,148,.28);margin:2px 8px}
+.nl-row > .nl-cell.nl-cell-vertical-divider{display:flex;align-items:stretch;align-self:stretch;flex:0 0 auto;padding:0;min-width:0;max-width:none}
+.nl-row > .nl-cell.nl-cell-vertical-divider > .nl-vertical-divider{flex:0 0 1px;height:auto;min-height:24px}
+.nl-column > .nl-vertical-divider{align-self:center;height:32px}
+
+.nl-layout-picture{display:inline-flex;box-sizing:border-box;max-width:100%;position:relative;min-width:44px;min-height:40px;vertical-align:top;align-items:center;justify-content:center;border-radius:12px;overflow:hidden;isolation:isolate}
+.nl-layout-picture .nl-picture{display:block;box-sizing:border-box;max-width:100%;max-height:100%;border-radius:inherit}
+.nl-layout-picture.has-dimensions .nl-picture,.nl-layout-picture.has-dimensions .nl-picture-open{width:100%!important;height:100%!important;min-width:0;min-height:0}
+.nl-layout-picture.has-dimensions .nl-picture{object-position:center}
+.nl-picture-open{display:flex;align-items:center;justify-content:center;min-width:0;min-height:0;max-width:100%;max-height:100%;cursor:zoom-in;overflow:hidden;border-radius:inherit}
+.nl-picture-open .nl-picture{width:100%;height:100%;border-radius:inherit}
+.nl-layout-picture.is-editable .nl-picture-actions{z-index:2}
+.nl-picture-placeholder{color:#9ba4b0;font-size:28px;min-width:96px;padding:16px;text-align:center}
+.nl-layout-picture.is-editable{border:1px dashed rgba(127,137,148,.45)}
+/* REV5: Picture occupies the entire rounded viewport. Editable outline is
+   painted inside (not a border consuming layout width); image and clickable
+   anchor both fill exactly 100% of the viewport. */
+.nl-layout-picture.has-dimensions{align-items:stretch;justify-content:stretch;padding:0!important}
+.nl-layout-picture.has-dimensions .nl-picture-open{display:block;flex:1 1 auto;align-self:stretch;width:100%;height:100%;padding:0;margin:0}
+.nl-layout-picture.has-dimensions .nl-picture{display:block;width:100%!important;height:100%!important;max-width:none;max-height:none;padding:0!important;margin:0!important}
+.nl-layout-picture.is-editable{border:0!important;outline:1px solid rgba(127,137,148,.45);outline-offset:-1px}
+.nl-picture-actions{position:absolute;right:6px;top:6px;display:flex;gap:4px;opacity:0;transition:opacity .14s}
+.nl-layout-picture.is-editable:hover .nl-picture-actions,.nl-layout-picture.is-editable:focus-within .nl-picture-actions{opacity:1}
+.nl-picture-actions button,.nl-files-add,.nl-files-delete{border:0;border-radius:7px;background:rgba(255,255,255,.9);color:#52616e;display:inline-flex;justify-content:center;align-items:center;width:32px;height:32px;padding:5px;cursor:pointer}
+.nl-material-icon{flex:0 0 auto;display:inline-block;vertical-align:middle;width:20px;height:20px}
+.nl-picture-actions button:hover,.nl-files-add:hover,.nl-files-delete:hover{background:#edf1f4}
+.nl-files{display:flex;flex-direction:column;gap:1px;min-width:0}
+.nl-files-head{display:flex;justify-content:space-between;align-items:center;min-height:30px;font-weight:600;font-size:14px}
+.nl-files-head:empty{display:none}
+/* Align delete with the 32px type-icon box, not with the row's total text height. */
+.nl-file-row{display:flex;align-items:flex-start;gap:11px;min-height:46px;padding:6px 0}
+.nl-file-row > .nl-file-type-icon,.nl-file-row > .nl-file-icon,.nl-file-row > .nl-file-pdf{box-sizing:border-box;display:flex;align-items:center;justify-content:center;flex:0 0 32px;width:32px;height:32px;padding:3px}
+.nl-file-row > .nl-files-delete{align-self:flex-start;flex:0 0 32px;width:32px;height:32px;margin:0}
+.nl-file-type-icon{width:25px;height:25px;flex-shrink:0;color:#687885}
+.nl-file-type-icon.nl-file-pdf{color:#aa5656}
+.nl-file-type-icon.nl-file-sheet{color:#438369}
+.nl-file-type-icon.nl-file-doc{color:#547caa}
+.nl-file-title{display:flex;gap:5px;align-items:flex-start;min-width:0}
+.nl-file-title .nl-file-open,.nl-file-title .nl-file-name{min-width:0;overflow-wrap:anywhere}
+.nl-file-status{display:inline-flex;flex:0 0 auto;margin-top:2px;color:#96a1ab}
+.nl-file-offline{width:15px;height:15px}
+.nl-file-offline.is-offline{color:#2e8b57}
+.nl-file-offline.is-error{color:#c24b48}
+.nl-file-icon{font-size:22px;opacity:.72;min-width:25px}
+.nl-file-body{display:flex;flex:1;min-width:0;flex-direction:column;gap:1px}
+.nl-file-name{display:block;font-size:14px;font-weight:500;overflow-wrap:anywhere}
+.nl-file-open{text-decoration:none;color:inherit}
+.nl-file-open:hover{text-decoration:underline}
+.nl-file-description{font-size:12px;color:#818b96}
+.nl-file-sync{font-size:15px;color:#8098a0}
+.nl-files-empty{font-size:13px;color:#9ba4b0;padding:8px 0}
+.nl-files-delete{opacity:0}.nl-file-row:hover .nl-files-delete,.nl-files-delete:focus{opacity:1}
 .nl-picture{max-width:100%;height:auto}
 .nl-imageslider{max-width:100%}
 .nl-imageslider-img{max-width:100%;height:auto;object-fit:contain}
@@ -2508,7 +2835,7 @@ DEFAULT_NL_CSS = """
 .nl-scroll-x{overflow-x:auto;overflow-y:hidden}
 .nl-scroll-y{overflow-y:auto;overflow-x:hidden;max-height:60vh}
 
-.nl-card{border:1px solid rgba(0,0,0,.125);border-radius:12px;padding:10px;box-shadow:0 0.25rem 0.75rem rgba(0,0,0,.06);background:#fff;max-width:100%}
+.nl-card{border:1px solid rgba(114,128,142,.18);border-radius:10px;padding:12px;box-shadow:none;background:var(--bs-body-bg,#fff);max-width:100%}
 
 /* Input fields with labels */
 .nl-field{display:flex;gap:10px;max-width:100%;min-width:0; width:100%}
@@ -2518,7 +2845,7 @@ DEFAULT_NL_CSS = """
 
 .nl-field-col .nl-label{flex:0 0 auto;max-width:100%}
 
-.nl-input{max-width:100%;min-width:140px;flex:1 1 auto}
+.nl-input{max-width:100%;min-width:140px;flex:1 1 auto;border-radius:8px;border:1px solid rgba(114,128,142,.3);padding:.48rem .65rem;box-shadow:none;transition:border-color .13s ease}.nl-input:focus{outline:0;border-color:#7b9d91;box-shadow:0 0 0 2px rgba(35,126,86,.08)}
 .nl-input-fill{flex:1 1 auto;min-height:0}
 
 .nl-field-fill{height:100%;min-height:0;flex:1 1 auto}
@@ -2708,4 +3035,6 @@ DEFAULT_NL_CSS = """
 .nl-chart{box-sizing:border-box;width:100%;min-width:0;min-height:220px;display:flex;align-items:stretch;justify-content:center;overflow:hidden}
 .nl-chart-svg{display:block;width:100%;height:100%;max-width:100%;min-height:inherit;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
 .nl-chart-gauge{min-height:250px}
+.nl-chart-sparkline{min-height:0;height:38px;display:block}
+.nl-chart-sparkline .nl-chart-svg{min-height:0;height:100%;width:100%;display:block}
 """
