@@ -95,6 +95,7 @@
       </div>
     </div>
 
+    <div id="sectionFormHost" style="display:none; height:calc(100vh - 150px); min-height:520px;"></div>
     <div id="viewGrid" class="row g-2"></div>
   </div>
 </div>
@@ -311,6 +312,16 @@ let allSectionClasses = [];
 const classVisibilityStorageKey = `noda.section.classes.${sectionCode}`;
 const shownLabel = {{ _('Shown')|tojson }};
 const ofLabel = {{ _('of')|tojson }};
+const sectionFilterLocale = {{ get_locale()|string|tojson }};
+const sectionFilterRu = String(sectionFilterLocale || '').toLowerCase().startsWith('ru');
+const sectionFilterText = {
+  yes: sectionFilterRu ? 'Да' : 'Yes',
+  no: sectionFilterRu ? 'Нет' : 'No',
+  contains: sectionFilterRu ? 'Содержит' : 'Contains',
+  notContains: sectionFilterRu ? 'Не содержит' : 'Does not contain',
+  inList: sectionFilterRu ? 'В списке' : 'In list',
+  notInList: sectionFilterRu ? 'Не в списке' : 'Not in list'
+};
 
 function classVisibilityId(c){ return `${Number(c.repo_id || 0)}:${String(c.class || '')}`; }
 function readHiddenSectionClasses(){
@@ -449,7 +460,8 @@ async function openFilterPicker(filterName, filterType){
   input.value = picked.view;
   const en = document.querySelector(`[data-filter-enable="${filterName}"]`);
   if (en) en.checked = true;
-  filterState[String(filterName || '')] = { enabled: true, value: picked.view, rawValue: picked.value, values: [picked.value], views: [picked.view] };
+  const prev = filterState[String(filterName || '')] || {};
+  filterState[String(filterName || '')] = { enabled: true, op: prev.op || 'eq', value: picked.view, rawValue: picked.value, values: [picked.value], views: [picked.view] };
   loadSection();
 }
 
@@ -538,10 +550,10 @@ async function openListFilterEditor(filterName, filterType, labelText){
       viewEl.value = '';
     };
   } else if (String(filterType || '') === 'boolean') {
-    addRowEl.innerHTML = `<div class="input-group input-group-sm"><select id="sectionFilterListBool" class="form-select"><option value="true">true</option><option value="false">false</option></select><button id="sectionFilterListAddBtn" class="btn btn-primary" type="button">{{ _('Add') }}</button></div>`;
+    addRowEl.innerHTML = `<div class="input-group input-group-sm"><select id="sectionFilterListBool" class="form-select"><option value="true">${sectionFilterText.yes}</option><option value="false">${sectionFilterText.no}</option></select><button id="sectionFilterListAddBtn" class="btn btn-primary" type="button">{{ _('Add') }}</button></div>`;
     document.getElementById('sectionFilterListAddBtn').onclick = () => {
       const v = document.getElementById('sectionFilterListBool').value;
-      addValue(v, v);
+      addValue(v, v === 'true' ? sectionFilterText.yes : sectionFilterText.no);
     };
   } else {
     const inputType = String(filterType || '') === 'number' ? 'number' : 'text';
@@ -559,8 +571,10 @@ async function openListFilterEditor(filterName, filterType, labelText){
   }
 
   applyBtn.onclick = () => {
+    const previous = filterState[String(filterName || '')] || {};
     filterState[String(filterName || '')] = {
       enabled: values.length > 0,
+      op: previous.op || 'in',
       value: views.join(', '),
       rawValue: values[0] || '',
       values: [...values],
@@ -574,6 +588,46 @@ async function openListFilterEditor(filterName, filterType, labelText){
 
   renderItems();
   bs.show();
+}
+
+function filterIndexKind(idx){
+  return String((idx && idx.kind) || 'hash_index').trim().toLowerCase();
+}
+function filterIsSemantic(idx){
+  return ['semantic', 'semantic_index', 'semanic_index'].includes(filterIndexKind(idx));
+}
+function filterTypeName(idx){
+  return String((idx && idx.filter_type) || 'string').trim();
+}
+function filterIsRefType(type){
+  return /^Node\(.+\)$/.test(type) || /^Dataset\(.+\)$/.test(type);
+}
+function filterDefaultOp(idx, stateValues){
+  if (filterIsSemantic(idx)) return 'legacy';
+  const type = filterTypeName(idx);
+  if (type === 'boolean') return 'eq';
+  if (idx && idx.filter_list_enabled) return 'in'; // legacy list-filter semantics
+  return 'eq';
+}
+function filterOperatorOptions(idx, selected){
+  if (filterIsSemantic(idx)) return '';
+  const type = filterTypeName(idx);
+  const listEnabled = !!(idx && idx.filter_list_enabled);
+  let opts = [];
+  if (type === 'boolean') return '';
+  if (type === 'number') {
+    opts = [['eq','='],['gt','>'],['gte','>='],['lt','<'],['lte','<='],['ne','<>']];
+    if (listEnabled) opts.push(['in',sectionFilterText.inList],['not_in',sectionFilterText.notInList]);
+  } else if (filterIsRefType(type)) {
+    // Node/Dataset indexes natively support lookup by several indexed values.
+    // Keep '=' as the default unless the existing List flag opted into the old
+    // multi-value UI, but always expose the requested list operators.
+    opts = [['eq','='],['ne','<>'],['in',sectionFilterText.inList],['not_in',sectionFilterText.notInList]];
+  } else {
+    opts = [['eq','='],['ne','<>'],['contains',sectionFilterText.contains],['not_contains',sectionFilterText.notContains]];
+    if (listEnabled) opts.push(['in',sectionFilterText.inList],['not_in',sectionFilterText.notInList]);
+  }
+  return `<select class="form-select form-select-sm" data-filter-op="${escapeHtml(String(idx.name || ''))}">${opts.map(([v,t]) => `<option value="${v}" ${String(selected) === v ? 'selected' : ''}>${escapeHtml(String(t))}</option>`).join('')}</select>`;
 }
 
 function renderFilters(meta){
@@ -611,28 +665,44 @@ function renderFilters(meta){
   filterIndexes.forEach((idx, pos) => {
     const name = String(idx.name || '');
     const label = String(idx.filter_label || idx.name || '');
-    const type = String(idx.filter_type || 'string');
+    const type = filterTypeName(idx);
     const listEnabled = !!idx.filter_list_enabled;
-    const state = filterState[name] || { enabled: false, value: '', rawValue: '', values: [], views: [] };
-    const stateValues = Array.isArray(state.values) ? state.values : (state.rawValue ? [state.rawValue] : []);
-    const stateViews = Array.isArray(state.views) ? state.views : (state.value ? [state.value] : [...stateValues]);
-    nextState[name] = { enabled: !!state.enabled, value: state.value || '', rawValue: state.rawValue || '', values: [...stateValues], views: [...stateViews] };
-    const escapedName = escapeHtml(name);
+    const previous = filterState[name] || { enabled: false, value: '', rawValue: '', values: [], views: [] };
+    const stateValues = Array.isArray(previous.values) ? previous.values : (previous.rawValue ? [previous.rawValue] : []);
+    const stateViews = Array.isArray(previous.views) ? previous.views : (previous.value ? [previous.value] : [...stateValues]);
+    const op = String(previous.op || filterDefaultOp(idx, stateValues));
+    nextState[name] = {
+      enabled: !!previous.enabled,
+      op,
+      value: previous.value || '',
+      rawValue: previous.rawValue || '',
+      values: [...stateValues],
+      views: [...stateViews]
+    };
+
     const escapedLabel = escapeHtml(label);
-    let control = `<input class="form-control form-control-sm" data-filter-input="${name}" type="text" value="${escapeHtml(state.value || '')}">`;
-    if (listEnabled) {
-      control = `<div class="input-group input-group-sm"><input class="form-control" data-filter-input="${name}" type="text" readonly value="${escapeHtml((stateViews.length ? stateViews.join(', ') : state.value) || '')}" data-value="${escapeHtml((stateValues[0] || state.rawValue || ''))}"><button class="btn btn-outline-secondary" type="button" data-filter-list="${name}" data-filter-type="${type}" data-filter-label="${escapedLabel}">…</button><button class="btn btn-outline-secondary" type="button" data-filter-clear="${name}">×</button></div>`;
-    } else if (type === 'number') control = `<input class="form-control form-control-sm" data-filter-input="${name}" type="number" value="${escapeHtml(state.value || '')}">`;
-    else if (type === 'boolean') control = `<select class="form-select form-select-sm" data-filter-input="${name}"><option value=""></option><option value="true" ${String(state.rawValue) === 'true' ? 'selected' : ''}>true</option><option value="false" ${String(state.rawValue) === 'false' ? 'selected' : ''}>false</option></select>`;
-    else if (/^Node\(.+\)$/.test(type) || /^Dataset\(.+\)$/.test(type)) control = `<div class="input-group input-group-sm"><input class="form-control" data-filter-input="${name}" type="text" readonly value="${escapeHtml(state.value || '')}" data-value="${escapeHtml(state.rawValue || '')}"><button class="btn btn-outline-secondary" type="button" data-filter-pick="${name}" data-filter-type="${type}">…</button><button class="btn btn-outline-secondary" type="button" data-filter-clear="${name}">×</button></div>`;
+    const operatorControl = filterOperatorOptions(idx, op);
+    let valueControl = `<input class="form-control form-control-sm" data-filter-input="${name}" type="text" value="${escapeHtml(previous.value || '')}">`;
+
+    if (type === 'boolean') {
+      valueControl = `<select class="form-select form-select-sm" data-filter-input="${name}"><option value=""></option><option value="true" ${String(previous.rawValue) === 'true' ? 'selected' : ''}>${sectionFilterText.yes}</option><option value="false" ${String(previous.rawValue) === 'false' ? 'selected' : ''}>${sectionFilterText.no}</option></select>`;
+    } else if (filterIsRefType(type)) {
+      valueControl = `<div class="input-group input-group-sm"><input class="form-control" data-filter-input="${name}" type="text" readonly value="${escapeHtml((stateViews.length ? stateViews.join(', ') : previous.value) || '')}" data-value="${escapeHtml((stateValues[0] || previous.rawValue || ''))}"><button class="btn btn-outline-secondary" type="button" data-filter-ref-action="${name}" data-filter-type="${escapeHtml(type)}" data-filter-label="${escapedLabel}">…</button><button class="btn btn-outline-secondary" type="button" data-filter-clear="${name}">×</button></div>`;
+    } else if (listEnabled && ['in','not_in'].includes(op)) {
+      valueControl = `<div class="input-group input-group-sm"><input class="form-control" data-filter-input="${name}" type="text" readonly value="${escapeHtml((stateViews.length ? stateViews.join(', ') : previous.value) || '')}" data-value="${escapeHtml((stateValues[0] || previous.rawValue || ''))}"><button class="btn btn-outline-secondary" type="button" data-filter-list="${name}" data-filter-type="${escapeHtml(type)}" data-filter-label="${escapedLabel}">…</button><button class="btn btn-outline-secondary" type="button" data-filter-clear="${name}">×</button></div>`;
+    } else if (type === 'number') {
+      valueControl = `<input class="form-control form-control-sm" data-filter-input="${name}" type="number" step="any" value="${escapeHtml(previous.value || '')}">`;
+    }
+
     const col = document.createElement('div');
     col.className = 'col-12 col-lg-6 col-xxl-4';
     col.innerHTML = `
       <div class="border rounded px-2 py-2 h-100 bg-white">
         <div class="d-flex align-items-center gap-2">
-          <input class="form-check-input mt-0" type="checkbox" data-filter-enable="${name}" id="flt_${pos}" ${state.enabled ? 'checked' : ''}>
+          <input class="form-check-input mt-0" type="checkbox" data-filter-enable="${name}" id="flt_${pos}" ${previous.enabled ? 'checked' : ''}>
           <label class="form-label mb-0 text-nowrap" for="flt_${pos}">${escapedLabel}</label>
-          <div class="flex-grow-1">${control}</div>
+          ${operatorControl ? `<div style="width:auto;min-width:92px">${operatorControl}</div>` : ''}
+          <div class="flex-grow-1">${valueControl}</div>
         </div>
       </div>`;
     body.appendChild(col);
@@ -644,16 +714,19 @@ function renderFilters(meta){
       const name = String(idx.name || '');
       const enabledEl = body.querySelector(`[data-filter-enable="${name}"]`);
       const inputEl = body.querySelector(`[data-filter-input="${name}"]`);
+      const opEl = body.querySelector(`[data-filter-op="${name}"]`);
       const prev = filterState[name] || { values: [], views: [] };
       if (!enabledEl || !inputEl) continue;
       const next = {
         enabled: !!enabledEl.checked,
+        op: opEl ? String(opEl.value || 'eq') : String(prev.op || filterDefaultOp(idx, prev.values || [])),
         value: String(inputEl.value || ''),
         rawValue: String(inputEl.dataset.value || inputEl.value || ''),
         values: Array.isArray(prev.values) ? [...prev.values] : [],
         views: Array.isArray(prev.views) ? [...prev.views] : []
       };
-      if (!idx.filter_list_enabled) {
+      const multiValueAllowed = !!idx.filter_list_enabled || filterIsRefType(filterTypeName(idx));
+      if (!multiValueAllowed || !['in','not_in'].includes(next.op)) {
         next.values = next.rawValue ? [next.rawValue] : [];
         next.views = next.value ? [next.value] : [...next.values];
       }
@@ -666,16 +739,18 @@ function renderFilters(meta){
   }
 
   body.querySelectorAll('[data-filter-enable]').forEach(el => {
-    const handler = () => {
+    el.addEventListener('change', syncFilterStateAndReload);
+  });
+  body.querySelectorAll('[data-filter-op]').forEach(el => {
+    el.addEventListener('change', () => {
       syncFilterStateOnly();
+      renderFilters(meta);
       loadSection();
-    };
-    el.addEventListener('change', handler);
-    el.addEventListener('click', handler);
+    });
   });
   body.querySelectorAll('[data-filter-input]').forEach(el => {
     if (el.tagName === 'SELECT' || el.readOnly) {
-      el.addEventListener('change', syncFilterStateAndReload);
+      if (!el.readOnly) el.addEventListener('change', syncFilterStateAndReload);
       return;
     }
     el.addEventListener('keydown', (ev) => {
@@ -686,15 +761,28 @@ function renderFilters(meta){
     });
     el.addEventListener('blur', syncFilterStateAndReload);
   });
-  body.querySelectorAll('[data-filter-pick]').forEach(el => el.addEventListener('click', () => openFilterPicker(el.dataset.filterPick, el.dataset.filterType)));
-  body.querySelectorAll('[data-filter-list]').forEach(el => el.addEventListener('click', () => openListFilterEditor(el.dataset.filterList, el.dataset.filterType, el.dataset.filterLabel)));
+  body.querySelectorAll('[data-filter-ref-action]').forEach(el => el.addEventListener('click', async () => {
+    syncFilterStateOnly();
+    const name = String(el.dataset.filterRefAction || '');
+    const state = filterState[name] || {};
+    if (['in','not_in'].includes(String(state.op || 'eq'))) {
+      await openListFilterEditor(name, el.dataset.filterType, el.dataset.filterLabel);
+    } else {
+      await openFilterPicker(name, el.dataset.filterType);
+    }
+  }));
+  body.querySelectorAll('[data-filter-list]').forEach(el => el.addEventListener('click', () => {
+    syncFilterStateOnly();
+    openListFilterEditor(el.dataset.filterList, el.dataset.filterType, el.dataset.filterLabel);
+  }));
   body.querySelectorAll('[data-filter-clear]').forEach(el => el.addEventListener('click', () => {
     const name = String(el.dataset.filterClear || '');
     const inp = body.querySelector(`[data-filter-input="${name}"]`);
     const en = body.querySelector(`[data-filter-enable="${name}"]`);
+    const prev = filterState[name] || {};
     if (inp){ inp.value=''; inp.dataset.value=''; }
     if (en) en.checked = false;
-    filterState[name] = { enabled:false, value:'', rawValue:'', values:[], views:[] };
+    filterState[name] = { enabled:false, op:prev.op || 'eq', value:'', rawValue:'', values:[], views:[] };
     loadSection();
   }));
 }
@@ -869,20 +957,35 @@ function openItemForm(it){
 function buildFilterParams(){
   const out = {};
   if (tagFilterState) out.tag = tagFilterState;
+  const filters = [];
+  let legacyFirst = null;
   for (const idx of (filterIndexes || [])) {
-    const state = filterState[String(idx.name || '')] || {};
+    const name = String(idx.name || '');
+    const state = filterState[name] || {};
     if (!state.enabled) continue;
-    const values = Array.isArray(state.values) ? state.values.map(v => String(v || '').trim()).filter(Boolean) : [];
-    if (values.length > 1) {
-      out.index_name = idx.name;
-      out.index_value = JSON.stringify(values);
-      break;
+    const op = String(state.op || filterDefaultOp(idx, state.values || []) || 'eq');
+    const values = Array.isArray(state.values) ? state.values.map(v => String(v ?? '').trim()).filter(v => v !== '') : [];
+    const raw = String((values[0] ?? state.rawValue ?? state.value ?? '')).trim();
+    let value = raw;
+    if (['in','not_in'].includes(op)) {
+      if (!values.length) continue;
+      value = values;
+    } else if (!raw) {
+      continue;
     }
-    const v = String((values[0] ?? state.rawValue ?? state.value ?? '')).trim();
-    if (!v) continue;
-    out.index_name = idx.name;
-    out.index_value = v;
-    break;
+    const row = {name, op, value, filter_type: filterTypeName(idx)};
+    filters.push(row);
+    if (!legacyFirst) legacyFirst = {idx, row};
+  }
+  if (filters.length) {
+    out.index_filters = JSON.stringify(filters);
+    // Keep the old single-index parameters as a compatibility fallback for an
+    // older remote server. New servers always prefer index_filters.
+    const firstValue = legacyFirst.row.value;
+    out.index_name = legacyFirst.row.name;
+    if (Array.isArray(firstValue)) out.index_value = JSON.stringify(firstValue);
+    else if (filterTypeName(legacyFirst.idx) === 'boolean') out.index_value = String(firstValue) === 'true' ? 'True' : 'False';
+    else out.index_value = String(firstValue ?? '');
   }
   return out;
 }
@@ -1255,7 +1358,7 @@ function render(items, meta, rememberPayload = true) {
     // and client-added documents. User-created sections always report this as
     // true from the server. Ordinary configured-class "New" commands are not
     // extension functionality and therefore remain available.
-    const addBtn = (c.use_standard_commands && classType === 'data_node')
+    const addBtn = (c.use_standard_commands && (classType === 'data_node' || classType === 'resource_specification'))
       ? (c.is_extension
           ? (sectionAllowsClientExtensions
               ? `<button class="btn btn-sm btn-success" data-act="add-extension" data-class="${escapeHtml(c.class)}">${newText} ${escapeHtml(c.display_name || c.class)}</button>`
@@ -1710,6 +1813,7 @@ async function loadSection() {
     const url = new URL(apiSection, window.location.origin);
     url.searchParams.set("section_code", sectionCode === "__empty__" ? "" : sectionCode);
     if (q) url.searchParams.set("q", q);
+    if (f.index_filters) url.searchParams.set("index_filters", f.index_filters);
     if (f.index_name) url.searchParams.set("index_name", f.index_name);
     if (f.index_value) url.searchParams.set("index_value", f.index_value);
     if (f.tag) url.searchParams.set("tag", f.tag);
@@ -1729,6 +1833,7 @@ async function loadSection() {
     const currentF = buildFilterParams();
     const controlsChanged = (
       currentQ !== q ||
+      String(currentF.index_filters || "") !== String(f.index_filters || "") ||
       String(currentF.index_name || "") !== String(f.index_name || "") ||
       String(currentF.index_value || "") !== String(f.index_value || "") ||
       String(currentF.tag || "") !== String(f.tag || "")
@@ -1739,6 +1844,40 @@ async function loadSection() {
     }
 
     document.getElementById("nlCss").textContent = (j.nl_css || "");
+    const sectionFormUrl = String((j.meta || {}).section_form_url || "");
+    const sectionFormHost = document.getElementById("sectionFormHost");
+    if (sectionFormUrl && sectionFormHost) {
+      document.getElementById("viewTable").style.display = "none";
+      document.getElementById("viewGrid").style.display = "none";
+      document.getElementById("filtersPanel").style.display = "none";
+      const classCmds = document.getElementById("classCmds");
+      classCmds.style.display = "";
+      classCmds.querySelectorAll('button').forEach((btn) => {
+        btn.style.display = (btn.dataset.act === 'startmenu') ? '' : 'none';
+      });
+      const toolbar = document.querySelector('.section-toolbar');
+      if (toolbar) toolbar.style.display = 'none';
+      sectionFormHost.style.display = "block";
+      let frame = sectionFormHost.querySelector('iframe');
+      if (!frame || frame.dataset.src !== sectionFormUrl) {
+        sectionFormHost.innerHTML = '';
+        frame = document.createElement('iframe');
+        frame.dataset.src = sectionFormUrl;
+        frame.src = sectionFormUrl;
+        frame.style.width = '100%';
+        frame.style.height = '100%';
+        frame.style.border = '0';
+        frame.setAttribute('title', 'Section form');
+        sectionFormHost.appendChild(frame);
+      }
+      setStatus('');
+      window.__lastAppliedSearch = q;
+      return;
+    } else if (sectionFormHost) {
+      sectionFormHost.style.display = "none";
+      const toolbar = document.querySelector('.section-toolbar');
+      if (toolbar) toolbar.style.display = '';
+    }
     if (isDashboard) {
       await ensureDashboardLayout();
       j.items = orderDashboardItems(j.items || []);
@@ -1961,6 +2100,18 @@ async function fireCommonEvent(repo_id, event_name, payload){
         if (window.showMessage) window.showMessage(String(e), "danger");
       }
     });
+  }
+
+  // CommonEvents used by a section FAB may open a normal node (for example
+  // "Добавить операцию"). Honor the same _open() response as node forms do.
+  if (j.open && j.open.config_uid && j.open.class_name && j.open.node_id) {
+    const u = `/client/node/${encodeURIComponent(j.open.config_uid)}/${encodeURIComponent(j.open.class_name)}/${encodeURIComponent(j.open.node_id)}`;
+    if (j.open.new_tab) {
+      const w = window.open(u, '_blank');
+      if (w) { try { w.focus(); } catch(_){} }
+    } else {
+      window.location.href = u;
+    }
   }
 
   return j;

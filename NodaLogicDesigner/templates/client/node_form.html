@@ -8,6 +8,19 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/code-input.min.css">
 <script src="https://cdn.jsdelivr.net/gh/WebCoder49/code-input@2.3/plugins/indent.min.js"></script>
 
+{% if section_form_mode|default(false) %}
+<style>
+  /* Embedded section form: render only the actual form surface. The parent
+     section owns navigation, section commands/FABs and page chrome. */
+  body > nav.navbar { display:none !important; }
+  body > .container-fluid.mt-4 { margin-top:0 !important; padding:0 !important; }
+  .nl-node-form-header, #nlTopTabs, .nl-node-form-side { display:none !important; }
+  #nodeFormPane { width:100% !important; flex:1 1 100% !important; }
+  #nodeFormPane > .tab-content { border:0 !important; }
+  #pane-form { display:block !important; opacity:1 !important; }
+</style>
+{% endif %}
+
 <style>
   /* Dark green button for "Save and close" */
   .btn-save-close{
@@ -17,6 +30,36 @@
   }
   .btn-save-close:hover{filter:brightness(0.95);}
 
+
+  /* Reactive NodaLayout field.  Do not scope to #webRoot: the same layout can
+     also be embedded into section/projection surfaces. */
+  .nl-reactive{min-width:0;width:100%;}
+  .nl-reactive-line{display:flex;align-items:center;gap:7px;min-height:38px;border-bottom:1px solid rgba(0,0,0,.12);}
+  .nl-reactive-value{flex:1 1 auto;min-width:0;padding:.45rem .38rem;white-space:pre-wrap;overflow-wrap:anywhere;font-variant-numeric:tabular-nums;}
+  .nl-reactive-edit{flex:0 0 auto!important;width:28px!important;height:28px!important;padding:2px!important;border:0!important;outline:0!important;box-shadow:none!important;border-radius:0!important;background:transparent!important;color:#5f6368!important;line-height:1!important;opacity:0;pointer-events:none;transform:scale(.96);transition:opacity .12s ease,color .12s ease,transform .12s ease;}
+  .nl-reactive:hover .nl-reactive-edit,.nl-reactive:focus-within .nl-reactive-edit{opacity:.72;pointer-events:auto;}
+  .nl-reactive-edit:hover,.nl-reactive-edit:focus-visible{opacity:1!important;color:#198754!important;transform:scale(1.04);background:transparent!important;box-shadow:none!important;}
+  .nl-reactive-edit svg{display:block;pointer-events:none;}
+  .nl-reactive-status{flex:0 0 auto;max-width:150px;font-size:.72rem;line-height:1.2;color:#6c757d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .nl-reactive[data-reactive-status="error"] .nl-reactive-status{color:#b02a37;}
+  .nl-reactive[data-reactive-status="queued"] .nl-reactive-status,
+  .nl-reactive[data-reactive-status="dirty"] .nl-reactive-status{color:#8a6d00;}
+  .nl-reactive-editor{position:relative;margin-top:7px;padding:9px;border:1px solid rgba(25,135,84,.20);border-radius:10px;background:rgba(25,135,84,.025);}
+  .nl-reactive-code{width:100%;min-height:118px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88rem;line-height:1.45;border:1px solid rgba(0,0,0,.16);border-radius:7px;padding:8px 10px;background:var(--bs-body-bg,#fff);color:var(--bs-body-color,#212529);}
+  .nl-reactive-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:7px;}
+  .nl-reactive-token-btn{border:1px solid rgba(25,135,84,.25);background:transparent;color:#146c43;border-radius:7px;padding:2px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .nl-reactive-token-btn:hover{background:rgba(25,135,84,.08);}
+  .nl-reactive-suggest{position:absolute;left:9px;right:9px;z-index:30;max-height:190px;overflow:auto;background:var(--bs-body-bg,#fff);border:1px solid rgba(0,0,0,.16);border-radius:8px;box-shadow:0 8px 22px rgba(0,0,0,.12);padding:4px;}
+  .nl-reactive-suggest button{display:block;width:100%;text-align:left;border:0;background:transparent;border-radius:6px;padding:5px 8px;}
+  .nl-reactive-suggest button:hover{background:rgba(25,135,84,.08);}
+  .nl-reactive-external{margin-top:7px;padding:8px;border:1px dashed rgba(25,135,84,.28);border-radius:8px;background:rgba(255,255,255,.55);}
+  .nl-reactive-external-grid{display:grid;grid-template-columns:minmax(120px,1fr) minmax(160px,1.35fr) minmax(120px,1fr) auto;gap:6px;align-items:end;}
+  .nl-reactive-external label{font-size:.72rem;color:#6c757d;display:block;margin-bottom:2px;}
+  .nl-reactive-external select{width:100%;min-width:0;}
+  .nl-reactive-error{margin-top:6px;color:#b02a37;font-size:.78rem;white-space:pre-wrap;}
+  .nl-reactive-deps{margin-top:5px;color:#6c757d;font-size:.72rem;white-space:normal;overflow-wrap:anywhere;}
+  @media (hover:none){.nl-reactive-edit{opacity:.65;pointer-events:auto;}}
+  @media (max-width:760px){.nl-reactive-external-grid{grid-template-columns:1fr;}}
 
   /* Client-extension document editor.  Extension fields deliberately look like
      a note/document rather than a database form (same idea as Android). */
@@ -659,7 +702,7 @@
   </div>
 </div>
 
-<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 nl-node-form-header">
   <div class="d-flex align-items-center gap-2 flex-wrap">
     <span class="badge text-bg-light border">{{ repo.display_name or repo.name }}</span>
     <span class="badge text-bg-light border">{{ class_name }}</span>
@@ -876,7 +919,7 @@
   {% if true %}
   {% set projection_timer = 0 %}
   {% if node_data is mapping %}{% set projection_timer = (node_data.get('_projection_timer') or 0)|float %}{% endif %}
-  <div style="width:300px; flex:0 0 300px; flex-shrink:0; position:sticky; top:12px; align-self:flex-start;">
+  <div class="nl-node-form-side" style="width:300px; flex:0 0 300px; flex-shrink:0; position:sticky; top:12px; align-self:flex-start;">
     <div>
       {% if is_projection and layout_html %}
         <div class="card mb-3 nl-projection-settings">
@@ -1009,6 +1052,7 @@ const SHOW_NODE_JSON = {{ (show_node_json|default(false))|tojson }};
 const API_NODE_CREATE = "/client/api/node/create";
 const API_NODE_MOVEMENTS = "/client/api/node/movements";
 const API_EVENT_WEB = {{ api_event_web|tojson }};
+const SECTION_FORM_MODE = {{ (section_form_mode|default(false))|tojson }};
 const API_SAVE = {{ api_save_url|tojson }};
 const CAN_EXTEND_NODE = {{ (can_extend_node|default(false))|tojson }};
 const EXTENSION_MANAGED = {{ (extension_managed|default(false))|tojson }};
@@ -1174,6 +1218,11 @@ const API_CLASS_NODES = "/client/api/class_nodes";
 const API_DATASET_ITEMS = "/client/api/dataset_items";
 const API_NODALAYOUT_RENDER = "/client/api/nodalayout/render";
 const API_NODE_VIEWS_BATCH = "/client/api/node_views/batch";
+const API_REACTIVE_STATE = "/client/api/reactive/state";
+const API_REACTIVE_STATES = "/client/api/reactive/states";
+const API_REACTIVE_FORMULA = "/client/api/reactive/formula";
+const API_REACTIVE_FIELDS = "/client/api/reactive/fields";
+const API_REACTIVE_CLASSES = "/client/api/reactive/classes";
 const API_NGENIE_CHAT = "/client/api/ngenie/chat";
 
 // UserFiles API (FileGallery / MediaGallery)
@@ -2030,6 +2079,12 @@ function openUrlMaybeNodeForm(url){
   const u = String(url || "").trim();
   if (!u) return false;
 
+  // Rows of a section-hosted table open as ordinary nodes in the parent client,
+  // never as another nested form inside the embedded section iframe.
+  if (SECTION_FORM_MODE && window.parent && window.parent !== window) {
+    try { window.parent.location.href = u; return true; } catch(_) {}
+  }
+
   // Try to get /client/node/<cfg>/<class>/<id> from URL
   const m = u.match(/\/(?:client\/)?node\/([^\/]+)\/([^\/]+)\/([^\/\?#]+)/);
   if (m) {
@@ -2841,13 +2896,19 @@ async function fireOnInputWeb(payload){
 
   // Local NodaScript actions first (per listener rules)
   try {
-    const info = await nlRunLocalNodaScriptFirst("onInputWeb", payload || {});
+    const info = SECTION_FORM_MODE ? {ran:false,hasRemote:true} : await nlRunLocalNodaScriptFirst("onInputWeb", payload || {});
     if (info.ran && !info.hasRemote) {
       try { await nlRunLocalPostNodaScript("onInputWeb", payload || {}); } catch(_){}
       try { nlRefreshUI(); } catch(_) {}
       return;
     }
   } catch(_){ }
+
+  if (SECTION_FORM_MODE) {
+    try {
+      payload = Object.assign({}, payload || {}, {full_data: JSON.parse(JSON.stringify(_data || {}))});
+    } catch(_) {}
+  }
 
   const nlShowProgress = nlUsesRunProgress("onInputWeb", payload || {});
   if (nlShowProgress) nlRunProgressStart();
@@ -2945,6 +3006,10 @@ async function fireOnInputWeb(payload){
           if (u.config_uid && u.class_name && u.node_id) {
             const targetUrl = `/client/node/${encodeURIComponent(u.config_uid)}/${encodeURIComponent(u.class_name)}/${encodeURIComponent(u.node_id)}`;
 
+            if (SECTION_FORM_MODE && window.parent && window.parent !== window) {
+              window.parent.location.href = targetUrl;
+              return;
+            }
             if (u.new_tab) {
               const winName = nodeWinNameByParts(u.config_uid, u.class_name, u.node_id);
               const w = window.open(targetUrl, winName);   
@@ -3018,7 +3083,7 @@ async function fireOnClickWeb(payload, target_class = "", target_node = "", opti
 
   // 1) Local NodaScript actions first (per requirements)
   try {
-    const info = await nlRunLocalNodaScriptFirst("onInputWeb", payload || {});
+    const info = SECTION_FORM_MODE ? {ran:false,hasRemote:true} : await nlRunLocalNodaScriptFirst("onInputWeb", payload || {});
     // If this listener has ONLY local NodaScript actions, we can skip the backend call,
     // except for projection generation where Generate must always reach the backend/raw-node handler.
     if (info.ran && !info.hasRemote && !forceRemote) {
@@ -4151,7 +4216,12 @@ function renderGanttProjection(payload){
 function bindGanttProjection(root){
   if (!root || !projectionState.gantt) return;
   let active = null;
+  const readonly = !!(_data && _data._projection_readonly);
   root.querySelectorAll(".nl-gantt-bar").forEach(el => {
+    if (readonly) {
+      el.addEventListener("click", () => openProjectionObject(el));
+      return;
+    }
     el.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       const start = nlParseDateTime(el.getAttribute("data-start"));
@@ -4490,6 +4560,8 @@ function bindInputs(){
 }
 bindInputs();
 
+/* Reactive NodaLayout editor is isolated in its own script block below. */
+
 /* --- FileGallery / MediaGallery --- */
 function findGalleryPlugin(type){
   const ps = (window.NL && Array.isArray(window.NL.ui_plugins)) ? window.NL.ui_plugins : [];
@@ -4508,14 +4580,14 @@ async function apiUserfilesList(){
   return [];
 }
 
-async function apiUserfilesUpload(file, forceS3=false){
+async function apiUserfilesUpload(file, forceS3=false, forceLocal=false){
   // Keep the browser on the application's origin.  The server performs a
   // normal presigned PUT to S3, which avoids both browser CORS requirements
   // and boto3 upload_fileobj/aws-chunked checksum incompatibilities seen with
   // some S3-compatible providers.
   const fd = new FormData();
   fd.append("file", file);
-  if (forceS3 || shouldUploadUserfilesToS3()) fd.append("upload_s3", "1");
+  if (forceS3 || (!forceLocal && shouldUploadUserfilesToS3())) fd.append("upload_s3", "1");
   const r = await fetch(API_USERFILES_UPLOAD, { method: "POST", body: fd, credentials: "same-origin" });
   const j = await r.json();
   if (!j || !j.ok) throw new Error((j && j.error) || "upload failed");
@@ -5943,6 +6015,83 @@ if(bD) bD.addEventListener("click", doDelete);
 const bC = document.getElementById("btnClose");
 if(bC) bC.addEventListener("click", doClose);
 
+// Editable layout Picture / Files work in ordinary class forms, not just extensions.
+function nlBindMediaLayout(){
+  const root=document.getElementById('webRoot');
+  if(!root || root.__nlMediaBound || IS_READ_ONLY) return;
+  root.__nlMediaBound=true;
+  const reportError = e => { if(window.message) window.message(String(e?.message||e),'danger'); else alert(String(e)); };
+  const storeAndSave = async (field,value) => {
+    snapshotWebFormIntoData();
+    _data[field]=value;
+    nlExtSyncAdminJson();
+    const ok=await doSave();
+    if(ok)window.location.reload();
+  };
+  const publicFileUrl = name => String(name||'').startsWith('http') ? String(name) :
+    window.location.origin + '/api/userfiles/' + encodeURIComponent(CONFIG_UID) + '/raw/' + encodeURIComponent(name);
+  root.addEventListener('click', async e => {
+    const picture=e.target.closest('[data-nl-picture-field]');
+    if(picture){
+      const field=String(picture.dataset.nlPictureField||'');
+      if(!field)return;
+      if(e.target.closest('[data-nl-picture-delete]')){
+        e.preventDefault();e.stopPropagation();
+        try{await storeAndSave(field,'');}catch(err){reportError(err);}return;
+      }
+      if(e.target.closest('[data-nl-picture-change]')){
+        e.preventDefault();e.stopPropagation();picture.querySelector('[data-nl-picture-input]')?.click();return;
+      }
+    }
+    const files=e.target.closest('[data-nl-files-field]');
+    if(!files)return;
+    const field=String(files.dataset.nlFilesField||'');
+    if(!field)return;
+    if(e.target.closest('[data-nl-files-add]')){
+      e.preventDefault();e.stopPropagation();files.querySelector('[data-nl-files-input]')?.click();return;
+    }
+    const remove=e.target.closest('[data-nl-files-delete]');
+    if(remove){
+      e.preventDefault();e.stopPropagation();
+      const index=Number(remove.dataset.nlFilesDelete);
+      const initial=JSON.parse(files.dataset.nlFilesInitial||'[]');
+      const items=Array.isArray(_data[field])?_data[field].slice():initial;
+      if(!Number.isInteger(index)||index<0||index>=items.length)return;
+      items.splice(index,1);
+      try{await storeAndSave(field,items);}catch(err){reportError(err);}
+    }
+  });
+  root.addEventListener('change',async e=>{
+    const input=e.target;
+    if(!(input instanceof HTMLInputElement)||input.type!=='file')return;
+    const picture=input.closest('[data-nl-picture-field]');
+    const files=input.closest('[data-nl-files-field]');
+    if(!picture&&!files)return;
+    const field=String(picture?.dataset.nlPictureField||files?.dataset.nlFilesField||'');
+    const picked=Array.from(input.files||[]);
+    input.value='';
+    if(!field||!picked.length)return;
+    try{
+      if(picture){
+        const useS3=picture.dataset.nlPictureSync==='s3';
+        const name=await apiUserfilesUpload(picked[0],useS3,!useS3);
+        await storeAndSave(field,publicFileUrl(name));
+      }else{
+        const initial=JSON.parse(files.dataset.nlFilesInitial||'[]');
+        const items=Array.isArray(_data[field])?_data[field].slice():initial;
+        for(const f of picked){
+          const useS3=files.dataset.nlFilesSync==='s3';
+          const saved=await apiUserfilesUpload(f,useS3,!useS3);
+          items.push({name:f.name,description:'',mime:f.type||'application/octet-stream',size:f.size,
+            storage:saved.startsWith('http')?'s3':'server',url:publicFileUrl(saved),sync_status:'synced'});
+        }
+        await storeAndSave(field,items);
+      }
+    }catch(err){reportError(err);}
+  });
+}
+
+nlBindMediaLayout();
 nlInitExtensionEditor();
 
 /* Ctrl+S in JSON editor -> Save */
@@ -5956,6 +6105,468 @@ if(ta){
   });
 }
 </script>
+
+<script>
+/* --- Reactive NodaLayout (standalone) ----------------------------------- */
+(function(){
+  'use strict';
+
+  const API_STATE = '/client/api/reactive/state';
+  const API_STATES = '/client/api/reactive/states';
+  const API_FORMULA = '/client/api/reactive/formula';
+  const API_FIELDS = '/client/api/reactive/fields';
+  const API_CLASSES = '/client/api/reactive/classes';
+  const API_CLASS_NODES_LOCAL = '/client/api/class_nodes';
+
+  const cache = {
+    classesByRepo: new Map(),
+    fieldsByTarget: new Map()
+  };
+  let pollTimer = null;
+  let bound = false;
+  let mutationTimer = null;
+
+  function elements(){
+    return Array.from(document.querySelectorAll('[data-nl-reactive="1"]'));
+  }
+  function field(el){
+    return String(el && el.getAttribute('data-nl-reactive-field') || '').trim();
+  }
+  function ctx(el){
+    const host = el && el.closest ? (el.closest('[data-nl-reactive-repo]') || el.closest('[data-nl-repo]')) : null;
+    const repoRaw = String((el && el.getAttribute('data-nl-reactive-repo')) || (host && host.getAttribute('data-nl-repo')) || '').trim();
+    const className = String((el && el.getAttribute('data-nl-reactive-class')) || (host && host.getAttribute('data-nl-class')) || '').trim();
+    const nodeId = String((el && el.getAttribute('data-nl-reactive-node')) || (host && host.getAttribute('data-nl-node')) || '').trim();
+    return {repo_id:Number(repoRaw || 0), class_name:className, node_id:nodeId};
+  }
+  function base(el){
+    const c = ctx(el);
+    return {repo_id:c.repo_id, class_name:c.class_name, node_id:c.node_id, field:field(el)};
+  }
+  function display(value){
+    if(value===null || value===undefined) return '';
+    if(typeof value==='object'){
+      try{return JSON.stringify(value);}catch(_){return String(value);}
+    }
+    return String(value);
+  }
+  function setLocalValue(fieldName, value){
+    try{
+      if(typeof setByPath === 'function' && typeof _data !== 'undefined' && _data && typeof _data === 'object'){
+        setByPath(_data, fieldName, value);
+      }
+    }catch(_){}
+  }
+  function setError(el, message){
+    if(!el) return;
+    el.setAttribute('data-reactive-status','error');
+    const st=el.querySelector('[data-nl-reactive-status="1"]');
+    if(st){st.textContent='error';st.title=String(message||'Reactive error');}
+    const editor=el.querySelector('[data-nl-reactive-editor="1"]');
+    if(editor && !editor.hidden){
+      const err=editor.querySelector('[data-reactive-error]');
+      if(err)err.textContent=String(message||'Reactive error');
+    }
+  }
+  function apply(el,payload){
+    if(!el || !payload) return;
+    const f=field(el);
+    if(Object.prototype.hasOwnProperty.call(payload,'value')){
+      const value=payload.value;
+      const valEl=el.querySelector('[data-nl-reactive-value="1"]');
+      if(valEl) valEl.textContent=display(value);
+      if(f) setLocalValue(f,value);
+    }
+    const state=payload.state||{};
+    const status=String(state.status || (state.exists?'idle':'')).trim();
+    el.setAttribute('data-reactive-status',status);
+    const st=el.querySelector('[data-nl-reactive-status="1"]');
+    if(st){
+      let text='';
+      if(status==='queued'||status==='dirty') text='…';
+      else if(status==='error') text='error';
+      st.textContent=text;
+      st.title=String(state.error||status||'');
+    }
+    const editor=el.querySelector('[data-nl-reactive-editor="1"]');
+    if(editor && !editor.hidden){
+      const err=editor.querySelector('[data-reactive-error]');
+      if(err) err.textContent=String(state.error||'');
+      const deps=editor.querySelector('[data-reactive-deps]');
+      if(deps && Array.isArray(payload.dependencies)){
+        deps.textContent=payload.dependencies.length ? ('Depends on: '+payload.dependencies.join(', ')) : '';
+      }
+    }
+  }
+  async function post(url,body){
+    const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body||{})});
+    let j={};
+    try{j=await r.json();}catch(_){}
+    if(!r.ok || !j || j.ok===false) throw new Error((j&&j.error)||('HTTP '+r.status));
+    return j;
+  }
+  function validContext(el){
+    const c=ctx(el);
+    return !!(c.repo_id && c.class_name && c.node_id && field(el));
+  }
+  async function load(el,ensureDefault){
+    if(!validContext(el)) throw new Error('Reactive context is incomplete');
+    const body=base(el);
+    body.ensure_default=!!ensureDefault;
+    body.default_formula=String(el.getAttribute('data-nl-reactive-default')||'');
+    body.default_async=el.getAttribute('data-nl-reactive-async')==='1';
+    const j=await post(API_STATE,body);
+    apply(el,j);
+    return j;
+  }
+  async function fieldsFor(repoId,className,nodeId){
+    const key=[repoId,className,nodeId||''].join('|');
+    if(cache.fieldsByTarget.has(key)) return cache.fieldsByTarget.get(key);
+    const j=await post(API_FIELDS,{repo_id:repoId,class_name:className,node_id:nodeId||''});
+    const items=Array.isArray(j.items)?j.items:[];
+    cache.fieldsByTarget.set(key,items);
+    return items;
+  }
+  async function localFields(el){
+    const c=ctx(el);
+    return await fieldsFor(c.repo_id,c.class_name,c.node_id);
+  }
+  async function classes(el){
+    const c=ctx(el);
+    const key=String(c.repo_id||0);
+    if(cache.classesByRepo.has(key)) return cache.classesByRepo.get(key);
+    const j=await post(API_CLASSES,{repo_id:c.repo_id});
+    const items=Array.isArray(j.items)?j.items:[];
+    cache.classesByRepo.set(key,items);
+    return items;
+  }
+  function editorHtml(){
+    return `
+      <textarea class="nl-reactive-code" data-reactive-code spellcheck="false"></textarea>
+      <div class="nl-reactive-suggest" data-reactive-suggest hidden></div>
+      <div class="nl-reactive-toolbar">
+        <button type="button" class="nl-reactive-token-btn" data-reactive-local-token>@</button>
+        <button type="button" class="nl-reactive-token-btn" data-reactive-external-token>$</button>
+        <label class="form-check form-switch ms-1 mb-0"><input class="form-check-input" type="checkbox" data-reactive-async><span class="form-check-label small">Async</span></label>
+        <span class="flex-grow-1"></span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-reactive-cancel>Cancel</button>
+        <button type="button" class="btn btn-sm btn-success" data-reactive-save>Save formula</button>
+      </div>
+      <div class="nl-reactive-external" data-reactive-external hidden>
+        <div class="nl-reactive-external-grid">
+          <div><label>Class</label><select class="form-select form-select-sm" data-reactive-class></select></div>
+          <div><label>Node</label><select class="form-select form-select-sm" data-reactive-node></select></div>
+          <div><label>Field</label><select class="form-select form-select-sm" data-reactive-field></select></div>
+          <button type="button" class="btn btn-sm btn-outline-success" data-reactive-insert-ref disabled>Insert</button>
+        </div>
+      </div>
+      <div class="nl-reactive-error" data-reactive-error></div>
+      <div class="nl-reactive-deps" data-reactive-deps></div>`;
+  }
+  function insertAt(textarea,start,end,text){
+    const value=String(textarea.value||'');
+    textarea.value=value.slice(0,start)+text+value.slice(end);
+    const pos=start+text.length;
+    textarea.focus();
+    textarea.setSelectionRange(pos,pos);
+    textarea.dispatchEvent(new Event('input',{bubbles:true}));
+  }
+  async function showLocalSuggestions(el,textarea,query,start,end){
+    const box=el.querySelector('[data-reactive-suggest]');
+    if(!box)return;
+    let items=[];
+    try{items=await localFields(el);}catch(_){items=[];}
+    const q=String(query||'').toLowerCase();
+    items=items.filter(x=>String(x.name||'').toLowerCase().startsWith(q)).slice(0,30);
+    box.innerHTML='';
+    if(!items.length){box.hidden=true;return;}
+    for(const item of items){
+      const b=document.createElement('button');
+      b.type='button';
+      b.textContent=String(item.caption||item.name)+(item.caption&&item.caption!==item.name?'  ·  '+item.name:'');
+      b.addEventListener('mousedown',(ev)=>{
+        ev.preventDefault();
+        insertAt(textarea,start,end,'@'+String(item.name||''));
+        box.hidden=true;
+      });
+      box.appendChild(b);
+    }
+    box.hidden=false;
+  }
+  async function openExternal(el,textarea,anchor){
+    const panel=el.querySelector('[data-reactive-external]');
+    if(!panel)return;
+    panel.hidden=false;
+    panel.dataset.anchor=String(Math.max(0,anchor));
+    const clsSel=panel.querySelector('[data-reactive-class]');
+    const nodeSel=panel.querySelector('[data-reactive-node]');
+    const fldSel=panel.querySelector('[data-reactive-field]');
+    const ins=panel.querySelector('[data-reactive-insert-ref]');
+    clsSel.innerHTML='<option value="">Select class…</option>';
+    nodeSel.innerHTML='<option value="">Select node…</option>';
+    fldSel.innerHTML='<option value="">Select field…</option>';
+    ins.disabled=true;
+    let list=[];
+    try{list=await classes(el);}catch(_){}
+    for(const item of list){
+      const o=document.createElement('option');
+      o.value=String(item.name||'');
+      o.textContent=String(item.caption||item.name||'');
+      clsSel.appendChild(o);
+    }
+  }
+  async function loadNodes(el,panel){
+    const clsSel=panel.querySelector('[data-reactive-class]');
+    const nodeSel=panel.querySelector('[data-reactive-node]');
+    const fldSel=panel.querySelector('[data-reactive-field]');
+    const ins=panel.querySelector('[data-reactive-insert-ref]');
+    const className=String(clsSel.value||'');
+    nodeSel.innerHTML='<option value="">Select node…</option>';
+    fldSel.innerHTML='<option value="">Select field…</option>';
+    ins.disabled=true;
+    if(!className)return;
+    try{
+      const list=await classes(el);
+      const meta=list.find(x=>String(x.name||'')===className);
+      if(meta && meta.singleton){
+        const o=document.createElement('option');
+        o.value='singleton';o.textContent='singleton';
+        nodeSel.appendChild(o);nodeSel.value='singleton';
+        await loadExternalFields(el,panel);
+        return;
+      }
+      const c=ctx(el);
+      const u=new URL(API_CLASS_NODES_LOCAL,window.location.origin);
+      u.searchParams.set('repo_id',String(c.repo_id));
+      u.searchParams.set('class_name',className);
+      u.searchParams.set('limit','200');
+      const r=await fetch(u.toString(),{credentials:'same-origin'});
+      const j=await r.json();
+      for(const item of (j.items||[])){
+        const raw=String(item._id||item.uid||'');
+        const internal=raw.includes('$')?raw.split('$').pop():raw;
+        const o=document.createElement('option');
+        o.value=internal;o.textContent=String(item._view||internal);
+        nodeSel.appendChild(o);
+      }
+    }catch(_){}
+  }
+  async function loadExternalFields(el,panel){
+    const className=String(panel.querySelector('[data-reactive-class]').value||'');
+    const nodeId=String(panel.querySelector('[data-reactive-node]').value||'');
+    const fldSel=panel.querySelector('[data-reactive-field]');
+    const ins=panel.querySelector('[data-reactive-insert-ref]');
+    fldSel.innerHTML='<option value="">Select field…</option>';
+    ins.disabled=true;
+    if(!className||!nodeId)return;
+    let items=[];
+    try{items=await fieldsFor(ctx(el).repo_id,className,nodeId);}catch(_){}
+    for(const item of items){
+      const o=document.createElement('option');
+      o.value=String(item.name||'');o.textContent=String(item.caption||item.name||'');
+      fldSel.appendChild(o);
+    }
+  }
+  async function openEditor(el){
+    if(!el)return;
+    const editor=el.querySelector('[data-nl-reactive-editor="1"]');
+    if(!editor)return;
+    if(!editor.innerHTML.trim()) editor.innerHTML=editorHtml();
+    editor.hidden=false;
+    const errorEl=editor.querySelector('[data-reactive-error]');
+    if(errorEl)errorEl.textContent='';
+    let j=null;
+    try{j=await load(el,true);}catch(ex){if(errorEl)errorEl.textContent=String(ex.message||ex);}
+    const ta=editor.querySelector('[data-reactive-code]');
+    const asyncBox=editor.querySelector('[data-reactive-async]');
+    if(ta) ta.value=String((j&&j.formula)!=null?j.formula:(el.getAttribute('data-nl-reactive-default')||''));
+    if(asyncBox) asyncBox.checked=!!(j&&j.state&&j.state.exists?j.state.async:(el.getAttribute('data-nl-reactive-async')==='1'));
+    const deps=editor.querySelector('[data-reactive-deps]');
+    if(deps&&j&&Array.isArray(j.dependencies)) deps.textContent=j.dependencies.length?('Depends on: '+j.dependencies.join(', ')):'';
+    if(ta){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);}
+  }
+  window.nlReactiveOpenEditor=openEditor;
+
+  function bind(){
+    if(bound)return;
+    bound=true;
+
+    // Capture phase is intentional: Reactive is a control embedded in layouts
+    // which may also have generic click handlers on parent rows/containers.
+    document.addEventListener('click',async(e)=>{
+      const t=e.target;
+      if(!t||!t.closest)return;
+      const edit=t.closest('[data-nl-reactive-edit="1"]');
+      if(edit){
+        e.preventDefault();e.stopPropagation();
+        const el=edit.closest('[data-nl-reactive="1"]');
+        if(el)await openEditor(el);
+        return;
+      }
+      const cancel=t.closest('[data-reactive-cancel]');
+      if(cancel){
+        e.preventDefault();e.stopPropagation();
+        const ed=cancel.closest('[data-nl-reactive-editor="1"]');
+        if(ed)ed.hidden=true;
+        return;
+      }
+      const localBtn=t.closest('[data-reactive-local-token]');
+      if(localBtn){
+        e.preventDefault();e.stopPropagation();
+        const el=localBtn.closest('[data-nl-reactive="1"]');
+        const ta=el&&el.querySelector('[data-reactive-code]');
+        if(ta){const p=ta.selectionStart||0;insertAt(ta,p,p,'@');}
+        return;
+      }
+      const extBtn=t.closest('[data-reactive-external-token]');
+      if(extBtn){
+        e.preventDefault();e.stopPropagation();
+        const el=extBtn.closest('[data-nl-reactive="1"]');
+        const ta=el&&el.querySelector('[data-reactive-code]');
+        if(ta){const p=ta.selectionStart||0;insertAt(ta,p,p,'$');await openExternal(el,ta,p);}
+        return;
+      }
+      const save=t.closest('[data-reactive-save]');
+      if(save){
+        e.preventDefault();e.stopPropagation();
+        const el=save.closest('[data-nl-reactive="1"]');
+        const ed=el&&el.querySelector('[data-nl-reactive-editor="1"]');
+        if(!el||!ed)return;
+        const ta=ed.querySelector('[data-reactive-code]');
+        const ab=ed.querySelector('[data-reactive-async]');
+        const er=ed.querySelector('[data-reactive-error]');
+        if(er)er.textContent='';
+        save.disabled=true;
+        try{
+          const body=base(el);
+          body.formula=String(ta&&ta.value||'');
+          body.async=!!(ab&&ab.checked);
+          const j=await post(API_FORMULA,body);
+          apply(el,j);
+          cache.fieldsByTarget.clear();
+          if(j.state&&j.state.status==='error'){
+            if(er)er.textContent=String(j.state.error||'Formula error');
+          }else{
+            ed.hidden=true;
+          }
+        }catch(ex){
+          if(er)er.textContent=String(ex.message||ex);
+          setError(el,ex.message||ex);
+        }finally{save.disabled=false;}
+        return;
+      }
+      const ins=t.closest('[data-reactive-insert-ref]');
+      if(ins){
+        e.preventDefault();e.stopPropagation();
+        const el=ins.closest('[data-nl-reactive="1"]');
+        const panel=ins.closest('[data-reactive-external]');
+        const ta=el&&el.querySelector('[data-reactive-code]');
+        if(!panel||!ta)return;
+        const className=String(panel.querySelector('[data-reactive-class]').value||'');
+        const nodeId=String(panel.querySelector('[data-reactive-node]').value||'');
+        const fieldName=String(panel.querySelector('[data-reactive-field]').value||'');
+        if(!className||!nodeId||!fieldName)return;
+        const anchor=Math.max(0,parseInt(panel.dataset.anchor||String(ta.selectionStart||0),10)||0);
+        let end=anchor;
+        if(String(ta.value||'').charAt(anchor)==='$')end=anchor+1;
+        insertAt(ta,anchor,end,`$${className}$${nodeId}@${fieldName}`);
+        panel.hidden=true;
+        return;
+      }
+    },true);
+
+    document.addEventListener('change',async(e)=>{
+      const t=e.target;
+      if(!t||!t.closest)return;
+      const panel=t.closest('[data-reactive-external]');
+      if(!panel)return;
+      const el=panel.closest('[data-nl-reactive="1"]');
+      if(!el)return;
+      if(t.matches('[data-reactive-class]')) await loadNodes(el,panel);
+      else if(t.matches('[data-reactive-node]')) await loadExternalFields(el,panel);
+      else if(t.matches('[data-reactive-field]')){
+        const b=panel.querySelector('[data-reactive-insert-ref]');
+        if(b)b.disabled=!String(t.value||'');
+      }
+    },true);
+
+    document.addEventListener('input',async(e)=>{
+      const ta=e.target;
+      if(!ta||!ta.matches||!ta.matches('[data-reactive-code]'))return;
+      const el=ta.closest('[data-nl-reactive="1"]');
+      if(!el)return;
+      const pos=ta.selectionStart||0;
+      const before=String(ta.value||'').slice(0,pos);
+      const box=el.querySelector('[data-reactive-suggest]');
+      if(box)box.hidden=true;
+      const m=before.match(/@([^\s@$()+\-*\/=,<>{}\[\]]*)$/u);
+      if(m){
+        const start=pos-m[0].length;
+        const tokenStart=before.lastIndexOf('$',start);
+        const boundary=Math.max(before.lastIndexOf(' ',start),before.lastIndexOf('\n',start),before.lastIndexOf('(',start),before.lastIndexOf(',',start));
+        if(tokenStart<=boundary) await showLocalSuggestions(el,ta,m[1],start,pos);
+      }
+      if(before.endsWith('$')){
+        const prior=before.slice(0,-1);
+        const boundary=Math.max(prior.lastIndexOf(' '),prior.lastIndexOf('\n'),prior.lastIndexOf('('),prior.lastIndexOf(','));
+        if(prior.lastIndexOf('$')<=boundary) await openExternal(el,ta,pos-1);
+      }
+    },true);
+  }
+
+  async function pollOnce(){
+    const groups=new Map();
+    for(const el of elements()){
+      if(!validContext(el))continue;
+      const c=ctx(el);
+      const key=[c.repo_id,c.class_name,c.node_id].join('|');
+      if(!groups.has(key))groups.set(key,{ctx:c,els:[]});
+      groups.get(key).els.push(el);
+    }
+    for(const group of groups.values()){
+      const fields=group.els.map(field).filter(Boolean);
+      if(!fields.length)continue;
+      try{
+        const j=await post(API_STATES,{repo_id:group.ctx.repo_id,class_name:group.ctx.class_name,node_id:group.ctx.node_id,fields});
+        const items=j.items||{};
+        for(const el of group.els){const f=field(el);if(items[f])apply(el,items[f]);}
+      }catch(ex){
+        for(const el of group.els)setError(el,ex.message||ex);
+      }
+    }
+  }
+
+  async function initElements(){
+    const els=elements();
+    if(!els.length)return;
+    await Promise.allSettled(els.map(async(el)=>{
+      try{await load(el,true);}catch(ex){setError(el,ex.message||ex);}
+    }));
+  }
+
+  function init(){
+    bind();
+    initElements().catch(()=>{});
+    if(pollTimer)clearInterval(pollTimer);
+    pollTimer=setInterval(()=>{if(!document.hidden)pollOnce().catch(()=>{});},1200);
+
+    // Layouts can be re-rendered without a full page navigation.  Initialise
+    // any newly inserted Reactive controls too.
+    try{
+      const observer=new MutationObserver(()=>{
+        if(mutationTimer)clearTimeout(mutationTimer);
+        mutationTimer=setTimeout(()=>initElements().catch(()=>{}),40);
+      });
+      observer.observe(document.body,{childList:true,subtree:true});
+    }catch(_){}
+  }
+
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init,{once:true});
+  else init();
+})();
+
+</script>
+
 <script>
 const INITIAL_MESSAGE = {{ (initial_message or None) | tojson }};
 
@@ -5978,6 +6589,12 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Apply @/# templates on initial render
   try { nlRefreshUI(); } catch(_) {}
+
+  // A node embedded as a section form is initialized through CommonEvents.
+  // Ordinary node forms keep their original lifecycle untouched.
+  if (SECTION_FORM_MODE) {
+    try { fireOnInputWeb({listener:"__section_show", id:"__section_show"}); } catch(_) {}
+  }
 });
 
 
