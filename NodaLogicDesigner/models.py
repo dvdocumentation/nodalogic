@@ -640,6 +640,8 @@ class ConfigSection(db.Model):
     hide_mobile_client = db.Column(db.Boolean, default=False)
     hide_web_client = db.Column(db.Boolean, default=False)
     allow_client_extensions = db.Column(db.Boolean, default=True)
+    mobile_form_node = db.Column(db.String(300), default="")
+    web_form_node = db.Column(db.String(300), default="")
     config_id = db.Column(db.Integer, db.ForeignKey('configuration.id'))
 
 class ConfigClass(db.Model):
@@ -701,6 +703,9 @@ class ConfigClass(db.Model):
     migration_register_command = db.Column(db.Boolean, default=False)
     migration_register_on_save = db.Column(db.Boolean, default=False)
     migration_send_via_queue = db.Column(db.Boolean, default=False)
+    # Android UI policy: contract-imported nodes stay lazy/hidden in normal sections
+    # unless this class explicitly opts in.
+    migration_show_contract_nodes_in_section = db.Column(db.Boolean, default=False)
     # Stores Room.uid (string)
     migration_default_room_uid = db.Column(db.String(36), default="")
     # Stores RoomAlias.alias (string)

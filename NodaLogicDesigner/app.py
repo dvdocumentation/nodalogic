@@ -31,6 +31,7 @@ import secrets
 import socket
 import threading
 import hashlib
+import gzip
 import boto3
 from botocore.client import Config
 
@@ -218,12 +219,12 @@ import inspect
 
 #******************************************************************
 #CHANGE IT WITH YOUR VALUES
-DEEPSEEK_API_KEY = ''
+DEEPSEEK_API_KEY = 'PUT_YOUR_DEEPSEEK_API_KEY_HERE'
 # Maximum number of technical candidates passed back to nGenie for one
 # semantic resolve step. Subject-specific rules stay in class ngenie_prompt.
 NGENIE_RESOLVE_CANDIDATE_LIMIT = 10
-ADMIN_LOGIN = ''
-FLASK_SECRET= ''
+ADMIN_LOGIN = 'PUT_YOUR_ADMIN_LOGIN_HERE'
+FLASK_SECRET= 'PUT_YOUR_FLASK_SECRET_HERE'
 
 S3_ENDPOINT = "https://s3.ru1.storage.beget.cloud"
 S3_BUCKET = "bf871c2d93ee-s3noda"
@@ -231,8 +232,8 @@ S3_BUCKET = "bf871c2d93ee-s3noda"
 s3 = boto3.client(
     "s3",
     endpoint_url=S3_ENDPOINT,
-    aws_access_key_id="",
-    aws_secret_access_key="",
+    aws_access_key_id="PutYourAccessKeyHere",
+    aws_secret_access_key="PutYourSecretKeyHere",
     config=Config(signature_version="s3v4"),
     region_name="ru1",
 )
@@ -1340,6 +1341,7 @@ def _class_payload_for_config(c):
         'migration_register_command': bool(getattr(c, 'migration_register_command', False)),
         'migration_register_on_save': bool(getattr(c, 'migration_register_on_save', False)),
         'migration_send_via_queue': bool(getattr(c, 'migration_send_via_queue', False)),
+        'migration_show_contract_nodes_in_section': bool(getattr(c, 'migration_show_contract_nodes_in_section', False)),
         'migration_default_room_uid': getattr(c, 'migration_default_room_uid', '') or '',
         'migration_default_room_alias': getattr(c, 'migration_default_room_alias', '') or '',
         'link_share_mode': getattr(c, 'link_share_mode', '') or '',
@@ -2309,6 +2311,57 @@ app.config['SQLALCHEMY_BINDS'] = {
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
+
+
+def _api_node_is_empty_placeholder(node):
+    """True for the minimal row Node.__init__ creates before first accepted data."""
+    try:
+        data = dict(getattr(node, "_data", {}) or {})
+    except Exception:
+        return False
+    system_only = {
+        "_id", "_class",
+        "_created_user", "_created_date",
+        "_last_change_user", "_last_change_date",
+    }
+    return not any(key not in system_only for key in data.keys())
+
+
+def _read_json_request_payload():
+    """Read ordinary JSON or Android's gzip-compressed JSON body.
+
+    Do not rewrite ``request.environ``/Werkzeug's input stream.  Once
+    ``request.get_data()`` has consumed that stream, replacing only WSGI keys can
+    leave ``request.get_json()`` looking at an exhausted cached stream and produce
+    an otherwise mysterious HTTP 400.  For gzip uploads we decode and parse the
+    JSON directly and hand the resulting Python object to the node route.
+    """
+    encoding = str(request.headers.get("Content-Encoding") or "").lower().strip()
+    if encoding != "gzip":
+        return request.get_json(), None
+
+    try:
+        raw = request.get_data(cache=False)
+        decoded = gzip.decompress(raw)
+
+        # The proxy and Flask MAX_CONTENT_LENGTH apply to the compressed wire body.
+        # Put a separate cap on the expanded JSON.
+        max_decoded = 32 * 1024 * 1024
+        if len(decoded) > max_decoded:
+            return None, (jsonify({
+                "status": False,
+                "error": "GZIP_BODY_TOO_LARGE",
+                "data": {"message": "Decompressed request body exceeds 32 MB"},
+            }), 413)
+
+        return json.loads(decoded.decode("utf-8")), None
+    except Exception as exc:
+        return None, (jsonify({
+            "status": False,
+            "error": "INVALID_GZIP_JSON",
+            "data": {"message": str(exc)},
+        }), 400)
+
 app.config['USER_TIMEZONE'] = 'Europe/Moscow'
 app.config['JSON_AS_ASCII'] = False  
 
@@ -2507,6 +2560,8 @@ def _ensure_sqlite_schema():
         )
     if _table_exists("config_class"):
         class_cols = _get_cols("config_class")
+        if "migration_show_contract_nodes_in_section" not in class_cols:
+            _add_col("config_class", "migration_show_contract_nodes_in_section BOOLEAN DEFAULT FALSE", "migration_show_contract_nodes_in_section")
         if "include_in_contract" not in class_cols:
             _add_col("config_class", "include_in_contract BOOLEAN DEFAULT FALSE", "include_in_contract")
         _create_index(
@@ -2586,6 +2641,10 @@ def _ensure_sqlite_schema():
             _add_col("config_section", "hide_web_client BOOLEAN DEFAULT FALSE", "hide_web_client")
         if "allow_client_extensions" not in scols:
             _add_col("config_section", "allow_client_extensions BOOLEAN DEFAULT TRUE", "allow_client_extensions")
+        if "mobile_form_node" not in scols:
+            _add_col("config_section", "mobile_form_node VARCHAR(300) DEFAULT ''", "mobile_form_node")
+        if "web_form_node" not in scols:
+            _add_col("config_section", "web_form_node VARCHAR(300) DEFAULT ''", "web_form_node")
 
     # ------------------------------------------------------------
     # dataset migrations
@@ -2787,6 +2846,8 @@ def _ensure_sqlite_schema():
             _add_col("config_class", "migration_register_on_save BOOLEAN DEFAULT 0", "migration_register_on_save")
         if "migration_send_via_queue" not in cols:
             _add_col("config_class", "migration_send_via_queue BOOLEAN DEFAULT 0", "migration_send_via_queue")
+        if "migration_show_contract_nodes_in_section" not in cols:
+            _add_col("config_class", "migration_show_contract_nodes_in_section BOOLEAN DEFAULT 0", "migration_show_contract_nodes_in_section")
         if "migration_default_room_uid" not in cols:
             _add_col("config_class", 'migration_default_room_uid VARCHAR(36) DEFAULT ""', "migration_default_room_uid")
         if "migration_default_room_alias" not in cols:
@@ -5927,6 +5988,7 @@ def get_config(uid):
                 'migration_register_command': bool(getattr(c, 'migration_register_command', False)),
                 'migration_register_on_save': bool(getattr(c, 'migration_register_on_save', False)),
                 'migration_send_via_queue': bool(getattr(c, 'migration_send_via_queue', False)),
+                'migration_show_contract_nodes_in_section': bool(getattr(c, 'migration_show_contract_nodes_in_section', False)),
                 'migration_default_room_uid': getattr(c, 'migration_default_room_uid', '') or '',
                 'migration_default_room_alias': getattr(c, 'migration_default_room_alias', '') or '',
                 'link_share_mode': getattr(c, 'link_share_mode', '') or '',
@@ -5993,7 +6055,9 @@ def get_config(uid):
                 'commands': d.commands,
                 'hide_mobile_client': bool(getattr(d, 'hide_mobile_client', False)),
                 'hide_web_client': bool(getattr(d, 'hide_web_client', False)),
-                'allow_client_extensions': getattr(d, 'allow_client_extensions', True) is not False
+                'allow_client_extensions': getattr(d, 'allow_client_extensions', True) is not False,
+                'mobile_form_node': getattr(d, 'mobile_form_node', '') or '',
+                'web_form_node': getattr(d, 'web_form_node', '') or ''
             } for d in config.sections
         ],
         "servers": [
@@ -6159,6 +6223,8 @@ def _export_class_json(class_obj: ConfigClass) -> dict:
         data['migration_register_on_save'] = True
     if bool(getattr(class_obj, 'migration_send_via_queue', False)):
         data['migration_send_via_queue'] = True
+    if bool(getattr(class_obj, 'migration_show_contract_nodes_in_section', False)):
+        data['migration_show_contract_nodes_in_section'] = True
     if (getattr(class_obj, 'migration_default_room_uid', '') or '').strip():
         data['migration_default_room_uid'] = class_obj.migration_default_room_uid
     if (getattr(class_obj, 'migration_default_room_alias', '') or '').strip():
@@ -6376,6 +6442,7 @@ def _upsert_config_class_from_json(config: Configuration, class_json: dict, *, p
         'migration_register_command': ('migration_register_command', 'migrationRegisterCommand'),
         'migration_register_on_save': ('migration_register_on_save', 'migrationRegisterOnSave'),
         'migration_send_via_queue': ('migration_send_via_queue', 'migrationSendViaQueue'),
+        'migration_show_contract_nodes_in_section': ('migration_show_contract_nodes_in_section', 'migrationShowContractNodesInSection'),
         'show_tag_cloud': ('show_tag_cloud', 'showTagCloud'),
         'mobile_print_enabled': ('mobile_print_enabled', 'mobilePrintEnabled'),
         'dashboard_enabled': ('dashboard_enabled', 'dashboardEnabled'),
@@ -9110,12 +9177,20 @@ def nodes_api(config_uid, class_name):
 
     room_uid = request.args.get('room')
 
+    post_data = None
+    if request.method == 'POST':
+        post_data, json_error = _read_json_request_payload()
+        if json_error is not None:
+            return json_error
+        if post_data is None:
+            post_data = {}
+
     try:
         # ============================================================
         # ROOM MODE (special create path)
         # ============================================================
         if room_uid and request.method == 'POST':
-            data = request.get_json() or {}
+            data = post_data
 
             if not (os.path.isfile(_handlers_file_path(config_uid)) or config.nodes_server_handlers):
                 abort(404)
@@ -9143,9 +9218,23 @@ def nodes_api(config_uid, class_name):
 
                 user_data = dict(item_data)
 
-                node = node_class(node_id, config_uid)
-                if user_data:
-                    node.update_data(user_data)   # <-- AcceptRejected here
+                existing_node = node_class.get(node_id, config_uid)
+                created_here = existing_node is None
+                discard_on_reject = created_here or (existing_node is not None and _api_node_is_empty_placeholder(existing_node))
+                node = existing_node if existing_node is not None else node_class(node_id, config_uid)
+                try:
+                    if user_data:
+                        node.update_data(user_data)   # <-- AcceptRejected here
+                except _nodes_mod.AcceptRejected:
+                    # Node.__init__ creates a minimal storage row immediately. If the
+                    # first onAcceptServer rejects this create, remove the placeholder
+                    # so the server doesn't retain a misleading empty node.
+                    if discard_on_reject:
+                        try:
+                            node.delete()
+                        except Exception:
+                            pass
+                    raise
 
             return handle_room_objects(config_uid, class_name, room_uid, data)
 
@@ -9179,7 +9268,7 @@ def nodes_api(config_uid, class_name):
 
         # ---------------- POST ----------------
         if request.method == 'POST':
-            data = request.get_json() or {}
+            data = post_data
 
             # ----- array -----
             if isinstance(data, list):
@@ -9253,9 +9342,20 @@ def nodes_api(config_uid, class_name):
                     raw_id = item_data.get('_id')
                     node_id = extract_internal_id(raw_id) if raw_id else str(uuid.uuid4())
                     user_data = dict(item_data)
-                    node = node_class(node_id, config_uid)
-                    if user_data:
-                        node.update_data(user_data)
+                    existing_node = node_class.get(node_id, config_uid)
+                    created_here = existing_node is None
+                    discard_on_reject = created_here or (existing_node is not None and _api_node_is_empty_placeholder(existing_node))
+                    node = existing_node if existing_node is not None else node_class(node_id, config_uid)
+                    try:
+                        if user_data:
+                            node.update_data(user_data)
+                    except _nodes_mod.AcceptRejected:
+                        if discard_on_reject:
+                            try:
+                                node.delete()
+                            except Exception:
+                                pass
+                        raise
                     created_nodes.append(node.to_dict())
                 return jsonify(created_nodes), 201
 
@@ -9265,9 +9365,20 @@ def nodes_api(config_uid, class_name):
 
             user_data = dict(data)
 
-            node = node_class(node_id, config_uid)
-            if user_data:
-                node.update_data(user_data)   # <-- AcceptRejected here
+            existing_node = node_class.get(node_id, config_uid)
+            created_here = existing_node is None
+            discard_on_reject = created_here or (existing_node is not None and _api_node_is_empty_placeholder(existing_node))
+            node = existing_node if existing_node is not None else node_class(node_id, config_uid)
+            try:
+                if user_data:
+                    node.update_data(user_data)   # <-- AcceptRejected here
+            except _nodes_mod.AcceptRejected:
+                if discard_on_reject:
+                    try:
+                        node.delete()
+                    except Exception:
+                        pass
+                raise
 
             return jsonify(node.to_dict()), 201
 
@@ -13873,6 +13984,22 @@ def _userfiles_root_dir() -> Path:
     return Path(os.path.dirname(os.path.abspath(__file__))) / "UserFiles"
 
 
+def _userfiles_safe_name(raw_name: str) -> str:
+    """A single safe Unicode basename; keep Cyrillic display names intact.
+
+    Unlike werkzeug.secure_filename, this doesn't transliterate or remove
+    non-ASCII letters. No directories or control characters are permitted.
+    """
+    import unicodedata
+    name = unicodedata.normalize("NFC", str(raw_name or "")).strip()
+    if (not name or name in (".", "..") or "/" in name or "\\" in name
+            or any(ord(ch) < 32 or ord(ch) == 127 for ch in name)):
+        return ""
+    if len(name.encode("utf-8")) > 240:
+        return ""
+    return name
+
+
 def _userfiles_dir_for_config(config_uid: str) -> Path:
     # защита от path traversal
     if "/" in config_uid or "\\" in config_uid:
@@ -13900,7 +14027,7 @@ def upload_images(config_uid):
     errors = []
 
     for f in files:
-        name = secure_filename(f.filename or "")
+        name = _userfiles_safe_name(f.filename or "")
         if not name:
             errors.append("empty filename")
             continue
@@ -13931,11 +14058,64 @@ def upload_images(config_uid):
     }), (200 if saved else 400)
 
 
+@app.post("/api/userfiles/<config_uid>/files")
+@api_auth_required
+def upload_userfile_binary(config_uid):
+    """Authenticated binary upload for Android Files (no multipart dependency).
+
+    Never expose an unauthenticated arbitrary-file upload. Reuses UserFiles
+    storage and ownership checks from the normal API auth decorator.
+    """
+    from urllib.parse import quote
+    target_dir = _userfiles_dir_for_config(config_uid)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    # Bound request size even if the reverse proxy has no limit.
+    max_size = 50 * 1024 * 1024
+    if request.content_length is not None and request.content_length > max_size:
+        return jsonify({"ok": False, "error": "File is too large (50 MB max)"}), 413
+    original = request.headers.get("X-Filename") or "upload.bin"
+    name = _userfiles_safe_name(original)
+    if not name:
+        name = "upload.bin"
+    stem, suffix = os.path.splitext(name)
+    out_name = f"{stem}_{uuid.uuid4().hex[:16]}{suffix.lower()}"
+    dest = target_dir / out_name
+    partial = target_dir / f".{out_name}.upload"
+    total = 0
+    try:
+        with open(partial, "wb") as out:
+            while True:
+                chunk = request.stream.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_size:
+                    raise ValueError("File is too large (50 MB max)")
+                out.write(chunk)
+        os.replace(partial, dest)
+    except Exception as ex:
+        try:
+            partial.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return jsonify({"ok": False, "error": str(ex)}), 413 if isinstance(ex, ValueError) else 500
+    # Keep local/self-hosted instances local; never force files to nmaker.pw.
+    from urllib.parse import urlparse
+    base = request.host_url.rstrip("/")
+    configured = str(PUBLIC_API_BASE_URL or "").strip().rstrip("/")
+    if configured and urlparse(configured).hostname == urlparse(base).hostname:
+        base = configured
+    public_url = (f"{base}/api/userfiles/{quote(config_uid, safe='')}/raw/"
+                  f"{quote(out_name, safe='')}")
+    return jsonify({"ok": True, "filename": out_name, "url": public_url,
+                    "size": total, "storage": "server"})
+
+
 @app.get("/api/userfiles/<config_uid>/raw/<path:filename>")
 def get_userfile(config_uid, filename):
     target_dir = _userfiles_dir_for_config(config_uid)
 
-    safe_name = secure_filename(filename)
+    safe_name = _userfiles_safe_name(filename)
     if not safe_name:
         abort(404)
 
@@ -14424,6 +14604,18 @@ try:
 except Exception as _e:
     print('Editor routes not loaded:', _e)
 
+# Optional Resource Specifications module. Remove this folder to disable the
+# feature, including its editor and APIs, without schema migrations.
+try:
+    import resource_specs
+    resource_specs.init_app(app)
+except ImportError as _e:
+    print('Resource specifications module not loaded:', _e)
+
+# The generic resource_planning engine is a pure Python service with no Flask
+# blueprints. Domain workstations, production tasks and MES events remain NodaLogic
+# configuration nodes and therefore require no dedicated application routes.
+
 # Optional Solutions module. Folder-based feature flag: remove the `solutions`
 # package and no model/migration/routes/templates are loaded.
 try:
@@ -14542,6 +14734,8 @@ if __name__ == '__main__':
                     conn.execute(text('ALTER TABLE config_class ADD COLUMN migration_register_on_save BOOLEAN DEFAULT 0'))
                 if 'migration_send_via_queue' not in col_names:
                     conn.execute(text('ALTER TABLE config_class ADD COLUMN migration_send_via_queue BOOLEAN DEFAULT 0'))
+                if 'migration_show_contract_nodes_in_section' not in col_names:
+                    conn.execute(text('ALTER TABLE config_class ADD COLUMN migration_show_contract_nodes_in_section BOOLEAN DEFAULT 0'))
                 if 'migration_default_room_uid' not in col_names:
                     conn.execute(text('ALTER TABLE config_class ADD COLUMN migration_default_room_uid VARCHAR(36) DEFAULT ""'))
                 if 'migration_default_room_alias' not in col_names:

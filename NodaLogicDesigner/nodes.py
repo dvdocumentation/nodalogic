@@ -29,6 +29,53 @@ try:
 except Exception:
     _background_jobs = None
 
+
+def _reactive_module():
+    try:
+        import reactive as _reactive
+        return _reactive
+    except Exception:
+        return None
+
+
+_REACTIVE_NOTIFY_LOCAL = threading.local()
+
+
+def _notify_reactive_write(node, old_data, new_data):
+    """Best-effort bridge from ordinary Node persistence to Reactive graph.
+
+    A lifecycle handler may perform a nested save while the outer RLock is still
+    held. Defer that nested notification and flush it when the outer save has
+    actually released its lock; otherwise a cross-node Reactive chain could
+    create a lock-order deadlock.
+    """
+    pending = getattr(_REACTIVE_NOTIFY_LOCAL, "pending", None)
+    if pending is None:
+        pending = []
+        _REACTIVE_NOTIFY_LOCAL.pending = pending
+    try:
+        is_owned = bool(getattr(getattr(node, "_lock", None), "_is_owned", lambda: False)())
+    except Exception:
+        is_owned = False
+    if is_owned:
+        pending.append((node, dict(old_data or {}), dict(new_data or {})))
+        return
+
+    mod = _reactive_module()
+    if mod is None:
+        pending.clear()
+        return
+    batch = [(node, old_data, new_data)] + list(pending)
+    pending.clear()
+    for item_node, item_old, item_new in batch:
+        try:
+            mod.notify_node_write(item_node, item_old, item_new)
+        except Exception:
+            # Reactive is a derived system layer. A formula problem must not
+            # corrupt or roll back an otherwise valid business-node write.
+            pass
+
+
 # Optional backend-only SQL storage/projection for backend transactions.
 # If balance_sql.py is absent or cannot be imported, the legacy JSON storage
 # inside node._data["_transactions"] / node._data["_state_transactions"] is used exactly as before.
@@ -1646,6 +1693,12 @@ class Node:
         
         if cls.__name__ != "Node":
             _NODE_CLASS_REGISTRY[cls.__name__] = cls
+            try:
+                mod = _reactive_module()
+                if mod is not None:
+                    mod.notify_class_available(cls.__name__)
+            except Exception:
+                pass
     @classmethod
     def _resolve_node_class(cls, class_or_name):
         
@@ -1852,7 +1905,8 @@ class Node:
     
     @_data.setter
     def _data(self, value):
-        
+        reactive_old = None
+        reactive_new = None
         with self._lock:
             if self._id in self._storage:
                 node_data = self._storage[self._id]
@@ -1875,9 +1929,15 @@ class Node:
                     node_data['_data'] = to_write
                 node_data['_updated_at'] = datetime.now(timezone.utc).isoformat()
                 self._storage[self._id] = node_data
+                reactive_old = saved_state
+                reactive_new = dict(node_data.get('_data') or {}) if isinstance(node_data.get('_data'), dict) else {}
+        if reactive_old is not None:
+            _notify_reactive_write(self, reactive_old, reactive_new)
     
     def _save(self):
-        
+        reactive_old = None
+        reactive_new = None
+        saved = False
         with self._lock:
             if self._id in self._storage:
                 node_data = self._storage[self._id]
@@ -1890,14 +1950,12 @@ class Node:
                 if not isinstance(stored, dict):
                     stored = {}
 
-                
                 if isinstance(getattr(self, "_data", None), dict):
                     stored = dict(self._data)
-                
-                stored['_class'] = self.__class__.__name__
-                stored['_id'] = normalize_own_uid(self._config_uid, self.__class__.__name__, stored.get('_id') or self._id)    
 
-                
+                stored['_class'] = self.__class__.__name__
+                stored['_id'] = normalize_own_uid(self._config_uid, self.__class__.__name__, stored.get('_id') or self._id)
+
                 # expose new state to handler
                 self._data_cache = dict(stored)
 
@@ -1918,27 +1976,16 @@ class Node:
 
                 # --- update date index (best-effort; never break save) ---
                 try:
-                    old_date = None
-                    if isinstance(saved_state, dict):
-                        old_date = saved_state.get("_date_key") or saved_state.get("_date")
-
+                    old_date = saved_state.get("_date_key") or saved_state.get("_date")
                     new_state = node_data.get("_data") or {}
-                    new_date = None
-                    if isinstance(new_state, dict):
-                        new_date = new_state.get("_date_key") or new_state.get("_date")
-
+                    new_date = new_state.get("_date_key") or new_state.get("_date") if isinstance(new_state, dict) else None
                     old_dk = normalize_date_key(old_date)
                     new_dk = normalize_date_key(new_date)
-
-                    # persist normalized key for consistency
-                    if new_dk and isinstance(new_state, dict):
-                        if new_state.get("_date_key") != new_dk:
-                            new_state["_date_key"] = new_dk
-                            node_data["_data"] = new_state
-                            self._storage[self._id] = node_data
-
+                    if new_dk and isinstance(new_state, dict) and new_state.get("_date_key") != new_dk:
+                        new_state["_date_key"] = new_dk
+                        node_data["_data"] = new_state
+                        self._storage[self._id] = node_data
                     idx = self.__class__._get_date_index_storage(self._config_uid)
-
                     if old_dk and old_dk != new_dk:
                         old_k = self.__class__._date_index_key(old_dk, self._id)
                         try:
@@ -1946,7 +1993,6 @@ class Node:
                                 del idx[old_k]
                         except Exception:
                             pass
-
                     if new_dk:
                         new_k = self.__class__._date_index_key(new_dk, self._id)
                         if old_dk != new_dk or new_k not in idx:
@@ -1981,9 +2027,16 @@ class Node:
 
                 # run post-save hook AFTER persisting (only once per request)
                 run_on_after_accept_server_once(self, saved_state, {})
-                return True
-            return False
-        
+                reactive_old = saved_state
+                reactive_new = dict(node_data.get("_data") or {}) if isinstance(node_data.get("_data"), dict) else {}
+                saved = True
+
+        # Important: propagate only after releasing this node lock. Reactive
+        # chains may cross nodes and must not create lock-order deadlocks.
+        if saved:
+            _notify_reactive_write(self, reactive_old, reactive_new)
+        return saved
+
 
     def message_user(self, user_key: str, payload=None, title: str = "Direct message", body: str = "New message", sender_user: str | None = None) -> dict:
         return message_user(user_key, payload, title=title, body=body, sender_user=sender_user)
@@ -2188,6 +2241,8 @@ class Node:
             )
 
         new_node = self(node_id, config_uid)
+        reactive_old = None
+        reactive_new = None
 
         if initial_data:
             with new_node._lock:
@@ -2225,8 +2280,12 @@ class Node:
 
                     # run post-save hook AFTER persisting (only once per request)
                     run_on_after_accept_server_once(new_node, saved_state)
+                    reactive_old = saved_state
+                    reactive_new = dict(node_data.get("_data") or {}) if isinstance(node_data.get("_data"), dict) else {}
                     new_node._data_cache = None
 
+        if reactive_old is not None:
+            _notify_reactive_write(new_node, reactive_old, reactive_new)
         return new_node
 
     def _init_storage(self):
@@ -2270,7 +2329,124 @@ class Node:
         """Compatibility alias for :meth:`get_view`."""
         return node_view(self, default=default)
 
+    def set_reactive_formula(self, field, formula, async_mode=False):
+        """Define/update one Reactive formula for this node field.
+
+        The formula itself is kept in the Reactive sidecar. ``_data[field]``
+        remains the calculated value so ordinary Python/NodaScript/UI reads do
+        not need a special API.
+        """
+        mod = _reactive_module()
+        if mod is None:
+            raise RuntimeError("Reactive engine is unavailable")
+        return mod.set_formula(self, str(field or ""), str(formula or ""), bool(async_mode))
+
+    def get_reactive_formula(self, field):
+        mod = _reactive_module()
+        if mod is None:
+            return None
+        return mod.get_formula(self, str(field or ""))
+
+    def get_reactive_state(self, field):
+        mod = _reactive_module()
+        if mod is None:
+            return {"exists": False, "error": "Reactive engine is unavailable"}
+        return mod.get_state(self, str(field or ""))
+
+    def get_reactive_dependencies(self, field):
+        mod = _reactive_module()
+        if mod is None:
+            return []
+        return mod.list_dependencies(self, str(field or ""))
+
+    def remove_reactive_formula(self, field, keep_value=True):
+        mod = _reactive_module()
+        if mod is None:
+            return False
+        return mod.remove_formula(self, str(field or ""), keep_value=bool(keep_value))
+
+    def _set_reactive_value(self, field, value):
+        """Persist a calculated value without re-entering lifecycle handlers.
+
+        Reactive propagation is coordinated by ``reactive.py`` after this call.
+        We still refresh normal/date/global indexes because calculated values are
+        first-class node data and may legitimately be indexed.
+        """
+        field = str(field or "")
+        if not field or field in {"_id", "_class"}:
+            raise ValueError("Invalid reactive field")
+        with self._lock:
+            if self._id not in self._storage:
+                return False
+            node_data = self._storage[self._id]
+            saved_state = dict(node_data.get("_data") or {}) if isinstance(node_data.get("_data"), dict) else {}
+            if saved_state.get(field) == value and field in saved_state:
+                if isinstance(self._data_cache, dict):
+                    self._data_cache[field] = value
+                return False
+
+            new_state = dict(saved_state)
+            new_state[field] = value
+            new_state["_class"] = self.__class__.__name__
+            new_state["_id"] = normalize_own_uid(
+                self._config_uid, self.__class__.__name__, self._id
+            )
+            audited = _apply_node_audit(new_state, saved_state)
+            node_data["_data"] = audited
+            node_data["_updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._storage[self._id] = node_data
+            if isinstance(self._data_cache, dict):
+                self._data_cache = dict(audited)
+
+            try:
+                old_date = saved_state.get("_date_key") or saved_state.get("_date")
+                new_date = audited.get("_date_key") or audited.get("_date")
+                old_dk = normalize_date_key(old_date)
+                new_dk = normalize_date_key(new_date)
+                if new_dk and audited.get("_date_key") != new_dk:
+                    audited["_date_key"] = new_dk
+                    node_data["_data"] = audited
+                    self._storage[self._id] = node_data
+                idx = self.__class__._get_date_index_storage(self._config_uid)
+                if old_dk and old_dk != new_dk:
+                    old_k = self.__class__._date_index_key(old_dk, self._id)
+                    try:
+                        if old_k in idx:
+                            del idx[old_k]
+                    except Exception:
+                        pass
+                if new_dk:
+                    new_k = self.__class__._date_index_key(new_dk, self._id)
+                    if old_dk != new_dk or new_k not in idx:
+                        idx[new_k] = 1
+            except Exception:
+                pass
+
+            try:
+                self.__class__._update_defined_indexes(
+                    self._config_uid, self._id, saved_state, audited
+                )
+            except Exception:
+                pass
+            try:
+                self.__class__._update_global_indexes(
+                    normalize_own_uid(self._config_uid, self.__class__.__name__, self._id),
+                    saved_state, audited
+                )
+            except Exception:
+                pass
+            try:
+                _call_bridge(
+                    'update_node_rls_index_global',
+                    self._config_uid, self.__class__.__name__, self._id, audited
+                )
+            except Exception:
+                pass
+            return True
+
     def set_data(self, key, value):
+        reactive_old = None
+        reactive_new = None
         with self._lock:
             if self._id in self._storage:
                 node_data = self._storage[self._id]
@@ -2354,8 +2530,14 @@ class Node:
 
                 # run post-save hook AFTER persisting (only once per request)
                 run_on_after_accept_server_once(self, saved_state, {key: value})
+                reactive_old = saved_state
+                reactive_new = dict(node_data.get("_data") or {}) if isinstance(node_data.get("_data"), dict) else {}
+        if reactive_old is not None:
+            _notify_reactive_write(self, reactive_old, reactive_new)
 
     def update_data(self, data_dict):
+        reactive_old = None
+        reactive_new = None
         with self._lock:
             if self._id in self._storage:
                 node_data = self._storage[self._id]
@@ -2444,6 +2626,10 @@ class Node:
 
                 # run post-save hook AFTER persisting (only once per request)
                 run_on_after_accept_server_once(self, saved_state, dict(data_dict or {}))
+                reactive_old = saved_state
+                reactive_new = dict(node_data.get("_data") or {}) if isinstance(node_data.get("_data"), dict) else {}
+        if reactive_old is not None:
+            _notify_reactive_write(self, reactive_old, reactive_new)
 
     @staticmethod
     def _atomic_sqlite_table(conn):
@@ -2820,6 +3006,14 @@ class Node:
             if run_handlers:
                 for node, saved_state, user_data in after_nodes:
                     run_on_after_accept_server_once(node, saved_state, user_data)
+            for node, saved_state, _user_data in after_nodes:
+                try:
+                    _notify_reactive_write(
+                        node, saved_state,
+                        dict(getattr(node, "_data_cache", {}) or {})
+                    )
+                except Exception:
+                    pass
             try:
                 _call_bridge(
                     "update_nodes_rls_index_bulk_global",
@@ -2896,6 +3090,12 @@ class Node:
             conn.close()
         for node_id in ids:
             cls._instance_locks.pop(node_id, None)
+        try:
+            mod = _reactive_module()
+            if mod is not None:
+                mod.notify_nodes_deleted(cfg_uid, cls.__name__, ids)
+        except Exception:
+            pass
         if rebuild_indexes:
             index_result = cls.rebuild_plain_indexes_fast(cfg_uid)
             semantic_names = list((index_result or {}).get("semantic_skipped") or [])
@@ -3098,6 +3298,8 @@ class Node:
         except Exception:
             pass
 
+        _notify_reactive_write(self, saved_state or {}, new_state or {})
+
         return {
             "ok": True,
             "matched": True,
@@ -3115,16 +3317,23 @@ class Node:
         )
 
     def delete(self):
-        """Recursively delete a node and all its descendants"""
+        """Recursively delete a node and all its descendants."""
+        deleted = False
+        parent_uid = None
+        own_uid = None
         with self._lock:
-            # Сначала получаем всех детей (поддерживаем оба формата)
+            # Capture identity/parent before removing storage.
+            try:
+                current_data = dict(self._data or {})
+            except Exception:
+                current_data = {}
+            parent_uid = current_data.get("_parent")
+            own_uid = current_data.get("_id") or self._id
+
             children_nodes = self.GetChildren()
-            
-            # Рекурсивно удаляем всех потомков
             for child in children_nodes:
                 child.delete()
-            
-            # Затем удаляем узел сам
+
             if self._id in self._storage:
                 try:
                     old_state = dict((self._storage.get(self._id) or {}).get('_data') or {})
@@ -3143,28 +3352,47 @@ class Node:
                 except Exception:
                     pass
                 del self._storage[self._id]
-                if self._id in Node._instance_locks:
-                    del Node._instance_locks[self._id]
-            
-            # Удаляем связь с родителем, если она есть
-            parent_uid = self._data.get("_parent")  # "cfg$ParentClass$42"
-            if parent_uid:
-                try:
-                    cfg_uid, parent_class, parent_id = parent_uid.split("$", 2)
-                    parent_cls = self._resolve_node_class(parent_class)
-            
-                    parent_node = parent_cls.get(parent_uid, cfg_uid)  # или get(parent_id, cfg_uid) — как у вас принято
-                    parent_node.RemoveChild(self._data.get("_id") or self._id)
-                except Exception as e:
-                    print(f"Error removing from parent: {e}")
+                Node._instance_locks.pop(self._id, None)
+                self._data_cache = None
+                deleted = True
 
-                
-    
+        # Cross-node work must happen after releasing this node lock.
+        if deleted:
+            try:
+                mod = _reactive_module()
+                if mod is not None:
+                    mod.notify_node_deleted(self)
+            except Exception:
+                pass
+
+        if parent_uid:
+            try:
+                cfg_uid, parent_class, parent_id = parent_uid.split("$", 2)
+                parent_cls = self._resolve_node_class(parent_class)
+                parent_node = parent_cls.get(parent_uid, cfg_uid) if parent_cls else None
+                if parent_node is not None:
+                    parent_node.RemoveChild(own_uid)
+            except Exception as e:
+                print(f"Error removing from parent: {e}")
+
+
     @classmethod
     def get(cls, node_id, config_uid=None):
         # ✅ accept composite ids: "cfg$Class$Id" | "Class$Id" | "Id"
         uid_cfg, uid_cls, internal_id = parse_uid_any(node_id)
-        effective_config_uid = config_uid or uid_cfg
+        # A two-part node reference such as "DemoWorker$worker-01" does not
+        # carry the configuration uid.  Android NodeInput legitimately stores
+        # references in this compact form.  While a handler is running, resolve
+        # such references in the current configuration instead of falling back
+        # to the legacy unscoped "Class" storage.
+        effective_config_uid = (
+            config_uid
+            or uid_cfg
+            or current_config_uid_from_handlers()
+            or CURRENT_CONFIG_UID.get()
+        )
+        if effective_config_uid is not None:
+            effective_config_uid = str(effective_config_uid).strip() or None
 
         # If uid contains another class name and we can resolve it -> delegate
         # (useful when someone calls Node.get("cfg$Warehouse$123") or wrong class)
@@ -5426,6 +5654,503 @@ class Node:
         else:
             result = _collect_hash_many(seq)
         return result[:result_limit] if result_limit is not None else result
+
+    @classmethod
+    def _all_storage_ids_index_only(cls, config_uid=None) -> list[str]:
+        """Return node ids without deserializing node JSON/pickle payloads.
+
+        Advanced section filters use this only for complement operations such as
+        ``!=``, ``not in`` and boolean ``No``.  Reading the SqliteDict key column
+        keeps those filters index/key based even when the field is absent from a
+        node (there is intentionally no "false/missing" secondary-index bucket).
+        """
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        db_path = cls._bulk_storage_path(cfg_uid)
+        if not os.path.isfile(db_path):
+            return []
+        conn = sqlite3.connect(db_path, timeout=30.0)
+        try:
+            table = cls._atomic_sqlite_table(conn)
+            qtable = '"' + table.replace('"', '""') + '"'
+            return [str(row[0]) for row in conn.execute(f"SELECT key FROM {qtable} ORDER BY key").fetchall()]
+        except Exception:
+            return []
+        finally:
+            conn.close()
+
+    @classmethod
+    def _defined_index_keys_only(cls, index_name: str, config_uid=None) -> list[str]:
+        """Return distinct secondary-index keys without reading node payloads."""
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        name = str(index_name or "").strip()
+        idx_def = cls._defined_index_def(name, cfg_uid)
+        if not name or not idx_def:
+            return []
+        try:
+            store = cls._defined_index_storage(name, cfg_uid)
+            base = [str(x) for x in store.keys()]
+        except Exception:
+            base = []
+        if cls._defined_index_kind(idx_def) == "hash_index":
+            try:
+                base.extend(cls._hash_index_delta_values(name, cfg_uid))
+            except Exception:
+                pass
+        out = []
+        seen = set()
+        for key in base:
+            skey = str(key or "")
+            if skey in seen:
+                continue
+            seen.add(skey)
+            out.append(skey)
+        return out
+
+    @classmethod
+    def _defined_index_exact_bucket(cls, index_name: str, key, config_uid=None) -> list[str]:
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        name = str(index_name or "").strip()
+        idx_def = cls._defined_index_def(name, cfg_uid)
+        if not name or not idx_def:
+            return []
+        skey = "" if key is None else str(key).strip()
+        if skey == "":
+            return []
+        try:
+            store = cls._defined_index_storage(name, cfg_uid)
+            if cls._defined_index_kind(idx_def) == "hash_index":
+                return cls._hash_index_effective_bucket(name, cfg_uid, store, skey)
+            return [str(x) for x in (store.get(skey, []) or [])]
+        except Exception:
+            return []
+
+    @staticmethod
+    def _filter_values_list(value):
+        if isinstance(value, (list, tuple, set)):
+            return list(value)
+        if isinstance(value, str):
+            raw = value.strip()
+            if raw.startswith("[") and raw.endswith("]"):
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        return parsed
+                except Exception:
+                    pass
+        return [value]
+
+    @staticmethod
+    def _filter_bool(value):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)) and value in (0, 1):
+            return bool(value)
+        low = str(value or "").strip().lower()
+        if low in {"1", "true", "yes", "on", "да", "истина"}:
+            return True
+        if low in {"0", "false", "no", "off", "нет", "ложь", ""}:
+            return False
+        return None
+
+    @classmethod
+    def _defined_index_union_for_keys(cls, index_name: str, keys, config_uid=None, limit=None) -> list[str]:
+        out = []
+        seen = set()
+        for key in keys or []:
+            for node_id in cls._defined_index_exact_bucket(index_name, key, config_uid):
+                sid = str(node_id)
+                if sid not in seen:
+                    seen.add(sid)
+                    out.append(sid)
+                    if limit is not None and len(out) >= max(0, int(limit)):
+                        return out
+        return out
+
+    @classmethod
+    def _defined_index_matching_key_ids(cls, index_name: str, predicate, config_uid=None, limit=None) -> list[str]:
+        """Return ids for matching *index keys* without touching node payloads.
+
+        Range/contains operators may need to inspect many distinct index keys.
+        Do that as one key-column pass and batch-read only the matched index
+        buckets; avoid one SqliteDict ``get`` round-trip per distinct value.
+        """
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        name = str(index_name or "").strip()
+        idx_def = cls._defined_index_def(name, cfg_uid)
+        if not name or not idx_def:
+            return []
+        kind = cls._defined_index_kind(idx_def)
+
+        # Ensure the SqliteDict/table exists, then use its SQLite file directly.
+        try:
+            cls._defined_index_storage(name, cfg_uid)
+            db_path = cls._text_search_db_path(name, cfg_uid)
+            conn = sqlite3.connect(db_path, timeout=30.0)
+            try:
+                table = cls._atomic_sqlite_table(conn)
+                qtable = '"' + table.replace('"', '""') + '"'
+                matched_keys = []
+                seen_keys = set()
+                for (raw_key,) in conn.execute(f"SELECT key FROM {qtable}").fetchall():
+                    key = str(raw_key or "")
+                    try:
+                        ok = bool(predicate(key))
+                    except Exception:
+                        ok = False
+                    if ok and key not in seen_keys:
+                        seen_keys.add(key)
+                        matched_keys.append(key)
+
+                # Hash async-write deltas can introduce keys not yet present in
+                # the base index file. Include them in the predicate pass.
+                delta_map = {}
+                if kind == "hash_index":
+                    delta_path = cls._defined_index_delta_path(name, cfg_uid)
+                    if os.path.isfile(delta_path):
+                        dconn = sqlite3.connect(delta_path, timeout=10.0)
+                        try:
+                            for dvalue, node_id, present in dconn.execute(
+                                "SELECT value,node_id,present FROM index_delta"
+                            ).fetchall():
+                                dkey = str(dvalue or "")
+                                delta_map.setdefault(dkey, []).append((str(node_id), bool(present)))
+                                if dkey not in seen_keys:
+                                    try:
+                                        ok = bool(predicate(dkey))
+                                    except Exception:
+                                        ok = False
+                                    if ok:
+                                        seen_keys.add(dkey)
+                                        matched_keys.append(dkey)
+                        except sqlite3.OperationalError:
+                            pass
+                        finally:
+                            dconn.close()
+
+                if not matched_keys:
+                    return []
+
+                buckets = {}
+                for start in range(0, len(matched_keys), 500):
+                    batch = matched_keys[start:start + 500]
+                    placeholders = ','.join('?' for _ in batch)
+                    for raw_key, raw_value in conn.execute(
+                        f"SELECT key,value FROM {qtable} WHERE key IN ({placeholders})", batch
+                    ).fetchall():
+                        if isinstance(raw_value, memoryview):
+                            raw_value = raw_value.tobytes()
+                        try:
+                            bucket = [str(x) for x in (pickle.loads(raw_value) or [])]
+                        except Exception:
+                            bucket = []
+                        buckets[str(raw_key or "")] = bucket
+
+                out = []
+                seen_ids = set()
+                for key in matched_keys:
+                    bucket = list(buckets.get(key, []) or [])
+                    if kind == "hash_index" and key in delta_map:
+                        present_ids = list(bucket)
+                        present_set = set(present_ids)
+                        for node_id, present in delta_map.get(key, []):
+                            if present:
+                                if node_id not in present_set:
+                                    present_set.add(node_id)
+                                    present_ids.append(node_id)
+                            else:
+                                if node_id in present_set:
+                                    present_set.discard(node_id)
+                                    present_ids = [x for x in present_ids if x != node_id]
+                        bucket = present_ids
+                    for node_id in bucket:
+                        sid = str(node_id)
+                        if sid not in seen_ids:
+                            seen_ids.add(sid)
+                            out.append(sid)
+                            if limit is not None and len(out) >= max(0, int(limit)):
+                                return out
+                return out
+            finally:
+                conn.close()
+        except Exception:
+            # Compatibility fallback: still index-only, merely less efficient.
+            keys = []
+            for key in cls._defined_index_keys_only(name, cfg_uid):
+                try:
+                    if predicate(key):
+                        keys.append(key)
+                except Exception:
+                    continue
+            return cls._defined_index_union_for_keys(name, keys, cfg_uid, limit=limit)
+
+    @classmethod
+    def find_ids_by_index_filter(cls, index_name: str, operator, value, config_uid=None, universe_ids=None, limit=None, filter_type=None) -> list[str]:
+        """Filter by a configured secondary index only; never scan node payloads.
+
+        Supported UI semantics:
+        - boolean: Yes == indexed true, No == every node id except indexed true;
+          therefore old nodes with the field absent are correctly treated as No.
+        - number: =, !=/<>, >, >=, <, <= by numeric index keys.
+        - Node(...)/Dataset(...): =, !=, in, not in.
+        - string: =, !=, contains, not contains.
+
+        Complement operations read only primary storage *keys* to form the
+        universe.  They do not deserialize ``_data``.
+        """
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        name = str(index_name or "").strip()
+        idx_def = cls._defined_index_def(name, cfg_uid)
+        if not name or not idx_def:
+            return []
+
+        kind = cls._defined_index_kind(idx_def)
+        # Index definitions historically do not necessarily persist UI field type.
+        # The web filter metadata does know it, so accept an additive type hint.
+        # Existing callers which omit the hint keep the old/default behavior.
+        effective_filter_type = str(filter_type or (idx_def or {}).get("filter_type") or "string").strip()
+        filter_type_l = effective_filter_type.lower()
+        op = str(operator or "eq").strip().lower()
+        aliases = {
+            "=": "eq", "==": "eq", "equals": "eq",
+            "!=": "ne", "<>": "ne", "not_equal": "ne",
+            "notin": "not_in", "nin": "not_in",
+            "has": "contains", "notcontains": "not_contains", "does_not_contain": "not_contains",
+            "=>": "gte", "=<": "lte",
+        }
+        op = aliases.get(op, op)
+
+        # Keep an explicit legacy operation for non-relational index kinds
+        # (notably semantic indexes) so existing behaviour remains available.
+        if op in {"legacy", "match"}:
+            try:
+                return [str(x) for x in cls.find_ids_by_index(name, value, cfg_uid)]
+            except Exception:
+                return []
+
+        def complement(excluded):
+            excluded_set = {str(x) for x in (excluded or [])}
+            universe = (
+                [str(x) for x in universe_ids]
+                if universe_ids is not None
+                else cls._all_storage_ids_index_only(cfg_uid)
+            )
+            return [node_id for node_id in universe if str(node_id) not in excluded_set]
+
+        def exact_many(values, use_limit=True):
+            seq = cls._filter_values_list(values)
+            exact_limit = limit if use_limit else None
+            # Hash indexes keep the historical UID-normalisation logic in
+            # find_ids_by_index(), which is important for Node/Dataset refs.
+            if kind == "hash_index":
+                try:
+                    return [str(x) for x in cls.find_ids_by_index(name, seq, cfg_uid, limit=exact_limit)]
+                except Exception:
+                    return []
+            return cls._defined_index_union_for_keys(name, [str(x).strip() for x in seq if str(x).strip()], cfg_uid, limit=exact_limit)
+
+        # Semantic/fuzzy indexes do not have deterministic relational
+        # semantics.  Do not pretend that >, !=, contains, etc. are exact.
+        if cls._is_semantic_index_kind(kind):
+            return []
+
+        if filter_type_l == "boolean":
+            wanted = cls._filter_bool(value)
+            true_ids = cls._defined_index_matching_key_ids(
+                name, lambda key: str(key or "").strip().casefold() == "true", cfg_uid,
+                limit=None if op == "ne" or wanted is False else limit,
+            )
+            if op == "ne":
+                if wanted is False:
+                    return true_ids
+                return complement(true_ids)
+            if wanted is True:
+                return true_ids
+            # No/False explicitly means "not true", including a missing field.
+            return complement(true_ids)
+
+        if filter_type_l == "number":
+            if op in {"in", "not_in"}:
+                expected_values = []
+                for one in cls._filter_values_list(value):
+                    try:
+                        num = float(str(one).strip().replace(",", "."))
+                        if math.isfinite(num):
+                            expected_values.append(num)
+                    except Exception:
+                        continue
+                if not expected_values:
+                    return []
+                expected_set = set(expected_values)
+                matched = cls._defined_index_matching_key_ids(
+                    name,
+                    lambda key: (
+                        (lambda actual: math.isfinite(actual) and actual in expected_set)(
+                            float(str(key).strip().replace(",", "."))
+                        )
+                    ),
+                    cfg_uid,
+                    limit=None if op == "not_in" else limit,
+                )
+                return complement(matched) if op == "not_in" else matched
+
+            raw_expected = str(value).strip().replace(",", ".")
+            try:
+                expected = float(raw_expected)
+                if not math.isfinite(expected):
+                    return []
+            except Exception:
+                return []
+
+            def numeric_equal_ids(use_limit=True):
+                # Fast path first. Historically JSON/Python numbers may have
+                # produced either "10" or "10.0" index keys, so probe the
+                # common canonical representations without scanning anything.
+                variants = []
+                seen_variants = set()
+
+                def add_variant(v):
+                    sv = str(v or "").strip()
+                    if sv and sv not in seen_variants:
+                        seen_variants.add(sv)
+                        variants.append(sv)
+
+                add_variant(raw_expected)
+                add_variant(str(expected))
+                if expected.is_integer():
+                    add_variant(str(int(expected)))
+                add_variant(format(expected, ".15g"))
+
+                direct = cls._defined_index_union_for_keys(
+                    name, variants, cfg_uid, limit=(limit if use_limit else None)
+                )
+                if direct:
+                    return direct
+
+                # Compatibility fallback for uncommon historical forms such as
+                # "10.00". This scans only distinct secondary-index keys and
+                # their matched buckets, never node JSON/pickle payloads.
+                return cls._defined_index_matching_key_ids(
+                    name,
+                    lambda key: (
+                        (lambda actual: math.isfinite(actual) and actual == expected)(
+                            float(str(key).strip().replace(",", "."))
+                        )
+                    ),
+                    cfg_uid,
+                    limit=(limit if use_limit else None),
+                )
+
+            if op == "eq":
+                return numeric_equal_ids(use_limit=True)
+            if op == "ne":
+                return complement(numeric_equal_ids(use_limit=False))
+
+            def number_matches(key):
+                try:
+                    actual = float(str(key).strip().replace(",", "."))
+                    if not math.isfinite(actual):
+                        return False
+                except Exception:
+                    return False
+                if op == "gt": return actual > expected
+                if op == "gte": return actual >= expected
+                if op == "lt": return actual < expected
+                if op == "lte": return actual <= expected
+                return False
+
+            return cls._defined_index_matching_key_ids(
+                name, number_matches, cfg_uid, limit=limit
+            )
+
+        is_ref = bool(re.match(r"^(node|dataset)\(.+\)$", filter_type_l, flags=re.I))
+        if is_ref:
+            if op in {"eq", "in"}:
+                vals = cls._filter_values_list(value)
+                if op == "eq" and vals:
+                    vals = vals[:1]
+                return exact_many(vals)
+            if op in {"ne", "not_in"}:
+                vals = cls._filter_values_list(value)
+                if op == "ne" and vals:
+                    vals = vals[:1]
+                return complement(exact_many(vals, use_limit=False))
+            return []
+
+        # Default/string filters. Exact buckets are exact; contains scans only
+        # the secondary-index key column, never the node payloads.
+        if op == "eq":
+            return exact_many([value])
+        if op == "ne":
+            return complement(exact_many([value], use_limit=False))
+        if op in {"in", "not_in"}:
+            found = exact_many(value, use_limit=(op != "not_in"))
+            return complement(found) if op == "not_in" else found
+        if op in {"contains", "not_contains"}:
+            needle = str(value or "").strip().casefold()
+            if not needle:
+                return []
+            found = cls._defined_index_matching_key_ids(
+                name, lambda key: needle in str(key or "").casefold(), cfg_uid,
+                limit=None if op == "not_contains" else limit,
+            )
+            return complement(found) if op == "not_contains" else found
+        return []
+
+    @classmethod
+    def find_ids_by_index_filters(cls, filters, config_uid=None, limit=None) -> list[str]:
+        """AND-combine section filters using secondary-index id sets only."""
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        normalized = []
+        for raw in filters or []:
+            if not isinstance(raw, dict):
+                continue
+            name = str(raw.get("name") or raw.get("index_name") or "").strip()
+            if not name or not cls._defined_index_def(name, cfg_uid):
+                # A filter shown for another class excludes this class, which is
+                # the same behaviour the old single-index section path had.
+                return []
+            op = str(raw.get("op") or raw.get("operator") or "eq").strip().lower()
+            value = raw.get("value")
+            filter_type = str(raw.get("filter_type") or "").strip()
+            normalized.append((name, op, value, filter_type))
+        if not normalized:
+            return []
+
+        negative_ops = {"ne", "!=", "<>", "not_in", "notin", "nin", "not_contains", "notcontains"}
+        # Boolean false is also a complement operation. Process positive
+        # conditions first so a later negative filter can subtract from a much
+        # smaller candidate set without enumerating/deserializing node payloads.
+        def is_negative(item):
+            name, op, value, filter_type = item
+            idx = cls._defined_index_def(name, cfg_uid) or {}
+            ftype = str(filter_type or idx.get("filter_type") or "string").strip().lower()
+            if ftype == "boolean" and cls._filter_bool(value) is False and op not in negative_ops:
+                return True
+            return op in negative_ops
+
+        ordered = sorted(normalized, key=lambda item: 1 if is_negative(item) else 0)
+        current = None
+        for name, op, value, filter_type in ordered:
+            negative = is_negative((name, op, value, filter_type))
+            ids = cls.find_ids_by_index_filter(
+                name, op, value, cfg_uid,
+                universe_ids=current if (negative and current is not None) else None,
+                limit=limit if (len(ordered) == 1 and not negative) else None,
+                filter_type=filter_type,
+            )
+            ids = [str(x) for x in (ids or [])]
+            if current is None:
+                current = ids
+            else:
+                allowed = set(ids)
+                current = [node_id for node_id in current if node_id in allowed]
+            if not current:
+                break
+        result = current or []
+        try:
+            return result[:max(0, int(limit))] if limit is not None else result
+        except Exception:
+            return result
 
     @classmethod
     def find_by_index(cls, index_name: str, value, config_uid=None):

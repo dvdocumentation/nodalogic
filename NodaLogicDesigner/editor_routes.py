@@ -116,6 +116,16 @@ NGENIE_CODE_LOCK_ENABLED = False
 NGENIE_CODE_EDITOR_ENABLED = False
 
 
+def _resource_specs_class_types():
+    """Optional extension: no module directory means no special class choices."""
+    try:
+        from resource_specs.node_types import NODE_TYPES
+        return NODE_TYPES
+    except ImportError:
+        return {}
+
+
+
 def _ngenie_code_lock_enabled() -> bool:
     return bool(NGENIE_CODE_LOCK_ENABLED)
 
@@ -3628,7 +3638,8 @@ def edit_config(uid):
                            ngenie_code_available=_ngenie_code_editor_enabled(),
                            ngenie_code_lock_enabled=_ngenie_code_lock_enabled(),
                            ngenie_code_locked=_config_is_ngenie_code_locked(config),
-                           can_publish_demo_product=_current_user_has_admin_login())
+                           can_publish_demo_product=_current_user_has_admin_login(),
+                           resource_spec_types=_resource_specs_class_types())
 
 @_routes.route('/add-class/<config_uid>', methods=['POST'])
 @login_required
@@ -3732,6 +3743,13 @@ def edit_class(class_id):
         abort(403)
     
     if request.method == 'POST':
+        # Keep the persisted index structure before applying the form.  Existing
+        # nodes are not automatically present in a newly added/retargeted
+        # secondary index: normal node saves intentionally skip index work when
+        # the indexed value itself did not change.  We use this snapshot below
+        # to rebuild only indexes whose physical definition changed.
+        previous_indexes_for_rebuild = deepcopy(getattr(class_obj, 'indexes_json', None) or [])
+
         class_obj.name = request.form.get('name')
         # Display tab
         class_obj.display_name = request.form.get('display_name')
@@ -3762,6 +3780,7 @@ def edit_class(class_id):
         class_obj.migration_register_command = 'migration_register_command' in request.form
         class_obj.migration_register_on_save = 'migration_register_on_save' in request.form
         class_obj.migration_send_via_queue = 'migration_send_via_queue' in request.form
+        class_obj.migration_show_contract_nodes_in_section = 'migration_show_contract_nodes_in_section' in request.form
         class_obj.migration_default_room_alias = (request.form.get('migration_default_room_alias') or '').strip()
         class_obj.link_share_mode = (request.form.get('link_share_mode') or '').strip()
         class_obj.include_in_contract = 'include_in_contract' in request.form
@@ -3825,12 +3844,68 @@ def edit_class(class_id):
                 item['embedding_weight'] = _parse_index_float01(idx.get('embedding_weight', idx.get('semantic_weight', idx.get('vector_weight', default_embedding_weight))), default_embedding_weight)
                 item['technical_token_weight'] = _parse_index_float01(idx.get('technical_token_weight', idx.get('token_weight', idx.get('technical_weight', default_token_weight))), default_token_weight)
             normalized_indexes.append(item)
+        def _plain_index_structure_map(raw_indexes):
+            if isinstance(raw_indexes, str):
+                try:
+                    raw_indexes = json.loads(raw_indexes)
+                except Exception:
+                    raw_indexes = []
+            result = {}
+            for raw_idx in (raw_indexes or []):
+                if not isinstance(raw_idx, dict):
+                    continue
+                idx_name = str(raw_idx.get('name') or raw_idx.get('index') or raw_idx.get('id') or '').strip()
+                if not idx_name:
+                    continue
+                idx_kind = str(raw_idx.get('kind') or raw_idx.get('type') or 'hash_index').strip().lower() or 'hash_index'
+                # Semantic indexes keep their existing explicit/manual rebuild
+                # behaviour; the automatic backfill here is only for ordinary
+                # indexes used by section filters.
+                if idx_kind in {'semantic', 'semantic_index', 'semanic_index'}:
+                    continue
+                raw_keys = raw_idx.get('keys')
+                if raw_keys in (None, '', []):
+                    raw_keys = raw_idx.get('field')
+                if raw_keys in (None, '', []):
+                    raw_keys = raw_idx.get('key')
+                if raw_keys in (None, '', []):
+                    raw_keys = raw_idx.get('fields')
+                if isinstance(raw_keys, (list, tuple, set)):
+                    raw_keys = '|'.join(str(x or '').strip() for x in raw_keys if str(x or '').strip())
+                result[idx_name] = (idx_kind, str(raw_keys or '').strip())
+            return result
+
+        previous_plain_index_map = _plain_index_structure_map(previous_indexes_for_rebuild)
+        next_plain_index_map = _plain_index_structure_map(normalized_indexes)
+        indexes_to_backfill = [
+            idx_name for idx_name, signature in next_plain_index_map.items()
+            if previous_plain_index_map.get(idx_name) != signature
+        ]
+
         class_obj.indexes_json = normalized_indexes
 
         class_obj.has_storage = 'has_storage' in request.form
-        class_obj.class_type = request.form.get('class_type')
+        requested_type = (request.form.get('class_type') or '').strip()
+        if requested_type == 'resource_binding' and any(
+            other.id != class_obj.id and other.class_type == 'resource_binding'
+            for other in (class_obj.config.classes or [])
+        ):
+            message = 'В конфигурации допускается только один класс типа «Биндинг ресурсов и операций»'
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({'ok': False, 'error': message}), 400
+            flash(message, 'danger')
+            return redirect(url_for('edit_class', class_id=class_obj.id))
+        if requested_type in {'resource_binding', 'resource_specification'} and requested_type not in _resource_specs_class_types():
+            abort(400, 'Модуль resource_specs не установлен')
+        class_obj.class_type = requested_type
+        if requested_type in {'resource_binding', 'resource_specification'}:
+            class_obj.has_storage = True
         if (class_obj.class_type or '') == 'data_node':
             class_obj.data_structure = request.form.get('data_structure') or ""
+        elif (class_obj.class_type or '') in {'resource_binding', 'resource_specification'}:
+            # Native resource-spec types retain their documented node schema,
+            # even though their UI is rendered by the optional feature module.
+            class_obj.data_structure = request.form.get('data_structure', class_obj.data_structure or '')
         else:
             class_obj.data_structure = ""
         if (class_obj.class_type or '') == 'projection':
@@ -3887,8 +3962,39 @@ def edit_class(class_id):
         # is immediate and does not require rebuilding all repositories in a timer.
         class_obj.config.last_modified = datetime.now(timezone.utc)
         db.session.commit()
+
+        # Backfill only a newly added/retargeted ordinary index, once, at the
+        # moment its definition changes.  Section filtering itself remains
+        # strictly index-only and never falls back to scanning node payloads.
+        # rebuild_plain_indexes_fast scans the class storage once and writes
+        # index buckets in bulk, which is substantially cheaper than per-node
+        # read/append/rewrite.  A rebuild failure must not make an otherwise
+        # valid class edit fail; the existing explicit Rebuild button remains
+        # available and the failure is logged.
+        rebuilt_indexes = []
+        if indexes_to_backfill:
+            try:
+                config_uid_for_rebuild = str(getattr(class_obj.config, 'uid', '') or '').strip()
+                isolated_globals = _load_server_handlers_ns(config_uid_for_rebuild, class_obj.config) or {}
+                node_class = isolated_globals.get(class_obj.name)
+                fast_rebuild = getattr(node_class, 'rebuild_plain_indexes_fast', None) if node_class is not None else None
+                if callable(fast_rebuild):
+                    rebuild_result = fast_rebuild(config_uid_for_rebuild, index_names=indexes_to_backfill)
+                    if isinstance(rebuild_result, dict) and rebuild_result.get('ok', True):
+                        rebuilt_indexes = list(indexes_to_backfill)
+                    elif isinstance(rebuild_result, dict):
+                        current_app.logger.warning(
+                            'Automatic index backfill reported errors for class_id=%s indexes=%s: %s',
+                            class_obj.id, indexes_to_backfill, rebuild_result.get('errors') or rebuild_result
+                        )
+            except Exception:
+                current_app.logger.exception(
+                    'Automatic index backfill failed for class_id=%s indexes=%s',
+                    class_obj.id, indexes_to_backfill
+                )
+
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({"ok": True, "class_id": class_obj.id})
+            return jsonify({"ok": True, "class_id": class_obj.id, "rebuilt_indexes": rebuilt_indexes})
         flash(_('Class saved'), 'success')
         active_tab = request.form.get("active_tab", request.args.get('tab', 'classes'))
         return redirect(url_for('edit_class', class_id=class_obj.id, tab=active_tab))
@@ -3911,6 +4017,7 @@ def edit_class(class_id):
                          plugin_tpl_map=plugin_tpl_map,
                          wizard_active_buttons=get_wizard_active_templates(),
                          wizard_cover_buttons=get_wizard_cover_templates(),
+                         resource_spec_types=_resource_specs_class_types(),
                          event_types=['onShow', 'onInput', 'onChange', 'onShowWeb', 'onInputWeb', "onAcceptServer", "onAfterAcceptServer", "onAccept","onAfterAcccept"])
 
 @_routes.route('/edit-class/<int:class_id>/rebuild-indexes', methods=['POST'], endpoint='rebuild_class_indexes')
@@ -3938,11 +4045,86 @@ def rebuild_class_indexes(class_id):
                 'indexes': 0,
             }), 400
 
-        result = node_class.rebuild_defined_indexes(config_uid, index_names=index_names)
-        if not isinstance(result, dict):
-            result = {'ok': True, 'nodes': 0, 'indexes': 0}
-        result.setdefault('ok', True)
-        return jsonify(result)
+        # Ordinary indexes have a linear-time bulk rebuild which also folds and
+        # clears the hash-index delta overlay.  Prefer it for the filter indexes
+        # used by sections; retain the historical rebuild for semantic indexes.
+        configured_indexes = getattr(class_obj, 'indexes_json', None) or []
+        if isinstance(configured_indexes, str):
+            try:
+                configured_indexes = json.loads(configured_indexes)
+            except Exception:
+                configured_indexes = []
+        selected_defs = []
+        for idx in (configured_indexes or []):
+            if not isinstance(idx, dict):
+                continue
+            idx_name = str(idx.get('name') or '').strip()
+            if not idx_name or (raw_index and idx_name != raw_index):
+                continue
+            selected_defs.append(idx)
+
+        plain_names = []
+        semantic_names = []
+        for idx in selected_defs:
+            idx_name = str(idx.get('name') or '').strip()
+            idx_kind = str(idx.get('kind') or idx.get('type') or 'hash_index').strip().lower()
+            if idx_kind in {'semantic', 'semantic_index', 'semanic_index'}:
+                semantic_names.append(idx_name)
+            else:
+                plain_names.append(idx_name)
+
+        combined = {
+            'ok': True,
+            'class': class_obj.name,
+            'config_uid': config_uid,
+            'nodes': 0,
+            'indexes': 0,
+            'index_nodes': {},
+            'semantic_models': [],
+            'errors': [],
+        }
+        fast_rebuild = getattr(node_class, 'rebuild_plain_indexes_fast', None)
+        if plain_names and callable(fast_rebuild):
+            plain_result = fast_rebuild(config_uid, index_names=plain_names)
+            if isinstance(plain_result, dict):
+                combined['ok'] = combined['ok'] and plain_result.get('ok', True)
+                combined['nodes'] = max(combined['nodes'], int(plain_result.get('nodes') or 0))
+                combined['indexes'] += int(plain_result.get('indexes') or 0)
+                combined['index_nodes'].update(plain_result.get('index_nodes') or {})
+                combined['errors'].extend(plain_result.get('errors') or [])
+        elif plain_names:
+            # Compatibility with an older nodes.py while deploying files in
+            # stages: use the previous rebuild implementation if the fast one
+            # is not available yet.
+            plain_result = node_class.rebuild_defined_indexes(config_uid, index_names=plain_names)
+            if isinstance(plain_result, dict):
+                combined['ok'] = combined['ok'] and plain_result.get('ok', True)
+                combined['nodes'] = max(combined['nodes'], int(plain_result.get('nodes') or 0))
+                combined['indexes'] += int(plain_result.get('indexes') or 0)
+                combined['index_nodes'].update(plain_result.get('index_nodes') or {})
+                combined['errors'].extend(plain_result.get('errors') or [])
+
+        if semantic_names:
+            semantic_result = node_class.rebuild_defined_indexes(config_uid, index_names=semantic_names)
+            if isinstance(semantic_result, dict):
+                combined['ok'] = combined['ok'] and semantic_result.get('ok', True)
+                combined['nodes'] = max(combined['nodes'], int(semantic_result.get('nodes') or 0))
+                combined['indexes'] += int(semantic_result.get('indexes') or 0)
+                combined['index_nodes'].update(semantic_result.get('index_nodes') or {})
+                combined['semantic_models'].extend(semantic_result.get('semantic_models') or [])
+                combined['errors'].extend(semantic_result.get('errors') or [])
+
+        # If metadata was missing for some legacy configuration, preserve the
+        # old endpoint behaviour instead of returning a false-success no-op.
+        if not selected_defs:
+            fallback = node_class.rebuild_defined_indexes(config_uid, index_names=index_names)
+            if isinstance(fallback, dict):
+                combined = fallback
+
+        if not isinstance(combined, dict):
+            combined = {'ok': True, 'nodes': 0, 'indexes': 0}
+        combined.setdefault('ok', True)
+        return jsonify(combined)
     except Exception as e:
         tb = traceback.format_exc()
         try:
@@ -4355,8 +4537,15 @@ def create_class(config_uid):
     
     
     requested_class_type = (request.form.get('class_type') or 'custom_process').strip()
-    if requested_class_type not in ('custom_process', 'projection', 'data_node', 'custom_task', 'background_task', 'solo_object', 'print_form'):
+    allowed_class_types = {'custom_process', 'projection', 'data_node', 'custom_task', 'background_task', 'solo_object', 'print_form'} | set(_resource_specs_class_types())
+    if requested_class_type not in allowed_class_types:
         requested_class_type = 'custom_process'
+
+    if requested_class_type == 'resource_binding' and any(
+        other.class_type == 'resource_binding' for other in (config.classes or [])
+    ):
+        flash('В этой конфигурации уже существует класс биндинга ресурсов и операций', 'danger')
+        return redirect(url_for('edit_config', uid=config_uid, tab='classes'))
 
     new_class = ConfigClass(
         name=class_name,
@@ -4364,7 +4553,7 @@ def create_class(config_uid):
         config_id=config.id,
         class_type=requested_class_type,
         section_code='' if requested_class_type == 'print_form' else 'server',
-        has_storage=False if requested_class_type == 'print_form' else False,
+        has_storage=requested_class_type in {'resource_binding', 'resource_specification'},
         use_standard_commands=False if requested_class_type == 'print_form' else True,
         hidden=True if requested_class_type == 'print_form' else False,
         print_template_type='html_jinja' if requested_class_type == 'print_form' else '',
@@ -4552,6 +4741,7 @@ def export_config(uid):
                 'migration_register_command': bool(getattr(c, 'migration_register_command', False)),
                 'migration_register_on_save': bool(getattr(c, 'migration_register_on_save', False)),
                 'migration_send_via_queue': bool(getattr(c, 'migration_send_via_queue', False)),
+                'migration_show_contract_nodes_in_section': bool(getattr(c, 'migration_show_contract_nodes_in_section', False)),
                 'migration_default_room_uid': getattr(c, 'migration_default_room_uid', '') or '',
                 'migration_default_room_alias': getattr(c, 'migration_default_room_alias', '') or '',
                 'link_share_mode': getattr(c, 'link_share_mode', '') or '',
@@ -4618,7 +4808,9 @@ def export_config(uid):
                 'commands': s.commands,
                 'hide_mobile_client': bool(getattr(s, 'hide_mobile_client', False)),
                 'hide_web_client': bool(getattr(s, 'hide_web_client', False)),
-                'allow_client_extensions': getattr(s, 'allow_client_extensions', True) is not False
+                'allow_client_extensions': getattr(s, 'allow_client_extensions', True) is not False,
+                'mobile_form_node': getattr(s, 'mobile_form_node', '') or '',
+                'web_form_node': getattr(s, 'web_form_node', '') or ''
             } for s in config.sections
         ],
         "servers": [
@@ -4907,6 +5099,7 @@ def import_config_new():
                 migration_register_command=bool(class_data.get('migration_register_command', False)),
                 migration_register_on_save=bool(class_data.get('migration_register_on_save', False)),
                 migration_send_via_queue=bool(class_data.get('migration_send_via_queue', class_data.get('migrationSendViaQueue', False))),
+                migration_show_contract_nodes_in_section=bool(class_data.get('migration_show_contract_nodes_in_section', class_data.get('migrationShowContractNodesInSection', False))),
                 migration_default_room_uid=class_data.get('migration_default_room_uid', ''),
                 migration_default_room_alias=class_data.get('migration_default_room_alias', ''),
                 link_share_mode=class_data.get('link_share_mode', ''),
@@ -5008,6 +5201,8 @@ def import_config_new():
                 hide_mobile_client=bool(section_data.get('hide_mobile_client', section_data.get('hideMobileClient', False))),
                 hide_web_client=bool(section_data.get('hide_web_client', section_data.get('hideWebClient', False))),
                 allow_client_extensions=bool(section_data.get('allow_client_extensions', section_data.get('allowClientExtensions', True))),
+                mobile_form_node=str(section_data.get('mobile_form_node') or section_data.get('mobileFormNode') or ''),
+                web_form_node=str(section_data.get('web_form_node') or section_data.get('webFormNode') or ''),
                 config_id=config_to_use.id
             )
             db.session.add(new_section)
@@ -5119,6 +5314,20 @@ def import_config_new():
         
         db.session.commit()
         _materialize_profile_templates_for_config(config_to_use)
+
+        # Explicit demo-only initial filling. This is not a generic import
+        # side-effect: only .nod files declaring resource_specs_demo_seed opt in.
+        # Failure is non-destructive; the user can retry from the module UI.
+        if not is_update and data.get('resource_specs_demo_seed'):
+            try:
+                from resource_specs.provision import seed_demo_data
+                from client_app import routes as rs_client
+                rs_parsed = rs_client.build_parsed_config({**data, 'uid': config_to_use.uid})
+                rs_counts = seed_demo_data(rs_client, config_to_use.uid, rs_parsed)
+                flash('Примеры N50 созданы: ресурсов {resources}, спецификаций {specifications}'.format(**rs_counts), 'success')
+            except Exception as rs_exc:
+                current_app.logger.exception('Failed to provision resource spec import demo')
+                flash('Конфигурация импортирована; начальное заполнение не выполнено: '+str(rs_exc), 'warning')
         
         if is_update:
             print(f"Configuration updated successfully: {config_to_use.name}")
@@ -5284,6 +5493,7 @@ def apply_full_config_from_json(config, data):
                 migration_register_command=bool(class_data.get('migration_register_command', False)),
                 migration_register_on_save=bool(class_data.get('migration_register_on_save', False)),
                 migration_send_via_queue=bool(class_data.get('migration_send_via_queue', class_data.get('migrationSendViaQueue', False))),
+                migration_show_contract_nodes_in_section=bool(class_data.get('migration_show_contract_nodes_in_section', class_data.get('migrationShowContractNodesInSection', False))),
                 migration_default_room_uid=class_data.get('migration_default_room_uid', ''),
                 migration_default_room_alias=class_data.get('migration_default_room_alias', ''),
                 link_share_mode=class_data.get('link_share_mode', ''),
@@ -5398,6 +5608,8 @@ def apply_full_config_from_json(config, data):
             hide_mobile_client=bool(section_data.get('hide_mobile_client', section_data.get('hideMobileClient', False))),
             hide_web_client=bool(section_data.get('hide_web_client', section_data.get('hideWebClient', False))),
             allow_client_extensions=bool(section_data.get('allow_client_extensions', section_data.get('allowClientExtensions', True))),
+            mobile_form_node=str(section_data.get('mobile_form_node') or section_data.get('mobileFormNode') or ''),
+            web_form_node=str(section_data.get('web_form_node') or section_data.get('webFormNode') or ''),
             config_id=config.id
         )
         db.session.add(new_section)
@@ -5778,9 +5990,9 @@ except Exception:
     # production list here too so validation degrades to permissive-correct rather
     # than rejecting supported UI when client_app is temporarily unavailable.
     NODALAYOUT_WEB_ELEMENT_TYPES = frozenset({
-        "Text", "Picture", "HTML", "Button", "Input", "TextInput", "Switch", "CheckBox",
+        "Text", "Picture", "Files", "Divider", "Separator", "VerticalDivider", "HTML", "Button", "Input", "TextInput", "Switch", "CheckBox",
         "Table", "Parameters", "NodeChildren", "Spinner",
-        "DatasetField", "DatasetInput", "DatasetLink", "DataSetLink", "NodeInput", "NodeLink",
+        "DatasetField", "DatasetInput", "DatasetLink", "DataSetLink", "NodeInput", "NodeLink", "Reactive",
         "VerticalLayout", "HorizontalLayout", "VerticalScroll", "HorizontalScroll", "Card",
         "Tabs", "Tab", "CodeFrame", "ImageSlider", "PictureGallery",
         "gauge", "pie", "bar", "line", "Gauge", "Pie", "Bar", "Line",
@@ -5789,7 +6001,7 @@ except Exception:
 ALLOWED_UI_TYPES_AI = set(NODALAYOUT_WEB_ELEMENT_TYPES) | {
     # Android-focused/screen plugin elements.  These are not all rendered by the
     # web NodaLayout module, but are valid NodaLogic UI/PlugIn types.
-    "BottomButtons", "FloatingButton", "ToolbarButton",
+    "BottomButtons", "FloatingButton", "FileButton", "ToolbarButton",
     "PhotoButton", "GalleryButton", "MediaGallery",
     "CameraBarcodeScannerButton",  # camera scan button
     "BarcodeScanner",              # hardware scanner interception (TSD terminals)
@@ -6452,6 +6664,7 @@ def _ngenie_preserve_reference_surface(reference_cfg: dict, candidate_cfg: dict)
             "name", "section", "section_code", "has_storage", "display_name",
             "record_view", "cover_image", "class_type", "projection_type",
             "hidden", "hide_mobile_client", "hide_web_client", "allow_client_extensions", "include_in_contract",
+            "migration_show_contract_nodes_in_section",
             "print_template_type", "print_target_classes", "print_html_template",
         ):
             if key in ref_cls:
@@ -10099,7 +10312,9 @@ def get_section_json():
         'commands': section.commands,
         'hide_mobile_client': bool(getattr(section, 'hide_mobile_client', False)),
         'hide_web_client': bool(getattr(section, 'hide_web_client', False)),
-        'allow_client_extensions': getattr(section, 'allow_client_extensions', True) is not False
+        'allow_client_extensions': getattr(section, 'allow_client_extensions', True) is not False,
+        'mobile_form_node': getattr(section, 'mobile_form_node', '') or '',
+        'web_form_node': getattr(section, 'web_form_node', '') or ''
     })
 
 @_routes.route('/edit-dataset/<dataset_id>', methods=['GET', 'POST'])
@@ -10183,6 +10398,8 @@ def add_section(config_uid):
     hide_mobile_client = 'hide_mobile_client' in request.form
     hide_web_client = 'hide_web_client' in request.form
     allow_client_extensions = 'allow_client_extensions' in request.form
+    mobile_form_node = (request.form.get('mobile_form_node') or '').strip()
+    web_form_node = (request.form.get('web_form_node') or '').strip()
     
     if code and name:
         new_section = ConfigSection(
@@ -10192,6 +10409,8 @@ def add_section(config_uid):
             hide_mobile_client=hide_mobile_client,
             hide_web_client=hide_web_client,
             allow_client_extensions=allow_client_extensions,
+            mobile_form_node=mobile_form_node,
+            web_form_node=web_form_node,
             config_id=config.id
         )
         db.session.add(new_section)
@@ -10214,6 +10433,8 @@ def update_section(section_id):
     section.hide_mobile_client = 'hide_mobile_client' in request.form
     section.hide_web_client = 'hide_web_client' in request.form
     section.allow_client_extensions = 'allow_client_extensions' in request.form
+    section.mobile_form_node = (request.form.get('mobile_form_node') or '').strip()
+    section.web_form_node = (request.form.get('web_form_node') or '').strip()
     section.config.last_modified = datetime.now(timezone.utc)
     db.session.commit()
     
@@ -10672,6 +10893,7 @@ UI_COMPONENT_TEMPLATES = OrderedDict([
     ('Switch', '{"type":"Switch","caption":"Setting 1","id":"sw1","value":"@sw1"}'),
     ('CheckBox', '{"type":"CheckBox","caption":"My checkbox","id":"cb1","value":"@cb1"}'),
     ('Input', '{"type":"Input","caption":"My input","id":"my_input1","input_type":"number","value":"@my_input1"}'),
+    ('Reactive', '{"type":"Reactive","caption":"Calculated","id":"calculated","default_formula":"@qty * @price","async":false}'),
     ('Table(flat)', '{"type":"Table","id":"tab4","value":lines,"table":true,"table_header":["#|n|1","Position|position|7","Qty|qty|1"]}'),
     ('Table(list)', '{"type":"Table","id":"table1","layout":tab1_layout,"value":"@lines"}'),
     ('Tabs', '{"type":"Tabs","value":[{"type":"Tab","id":"tab1","caption":"My tab1","layout":[]}]}'),
@@ -10688,6 +10910,7 @@ UI_COMPONENT_TEMPLATES = OrderedDict([
     ('Parameters', '{"type":"Parameters","height":0,"w":1}'),
     ('ActiveCV', ' [ {"type":"Parameters","height":0,"w":1}, {"type":"ActiveCV","id":"active_cv","width":-1,"height":-1} ],   [ {"type":"Parameters","height":0,"w":1}, {"type":"VerticalLayout","id":"cv_info_container","width":-1,"height":-1,"value":[]} ]'),
     ('YandexMap', '{"type":"YandexMap","id":"my_map","height":260,"events":true}'),
+    ('OSMMap', '{"type":"OSMMap","id":"my_map","height":260,"events":true}'),
 ])
 
 WIZARD_ACTIVE_TEMPLATES = OrderedDict([
