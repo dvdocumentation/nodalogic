@@ -1,0 +1,195 @@
+{
+  "name": "Demo Section Node Form — Money",
+  "server_name": "Demo Section Node Form — Money 1.0.1",
+  "uid": "f2e3a4a2-ce62-404a-b757-51d83d413ae1",
+  "url": "http://localhost:5000/api/config/f2e3a4a2-ce62-404a-b757-51d83d413ae1",
+  "content_uid": "eba7c942-2e94-4a1a-bb9b-2154efe34c71",
+  "vendor": "NodaLogic demo",
+  "nodes_handlers": "ZnJvbSBub2Rlc2NsaWVudCBpbXBvcnQgUmVmcmVzaFRhYixTZXRUaXRsZSxDbG9zZU5vZGUsUnVuR1BTLFN0b3BHUFMsVXBkYXRlVmlldyxEaWFsb2csU2NhbkJhcmNvZGUsR2V0TG9jYXRpb24sQWRkVGltZXIsU3RvcFRpbWVyLFNob3dQcm9ncmVzc0J1dHRvbixIaWRlUHJvZ3Jlc3NCdXR0b24sU2hvd1Byb2dyZXNzR2xvYmFsLEhpZGVQcm9ncmVzc0dsb2JhbCxDb250cm9scyxTZXRDb3ZlcixnZXRCYXNlNjRGcm9tSW1hZ2VGaWxlLGNvbnZlcnRJbWFnZUZpbGVzVG9CYXNlNjRBcnJheSxzYXZlQmFzZTY0VG9GaWxlLGNvbnZlcnRCYXNlNjRBcnJheVRvRmlsZVBhdGhzLFVwZGF0ZU1lZGlhR2FsbGVyeQpmcm9tIGFuZHJvaWQgaW1wb3J0ICoKZnJvbSBub2RlcyBpbXBvcnQgKiAjTmV3Tm9kZSwgRGVsZXRlTm9kZSwgR2V0QWxsTm9kZXMsIEdldE5vZGUsIEdldEFsbE5vZGVzU3RyLCBHZXRSZW1vdGVDbGFzcywgQ3JlYXRlRGF0YVNldCwgR2V0RGF0YVNldCwgRGVsZXRlRGF0YVNldCx0b191aWQsIGZyb21fdWlkLCBnZXRCeUluZGV4LCBmaW5kQnlJbmRleCwgZ2V0QnlHbG9iYWxJbmRleCwgZmluZEJ5R2xvYmFsSW5kZXgsIHNlbmRUZXh0TWVzc2FnZSwgc2VuZEltYWdlTWVzc2FnZQpmcm9tIGNvbS5kdi5ub2RhIGltcG9ydCBEYXRhU2V0CmZyb20gY29tLmR2Lm5vZGEgaW1wb3J0IERhdGFTZXRzCmZyb20gY29tLmR2Lm5vZGEgaW1wb3J0IFNpbXBsZVV0aWxpdGVzIGFzIHN1CmZyb20gZGF0YXNldHMgaW1wb3J0IEdldERhdGFTZXREYXRhCgojIENvbmZpZ3VyYXRpb24gY29uc3RhbnRzCmN1cnJlbnRfbW9kdWxlX25hbWU9ImYyZTNhNGEyLWNlNjItNDA0YS1iNzU3LTUxZDgzZDQxM2FlMSIKY3VycmVudF9jb25maWd1cmF0aW9uX3VybD0iaHR0cDovL2xvY2FsaG9zdDo1MDAwL2FwaS9jb25maWcvZjJlM2E0YTItY2U2Mi00MDRhLWI3NTctNTFkODNkNDEzYWUxIgpfZGF0YV9kaXIgPSBzdS5nZXRfZGF0YV9kaXIoY3VycmVudF9tb2R1bGVfbmFtZSkKX2Rvd25sb2Fkc19kaXIgPSBzdS5nZXRfZG93bmxvYWRzX2RpcihjdXJyZW50X21vZHVsZV9uYW1lKQoKCmZyb20gbm9kZXMgaW1wb3J0IE5vZGUKZnJvbSBkYXRldGltZSBpbXBvcnQgZGF0ZQoKY2xhc3MgTW9uZXlPcGVyYXRpb24oTm9kZSk6CiAgICBkZWYgX19pbml0X18oc2VsZiwgbW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpOgogICAgICAgIHN1cGVyKCkuX19pbml0X18obW9kdWxlcywgak5vZGUsIG1vZHVsZW5hbWUsIHVpZCwgX2RhdGEpCgpjbGFzcyBNb25leVdvcmtzcGFjZShOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhtb2R1bGVzLCBqTm9kZSwgbW9kdWxlbmFtZSwgdWlkLCBfZGF0YSkKCgpkZWYgX2FsbF9vcGVyYXRpb25zKCk6CiAgICB2YWx1ZXMgPSBNb25leU9wZXJhdGlvbi5nZXRfYWxsKCkKICAgIGlmIGlzaW5zdGFuY2UodmFsdWVzLCBkaWN0KToKICAgICAgICB2YWx1ZXMgPSBsaXN0KHZhbHVlcy52YWx1ZXMoKSkKICAgIHJldHVybiBsaXN0KHZhbHVlcyBvciBbXSkKCgpkZWYgX2Jvb3RzdHJhcF9pZl9lbXB0eSgpOgogICAgaWYgX2FsbF9vcGVyYXRpb25zKCk6CiAgICAgICAgcmV0dXJuCiAgICB0b2RheSA9IGRhdGUudG9kYXkoKS5pc29mb3JtYXQoKQogICAgc2FtcGxlcyA9IFsKICAgICAgICAoItCf0YDQuNGF0L7QtCIsIDE1MDAwLCAi0J7Qv9C70LDRgtCwINC60LvQuNC10L3RgtCwIiksCiAgICAgICAgKCLQoNCw0YHRhdC+0LQiLCAzMjAwLCAi0JTQvtGB0YLQsNCy0LrQsCIpLAogICAgICAgICgi0J/RgNC40YXQvtC0IiwgNzgwMCwgItCU0L7Qv9C70LDRgtCwINC/0L4g0LfQsNC60LDQt9GDIiksCiAgICBdCiAgICBmb3Iga2luZCwgYW1vdW50LCBjb21tZW50IGluIHNhbXBsZXM6CiAgICAgICAgbm9kZSA9IE1vbmV5T3BlcmF0aW9uLmNyZWF0ZSgpCiAgICAgICAgbm9kZS5fZGF0YVsiZGF0ZSJdID0gdG9kYXkKICAgICAgICBub2RlLl9kYXRhWyJvcGVyYXRpb25fdHlwZSJdID0ga2luZAogICAgICAgIG5vZGUuX2RhdGFbImFtb3VudCJdID0gYW1vdW50CiAgICAgICAgbm9kZS5fZGF0YVsiY29tbWVudCJdID0gY29tbWVudAogICAgICAgIG5vZGUuX3NhdmUoKQoKCmRlZiBfbm9kZV91aWQobm9kZSk6CiAgICB0cnk6CiAgICAgICAgcmF3ID0gc3RyKGdldGF0dHIobm9kZSwgInVpZCIsICIiKSBvciAobm9kZS5fZGF0YSBvciB7fSkuZ2V0KCJfaWQiKSBvciAiIikKICAgICAgICBpZiBub3QgcmF3OgogICAgICAgICAgICByZXR1cm4gIiIKICAgICAgICByZXR1cm4gcmF3IGlmICIkIiBpbiByYXcgZWxzZSAiTW9uZXlPcGVyYXRpb24kIiArIHJhdwogICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICByZXR1cm4gIiIKCgpkZWYgbW9uZXlfcmVmcmVzaChpbnB1dF9kYXRhPU5vbmUpOgogICAgZGF0YSA9IGlucHV0X2RhdGEgaWYgaXNpbnN0YW5jZShpbnB1dF9kYXRhLCBkaWN0KSBlbHNlIHt9CiAgICBfYm9vdHN0cmFwX2lmX2VtcHR5KCkKICAgIHRvZGF5ID0gZGF0ZS50b2RheSgpCiAgICBmaXJzdCA9IHRvZGF5LnJlcGxhY2UoZGF5PTEpLmlzb2Zvcm1hdCgpCiAgICBpZiBub3QgZGF0YS5nZXQoImRhdGVfZnJvbSIpOgogICAgICAgIGRhdGFbImRhdGVfZnJvbSJdID0gZmlyc3QKICAgIGlmIG5vdCBkYXRhLmdldCgiZGF0ZV90byIpOgogICAgICAgIGRhdGFbImRhdGVfdG8iXSA9IHRvZGF5Lmlzb2Zvcm1hdCgpCiAgICBpZiBkYXRhLmdldCgib3BlcmF0aW9uX2ZpbHRlciIpIGluIChOb25lLCAiIik6CiAgICAgICAgZGF0YVsib3BlcmF0aW9uX2ZpbHRlciJdID0gImFsbCIKCiAgICBkYXRlX2Zyb20gPSBzdHIoZGF0YS5nZXQoImRhdGVfZnJvbSIpIG9yICIiKQogICAgZGF0ZV90byA9IHN0cihkYXRhLmdldCgiZGF0ZV90byIpIG9yICIiKQogICAgb3BfZmlsdGVyID0gc3RyKGRhdGEuZ2V0KCJvcGVyYXRpb25fZmlsdGVyIikgb3IgImFsbCIpCiAgICByb3dzID0gW10KICAgIHRvdGFsID0gMC4wCiAgICBvcHMgPSBfYWxsX29wZXJhdGlvbnMoKQogICAgb3BzLnNvcnQoa2V5PWxhbWJkYSBuOiBzdHIoKG4uX2RhdGEgb3Ige30pLmdldCgiZGF0ZSIpIG9yICIiKSwgcmV2ZXJzZT1UcnVlKQogICAgZm9yIG9wIGluIG9wczoKICAgICAgICBvZCA9IG9wLl9kYXRhIG9yIHt9CiAgICAgICAgZCA9IHN0cihvZC5nZXQoImRhdGUiKSBvciAiIikKICAgICAgICBraW5kID0gc3RyKG9kLmdldCgib3BlcmF0aW9uX3R5cGUiKSBvciAiIikKICAgICAgICBpZiBkYXRlX2Zyb20gYW5kIGQgYW5kIGQgPCBkYXRlX2Zyb206CiAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgaWYgZGF0ZV90byBhbmQgZCBhbmQgZCA+IGRhdGVfdG86CiAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgaWYgb3BfZmlsdGVyID09ICJpbmNvbWUiIGFuZCBraW5kICE9ICLQn9GA0LjRhdC+0LQiOgogICAgICAgICAgICBjb250aW51ZQogICAgICAgIGlmIG9wX2ZpbHRlciA9PSAiZXhwZW5zZSIgYW5kIGtpbmQgIT0gItCg0LDRgdGF0L7QtCI6CiAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgdHJ5OgogICAgICAgICAgICBhbW91bnQgPSBmbG9hdChvZC5nZXQoImFtb3VudCIpIG9yIDApCiAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICAgICAgYW1vdW50ID0gMC4wCiAgICAgICAgdG90YWwgKz0gYW1vdW50IGlmIGtpbmQgPT0gItCf0YDQuNGF0L7QtCIgZWxzZSAtYW1vdW50CiAgICAgICAgdWlkID0gX25vZGVfdWlkKG9wKQogICAgICAgIGlmIHVpZDoKICAgICAgICAgICAgcm93cy5hcHBlbmQodWlkKQogICAgZGF0YVsib3BlcmF0aW9ucyJdID0gcm93cwogICAgZGF0YVsidG90YWwiXSA9IHJvdW5kKHRvdGFsLCAyKQogICAgZGF0YVsidG90YWxfdGV4dCJdID0gItCe0LHRidCw0Y8g0YHRg9C80LzQsDogezouMmZ9Ii5mb3JtYXQodG90YWwpCiAgICByZXR1cm4gVHJ1ZSwgZGF0YQoKCmRlZiBhZGRfbW9uZXlfb3BlcmF0aW9uKGlucHV0X2RhdGE9Tm9uZSk6CiAgICBub2RlID0gTW9uZXlPcGVyYXRpb24uY3JlYXRlKCkKICAgIG5vZGUuX2RhdGFbImRhdGUiXSA9IGRhdGUudG9kYXkoKS5pc29mb3JtYXQoKQogICAgbm9kZS5fZGF0YVsib3BlcmF0aW9uX3R5cGUiXSA9ICLQn9GA0LjRhdC+0LQiCiAgICBub2RlLl9kYXRhWyJhbW91bnQiXSA9IDAKICAgIG5vZGUuX2RhdGFbImNvbW1lbnQiXSA9ICIiCiAgICBub2RlLl9zYXZlKCkKICAgIG5vZGUuX29wZW4oKQogICAgcmV0dXJuIFRydWUsIGlucHV0X2RhdGEgb3Ige30K",
+  "nodes_handlers_meta": {},
+  "nodes_server_handlers": "ZnJvbSBub2RlcyBpbXBvcnQgTm9kZQpmcm9tIGRhdGV0aW1lIGltcG9ydCBkYXRlCgpjbGFzcyBNb25leU9wZXJhdGlvbihOb2RlKToKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBub2RlX2lkPU5vbmUsIGNvbmZpZ191aWQ9Tm9uZSk6CiAgICAgICAgc3VwZXIoKS5fX2luaXRfXyhub2RlX2lkLCBjb25maWdfdWlkKQoKY2xhc3MgTW9uZXlXb3Jrc3BhY2UoTm9kZSk6CiAgICBkZWYgX19pbml0X18oc2VsZiwgbm9kZV9pZD1Ob25lLCBjb25maWdfdWlkPU5vbmUpOgogICAgICAgIHN1cGVyKCkuX19pbml0X18obm9kZV9pZCwgY29uZmlnX3VpZCkKCgpkZWYgX2FsbF9vcGVyYXRpb25zKCk6CiAgICB2YWx1ZXMgPSBNb25leU9wZXJhdGlvbi5nZXRfYWxsKCkKICAgIGlmIGlzaW5zdGFuY2UodmFsdWVzLCBkaWN0KToKICAgICAgICB2YWx1ZXMgPSBsaXN0KHZhbHVlcy52YWx1ZXMoKSkKICAgIHJldHVybiBsaXN0KHZhbHVlcyBvciBbXSkKCgpkZWYgX2Jvb3RzdHJhcF9pZl9lbXB0eSgpOgogICAgaWYgX2FsbF9vcGVyYXRpb25zKCk6CiAgICAgICAgcmV0dXJuCiAgICB0b2RheSA9IGRhdGUudG9kYXkoKS5pc29mb3JtYXQoKQogICAgc2FtcGxlcyA9IFsKICAgICAgICAoItCf0YDQuNGF0L7QtCIsIDE1MDAwLCAi0J7Qv9C70LDRgtCwINC60LvQuNC10L3RgtCwIiksCiAgICAgICAgKCLQoNCw0YHRhdC+0LQiLCAzMjAwLCAi0JTQvtGB0YLQsNCy0LrQsCIpLAogICAgICAgICgi0J/RgNC40YXQvtC0IiwgNzgwMCwgItCU0L7Qv9C70LDRgtCwINC/0L4g0LfQsNC60LDQt9GDIiksCiAgICBdCiAgICBmb3Iga2luZCwgYW1vdW50LCBjb21tZW50IGluIHNhbXBsZXM6CiAgICAgICAgbm9kZSA9IE1vbmV5T3BlcmF0aW9uLmNyZWF0ZSgpCiAgICAgICAgbm9kZS5fZGF0YVsiZGF0ZSJdID0gdG9kYXkKICAgICAgICBub2RlLl9kYXRhWyJvcGVyYXRpb25fdHlwZSJdID0ga2luZAogICAgICAgIG5vZGUuX2RhdGFbImFtb3VudCJdID0gYW1vdW50CiAgICAgICAgbm9kZS5fZGF0YVsiY29tbWVudCJdID0gY29tbWVudAogICAgICAgIG5vZGUuX3NhdmUoKQoKCmRlZiBfbm9kZV91aWQobm9kZSk6CiAgICB0cnk6CiAgICAgICAgcmF3ID0gc3RyKChub2RlLl9kYXRhIG9yIHt9KS5nZXQoIl9pZCIpIG9yIGdldGF0dHIobm9kZSwgInVpZCIsICIiKSBvciBnZXRhdHRyKG5vZGUsICJfaWQiLCAiIikgb3IgIiIpCiAgICAgICAgaWYgbm90IHJhdzoKICAgICAgICAgICAgcmV0dXJuICIiCiAgICAgICAgcmV0dXJuIHJhdyBpZiAiJCIgaW4gcmF3IGVsc2UgIk1vbmV5T3BlcmF0aW9uJCIgKyByYXcKICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgcmV0dXJuICIiCgoKZGVmIG1vbmV5X3JlZnJlc2goaW5wdXRfZGF0YT1Ob25lKToKICAgIGRhdGEgPSBpbnB1dF9kYXRhIGlmIGlzaW5zdGFuY2UoaW5wdXRfZGF0YSwgZGljdCkgZWxzZSB7fQogICAgX2Jvb3RzdHJhcF9pZl9lbXB0eSgpCiAgICB0b2RheSA9IGRhdGUudG9kYXkoKQogICAgaWYgbm90IGRhdGEuZ2V0KCJkYXRlX2Zyb20iKToKICAgICAgICBkYXRhWyJkYXRlX2Zyb20iXSA9IHRvZGF5LnJlcGxhY2UoZGF5PTEpLmlzb2Zvcm1hdCgpCiAgICBpZiBub3QgZGF0YS5nZXQoImRhdGVfdG8iKToKICAgICAgICBkYXRhWyJkYXRlX3RvIl0gPSB0b2RheS5pc29mb3JtYXQoKQogICAgaWYgZGF0YS5nZXQoIm9wZXJhdGlvbl9maWx0ZXIiKSBpbiAoTm9uZSwgIiIpOgogICAgICAgIGRhdGFbIm9wZXJhdGlvbl9maWx0ZXIiXSA9ICJhbGwiCgogICAgZGF0ZV9mcm9tID0gc3RyKGRhdGEuZ2V0KCJkYXRlX2Zyb20iKSBvciAiIikKICAgIGRhdGVfdG8gPSBzdHIoZGF0YS5nZXQoImRhdGVfdG8iKSBvciAiIikKICAgIG9wX2ZpbHRlciA9IHN0cihkYXRhLmdldCgib3BlcmF0aW9uX2ZpbHRlciIpIG9yICJhbGwiKQogICAgcm93cyA9IFtdCiAgICB0b3RhbCA9IDAuMAogICAgb3BzID0gX2FsbF9vcGVyYXRpb25zKCkKICAgIG9wcy5zb3J0KGtleT1sYW1iZGEgbjogc3RyKChuLl9kYXRhIG9yIHt9KS5nZXQoImRhdGUiKSBvciAiIiksIHJldmVyc2U9VHJ1ZSkKICAgIGZvciBvcCBpbiBvcHM6CiAgICAgICAgb2QgPSBvcC5fZGF0YSBvciB7fQogICAgICAgIGQgPSBzdHIob2QuZ2V0KCJkYXRlIikgb3IgIiIpCiAgICAgICAga2luZCA9IHN0cihvZC5nZXQoIm9wZXJhdGlvbl90eXBlIikgb3IgIiIpCiAgICAgICAgaWYgZGF0ZV9mcm9tIGFuZCBkIGFuZCBkIDwgZGF0ZV9mcm9tOgogICAgICAgICAgICBjb250aW51ZQogICAgICAgIGlmIGRhdGVfdG8gYW5kIGQgYW5kIGQgPiBkYXRlX3RvOgogICAgICAgICAgICBjb250aW51ZQogICAgICAgIGlmIG9wX2ZpbHRlciA9PSAiaW5jb21lIiBhbmQga2luZCAhPSAi0J/RgNC40YXQvtC0IjoKICAgICAgICAgICAgY29udGludWUKICAgICAgICBpZiBvcF9maWx0ZXIgPT0gImV4cGVuc2UiIGFuZCBraW5kICE9ICLQoNCw0YHRhdC+0LQiOgogICAgICAgICAgICBjb250aW51ZQogICAgICAgIHRyeToKICAgICAgICAgICAgYW1vdW50ID0gZmxvYXQob2QuZ2V0KCJhbW91bnQiKSBvciAwKQogICAgICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgICAgIGFtb3VudCA9IDAuMAogICAgICAgIHRvdGFsICs9IGFtb3VudCBpZiBraW5kID09ICLQn9GA0LjRhdC+0LQiIGVsc2UgLWFtb3VudAogICAgICAgIHVpZCA9IF9ub2RlX3VpZChvcCkKICAgICAgICBpZiB1aWQ6CiAgICAgICAgICAgIHJvd3MuYXBwZW5kKHVpZCkKICAgIGRhdGFbIm9wZXJhdGlvbnMiXSA9IHJvd3MKICAgIGRhdGFbInRvdGFsIl0gPSByb3VuZCh0b3RhbCwgMikKICAgIGRhdGFbInRvdGFsX3RleHQiXSA9ICLQntCx0YnQsNGPINGB0YPQvNC80LA6IHs6LjJmfSIuZm9ybWF0KHRvdGFsKQogICAgcmV0dXJuIFRydWUsIGRhdGEKCgpkZWYgYWRkX21vbmV5X29wZXJhdGlvbihpbnB1dF9kYXRhPU5vbmUpOgogICAgbm9kZSA9IE1vbmV5T3BlcmF0aW9uLmNyZWF0ZSgpCiAgICBub2RlLl9kYXRhWyJkYXRlIl0gPSBkYXRlLnRvZGF5KCkuaXNvZm9ybWF0KCkKICAgIG5vZGUuX2RhdGFbIm9wZXJhdGlvbl90eXBlIl0gPSAi0J/RgNC40YXQvtC0IgogICAgbm9kZS5fZGF0YVsiYW1vdW50Il0gPSAwCiAgICBub2RlLl9kYXRhWyJjb21tZW50Il0gPSAiIgogICAgbm9kZS5fc2F2ZSgpCiAgICBub2RlLl9vcGVuKG5ld190YWI9RmFsc2UpCiAgICByZXR1cm4gVHJ1ZSwgaW5wdXRfZGF0YSBvciB7fQo=",
+  "nodes_server_handlers_meta": {},
+  "ngenie_prompt": "",
+  "description": "",
+  "ngenie_code_locked": false,
+  "ngenie_code_instruction": "",
+  "ngenie_code_example": "",
+  "demo_language": "",
+  "demo_product": true,
+  "demo_install_allowed": false,
+  "version": "1.0.1",
+  "NodaLogicFormat": "1.1",
+  "NodaLogicType": "ANDROID_SERVER",
+  "last_modified": "2026-10-20T07:17:30.729015+03:00",
+  "provider": "NodaLogic demo",
+  "CommonLayouts": [],
+  "profile_templates": [],
+  "classes": [
+    {
+      "name": "MoneyOperation",
+      "section": "Деньги",
+      "section_code": "money",
+      "has_storage": true,
+      "display_name": "Операция с деньгами",
+      "record_view": "{date} — {operation_type}: {amount}",
+      "cover_image": "[[{\"type\":\"Text\",\"value\":\"@operation_type\",\"bold\":true,\"size\":18},{\"type\":\"Text\",\"value\":\"@amount\",\"bold\":true,\"size\":18}],[{\"type\":\"Text\",\"value\":\"@date\"},{\"type\":\"Text\",\"value\":\"@comment\"}]]",
+      "display_image_web": "",
+      "display_image_table": "Дата|@date,Операция|@operation_type,Сумма|@amount,Комментарий|@comment",
+      "init_screen_layout": "[[{\"type\":\"Input\",\"id\":\"date\",\"caption\":\"Дата\",\"value\":\"@date\",\"input_type\":\"DATE\"}],[{\"type\":\"Spinner\",\"id\":\"operation_type\",\"caption\":\"Операция\",\"value\":\"@operation_type\",\"dataset\":[{\"_id\":\"Приход\",\"_view\":\"Приход\"},{\"_id\":\"Расход\",\"_view\":\"Расход\"}]}],[{\"type\":\"Input\",\"id\":\"amount\",\"caption\":\"Сумма\",\"value\":\"@amount\",\"input_type\":\"NUMBER\"}],[{\"type\":\"Input\",\"id\":\"comment\",\"caption\":\"Комментарий\",\"value\":\"@comment\",\"input_type\":\"MULTILINE\",\"height\":140}]]",
+      "init_screen_layout_web": "[[{\"type\":\"Input\",\"id\":\"date\",\"caption\":\"Дата\",\"value\":\"@date\",\"input_type\":\"DATE\"}],[{\"type\":\"Spinner\",\"id\":\"operation_type\",\"caption\":\"Операция\",\"value\":\"@operation_type\",\"dataset\":[{\"_id\":\"Приход\",\"_view\":\"Приход\"},{\"_id\":\"Расход\",\"_view\":\"Расход\"}]}],[{\"type\":\"Input\",\"id\":\"amount\",\"caption\":\"Сумма\",\"value\":\"@amount\",\"input_type\":\"NUMBER\"}],[{\"type\":\"Input\",\"id\":\"comment\",\"caption\":\"Комментарий\",\"value\":\"@comment\",\"input_type\":\"MULTILINE\",\"height\":140}]]",
+      "data_structure": "Дата|date: date\nОперация|operation_type: string\nСумма|amount: number\nКомментарий|comment: string",
+      "ngenie_role": "Денежная операция",
+      "ngenie_prompt": "Обычная запись прихода или расхода.",
+      "ngenie_description": "Приход/расход с датой, суммой и комментарием.",
+      "show_tag_cloud": false,
+      "mobile_print_enabled": false,
+      "hide_mobile_client": false,
+      "hide_web_client": false,
+      "allow_client_extensions": true,
+      "dashboard_enabled": false,
+      "dashboard_width": "100",
+      "dashboard_top": false,
+      "plug_in": "",
+      "plug_in_web": "",
+      "commands": "",
+      "use_standard_commands": true,
+      "svg_commands": "",
+      "migration_register_command": false,
+      "migration_register_on_save": false,
+      "migration_send_via_queue": false,
+      "migration_show_contract_nodes_in_section": false,
+      "migration_default_room_uid": "",
+      "migration_default_room_alias": "",
+      "link_share_mode": "",
+      "include_in_contract": false,
+      "indexes": [],
+      "class_type": "data_node",
+      "projection_type": "",
+      "projection_kanban_columns": "",
+      "print_template_type": "html_jinja",
+      "print_target_classes": [],
+      "print_html_template": "",
+      "hidden": false,
+      "methods": [],
+      "events": []
+    },
+    {
+      "name": "MoneyWorkspace",
+      "section": "Деньги",
+      "section_code": "money",
+      "has_storage": false,
+      "display_name": "Денежные операции",
+      "record_view": "Денежные операции",
+      "cover_image": "[]",
+      "display_image_web": "",
+      "display_image_table": "",
+      "init_screen_layout": "[[{\"type\":\"Input\",\"id\":\"date_from\",\"caption\":\"Период с\",\"value\":\"@date_from\",\"input_type\":\"DATE\",\"events\":true},{\"type\":\"Input\",\"id\":\"date_to\",\"caption\":\"по\",\"value\":\"@date_to\",\"input_type\":\"DATE\",\"events\":true}],[{\"type\":\"Spinner\",\"id\":\"operation_filter\",\"caption\":\"Операции\",\"value\":\"@operation_filter\",\"dataset\":[{\"_id\":\"all\",\"_view\":\"Все\"},{\"_id\":\"income\",\"_view\":\"Приходы\"},{\"_id\":\"expense\",\"_view\":\"Расходы\"}]},{\"type\":\"VerticalLayout\",\"id\":\"total_container\",\"w\":1,\"margin_top\":0,\"margin_bottom\":8,\"value\":[{\"type\":\"Text\",\"id\":\"total_text\",\"value\":\"@total_text\",\"bold\":true,\"size\":15}]}],[{\"type\":\"Table\",\"id\":\"operations\",\"table\":true,\"table_header\":[\"Дата|date|1\",\"Операция|operation_type|1\",\"Сумма|amount|1\",\"Комментарий|comment|2\"],\"value\":\"@operations\",\"nodes_source\":true}]]",
+      "init_screen_layout_web": "[[{\"type\":\"Input\",\"id\":\"date_from\",\"caption\":\"Период с\",\"value\":\"@date_from\",\"input_type\":\"DATE\",\"events\":true},{\"type\":\"Input\",\"id\":\"date_to\",\"caption\":\"по\",\"value\":\"@date_to\",\"input_type\":\"DATE\",\"events\":true}],[{\"type\":\"Spinner\",\"id\":\"operation_filter\",\"caption\":\"Операции\",\"value\":\"@operation_filter\",\"dataset\":[{\"_id\":\"all\",\"_view\":\"Все\"},{\"_id\":\"income\",\"_view\":\"Приходы\"},{\"_id\":\"expense\",\"_view\":\"Расходы\"}]},{\"type\":\"Text\",\"id\":\"total_text\",\"value\":\"@total_text\",\"bold\":true,\"size\":20}],[{\"type\":\"Table\",\"id\":\"operations\",\"table\":true,\"table_header\":[\"Дата|date|1\",\"Операция|operation_type|1\",\"Сумма|amount|1\",\"Комментарий|comment|3\"],\"value\":\"@operations\",\"nodes_source\":true}]]",
+      "data_structure": "",
+      "ngenie_role": "",
+      "ngenie_prompt": "Служебная singleton-форма раздела Деньги.",
+      "ngenie_description": "Фильтры, итог и таблица денежных операций.",
+      "show_tag_cloud": false,
+      "mobile_print_enabled": false,
+      "hide_mobile_client": false,
+      "hide_web_client": false,
+      "allow_client_extensions": true,
+      "dashboard_enabled": false,
+      "dashboard_width": "100",
+      "dashboard_top": false,
+      "plug_in": "",
+      "plug_in_web": "",
+      "commands": "",
+      "use_standard_commands": false,
+      "svg_commands": "",
+      "migration_register_command": false,
+      "migration_register_on_save": false,
+      "migration_send_via_queue": false,
+      "migration_show_contract_nodes_in_section": false,
+      "migration_default_room_uid": "",
+      "migration_default_room_alias": "",
+      "link_share_mode": "",
+      "include_in_contract": false,
+      "indexes": [],
+      "class_type": "custom_process",
+      "projection_type": "",
+      "projection_kanban_columns": "",
+      "print_template_type": "html_jinja",
+      "print_target_classes": [],
+      "print_html_template": "",
+      "hidden": true,
+      "methods": [],
+      "events": []
+    }
+  ],
+  "datasets": [],
+  "sections": [
+    {
+      "name": "Деньги",
+      "code": "money",
+      "commands": "Добавить операцию|add_operation",
+      "hide_mobile_client": false,
+      "hide_web_client": false,
+      "allow_client_extensions": true,
+      "mobile_form_node": "MoneyWorkspace$singleton",
+      "web_form_node": "MoneyWorkspace$singleton"
+    }
+  ],
+  "servers": [],
+  "rooms": [],
+  "CommonEvents": [
+    {
+      "event": "onInput",
+      "listener": "",
+      "actions": [
+        {
+          "action": "run",
+          "source": "internal",
+          "server": "internal",
+          "method": "money_refresh",
+          "postExecuteMethod": ""
+        }
+      ]
+    },
+    {
+      "event": "onInputWeb",
+      "listener": "",
+      "actions": [
+        {
+          "action": "run",
+          "source": "internal",
+          "server": "internal",
+          "method": "money_refresh",
+          "postExecuteMethod": ""
+        }
+      ]
+    },
+    {
+      "event": "onStartMenuCommand",
+      "listener": "",
+      "actions": [
+        {
+          "action": "run",
+          "source": "internal",
+          "server": "internal",
+          "method": "add_money_operation",
+          "postExecuteMethod": ""
+        }
+      ]
+    },
+    {
+      "event": "onStartMenuCommandWeb",
+      "listener": "",
+      "actions": [
+        {
+          "action": "run",
+          "source": "internal",
+          "server": "internal",
+          "method": "add_money_operation",
+          "postExecuteMethod": ""
+        }
+      ]
+    }
+  ],
+  "Timers": []
+}
