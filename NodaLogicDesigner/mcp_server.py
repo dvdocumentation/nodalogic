@@ -32,12 +32,14 @@ MAIN = None
 SUPPORTED_HANDSHAKE_VERSIONS = {"2025-03-26", "2025-06-18", "2025-11-25", "2024-11-05"}
 LATEST_HANDSHAKE_VERSION = "2025-11-25"
 MODERN_VERSION = "2026-07-28"
-SERVER_INFO = {"name": "NodaLogic MCP", "version": "1.1"}
+SERVER_INFO = {"name": "NodaLogic MCP", "version": "1.2"}
 
 
 def register_mcp(app, main_module):
     global MAIN
     MAIN = main_module
+    import mcp_oauth
+    mcp_oauth.register(app, main_module)
     app.register_blueprint(_bp)
 
 
@@ -1482,9 +1484,16 @@ def mcp_by_link(path_secret):
 
 @_bp.route("/mcp/config/<config_uid>", methods=["POST", "GET", "DELETE"])
 def mcp_by_bearer(config_uid):
-    link, config, actor, err = _resolve_link_by_secret(_request_secret(), config_uid=config_uid)
+    import mcp_oauth
+    link, config, actor, err = mcp_oauth.resolve_access(config_uid)
     if err:
-        return jsonify({"error": err}), 401
+        # Preserve existing per-configuration Bearer credentials while making
+        # OAuth the discoverable authentication mechanism for new clients.
+        link, config, actor, legacy_err = _resolve_link_by_secret(_request_secret(), config_uid=config_uid)
+        if not legacy_err:
+            err = ""
+    if err:
+        return mcp_oauth.unauthorized(config_uid)
     if request.method == "DELETE":
         return Response(status=204)
     if request.method == "GET":
