@@ -1117,6 +1117,34 @@ def _balance_from_dict(row: Mapping[str, Any]) -> BalanceRow:
     )
 
 
+def list_spaces(*, scope: Optional[str] = None) -> List[Dict[str, Any]]:
+    """List ledger spaces available inside one scope with compact row counts."""
+    resolved_scope = _resolve_scope(scope)
+    balances_by_space = {
+        str(row.get("space") or ""): int(row.get("row_count") or 0)
+        for row in _query(
+            f"SELECT space, COUNT(1) AS row_count FROM {BALANCE_TABLE} WHERE scope = ? GROUP BY space",
+            (resolved_scope,),
+        )
+    }
+    movements_by_space = {
+        str(row.get("space") or ""): int(row.get("row_count") or 0)
+        for row in _query(
+            f"SELECT space, COUNT(1) AS row_count FROM {MOVEMENT_TABLE} WHERE scope = ? GROUP BY space",
+            (resolved_scope,),
+        )
+    }
+    return [
+        {
+            "space": space,
+            "balance_rows": balances_by_space.get(space, 0),
+            "movement_rows": movements_by_space.get(space, 0),
+        }
+        for space in sorted(set(balances_by_space) | set(movements_by_space))
+        if space
+    ]
+
+
 def get_balance(
     space: str,
     quant: str,
@@ -1150,6 +1178,7 @@ def select_balances(
     quants: Optional[Iterable[str]] = None,
     nonzero_resource: Optional[int] = None,
     positive_resource: Optional[int] = None,
+    after_quant: Optional[str] = None,
     limit: Optional[int] = None,
     scope: Optional[str] = None,
 ) -> List[BalanceRow]:
@@ -1182,6 +1211,10 @@ def select_balances(
         if idx < 0 or idx >= MAX_RESOURCES:
             raise ResourceError(f"Invalid resource index: {idx}")
         where.append(f"resource{idx + 1} > 0")
+
+    if after_quant not in (None, ""):
+        where.append("quant > ?")
+        params.append(str(after_quant))
 
     sql = f"SELECT * FROM {BALANCE_TABLE} WHERE {' AND '.join(where)} ORDER BY quant"
     if limit is not None:
@@ -1220,6 +1253,8 @@ def select_movements(
     period_from: Any = None,
     period_to: Any = None,
     details: Optional[Mapping[str, Any]] = None,
+    after_period: Any = None,
+    after_id: Optional[int] = None,
     limit: Optional[int] = None,
     scope: Optional[str] = None,
 ) -> List[MovementRow]:
@@ -1244,6 +1279,17 @@ def select_movements(
     if period_to not in (None, ""):
         where.append("period <= ?")
         params.append(_normalize_period_bound(period_to, end=True))
+    if after_period not in (None, ""):
+        cursor_period = _normalize_period_bound(after_period, end=False)
+        cursor_id = max(0, int(after_id or 0))
+        where.append("(period > ? OR (period = ? AND id > ?))")
+        params.extend([cursor_period, cursor_period, cursor_id])
+    elif after_id not in (None, ""):
+        # This fallback is useful for callers that only retained the movement id.
+        # The full (period, id) cursor remains preferable because the public order
+        # is period first and old-period movements may be inserted later.
+        where.append("id > ?")
+        params.append(max(0, int(after_id)))
     _details_where(details, where, params)
     sql = f"SELECT * FROM {MOVEMENT_TABLE} WHERE {' AND '.join(where)} ORDER BY period, id"
     if limit is not None:
@@ -1280,6 +1326,8 @@ def statement(
     period_to: Any = None,
     quant: Optional[str] = None,
     selector_quant: Optional[str] = None,
+    after_quant: Optional[str] = None,
+    limit: Optional[int] = None,
     scope: Optional[str] = None,
 ) -> List[StatementRow]:
     resolved_scope = _resolve_scope(scope)
@@ -1296,6 +1344,9 @@ def statement(
         selector = _normalize_quant(selector_quant, optional=True)
         where.extend(["selector_hash = ?", "selector_quant = ?"])
         params.extend([_hash(selector), selector])
+    if after_quant not in (None, ""):
+        where.append("quant > ?")
+        params.append(str(after_quant))
     if to_value is not None:
         where.append("period <= ?")
         params.append(to_value)
@@ -1334,6 +1385,9 @@ def statement(
         GROUP BY scope, space, quant, selector_quant
         ORDER BY quant
     """
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(max(0, int(limit)))
     # SQL placeholders in SELECT expressions appear before WHERE placeholders.
     rows = _query(sql, [*expression_params, *params])
     out: List[StatementRow] = []
@@ -1481,6 +1535,7 @@ __all__ = [
     "LedgerTransaction",
     "move",
     "remove",
+    "list_spaces",
     "get_balance",
     "balance",
     "select_balances",
