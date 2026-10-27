@@ -10,6 +10,19 @@
   </div>
 
   <div class="card mb-4">
+    <div class="card-header"><strong>OAuth access (optional)</strong></div>
+    <div class="card-body">
+      <div class="form-check form-switch mb-2">
+        <input id="mcpOAuth" class="form-check-input" type="checkbox" {% if config.mcp_oauth_enabled is not false %}checked{% endif %}>
+        <label class="form-check-label" for="mcpOAuth">Allow users to connect with their NodaLogic account</label>
+      </div>
+      <div class="form-text mb-3">When disabled, ordinary MCP accepts only issued token links. MCP Pro authentication is unchanged.</div>
+      <label class="form-label">Stable OAuth / Bearer endpoint</label>
+      <div class="input-group"><input id="mcpOAuthEndpoint" class="form-control font-monospace" readonly><button class="btn btn-outline-secondary" data-copy="mcpOAuthEndpoint">Copy</button></div>
+    </div>
+  </div>
+
+  <div class="card mb-4">
     <div class="card-header"><strong>Create MCP access link</strong></div>
     <div class="card-body">
       <div class="row g-3">
@@ -37,10 +50,13 @@
 <script>
 const uid={{ config.uid|tojson }};
 const api=`/api/config/${encodeURIComponent(uid)}/mcp-links`;
+const settingsApi=`/api/config/${encodeURIComponent(uid)}/mcp-settings`;
+document.getElementById('mcpOAuthEndpoint').value=`${location.origin}/mcp/config/${encodeURIComponent(uid)}`;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 async function loadLinks(){const r=await fetch(api);const j=await r.json();const tb=document.getElementById('mcpRows');tb.innerHTML='';(j.links||[]).forEach(x=>{const tr=document.createElement('tr');tr.innerHTML=`<td>${esc(x.label)}</td><td>${x.access_mode==='user'?'User: '+esc(x.user):'Full'}</td><td>${x.allow_extensions?'Yes':'No'}</td><td><code>${esc(x.token_prefix)}…</code></td><td>${esc(x.last_used_at||'—')}</td><td class="text-end">${x.active?`<button class="btn btn-sm btn-outline-danger" onclick="revokeLink(${x.id})">Revoke</button>`:'<span class="badge bg-secondary">Revoked</span>'}</td>`;tb.appendChild(tr);});}
 async function revokeLink(id){if(!confirm('Revoke this MCP link?'))return;await fetch(`${api}/${id}`,{method:'DELETE'});loadLinks();}
 document.getElementById('mcpMode').addEventListener('change',e=>document.getElementById('mcpUserWrap').style.display=e.target.value==='user'?'block':'none');
+document.getElementById('mcpOAuth').addEventListener('change',async e=>{const r=await fetch(settingsApi,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({oauth_enabled:e.target.checked})});const j=await r.json();if(!r.ok||!j.ok){e.target.checked=!e.target.checked;alert(j.error||'Failed to update OAuth setting');}});
 document.getElementById('mcpCreate').addEventListener('click',async()=>{const body={label:document.getElementById('mcpLabel').value||'MCP',access_mode:document.getElementById('mcpMode').value,user_id:document.getElementById('mcpUser').value,allow_extensions:document.getElementById('mcpExtensions').checked};const r=await fetch(api,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const j=await r.json();if(!r.ok||!j.ok){alert(j.error||'Failed');return;}document.getElementById('mcpUrl').value=j.link.url;document.getElementById('mcpEndpoint').value=j.link.endpoint;document.getElementById('mcpToken').value=j.link.token;document.getElementById('mcpSecretCard').classList.remove('d-none');loadLinks();});
 document.querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',()=>navigator.clipboard.writeText(document.getElementById(b.dataset.copy).value)));
 loadLinks();
