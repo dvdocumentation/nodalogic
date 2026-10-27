@@ -127,6 +127,17 @@ def _configuration(config_uid):
     return Configuration.query.filter_by(uid=str(config_uid)).first()
 
 
+def _oauth_enabled(config) -> bool:
+    # getattr(default=True) keeps older test doubles and pre-migration objects
+    # compatible; the database migration explicitly adds a TRUE default.
+    return bool(config and getattr(config, "mcp_oauth_enabled", True) is not False)
+
+
+def _oauth_configuration(config_uid):
+    config = _configuration(config_uid)
+    return config if _oauth_enabled(config) else None
+
+
 def _user_has_config(user, config):
     if not user or not config:
         return False
@@ -204,9 +215,9 @@ def resolve_access(config_uid):
     raw = _bearer_token()
     if not raw or len(raw) > 512:
         return None, None, None, "missing or invalid OAuth access token"
-    config = _configuration(config_uid)
+    config = _oauth_configuration(config_uid)
     if not config:
-        return None, None, None, "configuration not found"
+        return None, None, None, "OAuth is disabled or the configuration was not found"
     entry = OAuthToken.query.filter_by(
         token_hash=_sha256(raw), token_kind="access", config_id=config.id, revoked_at=None
     ).first()
@@ -237,8 +248,8 @@ def unauthorized(config_uid):
 @BP.route("/mcp/config/<config_uid>/.well-known/oauth-protected-resource", methods=["GET"])
 @BP.route("/.well-known/oauth-protected-resource/mcp/config/<config_uid>", methods=["GET"])
 def protected_resource(config_uid):
-    if not _configuration(config_uid):
-        return _oauth_error("invalid_target", "Unknown MCP configuration", 404)
+    if not _oauth_configuration(config_uid):
+        return _oauth_error("invalid_target", "OAuth is not enabled for this MCP configuration", 404)
     return _json(
         {
             "resource": _resource(config_uid),
@@ -251,8 +262,8 @@ def protected_resource(config_uid):
 @BP.route("/mcp/config/<config_uid>/.well-known/oauth-authorization-server", methods=["GET"])
 @BP.route("/.well-known/oauth-authorization-server/mcp/config/<config_uid>", methods=["GET"])
 def authorization_server_metadata(config_uid):
-    if not _configuration(config_uid):
-        return _oauth_error("invalid_target", "Unknown MCP configuration", 404)
+    if not _oauth_configuration(config_uid):
+        return _oauth_error("invalid_target", "OAuth is not enabled for this MCP configuration", 404)
     issuer = _issuer(config_uid)
     return _json(
         {
@@ -273,9 +284,9 @@ def authorization_server_metadata(config_uid):
 
 @BP.route("/mcp/config/<config_uid>/oauth/register", methods=["POST"])
 def dynamic_client_registration(config_uid):
-    config = _configuration(config_uid)
+    config = _oauth_configuration(config_uid)
     if not config:
-        return _oauth_error("invalid_target", "Unknown MCP configuration", 404)
+        return _oauth_error("invalid_target", "OAuth is not enabled for this MCP configuration", 404)
     if request.content_length and request.content_length > 16_384:
         return _oauth_error("invalid_client_metadata", "Too large", 413)
     data = request.get_json(silent=True)
@@ -358,9 +369,9 @@ def _flow_session_key(config_uid):
 
 @BP.route("/mcp/config/<config_uid>/oauth/authorize", methods=["GET", "POST"])
 def authorize(config_uid):
-    config = _configuration(config_uid)
+    config = _oauth_configuration(config_uid)
     if not config:
-        return _oauth_error("invalid_target", "Unknown MCP configuration", 404)
+        return _oauth_error("invalid_target", "OAuth is not enabled for this MCP configuration", 404)
     session_key = _flow_session_key(config_uid)
     if request.method == "GET":
         client_id = str(request.args.get("client_id", ""))
@@ -498,9 +509,9 @@ def _token_pair(client_id, config_id, user_id, resource):
 
 @BP.route("/mcp/config/<config_uid>/oauth/token", methods=["POST"])
 def exchange_token(config_uid):
-    config = _configuration(config_uid)
+    config = _oauth_configuration(config_uid)
     if not config:
-        return _oauth_error("invalid_target", "Unknown MCP configuration", 404)
+        return _oauth_error("invalid_target", "OAuth is not enabled for this MCP configuration", 404)
     if request.content_length and request.content_length > 12_288:
         return _oauth_error("invalid_request", "Request too large", 413)
     if request.authorization or request.form.get("client_secret"):
@@ -586,7 +597,7 @@ def exchange_token(config_uid):
 
 @BP.route("/mcp/config/<config_uid>/oauth/revoke", methods=["POST"])
 def revoke_token(config_uid):
-    config = _configuration(config_uid)
+    config = _oauth_configuration(config_uid)
     if not config:
         return Response(status=200)
     client_id = request.form.get("client_id", "")

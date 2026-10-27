@@ -7,9 +7,14 @@ extension layer.  It never edits the base configuration schema or handlers.
 """
 from __future__ import annotations
 
+import base64
+import copy
 import hashlib
 import json
+import os
+import pickle
 import secrets
+import sqlite3
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -33,6 +38,10 @@ SUPPORTED_HANDSHAKE_VERSIONS = {"2025-03-26", "2025-06-18", "2025-11-25", "2024-
 LATEST_HANDSHAKE_VERSION = "2025-11-25"
 MODERN_VERSION = "2026-07-28"
 SERVER_INFO = {"name": "NodaLogic MCP", "version": "1.2"}
+NODE_PAGE_MAX = 1000
+LEDGER_PAGE_MAX = 1000
+NODE_SCAN_CHUNK = 1000
+NODE_SCAN_MAX = 50000
 
 
 def register_mcp(app, main_module):
@@ -57,6 +66,49 @@ def _new_secret() -> str:
 
 def _json_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, default=str)
+
+
+def _opaque_cursor(kind: str, fingerprint: str, position: Dict[str, Any]) -> str:
+    raw = json.dumps(
+        {"v": 1, "kind": str(kind), "fingerprint": str(fingerprint), "position": position},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _read_cursor(cursor: Any, kind: str, fingerprint: str) -> Dict[str, Any]:
+    if cursor in (None, ""):
+        return {}
+    try:
+        token = str(cursor).strip()
+        if len(token) > 4096:
+            raise ValueError
+        raw = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4))
+        value = json.loads(raw.decode("utf-8"))
+    except Exception as exc:
+        raise ValueError("invalid cursor") from exc
+    if not isinstance(value, dict) or value.get("v") != 1 or value.get("kind") != kind:
+        raise ValueError("cursor does not belong to this operation")
+    if value.get("fingerprint") != fingerprint:
+        raise ValueError("cursor parameters differ from the original request")
+    position = value.get("position")
+    if not isinstance(position, dict):
+        raise ValueError("invalid cursor position")
+    return position
+
+
+def _cursor_fingerprint(kind: str, value: Dict[str, Any]) -> str:
+    raw = json.dumps({"kind": kind, **value}, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def _page_limit(value: Any, default: int, ceiling: int) -> int:
+    try:
+        return min(max(int(value), 1), int(ceiling))
+    except (TypeError, ValueError):
+        return int(default)
 
 
 def _jsonrpc_result(req_id, result: Any, status: int = 200, extra_headers: Optional[Dict[str, str]] = None):
@@ -226,22 +278,136 @@ def _node_payload_allowed(actor: User, config: Configuration, class_name: str, n
     return bool(MAIN.user_can_access_node(actor, config.uid, class_name, node_id, data))
 
 
-def _list_nodes(config: Configuration, actor: User, class_name: str, limit: int = 100, filters: Optional[Dict[str, Any]] = None):
-    cls = _node_class(config, actor, class_name)
-    limit = max(1, min(int(limit or 100), 1000))
-    filters = filters if isinstance(filters, dict) else {}
+def _node_storage_page(cls, config_uid: str, after_key: str = "", limit: int = NODE_SCAN_CHUNK):
+    """Read one ordered storage page without constructing every Node in a class."""
+    path_fn = getattr(cls, "_bulk_storage_path", None)
+    table_fn = getattr(cls, "_atomic_sqlite_table", None)
+    if not callable(path_fn) or not callable(table_fn):
+        # Compatibility fallback for old runtimes. It is bounded after sorting,
+        # though old get_all() implementations may still enumerate the class.
+        rows = []
+        for key, node in sorted(cls.get_all(config_uid).items(), key=lambda item: str(item[0])):
+            if str(key) <= str(after_key or ""):
+                continue
+            rows.append((str(key), node.to_dict()))
+            if len(rows) >= limit:
+                break
+        return rows
+
+    db_path = path_fn(config_uid)
+    if not os.path.exists(db_path):
+        return []
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    try:
+        table = table_fn(conn)
+        qtable = '"' + str(table).replace('"', '""') + '"'
+        if after_key:
+            raw_rows = conn.execute(
+                f"SELECT key, value FROM {qtable} WHERE key > ? ORDER BY key LIMIT ?",
+                (str(after_key), int(limit)),
+            ).fetchall()
+        else:
+            raw_rows = conn.execute(
+                f"SELECT key, value FROM {qtable} ORDER BY key LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+    finally:
+        conn.close()
+
+    rows = []
+    normalize = getattr(MAIN._nodes_mod, "normalize_own_uid", None)
+    for key, blob in raw_rows:
+        try:
+            if isinstance(blob, memoryview):
+                blob = blob.tobytes()
+            payload = pickle.loads(blob)
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        payload = copy.deepcopy(payload)
+        data = payload.get("_data")
+        if not isinstance(data, dict):
+            continue
+        data["_class"] = cls.__name__
+        internal_id = str(data.get("_id") or key)
+        if callable(normalize):
+            data["_id"] = normalize(config_uid, cls.__name__, internal_id)
+        rows.append((str(key), payload))
+    return rows
+
+
+def _node_matches(payload: Dict[str, Any], filters: Dict[str, Any], query: str = "") -> bool:
+    data = payload.get("_data", {}) if isinstance(payload, dict) else {}
+    data = data if isinstance(data, dict) else {}
+    if filters and any(str(data.get(k)) != str(v) for k, v in filters.items()):
+        return False
+    if query:
+        hay = json.dumps(data, ensure_ascii=False, default=str).lower()
+        if query not in hay:
+            return False
+    return True
+
+
+def _node_page_from_storage(config: Configuration, actor: User, cls, class_name: str, *, limit: int,
+                            filters: Dict[str, Any], query: str, cursor: Any, kind: str,
+                            fingerprint: str):
+    position = _read_cursor(cursor, kind, fingerprint)
+    after_key = str(position.get("key") or "")
     out = []
-    for node_id, node in cls.get_all(config.uid).items():
-        payload = node.to_dict()
-        if not _node_payload_allowed(actor, config, class_name, str(node_id), payload):
-            continue
-        data = payload.get("_data", {}) or {}
-        if filters and any(str(data.get(k)) != str(v) for k, v in filters.items()):
-            continue
-        out.append(payload)
-        if len(out) >= limit:
+    scanned = 0
+    exhausted = False
+    last_scanned = after_key
+
+    while len(out) <= limit and scanned < NODE_SCAN_MAX:
+        rows = _node_storage_page(cls, config.uid, last_scanned, NODE_SCAN_CHUNK)
+        if not rows:
+            exhausted = True
             break
-    return out
+        for key, payload in rows:
+            last_scanned = key
+            scanned += 1
+            if not _node_payload_allowed(actor, config, class_name, str(key), payload):
+                continue
+            if not _node_matches(payload, filters, query):
+                continue
+            out.append((key, payload))
+            if len(out) > limit:
+                break
+        if len(out) > limit:
+            break
+        if len(rows) < NODE_SCAN_CHUNK:
+            exhausted = True
+            break
+
+    has_more = len(out) > limit or not exhausted
+    returned = out[:limit]
+    if len(out) > limit:
+        next_key = returned[-1][0]
+    else:
+        # A sparse RLS/filter page may scan many non-matching records. Advance
+        # past those records so the caller can continue instead of looping.
+        next_key = last_scanned
+    next_cursor = _opaque_cursor(kind, fingerprint, {"key": next_key}) if has_more and next_key else None
+    return {
+        "items": [payload for _key, payload in returned],
+        "next_cursor": next_cursor,
+        "has_more": bool(has_more),
+        "page_size": limit,
+        "scanned": scanned,
+    }
+
+
+def _list_nodes(config: Configuration, actor: User, class_name: str, limit: int = 100,
+                filters: Optional[Dict[str, Any]] = None, cursor: Any = None):
+    cls = _node_class(config, actor, class_name)
+    limit = _page_limit(limit, 100, NODE_PAGE_MAX)
+    filters = filters if isinstance(filters, dict) else {}
+    fingerprint = _cursor_fingerprint("nodes:list", {"class_name": class_name, "filters": filters})
+    return _node_page_from_storage(
+        config, actor, cls, class_name, limit=limit, filters=filters, query="",
+        cursor=cursor, kind="nodes:list", fingerprint=fingerprint,
+    )
 
 
 def _get_node(config: Configuration, actor: User, class_name: str, node_id: str):
@@ -258,16 +424,28 @@ def _get_node(config: Configuration, actor: User, class_name: str, node_id: str)
 
 def _find_nodes(config: Configuration, actor: User, args: Dict[str, Any]):
     class_name = str(args.get("class_name") or "").strip()
-    limit = max(1, min(int(args.get("limit") or 20), 200))
+    limit = _page_limit(args.get("limit"), 20, NODE_PAGE_MAX)
     filters = args.get("filters") if isinstance(args.get("filters"), dict) else {}
     query = str(args.get("query") or "").strip().lower()
     index_name = str(args.get("index_name") or "").strip()
     index_value = args.get("index_value", args.get("query"))
     cls = _node_class(config, actor, class_name)
+    fingerprint = _cursor_fingerprint("nodes:find", {
+        "class_name": class_name, "filters": filters, "query": query,
+        "index_name": index_name, "index_value": index_value,
+    })
     candidates = None
     if index_name:
+        find_ids = getattr(cls, "find_ids_by_index", None)
+        if callable(find_ids):
+            try:
+                candidates = [(str(node_id), None) for node_id in find_ids(index_name, index_value, config.uid)]
+            except TypeError:
+                candidates = [(str(node_id), None) for node_id in find_ids(index_name, index_value)]
+            except Exception:
+                candidates = None
         # Use the same runtime index API when the generated Node class exposes it.
-        for fn_name in ("find_by_index", "findByIndex", "get_by_index", "getByIndex"):
+        for fn_name in (() if candidates is not None else ("find_by_index", "findByIndex", "get_by_index", "getByIndex")):
             fn = getattr(cls, fn_name, None)
             if callable(fn):
                 try:
@@ -291,25 +469,159 @@ def _find_nodes(config: Configuration, actor: User, args: Dict[str, Any]):
                     candidates = [(nid, got)]
                 break
     if candidates is None:
-        candidates = list(cls.get_all(config.uid).items())
+        return _node_page_from_storage(
+            config, actor, cls, class_name, limit=limit, filters=filters, query=query,
+            cursor=args.get("cursor"), kind="nodes:find", fingerprint=fingerprint,
+        )
+    position = _read_cursor(args.get("cursor"), "nodes:find", fingerprint)
+    after_key = str(position.get("key") or "")
+    candidates = sorted(candidates, key=lambda item: str(item[0]))
     out = []
+    last_key = after_key
     for node_id, node in candidates:
+        node_id = str(node_id)
+        if node_id <= after_key:
+            continue
+        last_key = node_id
+        if node is None:
+            try:
+                node = cls.get(node_id, config.uid)
+            except Exception:
+                node = None
         if not hasattr(node, "to_dict"):
             continue
         payload = node.to_dict()
         if not _node_payload_allowed(actor, config, class_name, str(node_id), payload):
             continue
-        data = payload.get("_data", {}) or {}
-        if filters and any(str(data.get(k)) != str(v) for k, v in filters.items()):
+        if not _node_matches(payload, filters, query):
             continue
-        if query:
-            hay = json.dumps(data, ensure_ascii=False, default=str).lower()
-            if query not in hay:
-                continue
-        out.append(payload)
-        if len(out) >= limit:
+        out.append((node_id, payload))
+        if len(out) > limit:
             break
-    return out
+    has_more = len(out) > limit
+    returned = out[:limit]
+    next_key = returned[-1][0] if has_more else last_key
+    return {
+        "items": [payload for _key, payload in returned],
+        "next_cursor": _opaque_cursor("nodes:find", fingerprint, {"key": next_key}) if has_more else None,
+        "has_more": has_more,
+        "page_size": limit,
+    }
+
+
+def _quant_api():
+    try:
+        from quant_ledger import api
+        if api.available():
+            return api
+    except (ImportError, AttributeError):
+        pass
+    raise LookupError("quant_ledger is not installed or not available")
+
+
+def _ledger_row(value: Any) -> Dict[str, Any]:
+    from dataclasses import asdict, is_dataclass
+    if is_dataclass(value):
+        value = asdict(value)
+    if not isinstance(value, dict):
+        raise TypeError("unexpected quant_ledger row")
+    # Decimal and tuples are normalized so structuredContent is valid JSON.
+    return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+
+
+def _ledger_tools(config: Configuration, name: str, args: Dict[str, Any]):
+    api = _quant_api()
+    if name == "ledger_spaces":
+        return {"config_uid": config.uid, "spaces": api.list_spaces(scope=config.uid)}
+    space = str(args.get("space") or "").strip()
+    if not space:
+        raise ValueError("space is required")
+    limit = _page_limit(args.get("limit"), 100, LEDGER_PAGE_MAX)
+    opt = lambda key: args.get(key) if args.get(key) not in (None, "") else None
+    base = {
+        "space": space,
+        "quant": opt("quant"),
+        "selector_quant": opt("selector_quant"),
+        "period_from": opt("period_from"),
+        "period_to": opt("period_to"),
+        "details": args.get("details") if isinstance(args.get("details"), dict) else None,
+        "nonzero_resource": opt("nonzero_resource"),
+        "positive_resource": opt("positive_resource"),
+    }
+    fingerprint = _cursor_fingerprint("ledger:" + name, base)
+    position = _read_cursor(args.get("cursor"), "ledger:" + name, fingerprint)
+
+    if name == "ledger_get_balance":
+        quant = str(args.get("quant") or "").strip()
+        if not quant:
+            raise ValueError("quant is required")
+        return {
+            "config_uid": config.uid,
+            "space": space,
+            "row": _ledger_row(api.get_balance(space, quant, scope=config.uid)),
+        }
+
+    if name == "ledger_balances":
+        if opt("quant"):
+            rows = [api.get_balance(space, opt("quant"), scope=config.uid)]
+        else:
+            rows = api.select_balances(
+                space,
+                selector_quant=opt("selector_quant"),
+                nonzero_resource=opt("nonzero_resource"),
+                positive_resource=opt("positive_resource"),
+                after_quant=position.get("quant") or None,
+                limit=limit + 1,
+                scope=config.uid,
+            )
+        serialized = [_ledger_row(row) for row in rows]
+        has_more = len(serialized) > limit
+        page = serialized[:limit]
+        next_position = {"quant": page[-1]["quant"]} if has_more and page else None
+    elif name == "ledger_movements":
+        rows = api.select_movements(
+            space,
+            operation_id=opt("operation_id"),
+            quant=opt("quant"),
+            selector_quant=opt("selector_quant"),
+            period_from=opt("period_from"),
+            period_to=opt("period_to"),
+            details=args.get("details") if isinstance(args.get("details"), dict) else None,
+            after_period=position.get("period") or None,
+            after_id=position.get("id"),
+            limit=limit + 1,
+            scope=config.uid,
+        )
+        serialized = [_ledger_row(row) for row in rows]
+        has_more = len(serialized) > limit
+        page = serialized[:limit]
+        next_position = {"period": page[-1]["period"], "id": page[-1]["id"]} if has_more and page else None
+    elif name == "ledger_statement":
+        rows = api.statement(
+            space,
+            quant=opt("quant"),
+            selector_quant=opt("selector_quant"),
+            period_from=opt("period_from"),
+            period_to=opt("period_to"),
+            after_quant=position.get("quant") or None,
+            limit=limit + 1,
+            scope=config.uid,
+        )
+        serialized = [_ledger_row(row) for row in rows]
+        has_more = len(serialized) > limit
+        page = serialized[:limit]
+        next_position = {"quant": page[-1]["quant"]} if has_more and page else None
+    else:
+        raise LookupError("unknown quant_ledger tool")
+
+    return {
+        "config_uid": config.uid,
+        "space": space,
+        "rows": page,
+        "next_cursor": _opaque_cursor("ledger:" + name, fingerprint, next_position) if next_position else None,
+        "has_more": bool(has_more),
+        "page_size": limit,
+    }
 
 
 def _declared_method(config: Configuration, class_name: str, method_name: str) -> bool:
@@ -1162,8 +1474,8 @@ def _tool_catalog(link: MCPAccessLink) -> List[Dict[str, Any]]:
     tools = [
         {"name": "describe_instance", "description": "Describe this NodaLogic solution: semantic prompt, visible classes, sections and nGenie skills.", "inputSchema": {"type": "object", "properties": {}}, "annotations": ro},
         {"name": "describe_class", "description": "Return the structure, AI semantics, declared indexes and published methods of one visible class.", "inputSchema": {"type": "object", "properties": {"class_name": {"type": "string"}}, "required": ["class_name"]}, "annotations": ro},
-        {"name": "list_nodes", "description": "List RLS-visible nodes of a class. Use a small limit and filters when possible.", "inputSchema": {"type": "object", "properties": {"class_name": {"type": "string"}, "filters": {"type": "object"}, "limit": {"type": "integer", "minimum": 1, "maximum": 1000}}, "required": ["class_name"]}, "annotations": ro},
-        {"name": "find_nodes", "description": "Find RLS-visible nodes. Can use a declared index or a textual fallback over returned node data.", "inputSchema": {"type": "object", "properties": {"class_name": {"type": "string"}, "query": {"type": "string"}, "index_name": {"type": "string"}, "index_value": {}, "filters": {"type": "object"}, "limit": {"type": "integer", "minimum": 1, "maximum": 200}}, "required": ["class_name"]}, "annotations": ro},
+        {"name": "list_nodes", "description": "Page through RLS-visible nodes of a class. Continue with next_cursor while has_more is true; limit is the page size, not a total-result cap.", "inputSchema": {"type": "object", "properties": {"class_name": {"type": "string"}, "filters": {"type": "object"}, "limit": {"type": "integer", "minimum": 1, "maximum": NODE_PAGE_MAX}, "cursor": {"type": "string"}}, "required": ["class_name"]}, "annotations": ro},
+        {"name": "find_nodes", "description": "Page through RLS-visible matching nodes. Can use a declared index or a textual fallback. Continue with next_cursor while has_more is true.", "inputSchema": {"type": "object", "properties": {"class_name": {"type": "string"}, "query": {"type": "string"}, "index_name": {"type": "string"}, "index_value": {}, "filters": {"type": "object"}, "limit": {"type": "integer", "minimum": 1, "maximum": NODE_PAGE_MAX}, "cursor": {"type": "string"}}, "required": ["class_name"]}, "annotations": ro},
         {"name": "get_node", "description": "Read one RLS-visible node.", "inputSchema": {"type": "object", "properties": {"class_name": {"type": "string"}, "node_id": {"type": "string"}}, "required": ["class_name", "node_id"]}, "annotations": ro},
         {"name": "create_node", "description": "Create a node through the normal NodaLogic runtime, including server acceptance handlers.", "inputSchema": {"type": "object", "properties": {"class_name": {"type": "string"}, "data": {"type": "object"}}, "required": ["class_name", "data"]}, "annotations": write},
         {"name": "update_node", "description": "Update an RLS-visible node through the normal runtime.", "inputSchema": {"type": "object", "properties": {"class_name": {"type": "string"}, "node_id": {"type": "string"}, "data": {"type": "object"}}, "required": ["class_name", "node_id", "data"]}, "annotations": write},
@@ -1193,11 +1505,16 @@ def _tool_catalog(link: MCPAccessLink) -> List[Dict[str, Any]]:
         {"name": "complete_room_task", "description": "Mark a room task completed and notify connected clients.", "inputSchema": {"type": "object", "properties": {"room_uid": {"type": "string"}, "task_uid": {"type": "string"}}, "required": ["room_uid", "task_uid"]}, "annotations": write},
         {"name": "clear_completed_room_tasks", "description": "Remove completed tasks from a room.", "inputSchema": {"type": "object", "properties": {"room_uid": {"type": "string"}}, "required": ["room_uid"]}, "annotations": destructive},
     ]
-    # Contracts are integration/export artifacts rather than ordinary row-level
-    # data.  Expose mutation only to a Full credential so a user-scoped MCP link
-    # cannot become an RLS-bypass export channel.
+    # QuantLedger rows do not carry node RLS metadata, and Contracts are export
+    # artifacts rather than ordinary row-level data. Keep both Full-only so a
+    # user-scoped credential cannot become an RLS-bypass read/export channel.
     if str(link.access_mode or "").lower() == "full":
         tools += [
+            {"name": "ledger_spaces", "description": "List QuantLedger spaces in this configuration scope with balance and movement row counts.", "inputSchema": {"type": "object", "properties": {}}, "annotations": ro},
+            {"name": "ledger_get_balance", "description": "Read one exact QuantLedger balance in this configuration scope.", "inputSchema": {"type": "object", "properties": {"space": {"type": "string"}, "quant": {"type": "string"}}, "required": ["space", "quant"]}, "annotations": ro},
+            {"name": "ledger_balances", "description": "Page through QuantLedger balances in this configuration scope. Continue with next_cursor while has_more is true.", "inputSchema": {"type": "object", "properties": {"space": {"type": "string"}, "quant": {"type": "string"}, "selector_quant": {"type": "string"}, "nonzero_resource": {"type": "integer", "minimum": 0, "maximum": 15}, "positive_resource": {"type": "integer", "minimum": 0, "maximum": 15}, "limit": {"type": "integer", "minimum": 1, "maximum": LEDGER_PAGE_MAX}, "cursor": {"type": "string"}}, "required": ["space"]}, "annotations": ro},
+            {"name": "ledger_movements", "description": "Page through QuantLedger movements in this configuration scope, optionally filtered by quant, operation, period or details.", "inputSchema": {"type": "object", "properties": {"space": {"type": "string"}, "operation_id": {"type": "string"}, "quant": {"type": "string"}, "selector_quant": {"type": "string"}, "period_from": {"type": "string"}, "period_to": {"type": "string"}, "details": {"type": "object"}, "limit": {"type": "integer", "minimum": 1, "maximum": LEDGER_PAGE_MAX}, "cursor": {"type": "string"}}, "required": ["space"]}, "annotations": ro},
+            {"name": "ledger_statement", "description": "Page through QuantLedger opening/income/expense/closing rows for a period in this configuration scope.", "inputSchema": {"type": "object", "properties": {"space": {"type": "string"}, "quant": {"type": "string"}, "selector_quant": {"type": "string"}, "period_from": {"type": "string"}, "period_to": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": LEDGER_PAGE_MAX}, "cursor": {"type": "string"}}, "required": ["space"]}, "annotations": ro},
             {"name": "list_contracts", "description": "List contracts owned by this MCP actor and scoped to this configuration.", "inputSchema": {"type": "object", "properties": {}}, "annotations": ro},
             {"name": "get_contract", "description": "Describe one contract scoped to this configuration.", "inputSchema": {"type": "object", "properties": {"contract_uid": {"type": "string"}}, "required": ["contract_uid"]}, "annotations": ro},
             {"name": "create_contract", "description": "Create a class/global-index contract scoped strictly to this MCP configuration.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "display_name": {"type": "string"}, "source_type": {"type": "string", "enum": ["class", "global_index"]}, "class_name": {"type": "string"}, "source_classes": {"type": "array", "items": {"type": "object"}}, "global_index_name": {"type": "string"}, "global_index_value": {"type": "string"}}, "required": ["name"]}, "annotations": write},
@@ -1243,6 +1560,7 @@ def _describe_instance(config: Configuration, actor: User, link: MCPAccessLink):
             "messaging": True,
             "rooms": True,
             "room_management": _actor_can_manage_rooms(config, actor),
+            "quant_ledger_read": str(link.access_mode or "").lower() == "full",
             "contracts": str(link.access_mode or "").lower() == "full",
             "extensions": bool(link.allow_extensions),
         },
@@ -1326,7 +1644,10 @@ def _call_tool(link: MCPAccessLink, config: Configuration, actor: User, name: st
                 raise PermissionError("class is not visible")
             return _class_description(cls)
         if name == "list_nodes":
-            return _list_nodes(config, actor, str(args.get("class_name") or ""), args.get("limit") or 100, args.get("filters"))
+            return _list_nodes(
+                config, actor, str(args.get("class_name") or ""),
+                args.get("limit") or 100, args.get("filters"), args.get("cursor"),
+            )
         if name == "find_nodes":
             return _find_nodes(config, actor, args)
         if name == "get_node":
@@ -1382,6 +1703,10 @@ def _call_tool(link: MCPAccessLink, config: Configuration, actor: User, name: st
             return _ngenie_call(config, actor, args, action_mode=False)
         if name == "ngenie_action":
             return _ngenie_call(config, actor, args, action_mode=True)
+        if name in {"ledger_spaces", "ledger_get_balance", "ledger_balances", "ledger_movements", "ledger_statement"}:
+            if str(link.access_mode or "").lower() != "full":
+                raise PermissionError("direct QuantLedger reads require a Full MCP credential")
+            return _ledger_tools(config, name, args)
         if name in {
             "list_message_targets", "list_message_groups", "create_message_group",
             "add_message_group_members", "remove_message_group_member",
@@ -1485,15 +1810,21 @@ def mcp_by_link(path_secret):
 @_bp.route("/mcp/config/<config_uid>", methods=["POST", "GET", "DELETE"])
 def mcp_by_bearer(config_uid):
     import mcp_oauth
-    link, config, actor, err = mcp_oauth.resolve_access(config_uid)
+    configured = Configuration.query.filter_by(uid=str(config_uid)).first()
+    oauth_enabled = bool(configured and getattr(configured, "mcp_oauth_enabled", True) is not False)
+    if oauth_enabled:
+        link, config, actor, err = mcp_oauth.resolve_access(config_uid)
+    else:
+        link, config, actor, err = None, configured, None, "OAuth is disabled"
     if err:
-        # Preserve existing per-configuration Bearer credentials while making
-        # OAuth the discoverable authentication mechanism for new clients.
-        link, config, actor, legacy_err = _resolve_link_by_secret(_request_secret(), config_uid=config_uid)
-        if not legacy_err:
+        # Per-link Bearer tokens remain available whether OAuth is enabled or not.
+        link, config, actor, token_err = _resolve_link_by_secret(_request_secret(), config_uid=config_uid)
+        if not token_err:
             err = ""
     if err:
-        return mcp_oauth.unauthorized(config_uid)
+        if oauth_enabled:
+            return mcp_oauth.unauthorized(config_uid)
+        return jsonify({"error": "missing, invalid or revoked MCP token"}), 401
     if request.method == "DELETE":
         return Response(status=204)
     if request.method == "GET":
@@ -1509,6 +1840,26 @@ def mcp_manage_page(config_uid):
     if not _owner_can_manage(config):
         abort(403)
     return render_template("mcp_manage.html", config=config, users=_candidate_users(config))
+
+
+@_bp.route("/api/config/<config_uid>/mcp-settings", methods=["GET", "PATCH"])
+@login_required
+def mcp_settings(config_uid):
+    config = Configuration.query.filter_by(uid=config_uid).first_or_404()
+    if not _owner_can_manage(config):
+        abort(403)
+    if request.method == "PATCH":
+        data = request.get_json(silent=True) or {}
+        if "oauth_enabled" not in data:
+            return jsonify({"ok": False, "error": "oauth_enabled is required"}), 400
+        raw = data.get("oauth_enabled")
+        enabled = bool(raw) if isinstance(raw, bool) else str(raw).strip().lower() in ("1", "true", "yes", "on")
+        config.mcp_oauth_enabled = enabled
+        db.session.commit()
+    return jsonify({
+        "ok": True,
+        "oauth_enabled": bool(getattr(config, "mcp_oauth_enabled", True) is not False),
+    })
 
 @_bp.route("/api/config/<config_uid>/mcp-links", methods=["GET", "POST"])
 @login_required

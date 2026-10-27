@@ -592,6 +592,9 @@ class Configuration(db.Model):
     ngenie_code_locked = db.Column(db.Boolean, default=False)
     ngenie_code_instruction = db.Column(db.Text, default="")
     ngenie_code_example = db.Column(db.Text, default="")
+    # Ordinary per-configuration MCP may use token links without OAuth. OAuth
+    # stays mandatory and separately implemented for MCP Pro.
+    mcp_oauth_enabled = db.Column(db.Boolean, default=True, nullable=False)
     classes = db.relationship('ConfigClass', backref='config', cascade='all, delete-orphan')
     datasets = db.relationship('Dataset', backref='config', cascade='all, delete-orphan')
     sections = db.relationship('ConfigSection', backref='config', cascade='all, delete-orphan')
@@ -976,6 +979,57 @@ class MCPAuditLog(db.Model):
     detail = db.Column(db.Text, default="")
     created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
 
+
+class MobileDebugSession(db.Model):
+    """Short-lived, explicitly paired Android diagnostic session.
+
+    Pairing and upload credentials are stored only as SHA-256 hashes.  The
+    session is intentionally independent from Rooms and their WebSocket
+    lifecycle.
+    """
+    __tablename__ = "mobile_debug_session"
+
+    id = db.Column(db.Integer, primary_key=True)
+    uid = db.Column(db.String(36), unique=True, nullable=False, index=True)
+    config_id = db.Column(db.Integer, db.ForeignKey("configuration.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = db.Column(db.String(200), default="")
+    status = db.Column(db.String(24), nullable=False, default="waiting", index=True)
+    pairing_token_hash = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    upload_token_hash = db.Column(db.String(64), unique=True, nullable=True, index=True)
+    device_uid = db.Column(db.String(160), default="")
+    device_model = db.Column(db.String(200), default="")
+    app_version = db.Column(db.String(80), default="")
+    os_version = db.Column(db.String(80), default="")
+    capture_json = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    connected_at = db.Column(db.DateTime, nullable=True)
+    closed_at = db.Column(db.DateTime, nullable=True)
+
+
+class MobileDebugEvent(db.Model):
+    """One bounded, redacted event received from a paired Android client."""
+    __tablename__ = "mobile_debug_event"
+
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.Integer, db.ForeignKey("mobile_debug_session.id", ondelete="CASCADE"), nullable=False, index=True)
+    sequence = db.Column(db.Integer, nullable=False)
+    event_type = db.Column(db.String(64), default="node_method")
+    class_name = db.Column(db.String(160), default="")
+    node_id = db.Column(db.String(255), default="")
+    method_name = db.Column(db.String(160), default="")
+    phase = db.Column(db.String(32), default="")
+    description = db.Column(db.Text, default="")
+    payload_json = db.Column(db.JSON, nullable=False, default=dict)
+    device_timestamp = db.Column(db.String(80), default="")
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        db.UniqueConstraint("session_id", "sequence", name="uq_mobile_debug_event_session_sequence"),
+        db.Index("ix_mobile_debug_event_session_created", "session_id", "created_at"),
+    )
+
 class ApiToken(db.Model):
     __tablename__ = "api_token"
     id = db.Column(db.Integer, primary_key=True)
@@ -1020,6 +1074,10 @@ __all__ = [
     'MessageGroup',
     'MessageGroupMember',
     'Server',
+    'MCPAccessLink',
+    'MCPAuditLog',
+    'MobileDebugSession',
+    'MobileDebugEvent',
     'ApiToken',
     'ensure_node_discussion_message_table_runtime',
     'ensure_user_profile_tables_runtime',

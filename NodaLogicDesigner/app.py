@@ -219,12 +219,12 @@ import inspect
 
 #******************************************************************
 #CHANGE IT WITH YOUR VALUES
-DEEPSEEK_API_KEY = 'PUT_YOUR_DEEPSEEK_API_KEY_HERE'
+DEEPSEEK_API_KEY = 'sk-85b64349ae5a4c48ba7a877463a01eec'
 # Maximum number of technical candidates passed back to nGenie for one
 # semantic resolve step. Subject-specific rules stay in class ngenie_prompt.
 NGENIE_RESOLVE_CANDIDATE_LIMIT = 10
-ADMIN_LOGIN = 'PUT_YOUR_ADMIN_LOGIN_HERE'
-FLASK_SECRET= 'PUT_YOUR_FLASK_SECRET_HERE'
+ADMIN_LOGIN = 'dv1555@hotmail.com'
+FLASK_SECRET= 'ferret-26'
 
 S3_ENDPOINT = "https://s3.ru1.storage.beget.cloud"
 S3_BUCKET = "bf871c2d93ee-s3noda"
@@ -232,8 +232,8 @@ S3_BUCKET = "bf871c2d93ee-s3noda"
 s3 = boto3.client(
     "s3",
     endpoint_url=S3_ENDPOINT,
-    aws_access_key_id="PutYourAccessKeyHere",
-    aws_secret_access_key="PutYourSecretKeyHere",
+    aws_access_key_id="6IQFBHS4BOEVXO5W5K6C",
+    aws_secret_access_key="HXiBRr2qc1X8f34bEjZlfJGf4gAvWZNsfA52Abod",
     config=Config(signature_version="s3v4"),
     region_name="ru1",
 )
@@ -2538,6 +2538,8 @@ def _ensure_sqlite_schema():
             _add_col("configuration", "demo_install_allowed BOOLEAN DEFAULT FALSE", "demo_install_allowed")
         if "description" not in cfg_cols:
             _add_col("configuration", 'description TEXT DEFAULT ""', "description")
+        if "mcp_oauth_enabled" not in cfg_cols:
+            _add_col("configuration", "mcp_oauth_enabled BOOLEAN NOT NULL DEFAULT TRUE", "mcp_oauth_enabled")
         if "designer_hidden" not in cfg_cols:
             _add_col("configuration", "designer_hidden BOOLEAN DEFAULT FALSE", "designer_hidden")
         if "demo_source_uid" not in cfg_cols:
