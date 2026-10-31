@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="360" viewBox="0 0 860 360">
+<style>
+text{font-family:Arial,'Segoe UI',sans-serif;fill:#222} .t{font-size:18px;font-weight:600} .s{font-size:14px;fill:#555} .box{fill:#fff;stroke:#6b7280;stroke-width:1.6} .green{stroke:#2c7a57} .soft{fill:#f5faf7} .line{stroke:#6b7280;stroke-width:1.6;fill:none} .dash{stroke-dasharray:5 5} .arrow{marker-end:url(#a)}
+</style>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/></marker></defs>
+
+<rect x="320" y="120" width="220" height="116" rx="8" class="box soft green"/>
+<text x="430" y="161" text-anchor="middle" class="t">Node</text>
+<text x="430" y="190" text-anchor="middle" class="s">data · methods · events</text>
+<text x="430" y="214" text-anchor="middle" class="s">one business semantic model</text>
+
+<rect x="42" y="30" width="210" height="82" rx="6" class="box"/>
+<text x="147" y="63" text-anchor="middle" class="t">Server</text><text x="147" y="87" text-anchor="middle" class="s">Python · API · jobs</text>
+<rect x="42" y="246" width="210" height="82" rx="6" class="box"/>
+<text x="147" y="279" text-anchor="middle" class="t">Web</text><text x="147" y="303" text-anchor="middle" class="s">forms · reports · dashboards</text>
+<rect x="608" y="30" width="210" height="82" rx="6" class="box"/>
+<text x="713" y="63" text-anchor="middle" class="t">Android</text><text x="713" y="87" text-anchor="middle" class="s">offline · camera · local logic</text>
+<rect x="608" y="246" width="210" height="82" rx="6" class="box"/>
+<text x="713" y="279" text-anchor="middle" class="t">AI</text><text x="713" y="303" text-anchor="middle" class="s">nGenie · Code · N-Reactor</text>
+<path d="M252 75 C300 75 310 130 320 150" class="line arrow"/>
+<path d="M252 287 C300 287 310 225 320 205" class="line arrow"/>
+<path d="M608 75 C560 75 550 130 540 150" class="line arrow"/>
+<path d="M608 287 C560 287 550 225 540 205" class="line arrow"/>
+</svg>

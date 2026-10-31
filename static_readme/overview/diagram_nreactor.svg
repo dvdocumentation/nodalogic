@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="220" viewBox="0 0 860 220">
+<style>
+text{font-family:Arial,'Segoe UI',sans-serif;fill:#222} .t{font-size:18px;font-weight:600} .s{font-size:14px;fill:#555} .box{fill:#fff;stroke:#6b7280;stroke-width:1.6} .green{stroke:#2c7a57} .soft{fill:#f5faf7} .line{stroke:#6b7280;stroke-width:1.6;fill:none} .dash{stroke-dasharray:5 5} .arrow{marker-end:url(#a)}
+</style>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/></marker></defs>
+
+<rect x="20" y="76" width="112" height="58" rx="4" class="box"/><text x="76" y="100" text-anchor="middle" class="t">Questions</text><text x="76" y="120" text-anchor="middle" class="s">facts</text>
+<rect x="160" y="76" width="112" height="58" rx="4" class="box"/><text x="216" y="100" text-anchor="middle" class="t">Spec</text><text x="216" y="120" text-anchor="middle" class="s">+ diagram</text>
+<rect x="300" y="76" width="112" height="58" rx="4" class="box"/><text x="356" y="100" text-anchor="middle" class="t">Candidate</text><text x="356" y="120" text-anchor="middle" class="s">.nod</text>
+<rect x="440" y="76" width="112" height="58" rx="4" class="box"/><text x="496" y="100" text-anchor="middle" class="t">Validation</text><text x="496" y="120" text-anchor="middle" class="s">checks + tests</text>
+<rect x="580" y="76" width="112" height="58" rx="4" class="box"/><text x="636" y="100" text-anchor="middle" class="t">Repair</text><text x="636" y="120" text-anchor="middle" class="s">iteration loop</text>
+<rect x="720" y="76" width="112" height="58" rx="4" class="box soft green"/><text x="776" y="100" text-anchor="middle" class="t">Release</text><text x="776" y="120" text-anchor="middle" class="s">ready product</text>
+<path d="M132 105 L150 105" class="line arrow"/><path d="M272 105 L290 105" class="line arrow"/><path d="M412 105 L430 105" class="line arrow"/><path d="M552 105 L570 105" class="line arrow"/><path d="M692 105 L710 105" class="line arrow"/>
+<path d="M636 145 C636 190 496 190 496 145" class="line arrow dash"/>
+</svg>
