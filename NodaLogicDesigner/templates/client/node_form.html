@@ -36,12 +36,16 @@
   .nl-reactive{min-width:0;width:100%;}
   .nl-reactive-line{display:flex;align-items:center;gap:7px;min-height:38px;border-bottom:1px solid rgba(0,0,0,.12);}
   .nl-reactive-value{flex:1 1 auto;min-width:0;padding:.45rem .38rem;white-space:pre-wrap;overflow-wrap:anywhere;font-variant-numeric:tabular-nums;}
-  .nl-reactive-edit{flex:0 0 auto!important;width:28px!important;height:28px!important;padding:2px!important;border:0!important;outline:0!important;box-shadow:none!important;border-radius:0!important;background:transparent!important;color:#5f6368!important;line-height:1!important;opacity:0;pointer-events:none;transform:scale(.96);transition:opacity .12s ease,color .12s ease,transform .12s ease;}
-  .nl-reactive:hover .nl-reactive-edit,.nl-reactive:focus-within .nl-reactive-edit{opacity:.72;pointer-events:auto;}
+  .nl-reactive-value-input{width:100%;max-width:100%;height:2.3rem;border:1px solid transparent;border-radius:6px;background:transparent;color:inherit;text-align:right;font-variant-numeric:tabular-nums;padding:.3rem .45rem;transition:border-color .12s ease,background .12s ease;}
+  .nl-reactive-value-input:hover,.nl-reactive-value-input:focus{border-color:rgba(114,128,142,.35);background:#fff;outline:0;}
+  .nl-reactive-edit{flex:0 0 auto!important;width:28px!important;height:28px!important;padding:2px!important;border:0!important;outline:0!important;box-shadow:none!important;border-radius:0!important;background:transparent!important;color:#5f6368!important;line-height:1!important;opacity:.58;pointer-events:auto;transform:scale(.96);transition:opacity .12s ease,color .12s ease,transform .12s ease;}
+  .nl-reactive:hover .nl-reactive-edit,.nl-reactive:focus-within .nl-reactive-edit{opacity:.9;}
   .nl-reactive-edit:hover,.nl-reactive-edit:focus-visible{opacity:1!important;color:#198754!important;transform:scale(1.04);background:transparent!important;box-shadow:none!important;}
   .nl-reactive-edit svg{display:block;pointer-events:none;}
   .nl-reactive-status{flex:0 0 auto;max-width:150px;font-size:.72rem;line-height:1.2;color:#6c757d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .nl-reactive[data-reactive-status="error"] .nl-reactive-status{color:#b02a37;}
+  .nl-reactive[data-reactive-status="error"]{padding:7px 10px;border:1px solid #f0a8b5;border-radius:9px;background:#fff0f3;}
+  .nl-reactive-error[data-nl-reactive-inline-error="1"]{margin-top:5px;padding:5px 8px;border-radius:6px;background:#ffe0e7;color:#8c2436;font-size:.78rem;line-height:1.35;white-space:pre-wrap;overflow-wrap:anywhere;}
   .nl-reactive[data-reactive-status="queued"] .nl-reactive-status,
   .nl-reactive[data-reactive-status="dirty"] .nl-reactive-status{color:#8a6d00;}
   .nl-reactive-editor{position:relative;margin-top:7px;padding:9px;border:1px solid rgba(25,135,84,.20);border-radius:10px;background:rgba(25,135,84,.025);}
@@ -58,6 +62,17 @@
   .nl-reactive-external select{width:100%;min-width:0;}
   .nl-reactive-error{margin-top:6px;color:#b02a37;font-size:.78rem;white-space:pre-wrap;}
   .nl-reactive-deps{margin-top:5px;color:#6c757d;font-size:.72rem;white-space:normal;overflow-wrap:anywhere;}
+  .nl-reactive-modal{position:fixed;inset:0;z-index:1090;display:flex;align-items:center;justify-content:center;padding:20px;}
+  body.nl-reactive-modal-open{overflow:hidden;}
+  .nl-reactive-modal[hidden]{display:none!important;}
+  .nl-reactive-modal-backdrop{position:absolute;inset:0;background:rgba(15,23,42,.48);backdrop-filter:blur(2px);}
+  .nl-reactive-modal-dialog{position:relative;display:flex;flex-direction:column;width:min(900px,calc(100vw - 32px));max-height:calc(100vh - 40px);background:#fff;border:1px solid rgba(100,116,139,.3);border-radius:14px;box-shadow:0 24px 70px rgba(15,23,42,.28);overflow:hidden;}
+  .nl-reactive-modal-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid #e2e8f0;font-weight:650;}
+  .nl-reactive-modal-close{border:0;background:transparent;color:#64748b;font-size:24px;line-height:1;padding:0 5px;cursor:pointer;}
+  .nl-reactive-modal-body{padding:16px 18px 18px;overflow:auto;}
+  .nl-reactive-editor.nl-reactive-editor-modal-content{position:static;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;}
+  .nl-reactive-editor-modal-content .nl-reactive-code{min-height:220px;max-height:48vh;}
+  .nl-reactive-editor-modal-content .nl-reactive-toolbar{position:sticky;bottom:0;padding-top:10px;background:#fff;z-index:2;}
   @media (hover:none){.nl-reactive-edit{opacity:.65;pointer-events:auto;}}
   @media (max-width:760px){.nl-reactive-external-grid{grid-template-columns:1fr;}}
 
@@ -312,8 +327,22 @@
     white-space:nowrap;
   }
 
+  #nlTopTabs{overflow-x:auto!important;overflow-y:hidden!important;scrollbar-width:none;}
+  #nlTopTabs::-webkit-scrollbar{display:none;height:0;}
+
   .nl-ngenie-chat .card-header{background:#6f42c1;color:#fff;}
   .nl-ngenie-messages{max-height:285px;min-height:170px;overflow:auto;background:#fbfbfd;}
+  .nl-ngenie-modal-dialog{position:fixed;right:24px;bottom:86px;margin:0;width:min(420px,calc(100vw - 32px));max-width:none;}
+  .nl-ngenie-modal-dialog .modal-content{height:min(680px,calc(100vh - 112px));border:0;border-radius:16px;overflow:hidden;box-shadow:0 18px 54px rgba(34,20,63,.28);}
+  .nl-ngenie-modal-header{background:linear-gradient(120deg,#7145c4,#542ea1);color:#fff;border:0;}
+  .nl-ngenie-modal-body{display:flex;flex-direction:column;min-height:0;padding:0;background:#fbfbfd;}
+  .nl-ngenie-modal-body .nl-ngenie-messages{max-height:none;min-height:130px;flex:1 1 auto;padding:14px;}
+  .nl-ngenie-modal-body .nl-ngenie-clarifications{max-height:30vh;overflow:auto;flex:0 0 auto;}
+  .nl-ngenie-modal-footer{flex:0 0 auto;background:#fff;}
+  .nl-ngenie-fab{position:fixed;right:24px;bottom:20px;z-index:1040;display:inline-flex;align-items:center;gap:9px;padding:12px 18px;border:0;border-radius:999px;background:linear-gradient(120deg,#7145c4,#542ea1);color:#fff;font-weight:600;box-shadow:0 8px 24px rgba(84,46,161,.36);}
+  .nl-ngenie-fab:hover,.nl-ngenie-fab:focus{background:#542ea1;color:#fff;transform:translateY(-1px);box-shadow:0 11px 28px rgba(84,46,161,.4);}
+  .nl-ngenie-fab i{font-size:1.1rem;}
+  @media(max-width:575.98px){.nl-ngenie-modal-dialog{inset:auto 12px 82px;width:auto}.nl-ngenie-modal-dialog .modal-content{height:min(680px,calc(100vh - 100px))}.nl-ngenie-fab{right:16px;bottom:16px}}
   .nl-ngenie-msg{border-radius:10px;padding:7px 9px;margin-bottom:7px;white-space:pre-wrap;line-height:1.3;font-size:.86rem;}
   .nl-ngenie-msg-user{background:#eef1ff;margin-left:18px;}
   .nl-ngenie-msg-assistant{background:#fff;border:1px solid rgba(0,0,0,.1);margin-right:18px;}
@@ -704,13 +733,23 @@
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 nl-node-form-header">
   <div class="d-flex align-items-center gap-2 flex-wrap">
-    <span class="badge text-bg-light border">{{ repo.display_name or repo.name }}</span>
-    <span class="badge text-bg-light border">{{ class_name }}</span>
+    <span class="badge text-bg-light border"><i class="bi bi-database me-1"></i>{{ repo.display_name or repo.name }}</span>
+    <span class="badge text-bg-light border"><i class="bi bi-box me-1"></i>{{ class_name }}</span>
+    <span class="badge text-bg-light border"><i class="bi bi-hash me-1"></i>id: {{ node_id }}</span>
   </div>
-  <div class="d-flex align-items-center gap-2 flex-wrap">
-    <span class="badge text-bg-light border">id: {{ node_id }}</span>
-    {# Export button is NOT a standard command (it should not depend on options / command set) #}
-    <button id="btnSaveSolo" class="btn btn-sm btn-outline-primary" type="button">{{_('Save to Solo')}}</button>
+  <div class="d-flex align-items-center justify-content-end gap-2 flex-wrap ms-auto">
+    {% if (use_standard_commands or is_projection) and not is_print_form %}
+      <button id="btnSaveClose" class="btn btn-sm btn-save-close" type="button"><i class="bi bi-check2-circle me-1"></i>{{ _('Save and close') }}</button>
+      <button id="btnSave" class="btn btn-sm btn-outline-secondary" type="button"><i class="bi bi-save2 me-1"></i>{{ _('Save') }}</button>
+    {% endif %}
+    <button id="btnClose" class="btn btn-sm btn-outline-secondary" type="button"><i class="bi bi-x-lg me-1"></i>{{ _('Close') }}</button>
+    <div class="dropdown">
+      <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="{{ _('More actions') }}"><i class="bi bi-three-dots"></i></button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        {% if use_standard_commands and not is_custom_process %}<li><button id="btnDelete" class="dropdown-item text-danger" type="button"><i class="bi bi-trash3 me-2"></i>{{ _('Delete') }}</button></li>{% endif %}
+        <li><button id="btnSaveSolo" class="dropdown-item" type="button"><i class="bi bi-download me-2"></i>{{_('Save to Solo')}}</button></li>
+      </ul>
+    </div>
   </div>
 </div>
 
@@ -862,6 +901,10 @@
               </div>
               <div id="nlQuantLedgerMovements"></div>
             </div>
+            <div id="nlCostGraphSection" class="mb-4" hidden>
+              <h6 class="mb-2">CostGraph</h6>
+              <div id="nlCostGraphMovements"></div>
+            </div>
             <div>
               <div class="d-flex align-items-center gap-2 mb-2">
                 <h6 class="mb-0">{{ _('Transactions') }}</h6>
@@ -916,7 +959,7 @@
 
   </div>
 
-  {% if true %}
+  {% if is_projection or is_print_form or print_forms_for_class %}
   {% set projection_timer = 0 %}
   {% if node_data is mapping %}{% set projection_timer = (node_data.get('_projection_timer') or 0)|float %}{% endif %}
   <div class="nl-node-form-side" style="width:300px; flex:0 0 300px; flex-shrink:0; position:sticky; top:12px; align-self:flex-start;">
@@ -927,29 +970,6 @@
             <div id="webRoot">{{ layout_html | safe }}</div>
           </div>
         </div>
-      {% endif %}
-
-      {% if ngenie_enabled %}
-      <div class="card mb-3 nl-ngenie-chat">
-        <div class="card-header py-2 d-flex align-items-center justify-content-between">
-          <div class="fw-semibold">nGenie</div>
-          <div id="nlNGenieStatus" class="small opacity-75"></div>
-        </div>
-        <div id="nlNGenieMessages" class="card-body nl-ngenie-messages"></div>
-        <div id="nlNGenieClarifications" class="nl-ngenie-clarifications" style="display:none;"></div>
-        <div class="card-footer p-2">
-          <textarea id="nlNGeniePrompt" class="form-control form-control-sm" rows="3" placeholder="{{ _('Example: add two tractor rows to this order') }}"></textarea>
-          <div class="mt-2">
-            <input id="nlNGenieFiles" class="form-control form-control-sm" type="file" multiple>
-            <div id="nlNGenieFilesLabel" class="form-text">{{ _('Attach files to this node through nGenie.') }}</div>
-          </div>
-          <div class="form-check mt-2">
-            <input class="form-check-input" type="checkbox" value="1" id="nlNGenieAllowCatalogCreate">
-            <label class="form-check-label small" for="nlNGenieAllowCatalogCreate">{{ _('Create directories/catalogs') }}</label>
-          </div>
-          <button id="nlNGenieSend" class="btn btn-sm nl-ngenie-send w-100 mt-2" type="button">{{ _('Send') }}</button>
-        </div>
-      </div>
       {% endif %}
 
       <div class="d-grid gap-2">
@@ -987,8 +1007,6 @@
         {% endif %}
 
         {% if (use_standard_commands or is_projection) and not is_print_form %}
-          <button id="btnSaveClose" class="btn btn-sm btn-save-close" type="button">{{_('Save and close')}}</button>
-          <button id="btnSave" class="btn btn-sm btn-outline-secondary" type="button">{{_('Save')}}</button>
           {% if extension_managed|default(false) %}<button id="btnNrawExport" class="btn btn-sm btn-outline-success" type="button" title="Save or share .nraw">{{ _('Save / share') }} .nraw</button>{% endif %}
           {% if use_standard_commands and show_register_command %}
             <button id="btnRegister" class="btn btn-sm btn-outline-primary" type="button"
@@ -998,15 +1016,50 @@
           {% endif %}
 
 
-          {% if use_standard_commands and not is_custom_process %}<button id="btnDelete" class="btn btn-danger btn-sm" type="button">{{_('Delete')}}</button>{% endif %}
         {% endif %}
-        <button id="btnClose" class="btn btn-sm btn-outline-secondary" type="button">{{_('Close')}}</button>
       </div>
       <div id="sideStatus" class="text-muted small mt-2"></div>
     </div>
   </div>
   {% endif %}
 </div>
+
+{% if ngenie_enabled %}
+<button type="button" class="nl-ngenie-fab" data-bs-toggle="modal" data-bs-target="#nlNGenieModal" aria-label="nGenie">
+  <i class="bi bi-stars"></i><span>nGenie</span>
+</button>
+<div class="modal fade" id="nlNGenieModal" tabindex="-1" aria-labelledby="nlNGenieTitle" aria-hidden="true" data-bs-backdrop="false">
+  <div class="modal-dialog nl-ngenie-modal-dialog">
+    <div class="modal-content nl-ngenie-chat">
+      <div class="modal-header nl-ngenie-modal-header py-2">
+        <div>
+          <h5 class="modal-title fs-6" id="nlNGenieTitle"><i class="bi bi-stars me-2"></i>nGenie</h5>
+          <div class="small opacity-75">{{ class_obj.display_name or class_name }} · {{ node_id }}</div>
+        </div>
+        <div class="d-flex align-items-center gap-2"><div id="nlNGenieStatus" class="small opacity-75"></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="{{ _('Close') }}"></button></div>
+      </div>
+      <div class="modal-body nl-ngenie-modal-body">
+        <div id="nlNGenieMessages" class="nl-ngenie-messages"></div>
+        <div id="nlNGenieClarifications" class="nl-ngenie-clarifications" style="display:none;"></div>
+      </div>
+      <div class="modal-footer nl-ngenie-modal-footer d-block p-2">
+        <textarea id="nlNGeniePrompt" class="form-control form-control-sm" rows="2" placeholder="{{ _('Example: add two tractor rows to this order') }}"></textarea>
+        <div class="mt-2">
+          <input id="nlNGenieFiles" class="form-control form-control-sm" type="file" multiple>
+          <div id="nlNGenieFilesLabel" class="form-text">{{ _('Attach files to this node through nGenie.') }}</div>
+        </div>
+        <div class="d-flex align-items-center justify-content-between gap-2 mt-2">
+          <div class="form-check mb-0">
+            <input class="form-check-input" type="checkbox" value="1" id="nlNGenieAllowCatalogCreate">
+            <label class="form-check-label small" for="nlNGenieAllowCatalogCreate">{{ _('Create directories/catalogs') }}</label>
+          </div>
+          <button id="nlNGenieSend" class="btn btn-sm nl-ngenie-send px-3" type="button"><i class="bi bi-send me-1"></i>{{ _('Send') }}</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <script>
 
@@ -1534,6 +1587,22 @@ function nlRenderQuantMovements(section){
   }).join('');
 }
 
+function nlRenderCostGraph(section){
+  const host = document.getElementById('nlCostGraphMovements');
+  if (!host || !section) return;
+  document.getElementById('nlCostGraphSection').hidden = false;
+  const link = ref => ref && ref.url
+    ? `<a href="${escapeHtml(ref.url)}" target="_blank" rel="noopener">${escapeHtml(ref.name)}</a>`
+    : '';
+  const rows = Array.isArray(section.movements) ? section.movements : [];
+  host.innerHTML = rows.length ? rows.map(row => `<div class="border rounded p-2 mb-2">
+      <strong>${escapeHtml(row.kind)} · ${escapeHtml(row.amount)}</strong>
+      <div>${row.origin ? link(row.origin) + ' → ' : ''}${link(row.target)}
+      ${row.share ? ' · ' + escapeHtml(row.share) : ''}</div>
+      ${row.document ? '<div>' + link(row.document) + '</div>' : ''}
+    </div>`).join('') : `<div class="text-muted small">${escapeHtml(section.error || NL_MOVEMENTS_I18N.none)}</div>`;
+}
+
 function nlRenderTransactionMovements(section){
   const host = document.getElementById('nlTransactionMovements');
   const count = document.getElementById('nlTransactionCount');
@@ -1605,6 +1674,7 @@ async function nlLoadMovements(force=true){
     if (data.job) data = await nlResolveBackgroundEventResponse(data);
     if (!data || data.ok !== true) throw new Error((data && data.error) || NL_MOVEMENTS_I18N.loadError);
     nlRenderQuantMovements(data.quant_ledger || {});
+    nlRenderCostGraph(data.cost_graph);
     nlRenderTransactionMovements(data.transactions || {});
     nlMovementsLoaded = true;
     if (status) status.textContent = '';
@@ -2119,6 +2189,26 @@ function nlGetDataCtx(){
   return window.__nlActiveDataContext || _data;
 }
 
+// Covers rendered inside Table(nodes_source=true) belong to the referenced
+// child node, not to the node whose form is currently open.  The server wraps
+// such covers in data-nl-cover-data so client-side template refreshes keep the
+// same data context that was used for the initial render.
+function nlGetTemplateDataCtx(el){
+  const coverRoot = el && typeof el.closest === 'function'
+    ? el.closest('.nl-cover-runtime[data-nl-cover-data]')
+    : null;
+  if (coverRoot) {
+    const raw = coverRoot.getAttribute('data-nl-cover-data');
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch(_) {}
+    }
+  }
+  return nlGetDataCtx();
+}
+
 function nlIsVirtualCtx(){
   return !!window.__nlActiveDataContext;
 }
@@ -2295,7 +2385,7 @@ function nlIsHexColorString(value){
   return /^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/.test(s);
 }
 
-function nlResolveTemplateString(tpl){
+function nlResolveTemplateString(tpl, el){
   if (tpl == null) return "";
   const s = String(tpl);
   const st = s.trim();
@@ -2318,7 +2408,7 @@ function nlResolveTemplateString(tpl){
   // @var or text with @var inside. In a virtual-node editor the active
   // context is the embedded row; outside it this resolves to the parent node.
   if (s.includes('@')) {
-    const dataCtx = nlGetDataCtx();
+    const dataCtx = nlGetTemplateDataCtx(el);
 
     // Extension field ids are human captions and may contain spaces.  If the
     // whole template is one @reference, prefer an exact top-level key before
@@ -2353,7 +2443,7 @@ function nlResolveLinkTextTemplate(el, tpl){
   const st = String(tpl == null ? '' : tpl).trim();
   if (!st.startsWith('@') || st.indexOf('@', 1) >= 0) return null;
 
-  const dataCtx = nlGetDataCtx();
+  const dataCtx = nlGetTemplateDataCtx(el);
   const exactKey = st.slice(1);
   let key = '';
   if (dataCtx && typeof dataCtx === 'object' && Object.prototype.hasOwnProperty.call(dataCtx, exactKey)) {
@@ -2379,7 +2469,7 @@ function nlResolveLinkTextTemplate(el, tpl){
 }
 
 function nlApplyTemplateAttr(el, name, tpl){
-  let val = nlResolveTemplateString(tpl);
+  let val = nlResolveTemplateString(tpl, el);
   if (name === 'text') {
     const linkVal = nlResolveLinkTextTemplate(el, tpl);
     if (linkVal !== null) val = linkVal;
@@ -2432,8 +2522,10 @@ function nlRefreshBoundInputs(opts){
 
     try {
       if (el.matches('input[data-nl-nodeinput="1"], input[data-nl-datasetinput="1"]')) {
-        const view = nlGetByPath(_data, `${path}_view`);
-        const raw  = nlGetByPath(_data, path);
+        const inlineRow = el.closest('[data-nl-inline-node-row="1"]');
+        const sourceData = inlineRow ? inlineNodeRowData(inlineRow) : _data;
+        const view = nlGetByPath(sourceData, `${path}_view`);
+        const raw  = nlGetByPath(sourceData, path);
         const sv = (view != null && String(view).trim() !== '')
           ? String(view)
           : ((raw == null) ? '' : String(raw));
@@ -2481,7 +2573,7 @@ function nlRefreshUI(){
     if (el.tagName === 'IMG') return;
 
     const tpl = el.getAttribute('data-nl-tpl-src');
-    const src = String(nlResolveTemplateString(tpl) ?? '');
+    const src = String(nlResolveTemplateString(tpl, el) ?? '');
     if (src) {
       const img = document.createElement('img');
       img.className = el.className.replace('nl-empty','').trim() || 'nl-picture';
@@ -3045,11 +3137,7 @@ async function fireOnInputWeb(payload){
       if (j && j.layout_html !== undefined) {
         const root = document.getElementById("webRoot");
         if (root) {
-          root.innerHTML = j.layout_html || "";
-          bindClicks();
-          bindInputs();
-          if (window.initDatasetTables) window.initDatasetTables();
-          if (window.initVirtualTables) window.initVirtualTables();
+          nlReplaceLayoutHtml(root, j.layout_html);
         }
       }
     } catch(_){}
@@ -3074,6 +3162,19 @@ function snapshotWebFormIntoData(){
     // обновим локальный _data по path текущим значением
     try { setByPath(nlGetDataCtx(), p.path, p.value); } catch(_){}
   });
+}
+
+function nlReplaceLayoutHtml(root, html){
+  if(!root)return;
+  const active = root.querySelector('.nav-link.active[data-bs-toggle="tab"][data-bs-target]');
+  const activeTarget = active ? active.getAttribute('data-bs-target') : '';
+  root.innerHTML = html || '';
+  bindClicks(); bindInputs(); bindCodeFrames(root); initDatasetTables(); initVirtualTables();
+  if(activeTarget){
+    const next = Array.from(root.querySelectorAll('.nav-link[data-bs-toggle="tab"][data-bs-target]'))
+      .find(button => button.getAttribute('data-bs-target') === activeTarget);
+    if(next && window.bootstrap && window.bootstrap.Tab) window.bootstrap.Tab.getOrCreateInstance(next).show();
+  }
 }
 
 // NOTE: we keep the function name for backward compatibility inside this template,
@@ -3240,13 +3341,7 @@ async function fireOnClickWeb(payload, target_class = "", target_node = "", opti
   if (j && j.layout_html !== undefined) {
     const root = document.getElementById("webRoot");
     if (root) {
-      root.innerHTML = j.layout_html || "";
-  
-      bindClicks();
-      bindInputs();
-      bindCodeFrames(root);
-      initDatasetTables();
-      initVirtualTables();
+      nlReplaceLayoutHtml(root, j.layout_html);
           try { nlRefreshUI(); } catch(_) {}
     }
   }
@@ -4384,6 +4479,42 @@ function bindClicks() {
     const t = e.target;
     if (!t || !t.closest) return;
 
+    const treeToggle = t.closest('[data-nl-tree-toggle="1"]');
+    if (treeToggle) {
+      e.preventDefault();
+      e.stopPropagation();
+      const row = treeToggle.closest('tr[data-nl-row-id]');
+      if (!row) return;
+      const table = row.closest('table');
+      const depth = Number(row.dataset.nlRowDepth || 0);
+      const collapse = treeToggle.getAttribute('aria-expanded') !== 'false';
+      treeToggle.setAttribute('aria-expanded', collapse ? 'false' : 'true');
+      treeToggle.setAttribute('title', collapse ? 'Развернуть' : 'Свернуть');
+      treeToggle.textContent = collapse ? '▸' : '▾';
+      let next = row.nextElementSibling;
+      while (next && next.matches('tr[data-nl-row-id]')) {
+        const nextDepth = Number(next.dataset.nlRowDepth || 0);
+        if (nextDepth <= depth) break;
+        if (collapse) next.hidden = true;
+        else {
+          let ancestor = next;
+          let hiddenByParent = false;
+          while (ancestor && ancestor !== row) {
+            const parentId = ancestor.dataset.nlRowParent || '';
+            if (!parentId) break;
+            const parentRow = table.querySelector(`tr[data-nl-row-id="${CSS.escape(parentId)}"]`);
+            if (!parentRow || parentRow.hidden) { hiddenByParent = true; break; }
+            const parentToggle = parentRow.querySelector('[data-nl-tree-toggle="1"]');
+            if (parentToggle && parentToggle.getAttribute('aria-expanded') === 'false') { hiddenByParent = true; break; }
+            ancestor = parentRow;
+          }
+          next.hidden = hiddenByParent;
+        }
+        next = next.nextElementSibling;
+      }
+      return;
+    }
+
     const isInteractive = !!t.closest("button,input,textarea,select,label");
 
   
@@ -4397,8 +4528,8 @@ function bindClicks() {
 
   
       const owner = clickEl.closest('[data-nl-target-class][data-nl-target-node]');
-      const target_class = owner ? String(owner.getAttribute("data-nl-target-class") || "").trim() : "";
-      const target_node  = owner ? String(owner.getAttribute("data-nl-target-node") || "").trim() : "";
+      const target_class = String(clickEl.getAttribute('data-nl-event-target-class') || (owner && owner.getAttribute("data-nl-target-class")) || "").trim();
+      const target_node  = String(clickEl.getAttribute('data-nl-event-target-node') || (owner && owner.getAttribute("data-nl-target-node")) || "").trim();
 
       if (rowCtx && clickEl === rowCtx.row) {
         // Backward compatibility: keep the legacy WEB listener (<table_id>) exactly as before,
@@ -4408,7 +4539,15 @@ function bindClicks() {
         await fireOnClickWeb({ listener: `${rowCtx.tableId}_click`, element_tag: clickEl.tagName }, target_class, target_node);
       } else {
         // Existing nested control event first; then add Android-compatible table input event.
-        await fireOnClickWeb({ listener, element_tag: clickEl.tagName }, target_class, target_node);
+        const payload = { listener, element_tag: clickEl.tagName };
+        const extraPath = String(clickEl.getAttribute('data-nl-extra-path') || '').trim();
+        if (extraPath) payload.extra = [{path: extraPath, value: clickEl.getAttribute('data-nl-extra-value') || ''}];
+        const extraPath2 = String(clickEl.getAttribute('data-nl-extra-path-2') || '').trim();
+        if (extraPath2) {
+          payload.extra = payload.extra || [];
+          payload.extra.push({path: extraPath2, value: clickEl.getAttribute('data-nl-extra-value-2') || ''});
+        }
+        await fireOnClickWeb(payload, target_class, target_node);
         if (rowCtx) await nlFireTableCompatInput(clickEl, undefined, listener);
       }
       return;
@@ -4433,8 +4572,10 @@ function bindClicks() {
       const fieldId = String(pickBtn.getAttribute("data-nl-listener") || "").trim(); 
       const kind = String(pickBtn.getAttribute("data-nl-ds-kind") || "").trim();
       const dsRaw = pickBtn.getAttribute("data-nl-ds") || "";
+      const groupsOnly = pickBtn.getAttribute("data-nl-groups-only") === "1";
 
-      await openNodePickDialog(fieldId, kind, dsRaw);
+      const inlineRow = pickBtn.closest('[data-nl-inline-node-row="1"]');
+      await openNodePickDialog(fieldId, kind, dsRaw, groupsOnly, inlineRow);
       return;
     }
 
@@ -4445,6 +4586,19 @@ function bindClicks() {
 
       const fieldId = String(clr.getAttribute("data-nl-clear-target") || "").trim();
       if (!fieldId) return;
+
+      const inlineRow = clr.closest('[data-nl-inline-node-row="1"]');
+      if (inlineRow) {
+        const inp = inlineRow.querySelector(`[data-id="${CSS.escape(fieldId)}"]`);
+        if (inp) inp.value = "";
+        const data = inlineNodeRowData(inlineRow);
+        setByPath(data, fieldId, null);
+        setByPath(data, `${fieldId}_data`, null);
+        setByPath(data, `${fieldId}_view`, null);
+        inlineRow.dataset.nlInlineNodeData = JSON.stringify(data);
+        await saveInlineNodeRow(inlineRow);
+        return;
+      }
 
       // clear local data
       setByPath(nlGetDataCtx(), fieldId, null);
@@ -4517,6 +4671,17 @@ function bindInputs(){
     const isSelect = (el.tagName === "SELECT");
     const isDate = (el.getAttribute("data-nl-date") === "1");
 
+    if (el.getAttribute("data-nl-inline-node-field") === "1") {
+      const row = el.closest('[data-nl-inline-node-row="1"]');
+      const pInline = collectChanged(el);
+      if (!row || !pInline) return;
+      const rowData = inlineNodeRowData(row);
+      setByPath(rowData, pInline.path, pInline.value);
+      row.dataset.nlInlineNodeData = JSON.stringify(rowData);
+      if (kind === "change") void saveInlineNodeRow(row);
+      return;
+    }
+
     const p = updateLocalDataFromElement(el);
     if (!p) return;
 
@@ -4559,6 +4724,37 @@ function bindInputs(){
   });
 }
 bindInputs();
+
+function inlineNodeRowData(row){
+  try { return JSON.parse(row && row.dataset.nlInlineNodeData || "{}"); }
+  catch(_) { return {}; }
+}
+async function saveInlineNodeRow(row){
+  if (!row) return false;
+  const errorBox = row.querySelector('[data-nl-inline-node-error="1"]');
+  if (errorBox) { errorBox.hidden = true; errorBox.textContent = ""; }
+  try {
+    const response = await fetch(API_SAVE, {
+      method: "POST", credentials: "same-origin",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({repo_id: REPO_ID,
+        class_name: row.dataset.nlInlineNodeClass,
+        node_id: row.dataset.nlInlineNodeId,
+        data: inlineNodeRowData(row)})
+    });
+    const result = await response.json();
+    if (!response.ok || !result || result.ok === false) {
+      throw new Error((result && (result.error || (result.message && result.message.text))) || ("HTTP " + response.status));
+    }
+    row.classList.remove("nl-inline-node-error");
+    if (window.nlReactiveRefresh) await window.nlReactiveRefresh(row);
+    return true;
+  } catch (error) {
+    row.classList.add("nl-inline-node-error");
+    if (errorBox) { errorBox.textContent = String(error.message || error); errorBox.hidden = false; }
+    return false;
+  }
+}
 
 /* Reactive NodaLayout editor is isolated in its own script block below. */
 
@@ -6122,7 +6318,14 @@ if(ta){
     classesByRepo: new Map(),
     fieldsByTarget: new Map()
   };
+  const editorsByOwner=new WeakMap();
+  const ownersByEditor=new WeakMap();
+  let formulaModal=null;
+  let formulaModalBody=null;
+  let activeFormulaEditor=null;
   let pollTimer = null;
+  let pollInFlight = false;
+  let pollAgain = false;
   let bound = false;
   let mutationTimer = null;
 
@@ -6131,6 +6334,50 @@ if(ta){
   }
   function field(el){
     return String(el && el.getAttribute('data-nl-reactive-field') || '').trim();
+  }
+  function editorFor(el){
+    return editorsByOwner.get(el)||(el&&el.querySelector?el.querySelector('[data-nl-reactive-editor="1"]'):null);
+  }
+  function reactiveOwner(el){
+    if(!el)return null;
+    const direct=el.closest?el.closest('[data-nl-reactive="1"]'):null;
+    if(direct)return direct;
+    const editor=el.closest?el.closest('[data-nl-reactive-editor="1"]'):null;
+    return editor?ownersByEditor.get(editor)||null:null;
+  }
+  function ensureFormulaModal(){
+    if(formulaModal)return;
+    formulaModal=document.createElement('div');
+    formulaModal.className='nl-reactive-modal';
+    formulaModal.hidden=true;
+    formulaModal.innerHTML='<div class="nl-reactive-modal-backdrop" data-reactive-modal-close></div><section class="nl-reactive-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="nlReactiveModalTitle"><header class="nl-reactive-modal-header"><span id="nlReactiveModalTitle">Формула Reactive</span><button type="button" class="nl-reactive-modal-close" data-reactive-modal-close aria-label="Закрыть">×</button></header><div class="nl-reactive-modal-body"></div></section>';
+    formulaModalBody=formulaModal.querySelector('.nl-reactive-modal-body');
+    formulaModal.addEventListener('click',e=>{
+      if(e.target&&e.target.closest&&e.target.closest('[data-reactive-modal-close]'))closeFormulaEditor(activeFormulaEditor);
+    });
+    document.addEventListener('keydown',e=>{
+      if(e.key==='Escape'&&activeFormulaEditor)closeFormulaEditor(activeFormulaEditor);
+    });
+    document.body.appendChild(formulaModal);
+  }
+  function openFormulaModal(owner,editor){
+    ensureFormulaModal();
+    if(activeFormulaEditor&&activeFormulaEditor!==editor)closeFormulaEditor(activeFormulaEditor);
+    editorsByOwner.set(owner,editor);ownersByEditor.set(editor,owner);
+    editor.classList.add('nl-reactive-editor-modal-content');
+    formulaModalBody.appendChild(editor);
+    editor.hidden=false;
+    formulaModal.hidden=false;
+    activeFormulaEditor=editor;
+    document.body.classList.add('nl-reactive-modal-open');
+  }
+  function closeFormulaEditor(editor){
+    if(!editor)return;
+    const owner=ownersByEditor.get(editor);
+    if(owner){owner.appendChild(editor);editor.classList.remove('nl-reactive-editor-modal-content');}
+    editor.hidden=true;
+    if(activeFormulaEditor===editor)activeFormulaEditor=null;
+    if(formulaModal){formulaModal.hidden=true;document.body.classList.remove('nl-reactive-modal-open');}
   }
   function ctx(el){
     const host = el && el.closest ? (el.closest('[data-nl-reactive-repo]') || el.closest('[data-nl-repo]')) : null;
@@ -6150,8 +6397,15 @@ if(ta){
     }
     return String(value);
   }
-  function setLocalValue(fieldName, value){
+  function setLocalValue(fieldName, value, reactiveEl){
     try{
+      const row = reactiveEl && reactiveEl.closest ? reactiveEl.closest('[data-nl-inline-node-row="1"]') : null;
+      if(row){
+        const rowData = inlineNodeRowData(row);
+        setByPath(rowData, fieldName, value);
+        row.dataset.nlInlineNodeData = JSON.stringify(rowData);
+        return;
+      }
       if(typeof setByPath === 'function' && typeof _data !== 'undefined' && _data && typeof _data === 'object'){
         setByPath(_data, fieldName, value);
       }
@@ -6162,7 +6416,9 @@ if(ta){
     el.setAttribute('data-reactive-status','error');
     const st=el.querySelector('[data-nl-reactive-status="1"]');
     if(st){st.textContent='error';st.title=String(message||'Reactive error');}
-    const editor=el.querySelector('[data-nl-reactive-editor="1"]');
+    const inline=el.querySelector('[data-nl-reactive-inline-error="1"]');
+    if(inline){inline.textContent=String(message||'Reactive error');inline.hidden=false;}
+    const editor=editorFor(el);
     if(editor && !editor.hidden){
       const err=editor.querySelector('[data-reactive-error]');
       if(err)err.textContent=String(message||'Reactive error');
@@ -6174,12 +6430,20 @@ if(ta){
     if(Object.prototype.hasOwnProperty.call(payload,'value')){
       const value=payload.value;
       const valEl=el.querySelector('[data-nl-reactive-value="1"]');
-      if(valEl) valEl.textContent=display(value);
-      if(f) setLocalValue(f,value);
+      const lastLiteralSave=Number(el.getAttribute('data-nl-reactive-literal-saved-at')||0);
+      const insideFreshEditWindow=lastLiteralSave>0 && (Date.now()-lastLiteralSave)<4000 && !el.hasAttribute('data-nl-reactive-apply-literal-now');
+      if(valEl && !valEl.hasAttribute('data-nl-reactive-editing') && document.activeElement!==valEl && !insideFreshEditWindow){
+        if(valEl.matches('input,textarea,select')) valEl.value=display(value);
+        else valEl.textContent=display(value);
+      }
+      if(f) setLocalValue(f,value,el);
     }
+    el.removeAttribute('data-nl-reactive-optimistic');
     const state=payload.state||{};
     const status=String(state.status || (state.exists?'idle':'')).trim();
     el.setAttribute('data-reactive-status',status);
+    const inline=el.querySelector('[data-nl-reactive-inline-error="1"]');
+    if(inline){inline.textContent=String(state.error||'');inline.hidden=!(status==='error'&&state.error);}
     const st=el.querySelector('[data-nl-reactive-status="1"]');
     if(st){
       let text='';
@@ -6188,7 +6452,7 @@ if(ta){
       st.textContent=text;
       st.title=String(state.error||status||'');
     }
-    const editor=el.querySelector('[data-nl-reactive-editor="1"]');
+    const editor=editorFor(el);
     if(editor && !editor.hidden){
       const err=editor.querySelector('[data-reactive-error]');
       if(err) err.textContent=String(state.error||'');
@@ -6196,6 +6460,18 @@ if(ta){
       if(deps && Array.isArray(payload.dependencies)){
         deps.textContent=payload.dependencies.length ? ('Depends on: '+payload.dependencies.join(', ')) : '';
       }
+    }
+  }
+  function applyAffectedValues(items){
+    if(!Array.isArray(items)||!items.length)return;
+    const widgets=elements();
+    for(const item of items){
+      if(!item||!item.class_name||!item.node_id||!item.field)continue;
+      const target=widgets.find(candidate=>{
+        const c=ctx(candidate);
+        return c.class_name===String(item.class_name)&&c.node_id===String(item.node_id)&&field(candidate)===String(item.field);
+      });
+      if(target)apply(target,{value:item.value,state:{exists:true,status:'ok'}});
     }
   }
   async function post(url,body){
@@ -6272,7 +6548,8 @@ if(ta){
     textarea.dispatchEvent(new Event('input',{bubbles:true}));
   }
   async function showLocalSuggestions(el,textarea,query,start,end){
-    const box=el.querySelector('[data-reactive-suggest]');
+    const editor=editorFor(el);
+    const box=editor&&editor.querySelector('[data-reactive-suggest]');
     if(!box)return;
     let items=[];
     try{items=await localFields(el);}catch(_){items=[];}
@@ -6294,7 +6571,8 @@ if(ta){
     box.hidden=false;
   }
   async function openExternal(el,textarea,anchor){
-    const panel=el.querySelector('[data-reactive-external]');
+    const editor=editorFor(el);
+    const panel=editor&&editor.querySelector('[data-reactive-external]');
     if(!panel)return;
     panel.hidden=false;
     panel.dataset.anchor=String(Math.max(0,anchor));
@@ -6369,27 +6647,80 @@ if(ta){
   }
   async function openEditor(el){
     if(!el)return;
-    const editor=el.querySelector('[data-nl-reactive-editor="1"]');
+    const editor=editorFor(el);
     if(!editor)return;
     if(!editor.innerHTML.trim()) editor.innerHTML=editorHtml();
-    editor.hidden=false;
+    openFormulaModal(el,editor);
+    const ta=editor.querySelector('[data-reactive-code]');
+    const initialFormula=String(el.getAttribute('data-nl-reactive-default')||'');
+    if(ta && !ta.value) ta.value=initialFormula;
+    // Make the editor usable immediately; loading the saved formula can take
+    // a round trip to the server and should not leave the pencil looking dead.
+    if(ta){ta.disabled=false;ta.readOnly=false;ta.focus();}
     const errorEl=editor.querySelector('[data-reactive-error]');
     if(errorEl)errorEl.textContent='';
     let j=null;
-    try{j=await load(el,true);}catch(ex){if(errorEl)errorEl.textContent=String(ex.message||ex);}
-    const ta=editor.querySelector('[data-reactive-code]');
+    try{j=await load(el,true);}catch(ex){if(errorEl)errorEl.textContent=String(ex.message||ex);setError(el,ex.message||ex);}
     const asyncBox=editor.querySelector('[data-reactive-async]');
-    if(ta) ta.value=String((j&&j.formula)!=null?j.formula:(el.getAttribute('data-nl-reactive-default')||''));
+    if(ta && (document.activeElement!==ta || ta.value===initialFormula)){
+      ta.value=String((j&&j.formula)!=null?j.formula:initialFormula);
+      ta.focus();
+    }
     if(asyncBox) asyncBox.checked=!!(j&&j.state&&j.state.exists?j.state.async:(el.getAttribute('data-nl-reactive-async')==='1'));
     const deps=editor.querySelector('[data-reactive-deps]');
     if(deps&&j&&Array.isArray(j.dependencies)) deps.textContent=j.dependencies.length?('Depends on: '+j.dependencies.join(', ')):'';
-    if(ta){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);}
+    if(ta && document.activeElement===ta) ta.setSelectionRange(ta.value.length,ta.value.length);
   }
   window.nlReactiveOpenEditor=openEditor;
+  window.nlReactiveRefresh=async function(root){
+    const widgets = root && root.matches && root.matches('[data-nl-reactive="1"]')
+      ? [root] : Array.from((root || document).querySelectorAll('[data-nl-reactive="1"]'));
+    await Promise.all(widgets.map(async widget => {
+      try { await load(widget, false); } catch (error) { setError(widget, error.message || error); }
+    }));
+  };
 
   function bind(){
     if(bound)return;
     bound=true;
+
+    async function saveLiteralValue(input){
+      const el=input&&input.closest('[data-nl-reactive="1"]');
+      if(!el)return;
+      input.setAttribute('data-nl-reactive-editing','1');
+      input.disabled=true;
+      try{
+        const body=base(el);
+        body.formula=String(input.value||'0');
+        body.async=false;
+        const result=await post(API_FORMULA,body);
+        input.removeAttribute('data-nl-reactive-editing');
+        el.setAttribute('data-nl-reactive-literal-saved-at',String(Date.now()));
+        el.setAttribute('data-nl-reactive-apply-literal-now','1');
+        apply(el,result);
+        el.removeAttribute('data-nl-reactive-apply-literal-now');
+        applyAffectedValues(result.affected_values);
+        cache.fieldsByTarget.clear();
+        if(result.pending)pollOnce().catch(()=>{});
+      }catch(ex){setError(el,ex.message||ex);}
+      finally{input.disabled=false;}
+    }
+
+    document.addEventListener('input',e=>{
+      const input=e.target&&e.target.closest?e.target.closest('[data-nl-reactive-value-input="1"]'):null;
+      if(input)input.setAttribute('data-nl-reactive-editing','1');
+    },true);
+    document.addEventListener('change',async(e)=>{
+      const input=e.target&&e.target.closest?e.target.closest('[data-nl-reactive-value-input="1"]'):null;
+      if(input) await saveLiteralValue(input);
+    },true);
+    document.addEventListener('keydown',async(e)=>{
+      const input=e.target&&e.target.closest?e.target.closest('[data-nl-reactive-value-input="1"]'):null;
+      if(input&&e.key==='Enter'){
+        e.preventDefault();e.stopPropagation();
+        input.blur();
+      }
+    },true);
 
     // Capture phase is intentional: Reactive is a control embedded in layouts
     // which may also have generic click handlers on parent rows/containers.
@@ -6407,30 +6738,32 @@ if(ta){
       if(cancel){
         e.preventDefault();e.stopPropagation();
         const ed=cancel.closest('[data-nl-reactive-editor="1"]');
-        if(ed)ed.hidden=true;
+        if(ed)closeFormulaEditor(ed);
         return;
       }
       const localBtn=t.closest('[data-reactive-local-token]');
       if(localBtn){
         e.preventDefault();e.stopPropagation();
-        const el=localBtn.closest('[data-nl-reactive="1"]');
-        const ta=el&&el.querySelector('[data-reactive-code]');
+        const el=reactiveOwner(localBtn);
+        const ed=localBtn.closest('[data-nl-reactive-editor="1"]');
+        const ta=ed&&ed.querySelector('[data-reactive-code]');
         if(ta){const p=ta.selectionStart||0;insertAt(ta,p,p,'@');}
         return;
       }
       const extBtn=t.closest('[data-reactive-external-token]');
       if(extBtn){
         e.preventDefault();e.stopPropagation();
-        const el=extBtn.closest('[data-nl-reactive="1"]');
-        const ta=el&&el.querySelector('[data-reactive-code]');
+        const el=reactiveOwner(extBtn);
+        const ed=extBtn.closest('[data-nl-reactive-editor="1"]');
+        const ta=ed&&ed.querySelector('[data-reactive-code]');
         if(ta){const p=ta.selectionStart||0;insertAt(ta,p,p,'$');await openExternal(el,ta,p);}
         return;
       }
       const save=t.closest('[data-reactive-save]');
       if(save){
         e.preventDefault();e.stopPropagation();
-        const el=save.closest('[data-nl-reactive="1"]');
-        const ed=el&&el.querySelector('[data-nl-reactive-editor="1"]');
+        const el=reactiveOwner(save);
+        const ed=save.closest('[data-nl-reactive-editor="1"]');
         if(!el||!ed)return;
         const ta=ed.querySelector('[data-reactive-code]');
         const ab=ed.querySelector('[data-reactive-async]');
@@ -6443,11 +6776,13 @@ if(ta){
           body.async=!!(ab&&ab.checked);
           const j=await post(API_FORMULA,body);
           apply(el,j);
+          applyAffectedValues(j.affected_values);
           cache.fieldsByTarget.clear();
+          if(j.pending)pollOnce().catch(()=>{});
           if(j.state&&j.state.status==='error'){
             if(er)er.textContent=String(j.state.error||'Formula error');
           }else{
-            ed.hidden=true;
+            closeFormulaEditor(ed);
           }
         }catch(ex){
           if(er)er.textContent=String(ex.message||ex);
@@ -6458,9 +6793,10 @@ if(ta){
       const ins=t.closest('[data-reactive-insert-ref]');
       if(ins){
         e.preventDefault();e.stopPropagation();
-        const el=ins.closest('[data-nl-reactive="1"]');
+        const el=reactiveOwner(ins);
         const panel=ins.closest('[data-reactive-external]');
-        const ta=el&&el.querySelector('[data-reactive-code]');
+        const ed=ins.closest('[data-nl-reactive-editor="1"]');
+        const ta=ed&&ed.querySelector('[data-reactive-code]');
         if(!panel||!ta)return;
         const className=String(panel.querySelector('[data-reactive-class]').value||'');
         const nodeId=String(panel.querySelector('[data-reactive-node]').value||'');
@@ -6480,7 +6816,7 @@ if(ta){
       if(!t||!t.closest)return;
       const panel=t.closest('[data-reactive-external]');
       if(!panel)return;
-      const el=panel.closest('[data-nl-reactive="1"]');
+      const el=reactiveOwner(panel);
       if(!el)return;
       if(t.matches('[data-reactive-class]')) await loadNodes(el,panel);
       else if(t.matches('[data-reactive-node]')) await loadExternalFields(el,panel);
@@ -6493,11 +6829,12 @@ if(ta){
     document.addEventListener('input',async(e)=>{
       const ta=e.target;
       if(!ta||!ta.matches||!ta.matches('[data-reactive-code]'))return;
-      const el=ta.closest('[data-nl-reactive="1"]');
+      const el=reactiveOwner(ta);
       if(!el)return;
       const pos=ta.selectionStart||0;
       const before=String(ta.value||'').slice(0,pos);
-      const box=el.querySelector('[data-reactive-suggest]');
+      const editor=ta.closest('[data-nl-reactive-editor="1"]');
+      const box=editor&&editor.querySelector('[data-reactive-suggest]');
       if(box)box.hidden=true;
       const m=before.match(/@([^\s@$()+\-*\/=,<>{}\[\]]*)$/u);
       if(m){
@@ -6515,6 +6852,9 @@ if(ta){
   }
 
   async function pollOnce(){
+    if(pollInFlight){pollAgain=true;return;}
+    pollInFlight=true;
+    try{
     const groups=new Map();
     for(const el of elements()){
       if(!validContext(el))continue;
@@ -6523,9 +6863,9 @@ if(ta){
       if(!groups.has(key))groups.set(key,{ctx:c,els:[]});
       groups.get(key).els.push(el);
     }
-    for(const group of groups.values()){
+    await Promise.all(Array.from(groups.values(),async group=>{
       const fields=group.els.map(field).filter(Boolean);
-      if(!fields.length)continue;
+      if(!fields.length)return;
       try{
         const j=await post(API_STATES,{repo_id:group.ctx.repo_id,class_name:group.ctx.class_name,node_id:group.ctx.node_id,fields});
         const items=j.items||{};
@@ -6533,11 +6873,16 @@ if(ta){
       }catch(ex){
         for(const el of group.els)setError(el,ex.message||ex);
       }
+    }));
+    }finally{
+      pollInFlight=false;
+      if(pollAgain){pollAgain=false;pollOnce().catch(()=>{});}
     }
   }
 
-  async function initElements(){
-    const els=elements();
+  async function initElements(root=document){
+    const els=root&&root.matches&&root.matches('[data-nl-reactive="1"]')
+      ? [root] : Array.from((root||document).querySelectorAll('[data-nl-reactive="1"]'));
     if(!els.length)return;
     await Promise.allSettled(els.map(async(el)=>{
       try{await load(el,true);}catch(ex){setError(el,ex.message||ex);}
@@ -6553,9 +6898,21 @@ if(ta){
     // Layouts can be re-rendered without a full page navigation.  Initialise
     // any newly inserted Reactive controls too.
     try{
-      const observer=new MutationObserver(()=>{
+      const pendingRoots=new Set();
+      const observer=new MutationObserver(records=>{
+        for(const record of records){
+          for(const node of Array.from(record.addedNodes||[])){
+            if(node&&node.nodeType===1&&node.matches&&(
+              node.matches('[data-nl-reactive="1"]')||node.querySelector('[data-nl-reactive="1"]')
+            ))pendingRoots.add(node);
+          }
+        }
+        if(!pendingRoots.size)return;
         if(mutationTimer)clearTimeout(mutationTimer);
-        mutationTimer=setTimeout(()=>initElements().catch(()=>{}),40);
+        mutationTimer=setTimeout(()=>{
+          const roots=Array.from(pendingRoots);pendingRoots.clear();
+          Promise.all(roots.map(root=>initElements(root))).catch(()=>{});
+        },40);
       });
       observer.observe(document.body,{childList:true,subtree:true});
     }catch(_){}
@@ -6621,7 +6978,7 @@ function ensureNodePickModal(){
   return document.getElementById("nlNodePickModal");
 }
 
-async function fetchNodesForPicker(kind, dsRaw, q){
+async function fetchNodesForPicker(kind, dsRaw, q, groupsOnly){
   q = String(q || "").trim();
 
   
@@ -6659,6 +7016,8 @@ async function fetchNodesForPicker(kind, dsRaw, q){
     url.searchParams.set("class_name", className);
     url.searchParams.set("q", q);
     url.searchParams.set("limit", "80");
+    url.searchParams.set("hierarchy_mode", groupsOnly ? "groups" : "leaves");
+    if (String(dsRaw || "").trim() === CLASS_NAME) url.searchParams.set("exclude_id", String(NODE_ID || ""));
 
     const r = await fetch(url.toString(), { credentials: "same-origin" });
    const j = await r.json();
@@ -6680,10 +7039,13 @@ async function fetchNodesForPicker(kind, dsRaw, q){
   return [];
 }
 
-async function openNodePickDialog(fieldId, kind, dsRaw){
+async function openNodePickDialog(fieldId, kind, dsRaw, groupsOnly, inlineRow){
   const modalEl = ensureNodePickModal();
   const searchEl = document.getElementById("nlNodePickSearch");
   const listEl = document.getElementById("nlNodePickList");
+
+  const title = modalEl.querySelector(".modal-title");
+  if (title) title.textContent = groupsOnly ? "Выберите родительскую группу" : "Выберите элемент";
 
   const bsModal = new bootstrap.Modal(modalEl);
   bsModal.show();
@@ -6703,15 +7065,25 @@ async function openNodePickDialog(fieldId, kind, dsRaw){
         const view = String(it._view || uid).trim();
 
   
-        setByPath(nlGetDataCtx(), fieldId, uid);
-        setByPath(nlGetDataCtx(), `${fieldId}_data`, it.data || null);
-        setByPath(nlGetDataCtx(), `${fieldId}_view`, view);
+        if (inlineRow) {
+          const rowData = inlineNodeRowData(inlineRow);
+          setByPath(rowData, fieldId, uid);
+          setByPath(rowData, `${fieldId}_data`, it.data || null);
+          setByPath(rowData, `${fieldId}_view`, view);
+          inlineRow.dataset.nlInlineNodeData = JSON.stringify(rowData);
+        } else {
+          setByPath(nlGetDataCtx(), fieldId, uid);
+          setByPath(nlGetDataCtx(), `${fieldId}_data`, it.data || null);
+          setByPath(nlGetDataCtx(), `${fieldId}_view`, view);
+        }
 
 
         
 
   
-        const inp = nlFindFieldInput(fieldId);
+        const inp = inlineRow
+          ? inlineRow.querySelector(`[data-id="${CSS.escape(fieldId)}"]`)
+          : nlFindFieldInput(fieldId);
         if (inp) inp.value = view;
         try { nlExtRefreshInlineActions(); } catch(_) {}
 
@@ -6726,7 +7098,8 @@ async function openNodePickDialog(fieldId, kind, dsRaw){
             { path: `${fieldId}_view`, value: view }
           ]
         };
-        await fireOnInputWeb(payload);
+        if (inlineRow) await saveInlineNodeRow(inlineRow);
+        else await fireOnInputWeb(payload);
 
         bsModal.hide();
       });
@@ -6735,7 +7108,7 @@ async function openNodePickDialog(fieldId, kind, dsRaw){
   };
 
   // initial load
-  let curItems = await fetchNodesForPicker(kind, dsRaw, "");
+  let curItems = await fetchNodesForPicker(kind, dsRaw, "", groupsOnly);
   render(curItems);
 
   // search
@@ -6745,7 +7118,7 @@ async function openNodePickDialog(fieldId, kind, dsRaw){
     if (timer) clearTimeout(timer);
     timer = setTimeout(async () => {
       const q = searchEl.value || "";
-      curItems = await fetchNodesForPicker(kind, dsRaw, q);
+      curItems = await fetchNodesForPicker(kind, dsRaw, q, groupsOnly);
       render(curItems);
     }, 200);
   };

@@ -10,36 +10,76 @@
 
 <div class="row">
   <div class="col-12 col-xl-3 mb-3">
-    <div class="list-group">
-      <div class="list-group-item text-muted small d-flex align-items-center justify-content-between gap-2">
-        <span>{{_('Sections')}}</span>
-        <button id="btnAddExtensionSection" class="btn btn-sm btn-outline-success py-0 px-2" type="button" title="{{ _('Add section') }}" aria-label="{{ _('Add section') }}">+</button>
+    <div class="nl-menu-card">
+      <div class="d-flex align-items-center justify-content-end px-3 py-2 nl-menu-card-tools">
+        <button id="btnAddExtensionSection" class="btn btn-sm btn-outline-success" type="button" title="{{ _('Add section') }}" aria-label="{{ _('Add section') }}"><i class="bi bi-plus-lg"></i></button>
       </div>
-      {% for s in sections if s.code == '__dashboard__' %}
-        <a class="list-group-item list-group-item-action {% if s.code == section_code %}active{% endif %}"
-           href="{{ url_for('client.section_view', section_code=s.code) }}">
-          <div class="text-center" title="{{ _('Home') }}" aria-label="{{ _('Home') }}"><i class="bi bi-house-fill fs-4"></i></div>
-        </a>
-      {% endfor %}
-      {% if ngenie_enabled %}
-      <a class="list-group-item list-group-item-action ngenie-section-link"
-         href="{{ url_for('client.ngenie_page') }}">
-        <div class="fw-semibold">nGenie</div>
-        <div class="small opacity-75">{{ _('AI data assistant') }}</div>
-      </a>
-      {% endif %}
-      {% for s in sections if s.code != '__dashboard__' %}
-        {% set scode = s.code if s.code != '' else '__empty__' %}
-        {% set active = (s.code == section_code) %}
-        <a class="list-group-item list-group-item-action {% if active %}active{% endif %}"
-           {% if s.code.startswith('ext_section_') %}data-nl-ext-section="{{ s.code|e }}"{% endif %}
-           href="{{ url_for('client.section_view', section_code=scode) }}">
-          <div class="fw-semibold">{% if s.code == '__received_nodes__' %}{{ _('Received Nodes') }}{% else %}{{ s.name }}{% endif %}</div>
-          {% if s.code and s.code != '__received_nodes__' %}<div class="small opacity-75">{{ s.code }}</div>{% endif %}
-        </a>
-      {% endfor %}
+      <nav class="nl-menu-body">
+        {% set home_active = section_code == '__dashboard__' %}
+        <a class="nl-menu-link nl-menu-pinned {% if home_active %}active{% endif %}" href="{{ url_for('client.home') }}"><span><i class="bi bi-house-fill me-2"></i>{{ _('Home') }}</span></a>
+        {% set received_exists = sections|selectattr('code', 'equalto', '__received_nodes__')|list|length > 0 %}
+        {% if received_exists %}<a class="nl-menu-link nl-menu-pinned {% if section_code == '__received_nodes__' %}active{% endif %}" href="{{ url_for('client.section_view', section_code='__received_nodes__') }}"><span><i class="bi bi-inbox me-2"></i>{{ _('Received Nodes') }}</span></a>{% endif %}
+        {% if ngenie_enabled %}<a class="nl-menu-link nl-menu-pinned ngenie-section-link" href="{{ url_for('client.ngenie_page') }}"><span><i class="bi bi-stars me-2"></i>nGenie</span></a>{% endif %}
+
+        {% if menu_group_by_config %}
+          {% for config in config_sections %}
+          {% set config_index = loop.index %}
+          {% set has_groups = config.sections|selectattr('menu_group')|list|length > 0 %}
+          <div class="accordion accordion-flush nl-menu-accordion">
+            <div class="accordion-item">
+              <h2 class="accordion-header"><button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#menu-config-body-{{ config_index }}" aria-expanded="false"><i class="bi bi-database me-2"></i><span class="text-truncate">{{ config.name }}</span>{% if config.version %}<small class="nl-config-version">v{{ config.version }}</small>{% endif %}</button></h2>
+              <div id="menu-config-body-{{ config_index }}" class="accordion-collapse collapse"><div class="accordion-body p-1">
+                {% if has_groups %}
+                  {% set ns = namespace(groups=[]) %}{% for s in config.sections %}{% set gn = s.menu_group or _('Other sections') %}{% if gn not in ns.groups %}{% set ns.groups = ns.groups + [gn] %}{% endif %}{% endfor %}
+                  {% for gn in ns.groups %}
+                    {% set group_index = loop.index %}
+                    <div class="accordion accordion-flush nl-menu-accordion nl-menu-subgroup"><div class="accordion-item">
+                      <h2 class="accordion-header"><button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#menu-config-{{ config_index }}-group-{{ group_index }}" aria-expanded="false"><i class="bi bi-folder2 me-2"></i><span class="text-truncate">{{ gn }}</span></button></h2>
+                      <div id="menu-config-{{ config_index }}-group-{{ group_index }}" class="accordion-collapse collapse"><div class="accordion-body p-1">
+                        {% for s in config.sections if (s.menu_group or _('Other sections')) == gn %}{% set scode = s.code if s.code != '' else '__empty__' %}<a class="nl-menu-link {% if s.code == section_code and config.uid == section_config_uid %}active{% endif %}" href="{{ url_for('client.section_view', section_code=scode, config_uid=config.uid) }}"><span class="text-truncate">{{ s.name }}</span></a>{% endfor %}
+                      </div></div>
+                    </div></div>
+                  {% endfor %}
+                {% else %}
+                  {% for s in config.sections %}{% set scode = s.code if s.code != '' else '__empty__' %}<a class="nl-menu-link {% if s.code == section_code and config.uid == section_config_uid %}active{% endif %}" href="{{ url_for('client.section_view', section_code=scode, config_uid=config.uid) }}"><span class="text-truncate">{{ s.name }}</span></a>{% endfor %}
+                {% endif %}
+              </div></div>
+            </div>
+          </div>
+          {% endfor %}
+          {% if loose_sections %}
+          <div class="accordion accordion-flush nl-menu-accordion"><div class="accordion-item">
+            <h2 class="accordion-header"><button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#menu-loose-sections" aria-expanded="false"><i class="bi bi-folder2 me-2"></i><span>{{ _('Other sections') }}</span></button></h2>
+            <div id="menu-loose-sections" class="accordion-collapse collapse"><div class="accordion-body p-1">{% for s in loose_sections %}{% set scode = s.code if s.code != '' else '__empty__' %}<a class="nl-menu-link {% if s.code == section_code %}active{% endif %}" {% if s.code.startswith('ext_section_') %}data-nl-ext-section="{{ s.code|e }}"{% endif %} href="{{ url_for('client.section_view', section_code=scode) }}"><span>{{ s.name }}</span></a>{% endfor %}</div></div>
+          </div></div>
+          {% endif %}
+        {% else %}
+          {% for group_name, group_sections in menu_groups|dictsort %}
+          <div class="accordion accordion-flush nl-menu-accordion"><div class="accordion-item">
+            <h2 class="accordion-header"><button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#menu-group-body-{{ loop.index }}" aria-expanded="false"><i class="bi bi-folder2 me-2"></i><span class="text-truncate">{{ group_name }}</span></button></h2>
+            <div id="menu-group-body-{{ loop.index }}" class="accordion-collapse collapse"><div class="accordion-body p-1">{% for s in group_sections %}{% set scode = s.code if s.code != '' else '__empty__' %}{% set scfg = (s.configurations[0].uid if s.configurations else '') %}<a class="nl-menu-link {% if s.code == section_code and scfg == section_config_uid %}active{% endif %}" {% if s.code.startswith('ext_section_') %}data-nl-ext-section="{{ s.code|e }}"{% endif %} href="{{ url_for('client.section_view', section_code=scode, config_uid=scfg) }}"><span>{{ s.name }}</span></a>{% endfor %}</div></div>
+          </div></div>
+          {% endfor %}
+        {% endif %}
+      </nav>
     </div>
   </div>
+
+  <script>
+  (function(){
+    const key='nl-client-menu-open-v1';
+    const restore=()=>{
+      const nodes=[...document.querySelectorAll('.nl-menu-body .accordion-collapse[id]')];
+      let saved={};try{saved=JSON.parse(localStorage.getItem(key)||'{}')||{}}catch(_){}
+      nodes.forEach(el=>{
+        if(saved[el.id])bootstrap.Collapse.getOrCreateInstance(el,{toggle:false}).show();
+        el.addEventListener('shown.bs.collapse',()=>{saved[el.id]=true;localStorage.setItem(key,JSON.stringify(saved))});
+        el.addEventListener('hidden.bs.collapse',()=>{delete saved[el.id];localStorage.setItem(key,JSON.stringify(saved))});
+      });
+    };
+    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',restore,{once:true});else restore();
+  })();
+  </script>
 
   <div class="col-12 col-xl-9">
     {% if section_code == '__dashboard__' %}
@@ -122,6 +162,20 @@
 <style id="nlCss"></style>
 
 <style>
+  .nl-menu-card{background:linear-gradient(150deg,#fff 0%,#f8faff 100%);border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 8px 28px rgba(31,48,78,.08);overflow:hidden;position:sticky;top:12px;}
+  .nl-menu-card-tools{min-height:50px;}
+  .nl-menu-body{max-height:calc(100vh - 205px);overflow-y:auto;border-top:1px solid #edf0f5;}
+  .nl-menu-accordion .accordion-item{border:0;border-bottom:1px solid #edf0f5;background:transparent;}
+  .nl-menu-accordion .accordion-button{font-size:.9rem;font-weight:600;color:#334155;background:transparent;box-shadow:none;}
+  .nl-menu-accordion .accordion-button:not(.collapsed){color:#234bb5;background:#f2f5ff;}
+  .nl-config-version{flex:0 0 auto;margin-left:.55rem;color:#8b95a7;font-size:.7rem;font-weight:400;}
+  .nl-menu-accordion .accordion-button::after{width:.85rem;height:.85rem;background-size:.85rem;}
+  .nl-menu-link{display:flex;align-items:center;min-height:36px;padding:7px 10px 7px 14px;margin:2px 0;border-radius:8px;color:#475569;text-decoration:none;font-size:.88rem;}
+  .nl-menu-link:hover{background:#f1f5f9;color:#1e40af;}
+  .nl-menu-link.active{background:#e8efff;color:#1d4ed8;font-weight:600;box-shadow:inset 3px 0 #3b67d9;}
+  .nl-menu-link > span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .nl-menu-pinned{font-weight:600;color:#334155;}
+  .nl-menu-subgroup{margin-left:5px;border-left:1px solid #e5eaf2;}
   .section-toolbar { overflow: hidden; }
   .section-toolbar > * { flex-shrink: 0; }
   .section-toolbar #q { min-width: 140px; flex: 1 1 180px; }
@@ -208,6 +262,7 @@
 
 <script>
 const sectionCode = {{ section_code | tojson }};
+const sectionConfigUid = {{ section_config_uid | tojson }};
 const isDashboard = sectionCode === "__dashboard__";
 const autoSeconds = {{ auto_refresh | tojson }};
 
@@ -309,7 +364,7 @@ let dashboardLayoutOrder = null;
 let dashboardEditMode = false;
 let dashboardDragKey = null;
 let allSectionClasses = [];
-const classVisibilityStorageKey = `noda.section.classes.${sectionCode}`;
+const classVisibilityStorageKey = `noda.section.classes.${sectionConfigUid || 'account'}.${sectionCode}`;
 const shownLabel = {{ _('Shown')|tojson }};
 const ofLabel = {{ _('of')|tojson }};
 const sectionFilterLocale = {{ get_locale()|string|tojson }};
@@ -935,16 +990,17 @@ function openNodeForm(repo_id, class_name, node_id){
   const url = nodeFormUrl(repo_id, class_name, node_id);
   const name = nodeWinName(repo_id, class_name, node_id);
 
-
-  const w = window.open(url, name);
+  const w = typeof window.nlOpenWindow === 'function' ? window.nlOpenWindow(url, name) : window.open(url, name);
   if (w) { try { w.focus(); } catch(_){} }
+  else if (url) window.location.assign(url);
   return false;
 }
 function openRawNodeForm(raw_node_id){
   const url = rawNodeFormUrl(raw_node_id);
   const name = rawNodeWinName(raw_node_id);
-  const w = window.open(url, name);
+  const w = typeof window.nlOpenWindow === 'function' ? window.nlOpenWindow(url, name) : window.open(url, name);
   if (w) { try { w.focus(); } catch(_){} }
+  else if (url) window.location.assign(url);
   return false;
 }
 function openItemForm(it){
@@ -1193,14 +1249,14 @@ async function createExtensionSection(){
 async function createExtensionClass(){
   const name = (prompt({{ _('Class name')|tojson }}) || '').trim();
   if (!name) return;
-  const r = await fetch(apiExtClassCreate, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({section_code:sectionCode, name})});
+  const r = await fetch(apiExtClassCreate, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({section_code:sectionCode, config_uid:sectionConfigUid, name})});
   const j = await r.json();
   if (!j.ok) throw new Error(j.error || 'create class failed');
   await loadSection();
 }
 
 async function createExtensionNode(classId){
-  const r = await fetch(apiExtNodeCreate, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({section_code:sectionCode, class_id:classId || ''})});
+  const r = await fetch(apiExtNodeCreate, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({section_code:sectionCode, config_uid:sectionConfigUid, class_id:classId || ''})});
   const j = await r.json();
   if (!j.ok) throw new Error(j.error || 'create extension node failed');
   openRawNodeForm(j.raw_node_id || j.node_id);
@@ -1595,7 +1651,7 @@ if (bulkBtn) bulkBtn.onclick = async () => {
         <tr class="nl-table-node-row ${it.is_custom_process ? 'table-warning' : ''}"${rowStyle}
             data-open-url="${escapeHtml(openUrl)}" data-open-target="${escapeHtml(openTarget)}" tabindex="0">
           <td><input class="chkRow" type="checkbox" data-key="${escapeHtml(key)}" ${checked}></td>
-          ${cols.map((c, idx) => `<td>${idx === 0 ? `<a href="${escapeHtml(openUrl)}" target="${escapeHtml(openTarget)}" rel="noopener">${c}</a>` : c}</td>`).join("")}
+          ${cols.map((c, idx) => `<td>${idx === 0 ? `<a href="${escapeHtml(openUrl)}" target="${escapeHtml(openTarget)}">${c}</a>` : c}</td>`).join("")}
           <td>${renderTableTags(it.tags)}</td>
         </tr>
       `;
@@ -1627,8 +1683,9 @@ if (bulkBtn) bulkBtn.onclick = async () => {
         const url = row.getAttribute("data-open-url") || "";
         const target = row.getAttribute("data-open-target") || "_blank";
         if (!url) return;
-        const w = window.open(url, target);
+        const w = typeof window.nlOpenWindow === 'function' ? window.nlOpenWindow(url, target) : window.open(url, target);
         if (w) { try { w.focus(); } catch(_){} }
+        else window.location.assign(url);
       };
       row.addEventListener("click", (e) => {
         if (e.target && e.target.closest("a,input,button,label,select,textarea")) return;
@@ -1698,7 +1755,7 @@ if (bulkBtn) bulkBtn.onclick = async () => {
             <div class="card-body">
               ${top}
               <div class="fw-semibold mb-2">
-                <a href="${escapeHtml(itemFormUrl(it))}" target="${escapeHtml(itemWinName(it))}" rel="noopener">${escapeHtml(it.id || "")}</a>
+                <a href="${escapeHtml(itemFormUrl(it))}" target="${escapeHtml(itemWinName(it))}">${escapeHtml(it.id || "")}</a>
               </div>
               ${previewData(it.data || {})}
               
@@ -1812,6 +1869,7 @@ async function loadSection() {
   try {
     const url = new URL(apiSection, window.location.origin);
     url.searchParams.set("section_code", sectionCode === "__empty__" ? "" : sectionCode);
+    if (sectionConfigUid) url.searchParams.set("config_uid", sectionConfigUid);
     if (q) url.searchParams.set("q", q);
     if (f.index_filters) url.searchParams.set("index_filters", f.index_filters);
     if (f.index_name) url.searchParams.set("index_name", f.index_name);
@@ -2044,16 +2102,15 @@ window.addEventListener("focus", refreshIfStale);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshIfStale(); });
 
 function wireCardClicks() {
-  document.querySelectorAll(".node-card").forEach(card => {
-    card.addEventListener("click", (e) => {
-      if (e.target.closest("button") || e.target.closest("a") || e.target.closest("input")) return;
-      const url = card.dataset.url;
-      const winName = card.dataset.win || "_blank";
-      if (url) {
-        const w = window.open(url, winName);
-        if (w) { try { w.focus(); } catch(_){} }
-      }
-    });
+  const grid=document.getElementById('viewGrid');
+  if(!grid||grid.dataset.cardClickHandler==='1')return;
+  grid.dataset.cardClickHandler='1';
+  grid.addEventListener('click',(e)=>{
+    const card=e.target.closest('.node-card');
+    if(!card||e.target.closest('button,a,input,select,textarea,label'))return;
+    const url=card.dataset.url;
+    const winName=card.dataset.win||'_blank';
+    if(url){const w=window.open(url,winName);if(w){try{w.focus()}catch(_){}}}
   });
 }
 wireCardClicks();
