@@ -2259,7 +2259,7 @@
       // IMPORTANT: do not set historyLoaded=false before the generation branch.
       // If apply/generation fails, there is no subsequent history reload and the
       // composer would otherwise remain disabled forever.
-      if (String(data.plan_type || '').toLowerCase() === 'generate' && data.generate_prompt) {
+      if (String(data.plan_type || '').toLowerCase() === 'generate' && (data.generation_step_key || data.generate_prompt)) {
         historyLoaded = true;
         updateComposerAvailability();
         handleQuestionAnswerResponse(data, null, true);
@@ -2564,16 +2564,15 @@
       refreshSolutionSummary();
       return false;
     }
-    if (ptype === 'generate' && data.generate_prompt) {
+    if (ptype === 'generate' && (data.generation_step_key || data.generate_prompt)) {
       if (pendingMsg) pendingMsg.textContent = data.message || 'Начинаю генерацию конфигурации по утвержденному решению.';
-      const fd = new FormData();
-      fd.append('prompt', data.generate_prompt);
-      fd.append('llm', 'ngenie_code');
-      fd.append('solution_plan_generate', '1');
-      if (solutionModelEl) fd.append('solution_model', solutionModelEl.value);
-      if (handlerDeltaModeEl && handlerDeltaModeEl.checked) fd.append('handler_delta_mode', '1');
+      const payload = { llm: 'ngenie_code', solution_plan_generate: true };
+      if (data.generation_step_key) payload.generation_step_key = data.generation_step_key;
+      else payload.prompt = data.generate_prompt;
+      if (solutionModelEl) payload.solution_model = solutionModelEl.value;
+      if (handlerDeltaModeEl && handlerDeltaModeEl.checked) payload.handler_delta_mode = true;
       setBusy(true, 'nGenie Code генерирует конфигурацию');
-      fetch(aiGenerateUrl, { method: 'POST', body: fd, headers: { 'Accept': 'application/json' } })
+      fetch(aiGenerateUrl, { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' } })
         .then(async res => ({ ok: res.ok, status: res.status, data: await readJsonResponse(res) }))
         .then(({ ok, status, data }) => {
           if (!ok || data.status !== 'ok') { showError(data.message || ('HTTP ' + status)); return; }

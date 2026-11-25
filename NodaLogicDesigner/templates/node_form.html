@@ -858,6 +858,10 @@
               </div>
               <div id="nlQuantLedgerMovements"></div>
             </div>
+            <div id="nlCostGraphSection" class="mb-4" hidden>
+              <h6 class="mb-2">CostGraph</h6>
+              <div id="nlCostGraphMovements"></div>
+            </div>
             <div>
               <div class="d-flex align-items-center gap-2 mb-2">
                 <h6 class="mb-0">{{ _('Transactions') }}</h6>
@@ -1530,6 +1534,22 @@ function nlRenderQuantMovements(section){
   }).join('');
 }
 
+function nlRenderCostGraph(section){
+  const host = document.getElementById('nlCostGraphMovements');
+  if (!host || !section) return;
+  document.getElementById('nlCostGraphSection').hidden = false;
+  const link = ref => ref && ref.url
+    ? `<a href="${escapeHtml(ref.url)}" target="_blank" rel="noopener">${escapeHtml(ref.name)}</a>`
+    : '';
+  const rows = Array.isArray(section.movements) ? section.movements : [];
+  host.innerHTML = rows.length ? rows.map(row => `<div class="border rounded p-2 mb-2">
+      <strong>${escapeHtml(row.kind)} · ${escapeHtml(row.amount)}</strong>
+      <div>${row.origin ? link(row.origin) + ' → ' : ''}${link(row.target)}
+      ${row.share ? ' · ' + escapeHtml(row.share) : ''}</div>
+      ${row.document ? '<div>' + link(row.document) + '</div>' : ''}
+    </div>`).join('') : `<div class="text-muted small">${escapeHtml(section.error || NL_MOVEMENTS_I18N.none)}</div>`;
+}
+
 function nlRenderTransactionMovements(section){
   const host = document.getElementById('nlTransactionMovements');
   const count = document.getElementById('nlTransactionCount');
@@ -1601,6 +1621,7 @@ async function nlLoadMovements(force=true){
     if (data.job) data = await nlResolveBackgroundEventResponse(data);
     if (!data || data.ok !== true) throw new Error((data && data.error) || NL_MOVEMENTS_I18N.loadError);
     nlRenderQuantMovements(data.quant_ledger || {});
+    nlRenderCostGraph(data.cost_graph);
     nlRenderTransactionMovements(data.transactions || {});
     nlMovementsLoaded = true;
     if (status) status.textContent = '';
@@ -2115,6 +2136,26 @@ function nlGetDataCtx(){
   return window.__nlActiveDataContext || _data;
 }
 
+// Covers rendered inside Table(nodes_source=true) belong to the referenced
+// child node, not to the node whose form is currently open.  The server wraps
+// such covers in data-nl-cover-data so client-side template refreshes keep the
+// same data context that was used for the initial render.
+function nlGetTemplateDataCtx(el){
+  const coverRoot = el && typeof el.closest === 'function'
+    ? el.closest('.nl-cover-runtime[data-nl-cover-data]')
+    : null;
+  if (coverRoot) {
+    const raw = coverRoot.getAttribute('data-nl-cover-data');
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch(_) {}
+    }
+  }
+  return nlGetDataCtx();
+}
+
 function nlIsVirtualCtx(){
   return !!window.__nlActiveDataContext;
 }
@@ -2291,7 +2332,7 @@ function nlIsHexColorString(value){
   return /^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/.test(s);
 }
 
-function nlResolveTemplateString(tpl){
+function nlResolveTemplateString(tpl, el){
   if (tpl == null) return "";
   const s = String(tpl);
   const st = s.trim();
@@ -2314,7 +2355,7 @@ function nlResolveTemplateString(tpl){
   // @var or text with @var inside. In a virtual-node editor the active
   // context is the embedded row; outside it this resolves to the parent node.
   if (s.includes('@')) {
-    const dataCtx = nlGetDataCtx();
+    const dataCtx = nlGetTemplateDataCtx(el);
 
     // Extension field ids are human captions and may contain spaces.  If the
     // whole template is one @reference, prefer an exact top-level key before
@@ -2349,7 +2390,7 @@ function nlResolveLinkTextTemplate(el, tpl){
   const st = String(tpl == null ? '' : tpl).trim();
   if (!st.startsWith('@') || st.indexOf('@', 1) >= 0) return null;
 
-  const dataCtx = nlGetDataCtx();
+  const dataCtx = nlGetTemplateDataCtx(el);
   const exactKey = st.slice(1);
   let key = '';
   if (dataCtx && typeof dataCtx === 'object' && Object.prototype.hasOwnProperty.call(dataCtx, exactKey)) {
@@ -2375,7 +2416,7 @@ function nlResolveLinkTextTemplate(el, tpl){
 }
 
 function nlApplyTemplateAttr(el, name, tpl){
-  let val = nlResolveTemplateString(tpl);
+  let val = nlResolveTemplateString(tpl, el);
   if (name === 'text') {
     const linkVal = nlResolveLinkTextTemplate(el, tpl);
     if (linkVal !== null) val = linkVal;
@@ -2477,7 +2518,7 @@ function nlRefreshUI(){
     if (el.tagName === 'IMG') return;
 
     const tpl = el.getAttribute('data-nl-tpl-src');
-    const src = String(nlResolveTemplateString(tpl) ?? '');
+    const src = String(nlResolveTemplateString(tpl, el) ?? '');
     if (src) {
       const img = document.createElement('img');
       img.className = el.className.replace('nl-empty','').trim() || 'nl-picture';

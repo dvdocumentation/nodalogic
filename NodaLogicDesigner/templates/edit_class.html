@@ -109,6 +109,15 @@
             <label class="form-check-label" for="hasStorage">{{ _('Autosave to _data') }}</label>
           </div>
 
+          {% if not class_obj.class_type or class_obj.class_type == 'data_node' %}
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="hierarchyEnabled" name="hierarchy_enabled"
+                   {% if class_obj.hierarchy_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="hierarchyEnabled">Иерархический справочник</label>
+            <small class="text-muted d-block">Добавляет признаки группы и родителя. Дочерние элементы хранят ссылку на родителя.</small>
+          </div>
+          {% endif %}
+
           <div class="mb-3 form-check">
             <input type="checkbox" class="form-check-input" id="allowClientExtensions" name="allow_client_extensions"
                    {% if class_obj.allow_client_extensions is not false %}checked{% endif %}>

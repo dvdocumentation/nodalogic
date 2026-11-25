@@ -326,6 +326,33 @@
                                 <input type="text" class="form-control" id="serverName" name="server_name" value="{{ config.server_name }}">
                             </div>
 
+                            {% set selected_engines = config.compute_engines or {} %}
+                            <div class="col-12">
+                                <h6 class="mb-1">{{ 'Вычислительные ядра' if get_locale() == 'ru' else 'Compute engines' }}</h6>
+                                <div class="form-text mb-2">{{ 'Выбор применяется отдельно для каждой конфигурации. Rust требует установленного native_core расширения; по умолчанию используется текущий Python-движок.' if get_locale() == 'ru' else 'Selection is per configuration. Rust requires the native_core extension; the current Python engine is used by default.' }}</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="engineReactive" class="form-label">Reactive</label>
+                                <select class="form-select" id="engineReactive" name="engine_reactive">
+                                    <option value="python" {% if selected_engines.get('reactive', 'python') == 'python' %}selected{% endif %}>Python</option>
+                                    <option value="rust" {% if selected_engines.get('reactive', 'python') == 'rust' %}selected{% endif %}>Rust</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="engineCostGraph" class="form-label">CostGraph</label>
+                                <select class="form-select" id="engineCostGraph" name="engine_cost_graph">
+                                    <option value="python" {% if selected_engines.get('cost_graph', 'python') == 'python' %}selected{% endif %}>Python</option>
+                                    <option value="rust" {% if selected_engines.get('cost_graph', 'python') == 'rust' %}selected{% endif %}>Rust</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="enginePlanning" class="form-label">{{ 'Планирование операций' if get_locale() == 'ru' else 'Operation planning' }}</label>
+                                <select class="form-select" id="enginePlanning" name="engine_operation_planning">
+                                    <option value="python" {% if selected_engines.get('operation_planning', 'python') == 'python' %}selected{% endif %}>Python</option>
+                                    <option value="rust" {% if selected_engines.get('operation_planning', 'python') == 'rust' %}selected{% endif %}>Rust</option>
+                                </select>
+                            </div>
+
                             <div class="col-12">
                                 <label for="configDescription" class="form-label">{{ _('Description') }}</label>
                                 <textarea class="form-control" id="configDescription" name="description" rows="3" placeholder="{{ _('Short description of the configuration') }}">{{ config.description or '' }}</textarea>

@@ -20,6 +20,12 @@
                         Rooms
                     </button>
                 </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="backup-tab" data-bs-toggle="tab"
+                            data-bs-target="#backup" type="button" role="tab">
+                        {{ _('BackUp') }}
+                    </button>
+                </li>
             </ul>
 
             <!-- Tab content -->
@@ -150,6 +156,48 @@
                     </div>
                     {% endif %}
                 </div>
+
+                <!-- Full configuration backup and transfer -->
+                <div class="tab-pane fade" id="backup" role="tabpanel">
+                    <div class="card mb-4">
+                        <div class="card-header"><h5 class="mb-0">{{ _('Download configurations') }}</h5></div>
+                        <div class="card-body">
+                            <p class="text-muted">{{ _('The archive includes configuration settings, dataset records, node storage, server handlers and UserFiles.') }}</p>
+                            {% if configs %}
+                            <form method="POST" action="{{ url_for('dashboard_config_backup_export') }}" id="backupExportForm">
+                                <div class="d-flex flex-wrap gap-2 mb-3">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="backupSelectAll">{{ _('Select all') }}</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="backupSelectNone">{{ _('Clear selection') }}</button>
+                                </div>
+                                <div class="list-group mb-3">
+                                    {% for config in configs %}
+                                    <label class="list-group-item d-flex align-items-center gap-2">
+                                        <input class="form-check-input backup-config-checkbox" type="checkbox" name="config_uids" value="{{ config.uid }}">
+                                        <span>{{ config.name }} <small class="text-muted">({{ config.uid }})</small></span>
+                                    </label>
+                                    {% endfor %}
+                                </div>
+                                <button type="submit" class="btn btn-primary"><i class="bi bi-download"></i> {{ _('Download selected as ZIP') }}</button>
+                            </form>
+                            {% else %}
+                            <div class="alert alert-info mb-0">{{ _('No configurations available in the configurator.') }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h5 class="mb-0">{{ _('Restore configurations') }}</h5></div>
+                        <div class="card-body">
+                            <div class="alert alert-warning">{{ _('Configurations with matching UIDs will be replaced, including their current records and files. A UID owned by another user cannot be replaced.') }}</div>
+                            <form method="POST" action="{{ url_for('dashboard_config_backup_import') }}" enctype="multipart/form-data" onsubmit="return confirm('{{ _('Restore this archive? Matching configurations will be overwritten.') }}')">
+                                <div class="mb-3">
+                                    <label for="backupArchiveFile" class="form-label">{{ _('Backup archive (*.zip)') }}</label>
+                                    <input class="form-control" type="file" id="backupArchiveFile" name="backup_file" accept=".zip,application/zip" required>
+                                </div>
+                                <button type="submit" class="btn btn-outline-primary"><i class="bi bi-upload"></i> {{ _('Upload and restore') }}</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -188,15 +236,31 @@ document.addEventListener('DOMContentLoaded', function() {
     if (window.location.hash === '#rooms') {
         const roomsTab = new bootstrap.Tab(document.getElementById('rooms-tab'));
         roomsTab.show();
+    } else if (window.location.hash === '#backup') {
+        new bootstrap.Tab(document.getElementById('backup-tab')).show();
     }
     
     window.addEventListener('hashchange', function() {
         if (window.location.hash === '#rooms') {
             const roomsTab = new bootstrap.Tab(document.getElementById('rooms-tab'));
             roomsTab.show();
+        } else if (window.location.hash === '#backup') {
+            new bootstrap.Tab(document.getElementById('backup-tab')).show();
         } else if (window.location.hash === '#configs' || window.location.hash === '') {
             const configsTab = new bootstrap.Tab(document.getElementById('configs-tab'));
             configsTab.show();
+        }
+    });
+    document.getElementById('backupSelectAll')?.addEventListener('click', function() {
+        document.querySelectorAll('.backup-config-checkbox').forEach(box => box.checked = true);
+    });
+    document.getElementById('backupSelectNone')?.addEventListener('click', function() {
+        document.querySelectorAll('.backup-config-checkbox').forEach(box => box.checked = false);
+    });
+    document.getElementById('backupExportForm')?.addEventListener('submit', function(event) {
+        if (!document.querySelector('.backup-config-checkbox:checked')) {
+            event.preventDefault();
+            alert('{{ _('Select at least one configuration.') }}');
         }
     });
 });
