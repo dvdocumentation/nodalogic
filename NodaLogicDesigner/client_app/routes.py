@@ -3714,6 +3714,7 @@ def normalize_sections(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
             "name": s.get("name") or (s.get("code") or "<no code>"),
             # Web-client-only menu category; ignored by mobile clients.
             "menu_group": str(s.get("menu_group") or s.get("menuGroup") or s.get("group") or "").strip(),
+            "parent_code": str(s.get("parent_code") or "").strip(),
             "commands": (s.get("commands") or "").strip(),
             "hide_mobile_client": bool(s.get("hide_mobile_client") or s.get("hideMobileClient")),
             "hide_web_client": bool(s.get("hide_web_client") or s.get("hideWebClient")),
@@ -3746,7 +3747,8 @@ def build_parsed_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
             continue
         classes_by_name[name] = c
         sc = class_section_code(c)
-        classes_by_section.setdefault(sc, []).append(c)
+        if sc:
+            classes_by_section.setdefault(sc, []).append(c)
 
     # Rooms mapping: alias -> room_uid
     rooms_map: Dict[str, str] = {}
@@ -4056,6 +4058,7 @@ def fetch_config_from_local_db(config_uid: str, user=None) -> Dict[str, Any]:
             "name": s.name,
             "code": s.code,
             "commands": s.commands,
+            "parent_code": s.parent_code or "",
             "hide_mobile_client": bool(getattr(s, "hide_mobile_client", False)),
             "hide_web_client": bool(getattr(s, "hide_web_client", False)),
             "mobile_form_node": getattr(s, "mobile_form_node", "") or "",
@@ -4316,9 +4319,25 @@ def fetch_config(config_url: str) -> Dict[str, Any]:
     return resp.json()
 
 
+def _section_menu_tree(sections):
+    by_code = {s["code"]: {**s, "children": []} for s in sections}
+    roots = []
+    for section in by_code.values():
+        parent_code = section.get("parent_code")
+        visited = {section["code"]}
+        ancestor = parent_code
+        while ancestor in by_code and ancestor not in visited:
+            visited.add(ancestor)
+            ancestor = by_code[ancestor].get("parent_code")
+        if parent_code in by_code and ancestor not in visited:
+            by_code[parent_code]["children"].append(section)
+        else:
+            roots.append(section)
+    return roots
+
+
 def build_global_sections(repos: List[models.Repo], db) -> List[Dict[str, Any]]:
     seen: Dict[str, Dict[str, Any]] = {}
-    has_empty = False
 
     state = _client_extension_load_state()
 
@@ -4328,15 +4347,22 @@ def build_global_sections(repos: List[models.Repo], db) -> List[Dict[str, Any]]:
             continue
         cfg = parsed["cfg"]
         classes = [c for c in (cfg.get("classes") or []) if not bool(c.get("hidden")) and not _is_print_form_class_type(c)]
-        section_codes_with_classes = {class_section_code(c) for c in classes}
-        if "" in section_codes_with_classes:
-            has_empty = True
-        for sec in normalize_sections(cfg):
+        section_codes_with_classes = {
+            class_section_code(c) for c in classes
+            if not (c.get("hide_web_client") or c.get("hideWebClient"))
+        }
+        configured = {sec["code"]: sec for sec in normalize_sections(cfg)}
+        visible_codes = section_codes_with_classes | {str(c.get("section") or "") for c in state.get("classes") or []}
+        for code in tuple(visible_codes):
+            parent = configured.get(code, {}).get("parent_code")
+            while parent in configured and parent not in visible_codes:
+                visible_codes.add(parent)
+                parent = configured[parent]["parent_code"]
+        for sec in configured.values():
             code = sec["code"]
             # Keep a configured section visible when it can accept client-created
             # content even before it has any normal accessible class in this browser.
-            has_ext_class = any(str(c.get("section") or "") == code for c in state.get("classes") or [])
-            if code not in section_codes_with_classes and not has_ext_class:
+            if code not in visible_codes:
                 continue
             if code not in seen:
                 seen[code] = {
@@ -4347,12 +4373,16 @@ def build_global_sections(repos: List[models.Repo], db) -> List[Dict[str, Any]]:
                     "mobile_form_node": str(sec.get("mobile_form_node") or ""),
                     "web_form_node": str(sec.get("web_form_node") or ""),
                     "menu_group": str(sec.get("menu_group") or "").strip(),
+                    "parent_code": sec["parent_code"],
                     "configurations": [],
                 }
             config_entry = {
                 "uid": str(r.config_uid or ""),
                 "name": str(r.name or r.config_uid or ""),
                 "version": str(cfg.get("version") or r.version or "").strip(),
+                "section_name": sec["name"],
+                "parent_code": sec["parent_code"],
+                "menu_group": sec["menu_group"],
             }
             if config_entry not in seen[code].setdefault("configurations", []):
                 seen[code]["configurations"].append(config_entry)
@@ -4399,8 +4429,6 @@ def build_global_sections(repos: List[models.Repo], db) -> List[Dict[str, Any]]:
         }
 
     sections: List[Dict[str, Any]] = []
-    if has_empty:
-        sections.append({"code": "", "name": "<...>", "is_extension": False, "allow_client_extensions": True})
     for code in sorted(seen.keys(), key=lambda x: str(seen[x].get("name") or x).lower()):
         if code == "":
             continue
@@ -13553,7 +13581,9 @@ def section_view(section_code: str):
         configurations = selected.get("configurations") or []
         config_uid = str(configurations[0].get("uid") or "") if configurations else ""
         return redirect(url_for("client.section_view", section_code=(first if first != "" else "__empty__"), config_uid=config_uid))
-    sec_name = DASHBOARD_SECTION_NAME if code == DASHBOARD_SECTION_CODE else ("<...>" if code == "" else next((s["name"] for s in sections if s["code"] == code), code))
+    selected = next((s for s in sections if s["code"] == code), {})
+    selected_config = next((c for c in selected.get("configurations", []) if c["uid"] == section_config_uid), {})
+    sec_name = selected_config.get("section_name") or selected.get("name", code)
 
     menu_groups: Dict[str, List[Dict[str, Any]]] = {}
     config_sections: Dict[str, Dict[str, Any]] = {}
@@ -13573,8 +13603,17 @@ def section_view(section_code: str):
                 "version": config.get("version") or "",
                 "sections": [],
             })
-            if section not in entry["sections"]:
-                entry["sections"].append(section)
+            entry["sections"].append({
+                **section,
+                "name": config["section_name"],
+                "parent_code": config["parent_code"],
+                "menu_group": config["menu_group"],
+            })
+
+    for entry in config_sections.values():
+        entry["sections"] = _section_menu_tree(entry["sections"])
+    for group, entries in menu_groups.items():
+        menu_groups[group] = _section_menu_tree(entries)
 
     return render_template(
         "client/section.html",
@@ -14258,7 +14297,7 @@ def api_section_data():
         if is_dashboard:
             cls_in_section = [c for c in ((parsed.get("cfg") or {}).get("classes") or []) if _class_dashboard_enabled(c)]
         else:
-            cls_in_section = classes_by_section.get(section_code, []) if section_code != "" else classes_by_section.get("", [])
+            cls_in_section = classes_by_section.get(section_code, [])
 
         cls_in_section = [
             c for c in (cls_in_section or [])
@@ -16505,11 +16544,13 @@ def api_node_movements():
     cost_result = None
     if class_name in {"ERPReceipt", "ERPProduction", "ERPAllocation"}:
         try:
-            from n50_erp.native import movements_for_document
+            handlers = _load_server_handlers_ns(repo.config_uid, parsed)
+        except (ImportError, ValueError):
+            handlers = {}
+        movements_for_document = handlers.get("movements_for_document")
+        if callable(movements_for_document):
             document = _movement_node_candidates(repo.config_uid, class_name, node_id)["full_uid"]
             cost_result = movements_for_document(repo.config_uid, document)
-        except ImportError:
-            pass
     return jsonify({
         "ok": True,
         "quant_ledger": quant_result,
