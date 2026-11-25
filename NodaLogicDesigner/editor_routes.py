@@ -15,6 +15,9 @@ from io import BytesIO
 import json
 import pickle
 import sqlite3
+import zipfile
+import shutil
+import tempfile
 import os
 import re
 import secrets
@@ -32,6 +35,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 from functools import wraps
+from xml.etree import ElementTree
 
 import requests
 from flask import (
@@ -64,6 +68,8 @@ from jinja2.sandbox import SandboxedEnvironment
 from jinja2 import select_autoescape
 from markupsafe import escape as html_escape
 from llm_credentials import chat_completion as _shared_chat_completion, message_content as _shared_message_content
+from compute_engines import normalize_settings, sync_configuration
+from class_hierarchy import sync_hierarchy_class_ui
 
 try:
     from reportlab.graphics.barcode import createBarcodeDrawing
@@ -73,6 +79,7 @@ except Exception:  # optional dependency
 from extensions import db
 from models import (
     Dataset,
+    DatasetItem,
     Room,
     RoomDevice,
     RoomAlias,
@@ -3612,6 +3619,16 @@ def edit_config(uid):
                 pass
         config.name = request.form.get('name')
         config.server_name = request.form.get('server_name')
+        if any(key in request.form for key in ('engine_reactive', 'engine_cost_graph', 'engine_operation_planning')):
+            try:
+                config.compute_engines = normalize_settings({
+                    'reactive': request.form.get('engine_reactive', 'python'),
+                    'cost_graph': request.form.get('engine_cost_graph', 'python'),
+                    'operation_planning': request.form.get('engine_operation_planning', 'python'),
+                })
+            except ValueError as exc:
+                flash(str(exc), 'error')
+                return redirect(url_for('edit_config', uid=uid, tab='config'))
         if 'ngenie_prompt' in request.form:
             config.ngenie_prompt = request.form.get('ngenie_prompt') or ''
         if 'profile_templates_json' in request.form and hasattr(config, 'profile_templates'):
@@ -3622,6 +3639,8 @@ def edit_config(uid):
                 flash(_('Profile templates JSON error') + ': ' + str(e), 'error')
                 return redirect(url_for('edit_config', uid=uid, tab='profile-templates'))
         db.session.commit()
+        if hasattr(config, 'compute_engines'):
+            sync_configuration(config.uid, config.compute_engines)
         if 'profile_templates_json' in request.form and hasattr(config, 'profile_templates'):
             _materialize_profile_templates_for_config(config)
         flash(_('Configuration saved'), 'success')
@@ -3731,6 +3750,64 @@ def delete_class(class_id):
 
     return redirect(url_for('edit_config', uid=config_uid, tab=active_tab))
 
+def _sync_hierarchy_class_ui(class_obj):
+    """Expose the generic hierarchy fields in the web form for opted-in classes."""
+    if not bool(getattr(class_obj, 'hierarchy_enabled', False)):
+        try:
+            layout = json.loads(class_obj.init_screen_layout_web or '[]')
+        except Exception:
+            return
+        if isinstance(layout, list):
+            for row in layout:
+                if isinstance(row, list):
+                    row[:] = [el for el in row if not (isinstance(el, dict) and el.get('id') in {'parent_ref', 'is_group'})]
+            layout[:] = [row for row in layout if row]
+            class_obj.init_screen_layout_web = json.dumps(layout, ensure_ascii=False)
+        return
+
+    # Keep these fields in the class schema so handlers and exported configs can
+    # read them. Do not add a child list to the parent record: parent_ref is the
+    # only hierarchy edge stored on each node.
+    structure = str(class_obj.data_structure or '')
+    known = {line.split(':', 1)[0].split('|')[-1].strip() for line in structure.splitlines() if ':' in line}
+    additions = []
+    if 'parent_ref' not in known:
+        additions.append(f'Родитель|parent_ref: Node("{class_obj.name}")')
+    if 'is_group' not in known:
+        additions.append('Это группа|is_group: boolean')
+    if additions:
+        class_obj.data_structure = (structure.rstrip() + '\n' if structure.strip() else '') + '\n'.join(additions)
+
+    try:
+        layout = json.loads(class_obj.init_screen_layout_web or '[]')
+    except Exception:
+        layout = []
+    if not isinstance(layout, list):
+        layout = []
+    known_ids = set()
+    def collect(value):
+        if isinstance(value, list):
+            for item in value:
+                collect(item)
+        elif isinstance(value, dict):
+            if value.get('id'):
+                known_ids.add(str(value['id']))
+            collect(value.get('layout'))
+            vn = value.get('virtual_node')
+            if isinstance(vn, dict):
+                collect(vn.get('layout'))
+    collect(layout)
+    generated = []
+    if 'parent_ref' not in known_ids:
+        generated.append({'type': 'NodeInput', 'id': 'parent_ref', 'caption': 'Родительская группа',
+                          'value': '@parent_ref', 'dataset': class_obj.name, 'groups_only': True})
+    if 'is_group' not in known_ids:
+        generated.append({'type': 'CheckBox', 'id': 'is_group', 'caption': 'Это группа', 'value': '@is_group'})
+    for element in generated:
+        layout.append([element])
+    class_obj.init_screen_layout_web = json.dumps(layout, ensure_ascii=False)
+
+
 @_routes.route('/edit-class/<int:class_id>', methods=['GET', 'POST'])
 @login_required
 def edit_class(class_id):
@@ -3763,6 +3840,7 @@ def edit_class(class_id):
         class_obj.hide_mobile_client = 'hide_mobile_client' in request.form
         class_obj.hide_web_client = 'hide_web_client' in request.form
         class_obj.allow_client_extensions = 'allow_client_extensions' in request.form
+        class_obj.hierarchy_enabled = 'hierarchy_enabled' in request.form
         class_obj.dashboard_enabled = 'dashboard_enabled' in request.form
         class_obj.dashboard_width = (request.form.get('dashboard_width') or '100').strip()
         if class_obj.dashboard_width not in ('100', '50', '25'):
@@ -3898,6 +3976,8 @@ def edit_class(class_id):
         if requested_type in {'resource_binding', 'resource_specification'} and requested_type not in _resource_specs_class_types():
             abort(400, 'Модуль resource_specs не установлен')
         class_obj.class_type = requested_type
+        if class_obj.class_type != 'data_node':
+            class_obj.hierarchy_enabled = False
         if requested_type in {'resource_binding', 'resource_specification'}:
             class_obj.has_storage = True
         if (class_obj.class_type or '') == 'data_node':
@@ -3908,6 +3988,7 @@ def edit_class(class_id):
             class_obj.data_structure = request.form.get('data_structure', class_obj.data_structure or '')
         else:
             class_obj.data_structure = ""
+        _sync_hierarchy_class_ui(class_obj)
         if (class_obj.class_type or '') == 'projection':
             class_obj.projection_type = (request.form.get('projection_type') or 'kanban_projection').strip()
             raw_cols = (request.form.get('projection_kanban_columns') or '').strip()
@@ -4692,6 +4773,7 @@ def export_config(uid):
         'nodes_server_handlers': config.nodes_server_handlers,  
         'nodes_server_handlers_meta': config.nodes_server_handlers_meta,  
         'ngenie_prompt': getattr(config, 'ngenie_prompt', '') or '',
+        'compute_engines': normalize_settings(getattr(config, 'compute_engines', None)),
         'description': getattr(config, 'description', '') or '',
         'ngenie_code_locked': bool(getattr(config, 'ngenie_code_locked', False)),
         'ngenie_code_instruction': getattr(config, 'ngenie_code_instruction', '') or '',
@@ -4728,6 +4810,7 @@ def export_config(uid):
                 'hide_mobile_client': bool(getattr(c, 'hide_mobile_client', False)),
                 'hide_web_client': bool(getattr(c, 'hide_web_client', False)),
                 'allow_client_extensions': getattr(c, 'allow_client_extensions', True) is not False,
+                'hierarchy_enabled': bool(getattr(c, 'hierarchy_enabled', False)),
                 'dashboard_enabled': bool(getattr(c, 'dashboard_enabled', False)),
                 'dashboard_width': str(getattr(c, 'dashboard_width', '') or '100'),
                 'dashboard_top': bool(getattr(c, 'dashboard_top', False)),
@@ -4758,6 +4841,7 @@ def export_config(uid):
                 'hide_mobile_client': bool(getattr(c, 'hide_mobile_client', False)),
                 'hide_web_client': bool(getattr(c, 'hide_web_client', False)),
                 'allow_client_extensions': getattr(c, 'allow_client_extensions', True) is not False,
+                'hierarchy_enabled': bool(getattr(c, 'hierarchy_enabled', False)),
                 'methods': [{
                     'name': m.name,
                     'source': m.source,
@@ -4968,6 +5052,9 @@ def import_config_new():
             existing_config.nodes_server_handlers = data.get('nodes_server_handlers', existing_config.nodes_server_handlers)
             existing_config.nodes_server_handlers_meta = data.get('nodes_server_handlers_meta', existing_config.nodes_server_handlers_meta)
             existing_config.ngenie_prompt = data.get('ngenie_prompt', getattr(existing_config, 'ngenie_prompt', '') or '')
+            if 'compute_engines' in data:
+                existing_config.compute_engines = normalize_settings(data.get('compute_engines'))
+                sync_configuration(existing_config.uid, existing_config.compute_engines)
             if hasattr(existing_config, 'description'):
                 existing_config.description = data.get('description', getattr(existing_config, 'description', '') or '') or ''
             existing_config.demo_language = _normalize_demo_language(data.get('demo_language', existing_config.demo_language))
@@ -5032,6 +5119,7 @@ def import_config_new():
                 common_layouts=data.get('CommonLayouts', data.get('common_layouts', [])) or [],
                 profile_templates=data.get('profile_templates', data.get('ProfileTemplates', [])) or [],
                 ngenie_prompt=data.get('ngenie_prompt', ''),
+                compute_engines=normalize_settings(data.get('compute_engines')),
                 description=data.get('description', ''),
                 ngenie_code_locked=_ngenie_code_bool(data.get('ngenie_code_locked')),
                 ngenie_code_instruction=data.get('ngenie_code_instruction', ''),
@@ -5116,8 +5204,11 @@ def import_config_new():
                 hide_mobile_client=bool(class_data.get('hide_mobile_client', class_data.get('hideMobileClient', False))),
                 hide_web_client=bool(class_data.get('hide_web_client', class_data.get('hideWebClient', False))),
                 allow_client_extensions=bool(class_data.get('allow_client_extensions', class_data.get('allowClientExtensions', True))),
+                hierarchy_enabled=bool(class_data.get('hierarchy_enabled', class_data.get('hierarchyEnabled', class_data.get('has_groups', False)))),
                 config_id=config_to_use.id
             )
+            if new_class.hierarchy_enabled:
+                sync_hierarchy_class_ui(new_class)
             db.session.add(new_class)
             db.session.flush()
             
@@ -5397,6 +5488,9 @@ def apply_full_config_from_json(config, data):
     config.version = data.get('version', config.version)
     if 'ngenie_prompt' in data:
         config.ngenie_prompt = data.get('ngenie_prompt') or ''
+    if 'compute_engines' in data:
+        config.compute_engines = normalize_settings(data.get('compute_engines'))
+        sync_configuration(config.uid, config.compute_engines)
     if 'description' in data and hasattr(config, 'description'):
         config.description = data.get('description') or ''
     if 'ngenie_code_instruction' in data and hasattr(config, 'ngenie_code_instruction'):
@@ -5510,8 +5604,11 @@ def apply_full_config_from_json(config, data):
                 hide_mobile_client=bool(class_data.get('hide_mobile_client', class_data.get('hideMobileClient', False))),
                 hide_web_client=bool(class_data.get('hide_web_client', class_data.get('hideWebClient', False))),
                 allow_client_extensions=bool(class_data.get('allow_client_extensions', class_data.get('allowClientExtensions', True))),
+                hierarchy_enabled=bool(class_data.get('hierarchy_enabled', class_data.get('hierarchyEnabled', class_data.get('has_groups', False)))),
                 config_id=config.id
             )
+        if new_class.hierarchy_enabled:
+            sync_hierarchy_class_ui(new_class)
         db.session.add(new_class)
         db.session.flush()
         _cooperate_during_config_apply()
@@ -12343,6 +12440,26 @@ def _landing_articles(lang: str) -> dict:
     return {'pinned': pinned, 'regular': regular, 'count': len(items)}
 
 
+@_routes.route('/sitemap.xml', methods=['GET'])
+def sitemap_xml():
+    sitemap = ElementTree.Element('urlset', xmlns='http://www.sitemaps.org/schemas/sitemap/0.9')
+    # Keep public URLs on HTTPS even when the reverse proxy connects over HTTP.
+    origin = 'https://nmaker.pw'
+    for lang in sorted(_ARTICLE_LANGS):
+        articles = _landing_articles(lang)
+        for article in articles['pinned'] + articles['regular']:
+            entry = ElementTree.SubElement(sitemap, 'url')
+            ElementTree.SubElement(entry, 'loc').text = origin + article['url']
+
+    xml = ElementTree.tostring(sitemap, encoding='utf-8', xml_declaration=True)
+    return current_app.response_class(xml, mimetype='application/xml')
+
+
+@_routes.route('/llms.txt', methods=['GET'])
+def llms_txt():
+    return current_app.send_static_file('llms.txt')
+
+
 def _article_comments_conn():
     path = Path(current_app.instance_path) / 'article_comments.sqlite3'
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -13684,6 +13801,335 @@ def dashboard():
     return render_template('dashboard.html', configs=configs, rooms=rooms)
 
 
+_CONFIG_BACKUP_MAX_BYTES = 1024 * 1024 * 1024
+_CONFIG_BACKUP_FORMAT = 1
+
+
+def _backup_config_owned_by_current_user(uid):
+    return db.session.execute(
+        select(Configuration).where(
+            Configuration.uid == uid,
+            Configuration.user_id == current_user.id,
+            sa.or_(Configuration.is_system == False, Configuration.is_system.is_(None)),
+            _designer_visible_configuration_clause(),
+        )
+    ).scalar_one_or_none()
+
+
+def _backup_uid_files(base_dir, uid):
+    """Yield regular files whose names are explicitly scoped to a configuration UID."""
+    root = Path(base_dir)
+    if not root.is_dir():
+        return
+    for path in root.rglob('*'):
+        if not path.is_file() or path.is_symlink():
+            continue
+        relative = path.relative_to(root).as_posix()
+        if uid in relative and not path.name.endswith(('-wal', '-shm', '-journal')):
+            yield path
+
+
+def _write_backup_file(archive, source_path, archive_name):
+    """Write a file with a POSIX ZIP member name on every host OS."""
+    info = zipfile.ZipInfo(str(archive_name).replace('\\', '/'))
+    info.compress_type = zipfile.ZIP_DEFLATED
+    with open(source_path, 'rb') as source, archive.open(info, 'w') as target:
+        shutil.copyfileobj(source, target, length=1024 * 1024)
+
+
+def _zip_config_backup(configs):
+    from nodes import STORAGE_BASE_PATH
+
+    temp_root = Path(tempfile.mkdtemp(prefix='nodalogic-config-backup-'))
+    zip_path = temp_root / 'backup.zip'
+    manifest = {'format': _CONFIG_BACKUP_FORMAT, 'created_at': datetime.now(timezone.utc).isoformat(), 'configs': [], 'files': []}
+    try:
+        with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+            for config in configs:
+                uid = str(config.uid)
+                response = export_config(uid)
+                response.direct_passthrough = False
+                config_bytes = response.get_data()
+                config_data = json.loads(config_bytes.decode('utf-8'))
+                config_member = f'configs/{uid}.nod'
+                archive.writestr(config_member, config_bytes)
+                manifest['files'].append({'path': config_member, 'size': len(config_bytes), 'sha256': hashlib.sha256(config_bytes).hexdigest()})
+
+                dataset_items = {}
+                for dataset in config.datasets or []:
+                    rows = db.session.execute(select(DatasetItem).where(DatasetItem.dataset_id == dataset.id).order_by(DatasetItem.id)).scalars().all()
+                    dataset_items[str(dataset.name)] = {
+                        'uid': str(dataset.uid or ''),
+                        'items': [{'item_id': row.item_id, 'data': row.data} for row in rows],
+                    }
+                dataset_member = f'datasets/{uid}.json'
+                dataset_bytes = json.dumps(dataset_items, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+                archive.writestr(dataset_member, dataset_bytes)
+                manifest['files'].append({'path': dataset_member, 'size': len(dataset_bytes), 'sha256': hashlib.sha256(dataset_bytes).hexdigest()})
+                manifest['configs'].append({'uid': uid, 'name': config.name or uid, 'config_path': config_member, 'datasets_path': dataset_member})
+
+                storage_root = Path(current_app.root_path) / STORAGE_BASE_PATH
+                for source in _backup_uid_files(storage_root, uid):
+                    relative = source.relative_to(storage_root).as_posix()
+                    member = f'storage/{relative}'
+                    snapshot = temp_root / f'snapshot-{len(manifest["files"])}.sqlite'
+                    if source.suffix.lower() == '.sqlite':
+                        src_conn = sqlite3.connect(source.resolve().as_uri() + '?mode=ro', uri=True, timeout=30)
+                        dst_conn = sqlite3.connect(str(snapshot), timeout=30)
+                        try:
+                            src_conn.backup(dst_conn)
+                        finally:
+                            dst_conn.close()
+                            src_conn.close()
+                        _write_backup_file(archive, snapshot, member)
+                        snapshot.unlink(missing_ok=True)
+                    else:
+                        _write_backup_file(archive, source, member)
+                    payload_hash = hashlib.sha256()
+                    size = 0
+                    with archive.open(member) as archived:
+                        while True:
+                            chunk = archived.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            payload_hash.update(chunk)
+                            size += len(chunk)
+                    manifest['files'].append({'path': member, 'size': size, 'sha256': payload_hash.hexdigest()})
+
+                for root_name, source_root in (
+                    ('handlers', Path(current_app.root_path) / 'Handlers' / uid),
+                    ('userfiles', Path(current_app.root_path) / 'UserFiles' / uid),
+                ):
+                    if not source_root.is_dir():
+                        continue
+                    for source in source_root.rglob('*'):
+                        if not source.is_file() or source.is_symlink():
+                            continue
+                        member = f'{root_name}/{uid}/{source.relative_to(source_root).as_posix()}'
+                        _write_backup_file(archive, source, member)
+                        payload_hash = hashlib.sha256()
+                        size = 0
+                        with archive.open(member) as archived:
+                            while True:
+                                chunk = archived.read(1024 * 1024)
+                                if not chunk:
+                                    break
+                                payload_hash.update(chunk)
+                                size += len(chunk)
+                        manifest['files'].append({'path': member, 'size': size, 'sha256': payload_hash.hexdigest()})
+
+            manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode('utf-8')
+            archive.writestr('manifest.json', manifest_bytes)
+        if zip_path.stat().st_size > _CONFIG_BACKUP_MAX_BYTES:
+            raise ValueError(_('The backup archive is too large (maximum 1 GB).'))
+        return zip_path.read_bytes(), temp_root
+    except Exception:
+        shutil.rmtree(temp_root, ignore_errors=True)
+        raise
+
+
+@_routes.route('/dashboard/config-backup/export', methods=['POST'])
+@login_required
+def dashboard_config_backup_export():
+    selected_uids = list(dict.fromkeys(str(uid or '').strip() for uid in request.form.getlist('config_uids') if str(uid or '').strip()))
+    if not selected_uids:
+        flash(_('Select at least one configuration.'), 'error')
+        return redirect(url_for('dashboard', _anchor='backup'))
+    configs = [_backup_config_owned_by_current_user(uid) for uid in selected_uids]
+    if any(config is None for config in configs):
+        abort(403)
+    if any(_config_is_ngenie_code_locked(config) for config in configs):
+        abort(403, description=_ngenie_code_forbid_message())
+    try:
+        archive_bytes, temp_root = _zip_config_backup(configs)
+    except Exception as exc:
+        current_app.logger.exception('Configuration backup export failed')
+        detail = f'{type(exc).__name__}: {exc}'.strip()
+        flash(f"{_('Could not create the backup archive.')}: {detail}", 'error')
+        return redirect(url_for('dashboard', _anchor='backup'))
+    after_this_request(lambda response: (shutil.rmtree(temp_root, ignore_errors=True), response)[1])
+    return send_file(BytesIO(archive_bytes), as_attachment=True, download_name='nodalogic-backup.zip', mimetype='application/zip')
+
+
+@_routes.route('/dashboard/config-backup/import', methods=['POST'])
+@login_required
+def dashboard_config_backup_import():
+    uploaded = request.files.get('backup_file')
+    if not uploaded or not uploaded.filename:
+        flash(_('Select a backup ZIP file.'), 'error')
+        return redirect(url_for('dashboard', _anchor='backup'))
+    raw = uploaded.stream.read(_CONFIG_BACKUP_MAX_BYTES + 1)
+    if len(raw) > _CONFIG_BACKUP_MAX_BYTES:
+        flash(_('The backup archive is too large (maximum 1 GB).'), 'error')
+        return redirect(url_for('dashboard', _anchor='backup'))
+    try:
+        with zipfile.ZipFile(BytesIO(raw), 'r') as archive:
+            infos = archive.infolist()
+            if len(infos) > 20000 or len({info.filename for info in infos}) != len(infos):
+                raise ValueError(_('Invalid backup archive contents.'))
+            if sum(info.file_size for info in infos) > _CONFIG_BACKUP_MAX_BYTES:
+                raise ValueError(_('The uncompressed backup is too large (maximum 1 GB).'))
+            if 'manifest.json' not in archive.namelist():
+                raise ValueError(_('This ZIP does not contain a NodaLogic backup manifest.'))
+            manifest = json.loads(archive.read('manifest.json').decode('utf-8'))
+            if manifest.get('format') != _CONFIG_BACKUP_FORMAT or not isinstance(manifest.get('configs'), list) or not manifest['configs']:
+                raise ValueError(_('Unsupported or empty backup archive.'))
+            entries = {info.filename: info for info in infos}
+            payloads = {}
+            listed_paths = set()
+            for item in manifest.get('files', []):
+                name = str(item.get('path') or '')
+                normalized = Path(name)
+                if not name or '\\' in name or ':' in name or '\x00' in name or name in listed_paths or normalized.is_absolute() or '..' in normalized.parts or name not in entries or name == 'manifest.json':
+                    raise ValueError(_('Invalid file path in backup archive.'))
+                if normalized.parts[0] not in {'configs', 'datasets', 'storage', 'handlers', 'userfiles'}:
+                    raise ValueError(_('Invalid file type in backup archive.'))
+                data_bytes = archive.read(name)
+                if len(data_bytes) != int(item.get('size', -1)) or hashlib.sha256(data_bytes).hexdigest() != item.get('sha256'):
+                    raise ValueError(_('A backup file failed its integrity check.'))
+                listed_paths.add(name)
+                payloads[name] = data_bytes
+            if listed_paths != set(entries) - {'manifest.json'}:
+                raise ValueError(_('Backup archive contains unlisted files.'))
+            config_specs = manifest['configs']
+            seen_uids = set()
+            restores = []
+            for item in config_specs:
+                uid = str(item.get('uid') or '')
+                try:
+                    uuid.UUID(uid)
+                except Exception:
+                    raise ValueError(_('Invalid configuration UID in backup.'))
+                if uid in seen_uids:
+                    raise ValueError(_('Duplicate configuration in backup.'))
+                seen_uids.add(uid)
+                config_path = str(item.get('config_path') or '')
+                datasets_path = str(item.get('datasets_path') or '')
+                if config_path != f'configs/{uid}.nod' or datasets_path != f'datasets/{uid}.json':
+                    raise ValueError(_('Invalid configuration paths in backup manifest.'))
+                data = json.loads(payloads[config_path].decode('utf-8'))
+                if str(data.get('uid') or '') != uid or not isinstance(data.get('classes'), list):
+                    raise ValueError(_('Configuration data does not match the manifest.'))
+                existing = db.session.execute(select(Configuration).where(Configuration.uid == uid)).scalar_one_or_none()
+                if existing and (existing.user_id != current_user.id or bool(getattr(existing, 'is_system', False))):
+                    abort(403)
+                if existing and _backup_config_owned_by_current_user(uid) is None:
+                    abort(403)
+                if existing and _config_is_ngenie_code_locked(existing):
+                    abort(403, description=_ngenie_code_forbid_message())
+                datasets = json.loads(payloads[datasets_path].decode('utf-8')) if datasets_path in payloads else {}
+                restores.append((uid, data, datasets))
+
+            for name in payloads:
+                parts = Path(name).parts
+                if parts[0] == 'storage':
+                    matches = [candidate for candidate in seen_uids if candidate in '/'.join(parts[1:])]
+                    if len(parts) < 2 or len(matches) != 1:
+                        raise ValueError(_('A storage file is not scoped to exactly one configuration.'))
+                elif parts[0] in ('handlers', 'userfiles'):
+                    if len(parts) < 3 or parts[1] not in seen_uids:
+                        raise ValueError(_('A file is not scoped to a restored configuration.'))
+
+            # Apply schema/data first. Only configurations owned by this user can be replaced.
+            restored = []
+            for uid, data, dataset_records in restores:
+                existing = db.session.execute(select(Configuration).where(Configuration.uid == uid)).scalar_one_or_none()
+                if existing:
+                    config = existing
+                    apply_full_config_from_json(config, data)
+                else:
+                    config = Configuration(
+                        uid=uid,
+                        name=str(data.get('name') or _('Imported configuration'))[:100],
+                        user_id=current_user.id,
+                        content_uid=data.get('content_uid') or str(uuid.uuid4()),
+                        version=data.get('version') or '00.00.01',
+                        server_name=data.get('server_name') or '',
+                        vendor=data.get('vendor', data.get('provider')),
+                        nodes_handlers=data.get('nodes_handlers') or '',
+                        nodes_handlers_meta=data.get('nodes_handlers_meta') or {},
+                        nodes_server_handlers=data.get('nodes_server_handlers') or '',
+                        nodes_server_handlers_meta=data.get('nodes_server_handlers_meta') or {},
+                    )
+                    db.session.add(config)
+                    db.session.flush()
+                    apply_full_config_from_json(config, data)
+                db.session.flush()
+                for dataset in config.datasets or []:
+                    dataset_payload = dataset_records.get(str(dataset.name), {}) if isinstance(dataset_records, dict) else {}
+                    if isinstance(dataset_payload, dict):
+                        if dataset_payload.get('uid'):
+                            dataset.uid = str(dataset_payload['uid'])
+                        rows = dataset_payload.get('items', [])
+                    else:
+                        rows = dataset_payload
+                    for row in rows:
+                        db.session.add(DatasetItem(dataset_id=dataset.id, item_id=str(row.get('item_id') or ''), data=row.get('data')))
+                db.session.commit()
+                restored.append(uid)
+
+            # Validate every target file before writing; ZIP paths are confined to config-scoped roots.
+            file_writes = []
+            from nodes import STORAGE_BASE_PATH
+            storage_root = Path(current_app.root_path) / STORAGE_BASE_PATH
+            for name, data_bytes in payloads.items():
+                parts = Path(name).parts
+                if parts[0] == 'storage' and len(parts) >= 2:
+                    matches = [candidate for candidate in seen_uids if candidate in '/'.join(parts[1:])]
+                    if len(matches) != 1:
+                        raise ValueError(_('A storage file is not scoped to exactly one configuration.'))
+                    uid = matches[0]
+                    target = storage_root / Path(*parts[1:])
+                elif parts[0] in ('handlers', 'userfiles') and len(parts) >= 3 and parts[1] in seen_uids:
+                    uid = parts[1]
+                    root_name = 'Handlers' if parts[0] == 'handlers' else 'UserFiles'
+                    target = Path(current_app.root_path) / root_name / uid / Path(*parts[2:])
+                else:
+                    continue
+                if uid not in restored:
+                    raise ValueError(_('Backup file is not associated with a restored configuration.'))
+                allowed_root = storage_root if parts[0] == 'storage' else (Path(current_app.root_path) / ('Handlers' if parts[0] == 'handlers' else 'UserFiles') / uid)
+                resolved_target = target.resolve()
+                try:
+                    if os.path.commonpath([str(allowed_root.resolve()), str(resolved_target)]) != str(allowed_root.resolve()):
+                        raise ValueError(_('A backup file resolves outside its configuration storage directory.'))
+                except ValueError:
+                    raise ValueError(_('A backup file resolves outside its configuration storage directory.'))
+                file_writes.append((target, data_bytes))
+
+            expected_targets = {target.resolve() for target, _ in file_writes}
+            for uid in restored:
+                for old_file in _backup_uid_files(storage_root, uid):
+                    if old_file.resolve() not in expected_targets:
+                        old_file.unlink(missing_ok=True)
+                for root_name in ('Handlers', 'UserFiles'):
+                    config_root = Path(current_app.root_path) / root_name / uid
+                    if not config_root.is_dir():
+                        continue
+                    for old_file in config_root.rglob('*'):
+                        if old_file.is_file() and old_file.resolve() not in expected_targets:
+                            old_file.unlink(missing_ok=True)
+                    for old_dir in sorted((p for p in config_root.rglob('*') if p.is_dir()), reverse=True):
+                        try:
+                            old_dir.rmdir()
+                        except OSError:
+                            pass
+            for target, data_bytes in file_writes:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                temporary = target.with_name(target.name + '.restore-tmp')
+                temporary.write_bytes(data_bytes)
+                os.replace(temporary, target)
+        flash(_('Backup restored: %(count)s configuration(s).', count=len(restores)), 'success')
+    except (zipfile.BadZipFile, UnicodeDecodeError, json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
+        db.session.rollback()
+        flash(str(exc) or _('Invalid backup archive.'), 'error')
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('Configuration backup import failed')
+        flash(_('Could not restore the backup archive.'), 'error')
+    return redirect(url_for('dashboard', _anchor='backup'))
+
+
 @_routes.route('/contracts')
 @login_required
 def contracts_page():
@@ -13836,4 +14282,4 @@ def update_config_timestamp(response):
 
 
 
-MOVED_EDITOR_NAMES = ['b64decode_filter', 'before_request', 'update_config_timestamp', 'ANDROID_IMPORTS_TEMPLATE', 'DEEPSEEK_API_URL', 'LANGUAGES', 'LMSTUDIO_API_KEY', 'LMSTUDIO_API_URL', 'LMSTUDIO_MODEL', 'NODE_CLASS_CODE', 'NODE_CLASS_CODE_ANDROID', 'PLUGIN_TEMPLATES', 'UI_COMPONENT_TEMPLATES', 'WIZARD_ACTIVE_TEMPLATES', 'WIZARD_COVER_TEMPLATES', '_enforce_web_access_modes', 'admin_dashboard', 'admin_toggle_user_active', 'admin_user_detail', 'choose_mode', 'contracts_create', 'contracts_delete', 'contracts_page', 'contracts_qr', 'contracts_update', 'create_room', 'dashboard', 'delete_room', 'edit_profile', 'generate_qr_code', 'get_default_server_handlers', 'get_locale', 'get_plugin_templates', 'get_timezone', 'get_ui_component_templates', 'get_wizard_active_templates', 'get_wizard_cover_templates', 'index', 'public_offer', 'init_editor_ui', 'logout', 'room_detail', 'set_language', 'update_device_token', 'users_create', 'users_delete', 'users_manage', 'users_update', 'utility_processor', 'ALLOWED_INPUT_TYPES_AI', 'ALLOWED_UI_TYPES_AI', 'CONTAINER_UI_TYPES_AI', '_PY_SCRIPT_UPLOAD_SESSION_KEY', '_ShowPlugInLiteralValidatorAI', '_action_python_text_value', '_call_llm_code_only', '_carry_existing_event_python_script_refs', '_decode_b64_py', '_decode_b64_text', '_deep_merge_dict_keep_existing', '_encode_b64_py', '_encode_b64_text', '_generate_handlers_body_ai', '_is_remote_script_ref', '_iter_layout_elements_ai', '_last_python_script_upload_url', '_merge_class', '_normalize_event_action_python_scripts_for_save', '_normalize_python_script_text_for_save', '_remember_python_script_upload', '_s3_text_content_type', '_save_python_text_to_s3_via_upload_url', '_split_commands_str', '_split_handlers_header_and_body', '_upsert_list_by_key_keep_missing', '_wiz_active_field_to_json', '_wiz_build_active_table', '_wiz_build_cover_table', '_wiz_cover_field_to_json', '_wiz_cover_row_to_simple', '_wiz_json_field_to_simple', '_wiz_norm_id', '_wiz_parse_fn_call', '_wiz_parse_line_spec', '_wiz_parse_select', '_wiz_split_once_top_level', '_wiz_split_top_level', '_wiz_table_to_simple', '_wiz_unquote', '_wizard_build_active_field', '_wizard_build_cover_field', '_wizard_build_table', '_wizard_normalize_id', '_wizard_parse_fn_call', '_wizard_parse_select', '_wizard_split_once_top_level', '_wizard_split_top_level', 'add_class', 'add_config_event', 'add_dataset', 'add_event', 'add_method', 'add_method_to_class', 'add_new_method_to_class', 'add_section', 'ai_generate', 'ai_generate_layout', 'apply_full_config_from_json', 'call_deepseek', 'call_llm', 'call_lmstudio', 'clear_handlers', 'clear_server_handlers', 'code_editor', 'create_class', 'create_config', 'create_debug_room', 'create_room_alias', 'create_server', 'debug_room', 'delete_class', 'delete_config', 'delete_config_event', 'delete_dataset', 'delete_event', 'delete_method', 'delete_room_alias', 'delete_s3_text', 'delete_section', 'delete_server', 'download_handlers', 'download_server_handlers', 'edit_class', 'edit_config', 'edit_config_event', 'edit_dataset', 'edit_event', 'edit_method', 'ensure_all_classes_present_in_handlers', 'ensure_class_stub_in_module', 'ensure_handlers_skeleton_and_headers', 'export_class_json', 'export_config', 'extract_functions_from_handlers', 'extract_json_array_from_text', 'extract_json_from_text', 'extract_method_body_from_code', 'extract_method_names_ai', 'get_config_event_json', 'get_config_methods', 'get_dataset_json', 'get_method_body', 'get_s3_text_upload_url', 'get_section_json', 'get_user_local_time', 'import_config', 'import_config_new', 'layout_to_simplified_markup', 'layout_wizard', 'merge_llm_config_into_current_ai', 'method_exists_in_code', 'print_form_template_preview', 'python_s3_editor', 'read_s3_text', 'remove_class_from_module', 'remove_method_from_code', 'remove_method_from_module', 'save_common_layouts', 'save_method', 'save_s3_text_via_upload_url', 'simplified_markup_to_layout', 'split_handlers_by_immutable_prefix_ai', 'sync_android_methods_from_code', 'sync_classes_from_android_handlers', 'sync_classes_from_server_handlers', 'sync_methods_from_code', 'sync_server_methods_from_code', 'update_config', 'update_dataset', 'update_existing_method', 'update_handlers_code', 'update_room_alias', 'update_section', 'update_server', 'update_server_handlers_code', 'upload_handlers', 'upload_s3_text', 'upload_server_handlers', 'validate_cover_images_ai', 'validate_full_llm_config_ai', 'validate_handlers_semantics_ai', 'validate_layout_types_ai', 'validate_python_syntax', 'validate_sections_ai', 'validate_sections_command_targets_ai', 'validate_show_plugin_literals_ai']
+MOVED_EDITOR_NAMES = ['b64decode_filter', 'before_request', 'update_config_timestamp', 'ANDROID_IMPORTS_TEMPLATE', 'DEEPSEEK_API_URL', 'LANGUAGES', 'LMSTUDIO_API_KEY', 'LMSTUDIO_API_URL', 'LMSTUDIO_MODEL', 'NODE_CLASS_CODE', 'NODE_CLASS_CODE_ANDROID', 'PLUGIN_TEMPLATES', 'UI_COMPONENT_TEMPLATES', 'WIZARD_ACTIVE_TEMPLATES', 'WIZARD_COVER_TEMPLATES', '_enforce_web_access_modes', 'admin_dashboard', 'admin_toggle_user_active', 'admin_user_detail', 'choose_mode', 'contracts_create', 'contracts_delete', 'contracts_page', 'contracts_qr', 'contracts_update', 'create_room', 'dashboard', 'dashboard_config_backup_export', 'dashboard_config_backup_import', 'delete_room', 'edit_profile', 'generate_qr_code', 'get_default_server_handlers', 'get_locale', 'get_plugin_templates', 'get_timezone', 'get_ui_component_templates', 'get_wizard_active_templates', 'get_wizard_cover_templates', 'index', 'public_offer', 'init_editor_ui', 'logout', 'room_detail', 'set_language', 'update_device_token', 'users_create', 'users_delete', 'users_manage', 'users_update', 'utility_processor', 'ALLOWED_INPUT_TYPES_AI', 'ALLOWED_UI_TYPES_AI', 'CONTAINER_UI_TYPES_AI', '_PY_SCRIPT_UPLOAD_SESSION_KEY', '_ShowPlugInLiteralValidatorAI', '_action_python_text_value', '_call_llm_code_only', '_carry_existing_event_python_script_refs', '_decode_b64_py', '_decode_b64_text', '_deep_merge_dict_keep_existing', '_encode_b64_py', '_encode_b64_text', '_generate_handlers_body_ai', '_is_remote_script_ref', '_iter_layout_elements_ai', '_last_python_script_upload_url', '_merge_class', '_normalize_event_action_python_scripts_for_save', '_normalize_python_script_text_for_save', '_remember_python_script_upload', '_s3_text_content_type', '_save_python_text_to_s3_via_upload_url', '_split_commands_str', '_split_handlers_header_and_body', '_upsert_list_by_key_keep_missing', '_wiz_active_field_to_json', '_wiz_build_active_table', '_wiz_build_cover_table', '_wiz_cover_field_to_json', '_wiz_cover_row_to_simple', '_wiz_json_field_to_simple', '_wiz_norm_id', '_wiz_parse_fn_call', '_wiz_parse_line_spec', '_wiz_parse_select', '_wiz_split_once_top_level', '_wiz_split_top_level', '_wiz_table_to_simple', '_wiz_unquote', '_wizard_build_active_field', '_wizard_build_cover_field', '_wizard_build_table', '_wizard_normalize_id', '_wizard_parse_fn_call', '_wizard_parse_select', '_wizard_split_once_top_level', '_wizard_split_top_level', 'add_class', 'add_config_event', 'add_dataset', 'add_event', 'add_method', 'add_method_to_class', 'add_new_method_to_class', 'add_section', 'ai_generate', 'ai_generate_layout', 'apply_full_config_from_json', 'call_deepseek', 'call_llm', 'call_lmstudio', 'clear_handlers', 'clear_server_handlers', 'code_editor', 'create_class', 'create_config', 'create_debug_room', 'create_room_alias', 'create_server', 'debug_room', 'delete_class', 'delete_config', 'delete_config_event', 'delete_dataset', 'delete_event', 'delete_method', 'delete_room_alias', 'delete_s3_text', 'delete_section', 'delete_server', 'download_handlers', 'download_server_handlers', 'edit_class', 'edit_config', 'edit_config_event', 'edit_dataset', 'edit_event', 'edit_method', 'ensure_all_classes_present_in_handlers', 'ensure_class_stub_in_module', 'ensure_handlers_skeleton_and_headers', 'export_class_json', 'export_config', 'extract_functions_from_handlers', 'extract_json_array_from_text', 'extract_json_from_text', 'extract_method_body_from_code', 'extract_method_names_ai', 'get_config_event_json', 'get_config_methods', 'get_dataset_json', 'get_method_body', 'get_s3_text_upload_url', 'get_section_json', 'get_user_local_time', 'import_config', 'import_config_new', 'layout_to_simplified_markup', 'layout_wizard', 'merge_llm_config_into_current_ai', 'method_exists_in_code', 'print_form_template_preview', 'python_s3_editor', 'read_s3_text', 'remove_class_from_module', 'remove_method_from_code', 'remove_method_from_module', 'save_common_layouts', 'save_method', 'save_s3_text_via_upload_url', 'simplified_markup_to_layout', 'split_handlers_by_immutable_prefix_ai', 'sync_android_methods_from_code', 'sync_classes_from_android_handlers', 'sync_classes_from_server_handlers', 'sync_methods_from_code', 'sync_server_methods_from_code', 'update_config', 'update_dataset', 'update_existing_method', 'update_handlers_code', 'update_room_alias', 'update_section', 'update_server', 'update_server_handlers_code', 'upload_handlers', 'upload_s3_text', 'upload_server_handlers', 'validate_cover_images_ai', 'validate_full_llm_config_ai', 'validate_handlers_semantics_ai', 'validate_layout_types_ai', 'validate_python_syntax', 'validate_sections_ai', 'validate_sections_command_targets_ai', 'validate_show_plugin_literals_ai']

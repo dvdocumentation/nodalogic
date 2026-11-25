@@ -523,6 +523,14 @@ def set_runtime_context(config_uid: str | None, parsed_config: dict | None, syst
     t1 = CURRENT_CONFIG_UID.set(config_uid)
     t2 = CURRENT_PARSED_CONFIG.set(parsed_config)
     t3 = CURRENT_SYSTEM_USER.set(system_user)
+    # Persist the selected compute backends for Reactive's durable worker, which
+    # runs outside the request ContextVars but still needs configuration policy.
+    try:
+        if isinstance(parsed_config, dict) and isinstance(parsed_config.get("compute_engines"), dict):
+            from compute_engines import sync_configuration
+            sync_configuration(str(config_uid or ""), parsed_config["compute_engines"])
+    except Exception:
+        pass
     # Reset per-request helpers
     RUNTIME_MESSAGES.set([])
     ACCEPT_GUARD.set(set())
@@ -678,6 +686,9 @@ def push_message(text: str, level: str = "info"):
 
 
 
+_BRIDGE_FUNC_CACHE = {}
+
+
 def _bridge_func(name: str):
     """Find a function exported by the Flask app/main module.
 
@@ -687,12 +698,16 @@ def _bridge_func(name: str):
     name = str(name or '').strip()
     if not name:
         return None
+    cached = _BRIDGE_FUNC_CACHE.get(name)
+    if callable(cached):
+        return cached
 
     # Fast path: common module names first.
     for module_name in ('__main__', 'app', 'main', 'application', 'wsgi'):
         mod = sys.modules.get(module_name)
         fn = getattr(mod, name, None) if mod is not None else None
         if callable(fn):
+            _BRIDGE_FUNC_CACHE[name] = fn
             return fn
 
     # Slow but robust fallback: inspect all loaded modules.
@@ -706,6 +721,7 @@ def _bridge_func(name: str):
         except Exception:
             continue
         if callable(fn):
+            _BRIDGE_FUNC_CACHE[name] = fn
             return fn
     return None
 
@@ -1654,6 +1670,7 @@ except Exception:
     _SCHEMES_STORAGE = {}
 
 _NODE_CLASS_REGISTRY = {}
+_INHERITED_SQLITE_STORAGES = ()
 
 class Node:
     
@@ -1686,6 +1703,38 @@ class Node:
     _async_index_executor_lock = threading.RLock()
     _text_sidecar_rebuild_pending = set()
     _text_sidecar_rebuild_pending_lock = threading.RLock()
+
+    @staticmethod
+    def _reset_storage_after_fork():
+        global _SCHEMES_STORAGE, _INHERITED_SQLITE_STORAGES
+
+        # SqliteDict's worker threads stay in the parent. Keep the inherited
+        # objects alive in the child so their destructors cannot use its stale queues.
+        _INHERITED_SQLITE_STORAGES = (
+            _SCHEMES_STORAGE,
+            Node._class_storages,
+            Node._date_index_storages,
+            Node._defined_index_storages,
+            Node._global_index_storages,
+        )
+        Node._class_storages = {}
+        Node._date_index_storages = {}
+        Node._defined_index_storages = {}
+        Node._global_index_storages = {}
+        Node._storage_locks = {}
+        Node._instance_locks = {}
+        Node._date_index_locks = {}
+        Node._defined_index_locks = {}
+        Node._global_index_locks = {}
+        Node._semantic_index_locks = {}
+        Node._semantic_model_locks = {}
+        Node._semantic_model_locks_guard = threading.RLock()
+        Node._async_index_executor = None
+        Node._async_index_executor_lock = threading.RLock()
+        Node._text_sidecar_rebuild_pending = set()
+        Node._text_sidecar_rebuild_pending_lock = threading.RLock()
+        if isinstance(_SCHEMES_STORAGE, SqliteDict):
+            _SCHEMES_STORAGE = SqliteDict(SCHEMES_DB_PATH, autocommit=True)
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -2339,6 +2388,16 @@ class Node:
         mod = _reactive_module()
         if mod is None:
             raise RuntimeError("Reactive engine is unavailable")
+        formula_guard = getattr(self, "onReactiveFormulaChange", None)
+        if callable(formula_guard):
+            decision = formula_guard(str(field or ""), str(formula or ""))
+            if decision is False:
+                raise PermissionError("Reactive formula change rejected")
+            if isinstance(decision, tuple) and decision and decision[0] is False:
+                detail = decision[1] if len(decision) > 1 else "Reactive formula change rejected"
+                if isinstance(detail, dict):
+                    detail = detail.get("error") or detail.get("message") or detail
+                raise PermissionError(str(detail))
         return mod.set_formula(self, str(field or ""), str(formula or ""), bool(async_mode))
 
     def get_reactive_formula(self, field):
@@ -2363,6 +2422,16 @@ class Node:
         mod = _reactive_module()
         if mod is None:
             return False
+        formula_guard = getattr(self, "onReactiveFormulaChange", None)
+        if callable(formula_guard):
+            decision = formula_guard(str(field or ""), "")
+            if decision is False:
+                raise PermissionError("Reactive formula change rejected")
+            if isinstance(decision, tuple) and decision and decision[0] is False:
+                detail = decision[1] if len(decision) > 1 else "Reactive formula change rejected"
+                if isinstance(detail, dict):
+                    detail = detail.get("error") or detail.get("message") or detail
+                raise PermissionError(str(detail))
         return mod.remove_formula(self, str(field or ""), keep_value=bool(keep_value))
 
     def _set_reactive_value(self, field, value):
@@ -2384,6 +2453,23 @@ class Node:
                 if isinstance(self._data_cache, dict):
                     self._data_cache[field] = value
                 return False
+
+            # A configured node class may reject a calculated write based on
+            # business state (for example, a line belonging to an approved
+            # budget). Keep this check in the Reactive persistence path so a
+            # dependency cannot bypass the ordinary save validation hook.
+            reactive_guard = getattr(self, "onReactiveBeforeWrite", None)
+            if callable(reactive_guard):
+                decision = reactive_guard(field, value)
+                if decision is False:
+                    raise PermissionError(
+                        f"Reactive write rejected for {self.__class__.__name__}.{field}"
+                    )
+                if isinstance(decision, tuple) and decision and decision[0] is False:
+                    detail = decision[1] if len(decision) > 1 else "Reactive write rejected"
+                    if isinstance(detail, dict):
+                        detail = detail.get("error") or detail.get("message") or detail
+                    raise PermissionError(str(detail))
 
             new_state = dict(saved_state)
             new_state[field] = value
@@ -2407,17 +2493,20 @@ class Node:
                     audited["_date_key"] = new_dk
                     node_data["_data"] = audited
                     self._storage[self._id] = node_data
-                idx = self.__class__._get_date_index_storage(self._config_uid)
-                if old_dk and old_dk != new_dk:
-                    old_k = self.__class__._date_index_key(old_dk, self._id)
-                    try:
-                        if old_k in idx:
-                            del idx[old_k]
-                    except Exception:
-                        pass
-                if new_dk:
-                    new_k = self.__class__._date_index_key(new_dk, self._id)
-                    if old_dk != new_dk or new_k not in idx:
+                # Reactive writes usually update a numeric/string value, not
+                # the node's date. Avoid touching the date-index SqliteDict in
+                # that common case; only date changes need an index write.
+                if old_dk != new_dk:
+                    idx = self.__class__._get_date_index_storage(self._config_uid)
+                    if old_dk:
+                        old_k = self.__class__._date_index_key(old_dk, self._id)
+                        try:
+                            if old_k in idx:
+                                del idx[old_k]
+                        except Exception:
+                            pass
+                    if new_dk:
+                        new_k = self.__class__._date_index_key(new_dk, self._id)
                         idx[new_k] = 1
             except Exception:
                 pass
@@ -2667,6 +2756,126 @@ class Node:
         return os.path.join(STORAGE_BASE_PATH, f"{storage_key}.sqlite")
 
     @classmethod
+    def count(cls, config_uid=None) -> int:
+        """Return the number of stored nodes without loading their payloads."""
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        if not cfg_uid:
+            try:
+                cfg_uid = str(CURRENT_CONFIG_UID.get() or "").strip()
+            except Exception:
+                cfg_uid = ""
+        db_path = cls._bulk_storage_path(cfg_uid)
+        if not os.path.isfile(db_path):
+            return 0
+        conn = sqlite3.connect(db_path, timeout=30.0)
+        try:
+            table = cls._atomic_sqlite_table(conn)
+            qtable = '"' + table.replace('"', '""') + '"'
+            row = conn.execute(f"SELECT COUNT(*) FROM {qtable}").fetchone()
+            return int((row or [0])[0] or 0)
+        finally:
+            conn.close()
+
+    @classmethod
+    def iter_data_pages(cls, config_uid=None, page_size=1000, start_after=None):
+        """Yield bounded pages of plain node dictionaries using keyset paging.
+
+        Call :meth:`count` first when progress needs a known total.  Keyset
+        paging is stable and does not become slower on later pages like a large
+        SQL OFFSET does.
+        """
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        if not cfg_uid:
+            try:
+                cfg_uid = str(CURRENT_CONFIG_UID.get() or "").strip()
+            except Exception:
+                cfg_uid = ""
+        max_page = max(1, int(os.getenv("NODA_NODE_PAGE_MAX", "2000") or 2000))
+        size = max(1, min(max_page, int(page_size or 1000)))
+        db_path = cls._bulk_storage_path(cfg_uid)
+        if not os.path.isfile(db_path):
+            return
+        conn = sqlite3.connect(db_path, timeout=60.0)
+        try:
+            table = cls._atomic_sqlite_table(conn)
+            qtable = '"' + table.replace('"', '""') + '"'
+            cursor_key = str(start_after or "")
+            while True:
+                rows = conn.execute(
+                    f"SELECT key,value FROM {qtable} WHERE key>? ORDER BY key LIMIT ?",
+                    (cursor_key, size),
+                ).fetchall()
+                if not rows:
+                    break
+                page = []
+                for internal_id, raw_record in rows:
+                    cursor_key = str(internal_id)
+                    if isinstance(raw_record, memoryview):
+                        raw_record = raw_record.tobytes()
+                    try:
+                        record = pickle.loads(raw_record)
+                    except Exception:
+                        continue
+                    raw_data = (record or {}).get("_data") if isinstance(record, dict) else None
+                    if not isinstance(raw_data, dict):
+                        continue
+                    data = dict(raw_data)
+                    data.setdefault("_class", cls.__name__)
+                    data["_id"] = normalize_own_uid(
+                        cfg_uid, cls.__name__, data.get("_id") or internal_id
+                    )
+                    page.append(data)
+                if page:
+                    yield page
+                if len(rows) < size:
+                    break
+        finally:
+            conn.close()
+
+    @classmethod
+    def iter_all_data(cls, config_uid=None, page_size=1000, start_after=None):
+        """Yield plain node dictionaries while retaining at most one page."""
+        for page in cls.iter_data_pages(config_uid, page_size, start_after):
+            yield from page
+
+    @classmethod
+    def iter_pages(cls, config_uid=None, page_size=1000, start_after=None):
+        """Yield bounded pages of Node objects for get_all() migrations."""
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        if not cfg_uid:
+            try:
+                cfg_uid = str(CURRENT_CONFIG_UID.get() or "").strip()
+            except Exception:
+                cfg_uid = ""
+        for data_page in cls.iter_data_pages(cfg_uid, page_size, start_after):
+            page = []
+            for data in data_page:
+                try:
+                    _uid_cfg, _uid_cls, internal_id = parse_uid_any(data.get("_id"))
+                except Exception:
+                    internal_id = data.get("_id")
+                page.append(cls(str(internal_id), cfg_uid or None))
+            if page:
+                yield page
+
+    @classmethod
+    def iter_all(cls, config_uid=None, page_size=1000, start_after=None):
+        """Yield Node objects without materialising the whole class in RAM."""
+        for page in cls.iter_pages(config_uid, page_size, start_after):
+            yield from page
+
+    @classmethod
+    def _guard_unbounded_read(cls, config_uid=None, operation="get_all") -> None:
+        max_rows = max(1, int(os.getenv("NODA_GET_ALL_MAX_ROWS", "50000") or 50000))
+        total = cls.count(config_uid)
+        if total > max_rows:
+            raise RuntimeError(
+                f"{cls.__name__}.{operation}() is disabled for {total} rows "
+                f"(safety limit {max_rows}). Use {cls.__name__}.count() and "
+                f"{cls.__name__}.iter_all(page_size=...) or iter_all_data()."
+            )
+
+    @classmethod
     def _bulk_ensure_storage(cls, config_uid=None):
         cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
         storage_key = f"{cls.__name__}_{cfg_uid}" if cfg_uid else cls.__name__
@@ -2794,13 +3003,162 @@ class Node:
             cls._clear_hash_index_delta(index_name, config_uid)
 
     @classmethod
-    def rebuild_plain_indexes_fast(cls, config_uid=None, index_names=None, progress_text="") -> dict:
-        """Rebuild non-semantic indexes in linear time.
+    def _rebuild_hash_indexes_streaming(cls, config_uid, definitions, progress_text="") -> dict:
+        """Build normalized exact indexes with bounded memory and atomic swaps."""
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        result = {
+            "ok": True,
+            "nodes": 0,
+            "index_nodes": {str(x.get("name") or ""): 0 for x in definitions},
+            "errors": [],
+        }
+        if not definitions:
+            return result
 
-        Buckets are assembled in memory while the node table is scanned once,
-        then every bucket is written once in a single SQLite transaction.  This
-        avoids the old read/append/rewrite cycle for low-cardinality indexes.
-        """
+        # Block exact-index mutations while the source snapshot is built. Reads
+        # continue to use the previous file until the atomic replacement.
+        locks = []
+        for idx in sorted(definitions, key=lambda item: str(item.get("name") or "")):
+            name = str(idx.get("name") or "")
+            storage_key = cls._defined_index_storage_key(name, cfg_uid)
+            lock = cls._defined_index_locks.setdefault(storage_key, threading.RLock())
+            lock.acquire()
+            locks.append(lock)
+
+        conns = {}
+        temp_paths = {}
+        batches = {}
+        try:
+            os.makedirs(STORAGE_BASE_PATH, exist_ok=True)
+            for idx in definitions:
+                name = str(idx.get("name") or "")
+                final_path = cls._text_search_db_path(name, cfg_uid)
+                temp_path = (
+                    final_path + f".rebuild-{os.getpid()}-{threading.get_ident()}.tmp"
+                )
+                try:
+                    os.unlink(temp_path)
+                except FileNotFoundError:
+                    pass
+                conn = sqlite3.connect(temp_path, timeout=120.0)
+                conn.execute("PRAGMA journal_mode=DELETE")
+                conn.execute("PRAGMA synchronous=NORMAL")
+                conn.execute("PRAGMA temp_store=FILE")
+                conn.execute("PRAGMA cache_size=-8192")
+                table = cls._hash_index_table_name()
+                conn.execute(
+                    f'CREATE TABLE "{table}" ('
+                    "value TEXT NOT NULL, node_id TEXT NOT NULL, "
+                    "PRIMARY KEY(value,node_id)) WITHOUT ROWID"
+                )
+                conns[name] = conn
+                temp_paths[name] = temp_path
+                batches[name] = []
+
+            cls._bulk_ensure_storage(cfg_uid)
+            source = sqlite3.connect(cls._bulk_storage_path(cfg_uid), timeout=120.0)
+            try:
+                source.execute("PRAGMA cache_size=-8192")
+                source.execute("PRAGMA temp_store=FILE")
+                source_table = cls._atomic_sqlite_table(source)
+                qsource = '"' + source_table.replace('"', '""') + '"'
+                for row_no, (node_id, raw) in enumerate(
+                    source.execute(f"SELECT key,value FROM {qsource} ORDER BY key"), 1
+                ):
+                    if isinstance(raw, memoryview):
+                        raw = raw.tobytes()
+                    try:
+                        record = pickle.loads(raw)
+                        data = (record or {}).get("_data") or {}
+                    except Exception:
+                        data = {}
+                    if not isinstance(data, dict):
+                        data = {}
+                    for idx in definitions:
+                        name = str(idx.get("name") or "")
+                        keys_spec = (
+                            idx.get("keys") or idx.get("field") or idx.get("key")
+                            or idx.get("fields") or ""
+                        )
+                        values = cls._extract_index_values(data, keys_spec)
+                        if values:
+                            batch = batches[name]
+                            for value in values:
+                                if value:
+                                    batch.append((str(value), str(node_id)))
+                                    result["index_nodes"][name] += 1
+                            if len(batch) >= 2000:
+                                conns[name].executemany(
+                                    f'INSERT OR IGNORE INTO "{cls._hash_index_table_name()}" '
+                                    "(value,node_id) VALUES(?,?)",
+                                    batch,
+                                )
+                                conns[name].commit()
+                                batch.clear()
+                    result["nodes"] = row_no
+                    if row_no % 5000 == 0 and _background_jobs is not None:
+                        _background_jobs.update_progress(
+                            text=(progress_text or f"Rebuilding {cls.__name__} indexes")
+                            + f": {row_no}"
+                        )
+                        _background_jobs.raise_if_cancelled()
+            finally:
+                source.close()
+
+            for idx in definitions:
+                name = str(idx.get("name") or "")
+                conn = conns[name]
+                batch = batches[name]
+                if batch:
+                    conn.executemany(
+                        f'INSERT OR IGNORE INTO "{cls._hash_index_table_name()}" '
+                        "(value,node_id) VALUES(?,?)",
+                        batch,
+                    )
+                    batch.clear()
+                conn.execute(
+                    f'CREATE INDEX "ix_{cls._hash_index_table_name()}_node" '
+                    f'ON "{cls._hash_index_table_name()}" (node_id)'
+                )
+                conn.execute(
+                    "CREATE TABLE noda_hash_meta ("
+                    "id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL, "
+                    "source_rows INTEGER NOT NULL)"
+                )
+                conn.execute(
+                    "INSERT INTO noda_hash_meta(id,version,source_rows) VALUES(1,2,?)",
+                    (int(result["nodes"]),),
+                )
+                conn.commit()
+                conn.close()
+                conns.pop(name, None)
+
+                final_path = cls._text_search_db_path(name, cfg_uid)
+                cls._close_defined_index_storage(name, cfg_uid)
+                os.replace(temp_paths[name], final_path)
+                temp_paths.pop(name, None)
+                cls._clear_hash_index_delta(name, cfg_uid)
+        except Exception as exc:
+            result["ok"] = False
+            result["errors"].append(str(exc))
+        finally:
+            for conn in list(conns.values()):
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            for temp_path in list(temp_paths.values()):
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+            for lock in reversed(locks):
+                lock.release()
+        return result
+
+    @classmethod
+    def rebuild_plain_indexes_fast(cls, config_uid=None, index_names=None, progress_text="") -> dict:
+        """Rebuild non-semantic indexes with bounded RAM for exact/hash indexes."""
         cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
         wanted = None
         if index_names:
@@ -2828,6 +3186,29 @@ class Node:
             "index_nodes": {str(x.get("name") or ""): 0 for x in definitions},
             "errors": [],
         }
+        if not definitions:
+            return result
+
+        hash_definitions = [
+            idx for idx in definitions
+            if cls._defined_index_kind(idx) == "hash_index"
+        ]
+        if hash_definitions:
+            hash_result = cls._rebuild_hash_indexes_streaming(
+                cfg_uid, hash_definitions, progress_text=progress_text
+            )
+            result["nodes"] = max(result["nodes"], int(hash_result.get("nodes") or 0))
+            result["index_nodes"].update(hash_result.get("index_nodes") or {})
+            if not hash_result.get("ok", False):
+                result["ok"] = False
+                result["errors"].extend(hash_result.get("errors") or [])
+
+        # Text/trigram indexes retain their specialised sidecar format.  They
+        # are intentionally excluded from the exact-index in-memory buckets.
+        definitions = [
+            idx for idx in definitions
+            if cls._defined_index_kind(idx) != "hash_index"
+        ]
         if not definitions:
             return result
 
@@ -2890,12 +3271,23 @@ class Node:
             db_path = str(date_store.filename)
         except Exception:
             pass
+        conn = sqlite3.connect(db_path, timeout=120.0, isolation_level=None)
         main_conn = sqlite3.connect(cls._bulk_storage_path(cfg_uid), timeout=120.0)
-        rows = []
+        written = 0
         try:
-            table = cls._atomic_sqlite_table(main_conn)
+            conn.execute("BEGIN IMMEDIATE")
+            table = cls._atomic_sqlite_table(conn)
             qtable = '"' + table.replace('"', '""') + '"'
-            for node_id, raw in main_conn.execute(f"SELECT key, value FROM {qtable}"):
+            conn.execute(f"DELETE FROM {qtable}")
+            source_table = cls._atomic_sqlite_table(main_conn)
+            qsource = '"' + source_table.replace('"', '""') + '"'
+            encoded_one = sqlite3.Binary(
+                pickle.dumps(1, protocol=pickle.HIGHEST_PROTOCOL)
+            )
+            batch = []
+            for node_id, raw in main_conn.execute(
+                f"SELECT key,value FROM {qsource} ORDER BY key"
+            ):
                 if isinstance(raw, memoryview):
                     raw = raw.tobytes()
                 try:
@@ -2903,26 +3295,35 @@ class Node:
                     data = (record or {}).get("_data") or {}
                 except Exception:
                     data = {}
-                date_key = normalize_date_key((data or {}).get("_date_key") or (data or {}).get("_date"))
-                if date_key:
-                    rows.append((cls._date_index_key(date_key, str(node_id)), 1))
-        finally:
-            main_conn.close()
-        conn = sqlite3.connect(db_path, timeout=120.0, isolation_level=None)
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-            table = cls._atomic_sqlite_table(conn)
-            qtable = '"' + table.replace('"', '""') + '"'
-            conn.execute(f"DELETE FROM {qtable}")
-            if rows:
+                date_key = normalize_date_key(
+                    (data or {}).get("_date_key") or (data or {}).get("_date")
+                )
+                if not date_key:
+                    continue
+                batch.append((cls._date_index_key(date_key, str(node_id)), encoded_one))
+                written += 1
+                if len(batch) >= 2000:
+                    conn.executemany(
+                        f"INSERT OR REPLACE INTO {qtable} (key,value) VALUES(?,?)",
+                        batch,
+                    )
+                    batch.clear()
+            if batch:
                 conn.executemany(
-                    f"INSERT OR REPLACE INTO {qtable} (key, value) VALUES (?, ?)",
-                    [(k, sqlite3.Binary(pickle.dumps(v, protocol=pickle.HIGHEST_PROTOCOL))) for k, v in rows],
+                    f"INSERT OR REPLACE INTO {qtable} (key,value) VALUES(?,?)",
+                    batch,
                 )
             conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
         finally:
+            main_conn.close()
             conn.close()
-        return {"ok": True, "rows": len(rows)}
+        return {"ok": True, "rows": written}
 
     @classmethod
     def bulk_upsert(cls, items, config_uid=None, chunk_size=1000, rebuild_indexes=True, run_handlers=True) -> dict:
@@ -3566,6 +3967,9 @@ class Node:
             except Exception:
                 config_uid = None
 
+        if limit is None:
+            cls._guard_unbounded_read(config_uid, "get_all_data")
+
         storage_key = f"{cls.__name__}_{config_uid}" if config_uid else cls.__name__
         if storage_key not in cls._class_storages:
             if storage_key not in cls._storage_locks:
@@ -3610,6 +4014,7 @@ class Node:
                 config_uid = CURRENT_CONFIG_UID.get()
             except Exception:
                 config_uid = None
+        cls._guard_unbounded_read(config_uid, "get_all")
         storage_key = f"{cls.__name__}_{config_uid}" if config_uid else cls.__name__
         
         if storage_key not in cls._class_storages:
@@ -3856,6 +4261,78 @@ class Node:
                     db_path = os.path.join(STORAGE_BASE_PATH, f"{storage_key}.sqlite")
                     cls._defined_index_storages[storage_key] = SqliteDict(db_path, autocommit=True)
         return cls._defined_index_storages[storage_key]
+
+    @classmethod
+    def _defined_index_storage_key(cls, index_name: str, config_uid=None) -> str:
+        cfg_uid = str(config_uid or current_config_uid_from_handlers() or "").strip()
+        return (
+            f"{cls.__name__}_{cfg_uid}__idx__{index_name}"
+            if cfg_uid else f"{cls.__name__}__idx__{index_name}"
+        )
+
+    @classmethod
+    def _close_defined_index_storage(cls, index_name: str, config_uid=None) -> None:
+        storage_key = cls._defined_index_storage_key(index_name, config_uid)
+        store = cls._defined_index_storages.pop(storage_key, None)
+        if store is not None:
+            try:
+                store.close()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _hash_index_table_name() -> str:
+        return "noda_hash_entries"
+
+    @classmethod
+    def _hash_index_v2_exists(cls, index_name: str, config_uid=None) -> bool:
+        path = cls._text_search_db_path(index_name, config_uid)
+        if not os.path.isfile(path):
+            return False
+        conn = sqlite3.connect(path, timeout=10.0)
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (cls._hash_index_table_name(),),
+            ).fetchone()
+            return row is not None
+        finally:
+            conn.close()
+
+    @classmethod
+    def _hash_index_v2_bucket(cls, index_name, config_uid, value, limit=None):
+        path = cls._text_search_db_path(index_name, config_uid)
+        if not os.path.isfile(path):
+            return []
+        conn = sqlite3.connect(path, timeout=30.0)
+        try:
+            table = cls._hash_index_table_name()
+            sql = f'SELECT node_id FROM "{table}" WHERE value=? ORDER BY node_id'
+            params = [str(value)]
+            if limit is not None:
+                sql += " LIMIT ?"
+                params.append(max(0, int(limit)))
+            return [str(row[0]) for row in conn.execute(sql, params)]
+        except sqlite3.OperationalError:
+            return []
+        finally:
+            conn.close()
+
+    @classmethod
+    def _hash_index_v2_values(cls, index_name, config_uid):
+        path = cls._text_search_db_path(index_name, config_uid)
+        if not os.path.isfile(path):
+            return []
+        conn = sqlite3.connect(path, timeout=30.0)
+        try:
+            table = cls._hash_index_table_name()
+            return [str(row[0]) for row in conn.execute(
+                f'SELECT DISTINCT value FROM "{table}" ORDER BY value'
+            )]
+        except sqlite3.OperationalError:
+            return []
+        finally:
+            conn.close()
 
     @classmethod
     def _text_search_db_path(cls, index_name: str, config_uid=None) -> str:
@@ -4485,6 +4962,16 @@ class Node:
                     conn.close()
             except Exception:
                 return False
+        if kind == "hash_index" and cls._hash_index_v2_exists(index_name, config_uid):
+            path = cls._text_search_db_path(index_name, config_uid)
+            conn = sqlite3.connect(path, timeout=10.0)
+            try:
+                table = cls._hash_index_table_name()
+                return conn.execute(
+                    f'SELECT 1 FROM "{table}" LIMIT 1'
+                ).fetchone() is not None
+            finally:
+                conn.close()
         try:
             store = cls._defined_index_storage(index_name, config_uid)
             try:
@@ -4926,6 +5413,27 @@ class Node:
         if not defs:
             return result
 
+        plain_defs = [
+            idx for idx in defs
+            if not cls._is_semantic_index_kind(cls._defined_index_kind(idx))
+        ]
+        if plain_defs:
+            plain_result = cls.rebuild_plain_indexes_fast(
+                cfg_uid,
+                index_names=[str(idx.get("name") or "") for idx in plain_defs],
+            )
+            result["nodes"] = max(result["nodes"], int(plain_result.get("nodes") or 0))
+            result["index_nodes"].update(plain_result.get("index_nodes") or {})
+            if not plain_result.get("ok", False):
+                result["ok"] = False
+                result["errors"].extend(plain_result.get("errors") or [])
+        defs = [
+            idx for idx in defs
+            if cls._is_semantic_index_kind(cls._defined_index_kind(idx))
+        ]
+        if not defs:
+            return result
+
         # Clear selected index storages first; rebuild must reflect current data exactly.
         for idx in defs:
             name = str(idx.get("name") or "").strip()
@@ -4961,36 +5469,27 @@ class Node:
                 result["errors"].append(f"{name}: clear failed: {e}")
                 result["ok"] = False
 
-        try:
-            all_nodes = cls.get_all(cfg_uid)
-        except Exception as e:
-            result["ok"] = False
-            result["errors"].append(f"get_all failed: {e}")
-            return result
-        if isinstance(all_nodes, dict):
-            iterable = list(all_nodes.items())
-        else:
-            iterable = [(getattr(n, "_id", ""), n) for n in (all_nodes or [])]
-
-        for node_id, node in iterable:
+        semantic_nodes = 0
+        for data in cls.iter_all_data(cfg_uid, page_size=500):
+            raw_id = data.get("_id") if isinstance(data, dict) else ""
             try:
-                data = getattr(node, "_data", {}) or {}
+                _uid_cfg, _uid_cls, node_id = parse_uid_any(raw_id)
+            except Exception:
+                node_id = raw_id
+            try:
                 if not isinstance(data, dict):
                     data = {}
-                update_result = cls._update_defined_indexes(
-                    cfg_uid,
-                    getattr(node, "_id", node_id),
-                    {},
-                    data,
-                    strict=True,
-                )
-                for written_name in (update_result or {}).get("written", []):
-                    if written_name in result["index_nodes"]:
-                        result["index_nodes"][written_name] += 1
-                result["nodes"] += 1
+                for idx in defs:
+                    name = str(idx.get("name") or "")
+                    if cls._write_one_defined_index(
+                        cfg_uid, node_id, {}, data, idx, strict=True
+                    ):
+                        result["index_nodes"][name] += 1
+                semantic_nodes += 1
             except Exception as e:
                 result["errors"].append(f"{node_id}: {e}")
                 result["ok"] = False
+        result["nodes"] = max(result["nodes"], semantic_nodes)
         return result
 
     @staticmethod
@@ -5038,6 +5537,48 @@ class Node:
 
     @classmethod
     def _apply_hash_index_delta(cls, index_name, config_uid, node_id, removed, added) -> None:
+        """Apply an exact-index membership change in O(log n)."""
+        removed = [str(x) for x in (removed or []) if str(x)]
+        added = [str(x) for x in (added or []) if str(x)]
+        if not removed and not added:
+            return
+        storage_key = cls._defined_index_storage_key(index_name, config_uid)
+        index_lock = cls._defined_index_locks.setdefault(storage_key, threading.RLock())
+        with index_lock:
+            if cls._hash_index_v2_exists(index_name, config_uid):
+                path = cls._text_search_db_path(index_name, config_uid)
+                conn = sqlite3.connect(path, timeout=30.0, isolation_level=None)
+                try:
+                    conn.execute("PRAGMA busy_timeout=30000")
+                    conn.execute("BEGIN IMMEDIATE")
+                    table = cls._hash_index_table_name()
+                    sid = str(node_id)
+                    if removed:
+                        conn.executemany(
+                            f'DELETE FROM "{table}" WHERE value=? AND node_id=?',
+                            [(value, sid) for value in removed],
+                        )
+                    if added:
+                        conn.executemany(
+                            f'INSERT OR IGNORE INTO "{table}" (value,node_id) VALUES(?,?)',
+                            [(value, sid) for value in added],
+                        )
+                    conn.commit()
+                    return
+                except Exception:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    raise
+                finally:
+                    conn.close()
+            cls._apply_hash_index_delta_legacy(
+                index_name, config_uid, node_id, removed, added
+            )
+
+    @classmethod
+    def _apply_hash_index_delta_legacy(cls, index_name, config_uid, node_id, removed, added) -> None:
         """Overlay exact-index changes without rewriting a potentially huge bucket.
 
         The historical index format stores ``value -> [node ids]``.  Rewriting a
@@ -5128,11 +5669,16 @@ class Node:
             conn.close()
 
     @classmethod
-    def _hash_index_effective_bucket(cls, index_name, config_uid, store, value):
-        try:
-            base = [str(x) for x in (store.get(str(value), []) or [])]
-        except Exception:
-            base = []
+    def _hash_index_effective_bucket(cls, index_name, config_uid, store, value, limit=None):
+        if cls._hash_index_v2_exists(index_name, config_uid):
+            base = cls._hash_index_v2_bucket(
+                index_name, config_uid, value, limit=limit
+            )
+        else:
+            try:
+                base = [str(x) for x in (store.get(str(value), []) or [])]
+            except Exception:
+                base = []
         out = list(base)
         positions = {node_id: idx for idx, node_id in enumerate(out)}
         removed = set()
@@ -5149,7 +5695,7 @@ class Node:
         if removed:
             out = [node_id for node_id in out if node_id not in removed]
         out.extend(added)
-        return out
+        return out[:max(0, int(limit))] if limit is not None else out
 
     @classmethod
     def _clear_hash_index_delta(cls, index_name, config_uid) -> None:
@@ -5350,7 +5896,8 @@ class Node:
                 return result[:max(0, int(limit))] if limit is not None else result
             except Exception:
                 return result
-        store = cls._defined_index_storage(name, cfg_uid)
+        hash_v2 = idx_kind == "hash_index" and cls._hash_index_v2_exists(name, cfg_uid)
+        store = None if hash_v2 else cls._defined_index_storage(name, cfg_uid)
 
         def _lookup_variants(one):
             raw = "" if one is None else str(one).strip()
@@ -5426,7 +5973,12 @@ class Node:
             unresolved_seen = set()
 
             def add_effective(value):
-                bucket = cls._hash_index_effective_bucket(name, cfg_uid, store, value)
+                remaining = None
+                if result_limit is not None:
+                    remaining = max(0, result_limit - len(out))
+                bucket = cls._hash_index_effective_bucket(
+                    name, cfg_uid, store, value, limit=remaining
+                )
                 before = len(out)
                 _append_bucket(out, seen, bucket)
                 return len(out) > before
@@ -5450,7 +6002,10 @@ class Node:
                 return out
 
             try:
-                store_keys = list(store.keys())
+                store_keys = (
+                    cls._hash_index_v2_values(name, cfg_uid)
+                    if hash_v2 else list(store.keys())
+                )
             except Exception:
                 store_keys = []
             delta_keys = cls._hash_index_delta_values(name, cfg_uid)
@@ -5686,12 +6241,15 @@ class Node:
         idx_def = cls._defined_index_def(name, cfg_uid)
         if not name or not idx_def:
             return []
+        kind = cls._defined_index_kind(idx_def)
+        if kind == "hash_index" and cls._hash_index_v2_exists(name, cfg_uid):
+            return cls._hash_index_v2_values(name, cfg_uid)
         try:
             store = cls._defined_index_storage(name, cfg_uid)
             base = [str(x) for x in store.keys()]
         except Exception:
             base = []
-        if cls._defined_index_kind(idx_def) == "hash_index":
+        if kind == "hash_index":
             try:
                 base.extend(cls._hash_index_delta_values(name, cfg_uid))
             except Exception:
@@ -5717,9 +6275,13 @@ class Node:
         if skey == "":
             return []
         try:
-            store = cls._defined_index_storage(name, cfg_uid)
             if cls._defined_index_kind(idx_def) == "hash_index":
+                store = (
+                    None if cls._hash_index_v2_exists(name, cfg_uid)
+                    else cls._defined_index_storage(name, cfg_uid)
+                )
                 return cls._hash_index_effective_bucket(name, cfg_uid, store, skey)
+            store = cls._defined_index_storage(name, cfg_uid)
             return [str(x) for x in (store.get(skey, []) or [])]
         except Exception:
             return []
@@ -5780,6 +6342,43 @@ class Node:
         if not name or not idx_def:
             return []
         kind = cls._defined_index_kind(idx_def)
+
+        if kind == "hash_index" and cls._hash_index_v2_exists(name, cfg_uid):
+            path = cls._text_search_db_path(name, cfg_uid)
+            conn = sqlite3.connect(path, timeout=30.0)
+            try:
+                table = cls._hash_index_table_name()
+                out = []
+                seen_ids = set()
+                max_rows = max(0, int(limit)) if limit is not None else None
+                for (raw_key,) in conn.execute(
+                    f'SELECT DISTINCT value FROM "{table}" ORDER BY value'
+                ):
+                    key = str(raw_key or "")
+                    try:
+                        matches = bool(predicate(key))
+                    except Exception:
+                        matches = False
+                    if not matches:
+                        continue
+                    remaining = None if max_rows is None else max_rows - len(out)
+                    sql = f'SELECT node_id FROM "{table}" WHERE value=? ORDER BY node_id'
+                    params = [key]
+                    if remaining is not None:
+                        if remaining <= 0:
+                            return out
+                        sql += " LIMIT ?"
+                        params.append(remaining)
+                    for (node_id,) in conn.execute(sql, params):
+                        sid = str(node_id)
+                        if sid not in seen_ids:
+                            seen_ids.add(sid)
+                            out.append(sid)
+                            if max_rows is not None and len(out) >= max_rows:
+                                return out
+                return out
+            finally:
+                conn.close()
 
         # Ensure the SqliteDict/table exists, then use its SQLite file directly.
         try:

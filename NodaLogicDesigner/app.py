@@ -1,4 +1,4 @@
-from flask import Flask, url_for, request, jsonify, abort, after_this_request, send_from_directory, g, current_app, render_template, redirect, flash
+from flask import Flask, url_for, request, jsonify, abort, after_this_request, send_from_directory, g, current_app, render_template, redirect, flash, has_request_context
 from flask_login import login_required, current_user
 
 from werkzeug.utils import secure_filename
@@ -34,6 +34,8 @@ import hashlib
 import gzip
 import boto3
 from botocore.client import Config
+from compute_engines import normalize_settings as _normalize_compute_engines
+from class_hierarchy import sync_hierarchy_class_ui
 
 print("APP LOAD:", __name__, __file__, id(object()))
 
@@ -1127,7 +1129,14 @@ def _system_user_payload(user=None):
 
 def current_system_user_payload_global():
     """Bridge used by nodes.py when no explicit runtime context was passed."""
-    return _system_user_payload(_resolve_request_user_optional())
+    if has_request_context():
+        cached = getattr(g, "_nl_current_system_user_payload", None)
+        if cached is not None:
+            return cached
+    payload = _system_user_payload(_resolve_request_user_optional())
+    if has_request_context():
+        g._nl_current_system_user_payload = payload
+    return payload
 
 
 def resolve_system_user_view_global(value, default=""):
@@ -1357,6 +1366,7 @@ def _class_payload_for_config(c):
                 'hide_mobile_client': bool(getattr(c, 'hide_mobile_client', False)),
                 'hide_web_client': bool(getattr(c, 'hide_web_client', False)),
                 'allow_client_extensions': getattr(c, 'allow_client_extensions', True) is not False,
+                'hierarchy_enabled': bool(getattr(c, 'hierarchy_enabled', False)),
         'methods': [{
             'name': m.name,
             'source': m.source,
@@ -2301,7 +2311,7 @@ def handle_discussion_websocket(ws):
     _cleanup_discussion_ws()
 
 
-app.config['SECRET_KEY'] = FLASK_SECRET
+app.config['SECRET_KEY'] = os.environ.get('NODA_FLASK_SECRET', FLASK_SECRET)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///db.sqlite'
 
 app.config['SQLALCHEMY_BINDS'] = {
@@ -2643,6 +2653,8 @@ def _ensure_sqlite_schema():
             _add_col("config_section", "hide_web_client BOOLEAN DEFAULT FALSE", "hide_web_client")
         if "allow_client_extensions" not in scols:
             _add_col("config_section", "allow_client_extensions BOOLEAN DEFAULT TRUE", "allow_client_extensions")
+        if "hierarchy_enabled" not in scols:
+            _add_col("config_section", "hierarchy_enabled BOOLEAN DEFAULT FALSE", "hierarchy_enabled")
         if "mobile_form_node" not in scols:
             _add_col("config_section", "mobile_form_node VARCHAR(300) DEFAULT ''", "mobile_form_node")
         if "web_form_node" not in scols:
@@ -2674,6 +2686,8 @@ def _ensure_sqlite_schema():
             _add_col("configuration", "common_layouts JSON", "common_layouts")
         if "ngenie_prompt" not in ccols:
             _add_col("configuration", 'ngenie_prompt TEXT DEFAULT ""', "ngenie_prompt")
+        if "compute_engines" not in ccols:
+            _add_col("configuration", "compute_engines JSON DEFAULT '{}'", "compute_engines")
         if "ngenie_code_locked" not in ccols:
             _add_col("configuration", "ngenie_code_locked BOOLEAN DEFAULT 0", "ngenie_code_locked")
         if "ngenie_code_instruction" not in ccols:
@@ -2822,6 +2836,8 @@ def _ensure_sqlite_schema():
             _add_col("config_class", "hide_web_client BOOLEAN DEFAULT FALSE", "hide_web_client")
         if "allow_client_extensions" not in cols:
             _add_col("config_class", "allow_client_extensions BOOLEAN DEFAULT TRUE", "allow_client_extensions")
+        if "hierarchy_enabled" not in cols:
+            _add_col("config_class", "hierarchy_enabled BOOLEAN DEFAULT FALSE", "hierarchy_enabled")
         if "dashboard_enabled" not in cols:
             _add_col("config_class", "dashboard_enabled BOOLEAN DEFAULT FALSE", "dashboard_enabled")
         if "dashboard_width" not in cols:
@@ -5920,6 +5936,7 @@ def get_config(uid):
         'nodes_handlers': config.nodes_handlers,
         'nodes_server_handlers': config.nodes_server_handlers,
         'ngenie_prompt': getattr(config, 'ngenie_prompt', '') or '',
+        'compute_engines': _normalize_compute_engines(getattr(config, 'compute_engines', None)),
         'description': getattr(config, 'description', '') or '',
         'ngenie_code_locked': bool(getattr(config, 'ngenie_code_locked', False)),
         'ngenie_code_instruction': getattr(config, 'ngenie_code_instruction', '') or '',
@@ -5962,6 +5979,7 @@ def get_config(uid):
                 'hide_mobile_client': bool(getattr(c, 'hide_mobile_client', False)),
                 'hide_web_client': bool(getattr(c, 'hide_web_client', False)),
                 'allow_client_extensions': getattr(c, 'allow_client_extensions', True) is not False,
+                'hierarchy_enabled': bool(getattr(c, 'hierarchy_enabled', False)),
                 'dashboard_enabled': bool(getattr(c, 'dashboard_enabled', False)),
                 'dashboard_width': str(getattr(c, 'dashboard_width', '') or '100'),
                 'dashboard_top': bool(getattr(c, 'dashboard_top', False)),
@@ -5977,6 +5995,7 @@ def get_config(uid):
                 'hide_mobile_client': bool(getattr(c, 'hide_mobile_client', False)),
                 'hide_web_client': bool(getattr(c, 'hide_web_client', False)),
                 'allow_client_extensions': getattr(c, 'allow_client_extensions', True) is not False,
+                'hierarchy_enabled': bool(getattr(c, 'hierarchy_enabled', False)),
                 'dashboard_enabled': bool(getattr(c, 'dashboard_enabled', False)),
                 'dashboard_width': str(getattr(c, 'dashboard_width', '') or '100'),
                 'dashboard_top': bool(getattr(c, 'dashboard_top', False)),
@@ -6006,6 +6025,7 @@ def get_config(uid):
                 'hide_mobile_client': bool(getattr(c, 'hide_mobile_client', False)),
                 'hide_web_client': bool(getattr(c, 'hide_web_client', False)),
                 'allow_client_extensions': getattr(c, 'allow_client_extensions', True) is not False,
+                'hierarchy_enabled': bool(getattr(c, 'hierarchy_enabled', False)),
                 'methods': [{
                     'name': m.name,
                     'source': m.source,
@@ -6144,7 +6164,15 @@ def _build_runtime_parsed_config(config: Configuration) -> dict:
             }
     except Exception:
         pass
-    return {"classes": classes, "profile_templates": getattr(config, 'profile_templates', None) or []}
+    try:
+        engine_settings = _normalize_compute_engines(getattr(config, 'compute_engines', None))
+    except Exception:
+        engine_settings = {"reactive": "python", "cost_graph": "python", "operation_planning": "python"}
+    return {
+        "classes": classes,
+        "profile_templates": getattr(config, 'profile_templates', None) or [],
+        "compute_engines": engine_settings,
+    }
 
 
 def _compact_clean(value):
@@ -6200,6 +6228,8 @@ def _export_class_json(class_obj: ConfigClass) -> dict:
     if bool(getattr(class_obj, 'hide_web_client', False)):
         data['hide_web_client'] = True
     data['allow_client_extensions'] = getattr(class_obj, 'allow_client_extensions', True) is not False
+    if bool(getattr(class_obj, 'hierarchy_enabled', False)):
+        data['hierarchy_enabled'] = True
     if bool(getattr(class_obj, 'show_tag_cloud', False)):
         data['show_tag_cloud'] = True
     if bool(getattr(class_obj, 'mobile_print_enabled', False)):
@@ -6450,6 +6480,7 @@ def _upsert_config_class_from_json(config: Configuration, class_json: dict, *, p
         'dashboard_enabled': ('dashboard_enabled', 'dashboardEnabled'),
         'dashboard_top': ('dashboard_top', 'dashboardTop'),
         'include_in_contract': ('include_in_contract', 'includeInContract'),
+        'hierarchy_enabled': ('hierarchy_enabled', 'hierarchyEnabled', 'has_groups', 'hasGroups'),
     }
     for attr, keys in bool_fields.items():
         value = _first_present(class_json, *keys, default=None)
@@ -6559,6 +6590,8 @@ def _upsert_config_class_from_json(config: Configuration, class_json: dict, *, p
                     post_http_function_name=str(_first_present(action_item, 'postHttpFunctionName', 'post_http_function_name', default='') or ''),
                 ))
 
+    if any(key in class_json for key in ('hierarchy_enabled', 'hierarchyEnabled', 'has_groups', 'hasGroups')):
+        sync_hierarchy_class_ui(cls)
     now = datetime.now(timezone.utc)
     if hasattr(config, 'last_modified'):
         config.last_modified = now
@@ -8810,6 +8843,21 @@ def register_nodes(config_uid, class_name, room_uid):
                     message = f"Registered {len(nodes_data)} selected nodes"
                 else:
                     # Register all class nodes
+                    total = node_class.count(config_uid) if hasattr(node_class, "count") else 0
+                    try:
+                        register_max = max(
+                            1, int(os.environ.get("NODA_REGISTER_ALL_MAX_ROWS") or 10000)
+                        )
+                    except Exception:
+                        register_max = 10000
+                    if total > register_max:
+                        return jsonify({
+                            "ok": False,
+                            "error": "Register-all is disabled for large classes",
+                            "total": total,
+                            "limit": register_max,
+                            "hint": "Send explicit node ids in bounded batches",
+                        }), 413
                     nodes = node_class.get_all(config_uid)
                     nodes_data = []
                     for node_id, node in nodes.items():
@@ -9045,15 +9093,36 @@ def nodes_api_page_at_date(config_uid, class_name):
 
     request_user = getattr(g, 'api_user', None)
     if not user_can_access_class(request_user, config_uid, class_name):
-        return jsonify({"total": 0, "offset": int(request.args.get("offset", 0) or 0), "limit": int(request.args.get("limit", 50) or 50), "items": []})
+        return jsonify({"total": 0, "offset": 0, "limit": 50, "items": []})
 
     import os, sqlite3, pickle
     import nodes as _nodes_mod
 
     date = (request.args.get("date") or "").strip()
-    offset = int(request.args.get("offset", 0) or 0)
-    limit = int(request.args.get("limit", 50) or 50)
-
+    try:
+        offset = max(0, int(request.args.get("offset", 0) or 0))
+    except Exception:
+        offset = 0
+    try:
+        page_max = max(1, int(os.environ.get("NODA_API_PAGE_MAX") or 2000))
+    except Exception:
+        page_max = 2000
+    try:
+        requested_limit = int(request.args.get("limit", 50) or 50)
+    except Exception:
+        requested_limit = 50
+    limit = max(1, min(page_max, requested_limit))
+    try:
+        offset_max = max(0, int(os.environ.get("NODA_API_OFFSET_MAX") or 100000))
+    except Exception:
+        offset_max = 100000
+    if offset > offset_max:
+        return jsonify({
+            "ok": False,
+            "error": "Offset is too large for the date-index endpoint",
+            "offset": offset,
+            "max_offset": offset_max,
+        }), 400
     # normalize date to YYYYMMDD
     dk = _nodes_mod.normalize_date_key(date)
     if not dk:
@@ -9263,6 +9332,24 @@ def nodes_api(config_uid, class_name):
 
         # ---------------- GET ----------------
         if request.method == 'GET':
+            total = node_class.count(config_uid) if hasattr(node_class, "count") else 0
+            try:
+                legacy_max = max(1, int(os.environ.get("NODA_LEGACY_GET_ALL_MAX_ROWS") or 10000))
+            except Exception:
+                legacy_max = 10000
+            if total > legacy_max:
+                return jsonify({
+                    "ok": False,
+                    "error": "Unbounded collection GET is disabled for large classes",
+                    "class": class_name,
+                    "total": total,
+                    "limit": legacy_max,
+                    "page_url": f"/api/config/{config_uid}/node/{class_name}/page",
+                    "developer_hint": (
+                        f"Use {class_name}.count() and {class_name}.iter_all(page_size=...) "
+                        "in server handlers"
+                    ),
+                }), 413
             nodes = node_class.get_all(config_uid)
             result = {node_id: node.to_dict() for node_id, node in nodes.items()}
             result = filter_nodes_for_authorized_user(request_user, config_uid, class_name, result)
@@ -9290,6 +9377,15 @@ def nodes_api(config_uid, class_name):
 
                     def _run_bulk_api_import():
                         with app_obj.app_context():
+                            # A forked job must not reuse SQLAlchemy connections
+                            # inherited from the web worker.
+                            try:
+                                db.session.remove()
+                                db.engine.dispose(close=False)
+                            except TypeError:
+                                db.engine.dispose()
+                            except Exception:
+                                pass
                             import nodes as _bulk_nodes_mod
                             cfg_obj = db.session.execute(
                                 select(Configuration).where(Configuration.uid == config_uid)
@@ -9321,12 +9417,15 @@ def nodes_api(config_uid, class_name):
                                 except Exception:
                                     pass
 
-                    job = _background_jobs.submit(
-                        _run_bulk_api_import,
-                        owner=owner_key,
-                        mode="runprogress",
-                        title=f"Import {class_name}: {len(data_copy)} nodes",
-                    )
+                    try:
+                        job = _background_jobs.submit(
+                            _run_bulk_api_import,
+                            owner=owner_key,
+                            mode="runprogress",
+                            title=f"Import {class_name}: {len(data_copy)} nodes",
+                        )
+                    except _background_jobs.JobQueueFull as exc:
+                        return jsonify({"ok": False, "error": str(exc)}), 503
                     job_id = str(job.get("id") or "")
                     return jsonify({
                         "ok": True,
@@ -9530,11 +9629,12 @@ def nodes_api_page(config_uid, class_name):
     Fast paged nodes list from sqlitedict storage (no exec, no Node instantiation).
 
     Query:
-      offset (int), limit (int), q (str)
+      cursor (str, preferred), offset (bounded compatibility), limit (capped), q (str)
     Sorting:
-      prefers _data._sort_string_desc, then _data._sort_string, else _id
+      stable storage-key order, suitable for keyset pagination
     Search:
-      if q -> substring search in _data values (stringified)
+      configured indexes are preferred; unindexed substring search scans a
+      bounded window and returns next_cursor
     """
     # validate config exists
     config = db.session.execute(
@@ -9545,12 +9645,35 @@ def nodes_api_page(config_uid, class_name):
 
     request_user = getattr(g, 'api_user', None)
     if not user_can_access_class(request_user, config_uid, class_name):
-        return jsonify({"total": 0, "offset": 0, "limit": int(request.args.get("limit", 50) or 50), "items": []})
+        return jsonify({"total": 0, "offset": 0, "limit": 50, "items": []})
 
     import os, sqlite3, pickle
 
-    offset = int(request.args.get("offset", 0) or 0)
-    limit = int(request.args.get("limit", 50) or 50)
+    try:
+        offset = max(0, int(request.args.get("offset", 0) or 0))
+    except Exception:
+        offset = 0
+    try:
+        page_max = max(1, int(os.environ.get("NODA_API_PAGE_MAX") or 2000))
+    except Exception:
+        page_max = 2000
+    try:
+        requested_limit = int(request.args.get("limit", 50) or 50)
+    except Exception:
+        requested_limit = 50
+    limit = max(1, min(page_max, requested_limit))
+    try:
+        offset_max = max(0, int(os.environ.get("NODA_API_OFFSET_MAX") or 100000))
+    except Exception:
+        offset_max = 100000
+    if offset > offset_max:
+        return jsonify({
+            "ok": False,
+            "error": "Offset is too large; continue with the returned cursor",
+            "offset": offset,
+            "max_offset": offset_max,
+        }), 400
+    cursor_key = str(request.args.get("cursor") or "")
     # Keep the original text for embedding models; use q_lower only for the
     # substring fallback below.
     q = (request.args.get("q") or "").strip()
@@ -9637,12 +9760,14 @@ def nodes_api_page(config_uid, class_name):
                     has_index_rows = True
                 else:
                     store = node_class._defined_index_storage(name, config_uid)
-                    if list(store.keys()):
+                    if next(iter(store.keys()), None) is not None:
                         has_index_rows = True
             except Exception:
                 pass
             try:
-                ids = node_class.find_ids_by_index(name, q, config_uid)
+                ids = node_class.find_ids_by_index(
+                    name, q, config_uid, limit=offset + limit + 1
+                )
             except Exception:
                 ids = []
             for nid in ids or []:
@@ -9658,7 +9783,9 @@ def nodes_api_page(config_uid, class_name):
             node_class = isolated_globals.get(class_name)
             if node_class is None:
                 return jsonify({"total": 0, "offset": offset, "limit": limit, "items": []})
-            node_ids = node_class.find_ids_by_index(index_name, index_value, config_uid)
+            node_ids = node_class.find_ids_by_index(
+                index_name, index_value, config_uid, limit=offset + limit + 1
+            )
             items = fetch_items_by_ids(node_ids)
             return jsonify({"total": len(items), "offset": offset, "limit": limit, "items": items})
         except Exception:
@@ -9679,41 +9806,53 @@ def nodes_api_page(config_uid, class_name):
             cur.execute(f"SELECT COUNT(1) FROM {table}")
             total = int(cur.fetchone()[0] or 0)
 
-            # page
-            cur.execute(
-                f"SELECT value FROM {table} ORDER BY key LIMIT ? OFFSET ?",
-                (limit, offset),
-            )
+            # Prefer keyset/cursor paging. OFFSET remains for compatibility and
+            # is capped above so it cannot force an unbounded walk.
+            if cursor_key:
+                cur.execute(
+                    f"SELECT key,value FROM {table} WHERE key>? ORDER BY key LIMIT ?",
+                    (cursor_key, limit + 1),
+                )
+            else:
+                cur.execute(
+                    f"SELECT key,value FROM {table} ORDER BY key LIMIT ? OFFSET ?",
+                    (limit + 1, offset),
+                )
             rows = cur.fetchall()
+            has_more = len(rows) > limit
+            page_rows = rows[:limit]
 
             items = []
-            for (val_blob,) in rows:
+            for row_key, val_blob in page_rows:
                 obj = unpack(val_blob)
-                if obj is not None and _page_item_allowed(obj):
+                if obj is not None and _page_item_allowed(obj, row_key):
                     items.append(obj)
 
-            return jsonify({"total": total, "offset": offset, "limit": limit, "items": items})
+            next_cursor = str(page_rows[-1][0]) if page_rows else cursor_key
+            return jsonify({
+                "total": total,
+                "offset": 0 if cursor_key else offset,
+                "limit": limit,
+                "items": items,
+                "next_cursor": next_cursor if has_more else None,
+                "has_more": has_more,
+                "order": "key",
+            })
         finally:
             conn.close()
 
-    # SLOW PATH: q present -> scan + filter + sort (pickle prevents SQL filtering)
+    # BOUNDED FALLBACK: pickle prevents SQL filtering. Scan only a configured
+    # window and continue with a keyset cursor instead of loading the class.
     conn = sqlite3.connect(db_path)
     try:
         cur = conn.cursor()
         cur.execute(f"SELECT COUNT(1) FROM {table}")
         total_all = int(cur.fetchone()[0] or 0)
+        try:
+            scan_max = max(100, int(os.environ.get("NODA_API_SEARCH_SCAN_MAX") or 50000))
+        except Exception:
+            scan_max = 50000
 
-        cur.execute(f"SELECT value FROM {table}")
-        rows = cur.fetchall()
-
-        all_items = []
-        for (val_blob,) in rows:
-            obj = unpack(val_blob)
-            if obj is None:
-                continue
-            all_items.append(obj)
-
-        # filter by q
         def match(item: dict) -> bool:
             data = (item or {}).get("_data") or {}
             for v in data.values():
@@ -9724,25 +9863,46 @@ def nodes_api_page(config_uid, class_name):
                     pass
             return False
 
-        filtered = [it for it in all_items if match(it) and _page_item_allowed(it)]
+        cur.execute(
+            f"SELECT key,value FROM {table} WHERE key>? ORDER BY key",
+            (cursor_key,),
+        )
+        items = []
+        scanned = 0
+        matched = 0
+        last_key = cursor_key
+        effective_offset = 0 if cursor_key else offset
+        for row_key, val_blob in cur:
+            last_key = str(row_key)
+            scanned += 1
+            obj = unpack(val_blob)
+            if obj is not None and match(obj) and _page_item_allowed(obj, row_key):
+                if matched >= effective_offset:
+                    items.append(obj)
+                matched += 1
+                if len(items) >= limit:
+                    break
+            if scanned >= scan_max:
+                break
 
-        # sort
-        def sort_key(item: dict):
-            data = (item or {}).get("_data") or {}
-            if "_sort_string_desc" in data:
-                return str(data.get("_sort_string_desc") or "")
-            if "_sort_string" in data:
-                return str(data.get("_sort_string") or "")
-            return str((item or {}).get("_id") or "")
-
-        # if any item has _sort_string_desc -> sort descending
-        has_desc = any("_sort_string_desc" in ((it or {}).get("_data") or {}) for it in filtered)
-        filtered.sort(key=sort_key, reverse=bool(has_desc))
-
-        total = len(filtered)
-        sliced = filtered[offset: offset + limit]
-
-        return jsonify({"total": total, "offset": offset, "limit": limit, "items": sliced, "total_all": total_all})
+        has_more = False
+        if last_key:
+            has_more = conn.execute(
+                f"SELECT 1 FROM {table} WHERE key>? LIMIT 1", (last_key,)
+            ).fetchone() is not None
+        return jsonify({
+            "total": None,
+            "total_all": total_all,
+            "offset": effective_offset,
+            "limit": limit,
+            "items": items,
+            "scanned": scanned,
+            "scan_limit": scan_max,
+            "next_cursor": last_key if has_more else None,
+            "has_more": has_more,
+            "order": "key",
+            "warning": "Unindexed search is bounded; continue with next_cursor",
+        })
     finally:
         conn.close()
 
@@ -13620,22 +13780,49 @@ def nodes_api_query(config_uid, class_name):
 
     try:
         payload = request.get_json(silent=True)
-        nodes = node_class.get_all(config_uid)
 
         # ["uid1","uid2",...]
         if isinstance(payload, list):
-            wanted = set(str(x) for x in payload if x is not None)
+            try:
+                query_max = max(1, int(os.environ.get("NODA_API_QUERY_IDS_MAX") or 2000))
+            except Exception:
+                query_max = 2000
+            wanted = list(dict.fromkeys(str(x) for x in payload if x is not None))
+            if len(wanted) > query_max:
+                return jsonify({
+                    "ok": False,
+                    "error": "Too many ids in one query",
+                    "limit": query_max,
+                }), 413
             out = {}
-            for node_id, node in nodes.items():
+            for requested_id in wanted:
+                node_id = extract_internal_id(requested_id)
+                node = node_class.get(node_id, config_uid)
+                if node is None:
+                    continue
                 d = node.to_dict()
-                public_id = d.get("_data", {}).get("_id") or node_id
-                if str(node_id) in wanted or str(public_id) in wanted:
-                    out[node_id] = d
+                out[str(node_id)] = d
             out = filter_nodes_for_authorized_user(request_user, config_uid, class_name, out)
             return jsonify(out)
 
         # condition object
         if isinstance(payload, dict):
+            total = node_class.count(config_uid) if hasattr(node_class, "count") else 0
+            try:
+                condition_max = max(
+                    1, int(os.environ.get("NODA_API_CONDITION_SCAN_MAX_ROWS") or 10000)
+                )
+            except Exception:
+                condition_max = 10000
+            if total > condition_max:
+                return jsonify({
+                    "ok": False,
+                    "error": "Unindexed condition query is disabled for large classes",
+                    "total": total,
+                    "limit": condition_max,
+                    "hint": "Use a configured index or the paged endpoint",
+                }), 413
+            nodes = node_class.get_all(config_uid)
             out = {}
             for node_id, node in nodes.items():
                 d = node.to_dict()
@@ -14614,9 +14801,9 @@ try:
 except ImportError as _e:
     print('Resource specifications module not loaded:', _e)
 
-# The generic resource_planning engine is a pure Python service with no Flask
-# blueprints. Domain workstations, production tasks and MES events remain NodaLogic
-# configuration nodes and therefore require no dedicated application routes.
+# The generic resource_planning engine has no Flask blueprint. Its Python and
+# optional Rust compute kernels share one JSON contract; domain workstations,
+# production tasks and MES events remain NodaLogic configuration nodes.
 
 # Optional Solutions module. Folder-based feature flag: remove the `solutions`
 # package and no model/migration/routes/templates are loaded.
@@ -14711,6 +14898,18 @@ try:
     _register_mcp(app, _sys.modules[__name__])
 except Exception as _mcp_e:
     print("MCP runtime not loaded:", _mcp_e)
+
+
+# Optional NodaLogic MCP Pro (admin-only; folder-presence switch)
+# Remove the mcp_pro/ directory to disable the endpoint on next restart.
+try:
+    import sys as _mcp_pro_sys
+    from mcp_pro import register_mcp_pro as _register_mcp_pro
+    _register_mcp_pro(app, _mcp_pro_sys.modules[__name__])
+except ImportError as _mcp_pro_import_error:
+    print("MCP Pro not installed:", _mcp_pro_import_error)
+except Exception as _mcp_pro_load_error:
+    print("MCP Pro initialization FAILED:", _mcp_pro_load_error)
 
 if __name__ == '__main__':
     with app.app_context():
@@ -14942,6 +15141,10 @@ if __name__ == '__main__':
             if 'server_name' not in config_columns:
                 with db.engine.begin() as conn:
                     conn.execute(text('ALTER TABLE configuration ADD COLUMN server_name VARCHAR(100) DEFAULT ""'))
+
+            if 'compute_engines' not in config_columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE configuration ADD COLUMN compute_engines JSON DEFAULT '{}'"))
             
             if 'nodes_server_handlers' not in config_columns:
                 with db.engine.begin() as conn:
@@ -15114,7 +15317,7 @@ if __name__ == '__main__':
         return app(environ, start_response)
     
     server = WSGIServer(
-        ('0.0.0.0', 5000),
+        ('127.0.0.1', 5000),
         application,
         handler_class=WebSocketHandler
     )

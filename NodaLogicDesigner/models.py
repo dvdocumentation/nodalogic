@@ -588,6 +588,10 @@ class Configuration(db.Model):
     nodes_server_handlers = db.Column(db.Text, nullable=True)  
     nodes_server_handlers_meta = db.Column(db.JSON)
     ngenie_prompt = db.Column(db.Text, default="")
+    # Per-configuration selectors for optional compiled compute kernels.
+    compute_engines = db.Column(db.JSON, default=lambda: {
+        "reactive": "python", "cost_graph": "python", "operation_planning": "python"
+    })
     description = db.Column(db.Text, default="")
     ngenie_code_locked = db.Column(db.Boolean, default=False)
     ngenie_code_instruction = db.Column(db.Text, default="")
@@ -643,6 +647,8 @@ class ConfigSection(db.Model):
     hide_mobile_client = db.Column(db.Boolean, default=False)
     hide_web_client = db.Column(db.Boolean, default=False)
     allow_client_extensions = db.Column(db.Boolean, default=True)
+    # Legacy section-level flag. Hierarchy is configured per data class below.
+    hierarchy_enabled = db.Column(db.Boolean, default=False)
     mobile_form_node = db.Column(db.String(300), default="")
     web_form_node = db.Column(db.String(300), default="")
     config_id = db.Column(db.Integer, db.ForeignKey('configuration.id'))
@@ -674,6 +680,9 @@ class ConfigClass(db.Model):
     hide_mobile_client = db.Column(db.Boolean, default=False)
     hide_web_client = db.Column(db.Boolean, default=False)
     allow_client_extensions = db.Column(db.Boolean, default=True)
+    # When enabled, records in this class form a non-owning parent/child tree.
+    # Unlike Node._children this is stored on each child as parent_ref.
+    hierarchy_enabled = db.Column(db.Boolean, default=False)
     event_objs = db.relationship('ClassEvent', backref='class_obj', cascade='all, delete-orphan')
     # Display-related images / layouts
     display_image_web = db.Column(db.Text, default="")
