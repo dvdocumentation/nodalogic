@@ -319,8 +319,8 @@ def _scan_and_compile(formula: str, target: CellRef) -> tuple[str, list[CellRef]
             add_dep(CellRef(target.config_uid, "__ql__", space, "*"))
         elif name in {"cg_value", "cg_month_sum"}:
             try:
-                from n50_erp.posting import scope as cost_scope
-                scope_key = cost_scope(target.config_uid).key()
+                from reactive_adapters import cg_scope
+                scope_key = cg_scope(target.config_uid).key()
             except Exception:
                 scope_key = target.config_uid
             add_dep(CellRef(target.config_uid, "__cg__", scope_key, "*"))

@@ -644,6 +644,7 @@ class ConfigSection(db.Model):
     name = db.Column(db.String(100))
     code = db.Column(db.String(100))
     commands = db.Column(db.Text)
+    parent_code = db.Column(db.String(100), default="", server_default="")
     hide_mobile_client = db.Column(db.Boolean, default=False)
     hide_web_client = db.Column(db.Boolean, default=False)
     allow_client_extensions = db.Column(db.Boolean, default=True)

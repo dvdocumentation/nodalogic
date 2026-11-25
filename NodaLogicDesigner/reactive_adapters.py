@@ -1,6 +1,8 @@
 """Read-only adapters exposed to Reactive formulas for ERP data providers."""
 from __future__ import annotations
 
+import sqlite3
+from contextlib import closing
 from decimal import Decimal
 from fractions import Fraction
 from calendar import monthrange
@@ -58,18 +60,29 @@ def ql_month_sum(config_uid: str, space: Any, selector_quant: Any,
     return ql_sum(config_uid, space, selector_quant, resource_index, first, last, metric)
 
 
+def cg_scope(config_uid: str):
+    from cost_graph.store import Scope
+
+    return Scope(config_uid, config_uid, "operational", "actual", "RUB")
+
+
 def cg_value(config_uid: str, bucket: Any) -> float:
     """Read a published N50 CostGraph bucket value for the current config."""
     config = str(config_uid or "").strip()
     if not config:
         raise ValueError("CG_VALUE requires a configuration")
     from nodes import STORAGE_BASE_PATH
-    from n50_erp.posting import Posting
+    from cost_graph.store import Store
 
-    path = Path(STORAGE_BASE_PATH) / ("erp_journal_" + config + ".sqlite")
+    directory = Path(STORAGE_BASE_PATH)
+    path = directory / f"erp_journal_{config}.sqlite"
     if not path.is_file():
         return 0.0
-    snapshot = Posting(Path(STORAGE_BASE_PATH), config).snapshot()
+    with closing(sqlite3.connect(path, timeout=30)) as journal, journal:
+        journal.execute("BEGIN IMMEDIATE")
+        if journal.execute("SELECT 1 FROM posting WHERE posted=0 LIMIT 1").fetchone():
+            raise ValueError("CostGraph has no ready publication")
+        snapshot = Store(directory / f"erp_cost_{config}.sqlite").recalculate(cg_scope(config))
     if snapshot is None:
         return 0.0
     if snapshot.get("status") != "ready":
@@ -85,5 +98,4 @@ def cg_month_sum(config_uid: str, department_ref: Any, period: Any) -> float:
     department = str(department_ref or "").strip()
     if not department:
         return 0.0
-    from n50_erp.posting import department_bucket
-    return cg_value(config_uid, department_bucket(department, period))
+    return cg_value(config_uid, f"{department}|cost-center|{str(period)[:7]}")

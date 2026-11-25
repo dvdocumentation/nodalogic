@@ -221,12 +221,12 @@ import inspect
 
 #******************************************************************
 #CHANGE IT WITH YOUR VALUES
-DEEPSEEK_API_KEY = 'sk-85b64349ae5a4c48ba7a877463a01eec'
+DEEPSEEK_API_KEY = ''
 # Maximum number of technical candidates passed back to nGenie for one
 # semantic resolve step. Subject-specific rules stay in class ngenie_prompt.
 NGENIE_RESOLVE_CANDIDATE_LIMIT = 10
-ADMIN_LOGIN = 'dv1555@hotmail.com'
-FLASK_SECRET= 'ferret-26'
+ADMIN_LOGIN = ''
+FLASK_SECRET= ''
 
 S3_ENDPOINT = "https://s3.ru1.storage.beget.cloud"
 S3_BUCKET = "bf871c2d93ee-s3noda"
@@ -234,8 +234,8 @@ S3_BUCKET = "bf871c2d93ee-s3noda"
 s3 = boto3.client(
     "s3",
     endpoint_url=S3_ENDPOINT,
-    aws_access_key_id="6IQFBHS4BOEVXO5W5K6C",
-    aws_secret_access_key="HXiBRr2qc1X8f34bEjZlfJGf4gAvWZNsfA52Abod",
+    aws_access_key_id="",
+    aws_secret_access_key="",
     config=Config(signature_version="s3v4"),
     region_name="ru1",
 )
@@ -2655,6 +2655,8 @@ def _ensure_sqlite_schema():
             _add_col("config_section", "allow_client_extensions BOOLEAN DEFAULT TRUE", "allow_client_extensions")
         if "hierarchy_enabled" not in scols:
             _add_col("config_section", "hierarchy_enabled BOOLEAN DEFAULT FALSE", "hierarchy_enabled")
+        if "parent_code" not in scols:
+            _add_col("config_section", "parent_code VARCHAR(100) DEFAULT ''", "parent_code")
         if "mobile_form_node" not in scols:
             _add_col("config_section", "mobile_form_node VARCHAR(300) DEFAULT ''", "mobile_form_node")
         if "web_form_node" not in scols:
@@ -6075,6 +6077,7 @@ def get_config(uid):
                 'name': d.name,
                 'code': d.code,
                 'commands': d.commands,
+                'parent_code': d.parent_code or '',
                 'hide_mobile_client': bool(getattr(d, 'hide_mobile_client', False)),
                 'hide_web_client': bool(getattr(d, 'hide_web_client', False)),
                 'allow_client_extensions': getattr(d, 'allow_client_extensions', True) is not False,

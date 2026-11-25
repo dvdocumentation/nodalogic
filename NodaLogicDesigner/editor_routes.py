@@ -4890,6 +4890,7 @@ def export_config(uid):
                 'name': s.name,
                 'code': s.code,
                 'commands': s.commands,
+                'parent_code': s.parent_code or '',
                 'hide_mobile_client': bool(getattr(s, 'hide_mobile_client', False)),
                 'hide_web_client': bool(getattr(s, 'hide_web_client', False)),
                 'allow_client_extensions': getattr(s, 'allow_client_extensions', True) is not False,
@@ -5289,6 +5290,7 @@ def import_config_new():
                 name=section_data['name'],
                 code=section_data['code'],
                 commands=section_data.get('commands', ''),
+                parent_code=str(section_data.get('parent_code') or ''),
                 hide_mobile_client=bool(section_data.get('hide_mobile_client', section_data.get('hideMobileClient', False))),
                 hide_web_client=bool(section_data.get('hide_web_client', section_data.get('hideWebClient', False))),
                 allow_client_extensions=bool(section_data.get('allow_client_extensions', section_data.get('allowClientExtensions', True))),
@@ -5702,6 +5704,7 @@ def apply_full_config_from_json(config, data):
             name=section_data['name'],
             code=section_data['code'],
             commands=section_data.get('commands', ''),
+            parent_code=str(section_data.get('parent_code') or ''),
             hide_mobile_client=bool(section_data.get('hide_mobile_client', section_data.get('hideMobileClient', False))),
             hide_web_client=bool(section_data.get('hide_web_client', section_data.get('hideWebClient', False))),
             allow_client_extensions=bool(section_data.get('allow_client_extensions', section_data.get('allowClientExtensions', True))),
@@ -10407,6 +10410,7 @@ def get_section_json():
         'code': section.code,
         'name': section.name,
         'commands': section.commands,
+        'parent_code': section.parent_code or '',
         'hide_mobile_client': bool(getattr(section, 'hide_mobile_client', False)),
         'hide_web_client': bool(getattr(section, 'hide_web_client', False)),
         'allow_client_extensions': getattr(section, 'allow_client_extensions', True) is not False,
@@ -10497,12 +10501,16 @@ def add_section(config_uid):
     allow_client_extensions = 'allow_client_extensions' in request.form
     mobile_form_node = (request.form.get('mobile_form_node') or '').strip()
     web_form_node = (request.form.get('web_form_node') or '').strip()
+    parent_code = (request.form.get('parent_code') or '').strip()
     
     if code and name:
+        if parent_code == code or (parent_code and not any(s.code == parent_code for s in config.sections)):
+            return jsonify(status="error", message=_("Invalid parent section")), 400
         new_section = ConfigSection(
             code=code,
             name=name,
             commands=commands,
+            parent_code=parent_code,
             hide_mobile_client=hide_mobile_client,
             hide_web_client=hide_web_client,
             allow_client_extensions=allow_client_extensions,
@@ -10524,7 +10532,22 @@ def update_section(section_id):
     if not section or section.config.user_id != current_user.id:
         abort(404)
     
-    section.code = request.form.get('code')
+    code = request.form.get('code')
+    parent_code = (request.form.get('parent_code') or '').strip()
+    parents = {s.code: s.parent_code for s in section.config.sections if s.id != section.id}
+    seen = {code, section.code}
+    ancestor = parent_code
+    while ancestor:
+        if ancestor in seen or ancestor not in parents:
+            return jsonify(status="error", message=_("Invalid parent section")), 400
+        seen.add(ancestor)
+        ancestor = parents[ancestor]
+    if code != section.code:
+        for child in section.config.sections:
+            if child.parent_code == section.code:
+                child.parent_code = code
+    section.code = code
+    section.parent_code = parent_code
     section.name = request.form.get('name')
     section.commands = request.form.get('commands', '')
     section.hide_mobile_client = 'hide_mobile_client' in request.form
@@ -10545,6 +10568,9 @@ def delete_section(section_id):
         abort(404)
     
     config_uid = section.config.uid
+    for child in section.config.sections:
+        if child.parent_code == section.code:
+            child.parent_code = section.parent_code
     section.config.last_modified = datetime.now(timezone.utc)
     db.session.delete(section)
     db.session.commit()
