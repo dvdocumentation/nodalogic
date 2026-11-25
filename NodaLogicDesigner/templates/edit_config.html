@@ -495,7 +495,10 @@
                                     {% for section in config.sections %}
                                     <tr>
                                         <td>{{ section.code }}</td>
-                                        <td>{{ section.name }}</td>
+                                        <td>
+                                            {% set parent = config.sections|selectattr('code', 'equalto', section.parent_code)|first %}
+                                            {% if parent %}<span class="text-muted">{{ parent.name }} / </span>{% endif %}{{ section.name }}
+                                        </td>
                                         <td>
                                             <button type="button" class="btn btn-sm btn-outline-primary me-2 edit-section-btn" 
                                                     data-section-id="{{ section.id }}">
@@ -1423,6 +1426,15 @@
                         <label for="sectionName" class="form-label">{{ _('Name') }}</label>
                         <input type="text" class="form-control" id="sectionName" name="name" required>
                     </div>
+                    <div class="mb-3">
+                        <label for="sectionParentCode" class="form-label">{{ _('Parent section') }}</label>
+                        <select class="form-select" id="sectionParentCode" name="parent_code">
+                            <option value="">{{ _('Top level') }}</option>
+                            {% for parent in config.sections %}
+                            <option value="{{ parent.code }}">{{ parent.name }} ({{ parent.code }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
                     <div class="row g-3 mb-3">
                         <div class="col-12 col-md-6 form-check ps-5">
                             <input type="checkbox" class="form-check-input" id="sectionHideMobileClient" name="hide_mobile_client">
@@ -1792,10 +1804,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const sectionModal = new bootstrap.Modal(document.getElementById('sectionModal'));
     const sectionForm = document.getElementById('sectionForm');
     const sectionModalTitle = document.getElementById('sectionModalTitle');
+    const sectionParentCode = document.getElementById('sectionParentCode');
 
     document.querySelector('[data-bs-target="#sectionModal"]').addEventListener('click', function() {
         sectionModalTitle.textContent = "{{ _('Add section') }}";
         sectionForm.reset();
+        for (const option of sectionParentCode.options) option.disabled = false;
         document.getElementById('section_id').value = '';
         document.getElementById('sectionAllowClientExtensions').checked = true;
         document.getElementById('sectionMobileFormNode').value = '';
@@ -1806,7 +1820,6 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.edit-section-btn').forEach(btn => {
     btn.addEventListener('click', function() {
         const sectionId = this.getAttribute('data-section-id');
-        const sectionRow = this.closest('tr');
         
 
         fetch(`/get-section-json?section_id=${sectionId}`)
@@ -1819,6 +1832,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('section_id').value = sectionId;
                 document.getElementById('sectionCode').value = data.code || '';
                 document.getElementById('sectionName').value = data.name || '';
+                for (const option of sectionParentCode.options) option.disabled = option.value === data.code;
+                sectionParentCode.value = data.parent_code || '';
                 document.getElementById('sectionCommands').value = data.commands || '';
                 document.getElementById('sectionHideMobileClient').checked = !!data.hide_mobile_client;
                 document.getElementById('sectionHideWebClient').checked = !!data.hide_web_client;
@@ -1831,15 +1846,7 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .catch(error => {
                 console.error('Error:', error);
-
-                sectionModalTitle.textContent = "{{ _('Edit section') }}";
-                document.getElementById('section_id').value = sectionId;
-                document.getElementById('sectionCode').value = sectionRow.cells[0].textContent;
-                document.getElementById('sectionName').value = sectionRow.cells[1].textContent;
-                document.getElementById('sectionCommands').value = '';
-                
-                sectionForm.action = "{{ url_for('update_section', section_id='') }}" + sectionId;
-                sectionModal.show();
+                alert({{ _('Could not load section')|tojson }});
             });
     });
     });
@@ -1858,6 +1865,8 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(data => {
             if (data.status === "success") {
                 window.location.reload();
+            } else if (data.message) {
+                alert(data.message);
             }
         })
         .catch(error => {
