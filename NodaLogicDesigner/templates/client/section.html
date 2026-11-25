@@ -21,6 +21,26 @@
         {% if received_exists %}<a class="nl-menu-link nl-menu-pinned {% if section_code == '__received_nodes__' %}active{% endif %}" href="{{ url_for('client.section_view', section_code='__received_nodes__') }}"><span><i class="bi bi-inbox me-2"></i>{{ _('Received Nodes') }}</span></a>{% endif %}
         {% if ngenie_enabled %}<a class="nl-menu-link nl-menu-pinned ngenie-section-link" href="{{ url_for('client.ngenie_page') }}"><span><i class="bi bi-stars me-2"></i>nGenie</span></a>{% endif %}
 
+        {% macro section_links(entries, prefix, config_uid=none) %}
+          {% for s in entries %}
+            {% set scode = s.code or '__empty__' %}
+            {% set scfg = config_uid if config_uid is not none else (s.configurations[0].uid if s.configurations else '') %}
+            {% set child_id = prefix ~ '-' ~ loop.index %}
+            {% set is_current = s.code == section_code and scfg == section_config_uid %}
+            <div class="d-flex align-items-center">
+              <a class="nl-menu-link flex-grow-1 {% if is_current %}active{% endif %}"
+                 {% if s.code.startswith('ext_section_') %}data-nl-ext-section="{{ s.code|e }}"{% endif %}
+                 href="{{ url_for('client.section_view', section_code=scode, config_uid=scfg) }}"><span class="text-truncate">{{ s.name }}</span></a>
+              {% if s.children %}
+                <button type="button" class="btn btn-sm{% if not is_current %} collapsed{% endif %}" data-bs-toggle="collapse" data-bs-target="#{{ child_id }}"
+                        aria-expanded="{{ 'true' if is_current else 'false' }}" aria-controls="{{ child_id }}" aria-label="{{ s.name }}"><i class="bi bi-chevron-down"></i></button>
+              {% endif %}
+            </div>
+            {% if s.children %}
+              <div id="{{ child_id }}" class="collapse ps-3{% if is_current %} show{% endif %}">{{ section_links(s.children, child_id, config_uid) }}</div>
+            {% endif %}
+          {% endfor %}
+        {% endmacro %}
         {% if menu_group_by_config %}
           {% for config in config_sections %}
           {% set config_index = loop.index %}
@@ -36,12 +56,12 @@
                     <div class="accordion accordion-flush nl-menu-accordion nl-menu-subgroup"><div class="accordion-item">
                       <h2 class="accordion-header"><button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#menu-config-{{ config_index }}-group-{{ group_index }}" aria-expanded="false"><i class="bi bi-folder2 me-2"></i><span class="text-truncate">{{ gn }}</span></button></h2>
                       <div id="menu-config-{{ config_index }}-group-{{ group_index }}" class="accordion-collapse collapse"><div class="accordion-body p-1">
-                        {% for s in config.sections if (s.menu_group or _('Other sections')) == gn %}{% set scode = s.code if s.code != '' else '__empty__' %}<a class="nl-menu-link {% if s.code == section_code and config.uid == section_config_uid %}active{% endif %}" href="{{ url_for('client.section_view', section_code=scode, config_uid=config.uid) }}"><span class="text-truncate">{{ s.name }}</span></a>{% endfor %}
+                        {{ section_links((config.sections|rejectattr('menu_group')|list + config.sections|selectattr('menu_group', 'equalto', gn)|list) if gn == _('Other sections') else config.sections|selectattr('menu_group', 'equalto', gn), 'menu-config-' ~ config_index ~ '-group-' ~ group_index, config.uid) }}
                       </div></div>
                     </div></div>
                   {% endfor %}
                 {% else %}
-                  {% for s in config.sections %}{% set scode = s.code if s.code != '' else '__empty__' %}<a class="nl-menu-link {% if s.code == section_code and config.uid == section_config_uid %}active{% endif %}" href="{{ url_for('client.section_view', section_code=scode, config_uid=config.uid) }}"><span class="text-truncate">{{ s.name }}</span></a>{% endfor %}
+                  {{ section_links(config.sections, 'menu-config-' ~ config_index ~ '-section', config.uid) }}
                 {% endif %}
               </div></div>
             </div>
@@ -57,7 +77,7 @@
           {% for group_name, group_sections in menu_groups|dictsort %}
           <div class="accordion accordion-flush nl-menu-accordion"><div class="accordion-item">
             <h2 class="accordion-header"><button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#menu-group-body-{{ loop.index }}" aria-expanded="false"><i class="bi bi-folder2 me-2"></i><span class="text-truncate">{{ group_name }}</span></button></h2>
-            <div id="menu-group-body-{{ loop.index }}" class="accordion-collapse collapse"><div class="accordion-body p-1">{% for s in group_sections %}{% set scode = s.code if s.code != '' else '__empty__' %}{% set scfg = (s.configurations[0].uid if s.configurations else '') %}<a class="nl-menu-link {% if s.code == section_code and scfg == section_config_uid %}active{% endif %}" {% if s.code.startswith('ext_section_') %}data-nl-ext-section="{{ s.code|e }}"{% endif %} href="{{ url_for('client.section_view', section_code=scode, config_uid=scfg) }}"><span>{{ s.name }}</span></a>{% endfor %}</div></div>
+            <div id="menu-group-body-{{ loop.index }}" class="accordion-collapse collapse"><div class="accordion-body p-1">{{ section_links(group_sections, 'menu-group-' ~ loop.index ~ '-section') }}</div></div>
           </div></div>
           {% endfor %}
         {% endif %}
@@ -69,12 +89,13 @@
   (function(){
     const key='nl-client-menu-open-v1';
     const restore=()=>{
-      const nodes=[...document.querySelectorAll('.nl-menu-body .accordion-collapse[id]')];
+      const nodes=[...document.querySelectorAll('.nl-menu-body .collapse[id]')];
       let saved={};try{saved=JSON.parse(localStorage.getItem(key)||'{}')||{}}catch(_){}
+      const active=document.querySelector('.nl-menu-body a.active');
       nodes.forEach(el=>{
-        if(saved[el.id])bootstrap.Collapse.getOrCreateInstance(el,{toggle:false}).show();
-        el.addEventListener('shown.bs.collapse',()=>{saved[el.id]=true;localStorage.setItem(key,JSON.stringify(saved))});
-        el.addEventListener('hidden.bs.collapse',()=>{delete saved[el.id];localStorage.setItem(key,JSON.stringify(saved))});
+        if(saved[el.id] || (active && el.contains(active)))bootstrap.Collapse.getOrCreateInstance(el,{toggle:false}).show();
+        el.addEventListener('shown.bs.collapse',event=>{if(event.target!==el)return;saved[el.id]=true;localStorage.setItem(key,JSON.stringify(saved))});
+        el.addEventListener('hidden.bs.collapse',event=>{if(event.target!==el)return;delete saved[el.id];localStorage.setItem(key,JSON.stringify(saved))});
       });
     };
     if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',restore,{once:true});else restore();
@@ -1850,6 +1871,36 @@ function setupSectionTimers(timers){
   });
 }
 
+// Keep the pressed card or table row in the DOM until its click can dispatch.
+let nodePress = null;
+document.addEventListener("pointerdown", (event) => {
+  if (nodePress || !event.isPrimary || event.button !== 0 ||
+      !event.target.closest?.(".node-card, .nl-table-node-row")) return;
+  let finish;
+  const finished = new Promise(resolve => { finish = resolve; });
+  nodePress = { pointerId: event.pointerId, finished, finish };
+}, true);
+
+function finishNodePress(press) {
+  if (nodePress !== press) return;
+  nodePress = null;
+  press.finish();
+}
+
+window.addEventListener("pointerup", (event) => {
+  const press = nodePress;
+  if (press?.pointerId === event.pointerId) {
+    // The click follows pointerup. Release in the next task.
+    window.setTimeout(() => finishNodePress(press), 0);
+  }
+}, true);
+window.addEventListener("pointercancel", (event) => {
+  if (nodePress?.pointerId === event.pointerId) finishNodePress(nodePress);
+}, true);
+window.addEventListener("blur", () => {
+  if (nodePress) finishNodePress(nodePress);
+});
+
 async function loadSection() {
   // Semantic search can be slow on a small VPS. Never silently discard a
   // newer query while an older request is running: queue one reload with the
@@ -1883,6 +1934,12 @@ async function loadSection() {
       window.location.href = j.redirect_url;
       return;
     }
+
+    if (isDashboard) {
+      await ensureDashboardLayout();
+      j.items = orderDashboardItems(j.items || []);
+    }
+    while (nodePress) await nodePress.finished;
 
     // The user may have changed the query or index controls while the model
     // was calculating embeddings. In that case this response is stale and
@@ -1935,10 +1992,6 @@ async function loadSection() {
       sectionFormHost.style.display = "none";
       const toolbar = document.querySelector('.section-toolbar');
       if (toolbar) toolbar.style.display = '';
-    }
-    if (isDashboard) {
-      await ensureDashboardLayout();
-      j.items = orderDashboardItems(j.items || []);
     }
     render(j.items || [], j.meta || {});
     window.__lastAppliedSearch = q;
