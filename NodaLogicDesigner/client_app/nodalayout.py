@@ -1681,8 +1681,25 @@ def render_nodalayout_html(
             default_formula = el.get("default_formula", el.get("formula", ""))
             default_formula = "" if default_formula is None else str(default_formula)
             async_mode = _truthy(el.get("async", el.get("async_mode", False)))
-            editable = not _truthy(el.get("readonly", False))
-            label_html = f'<div class="nl-label">{escape(caption_raw)}</div>' if caption_raw else ""
+            readonly_when = el.get("readonly_when")
+            if isinstance(readonly_when, str) and readonly_when.startswith("@"):
+                readonly_when = node_data.get(readonly_when[1:])
+            editable = not (_truthy(el.get("readonly", False)) or _truthy(readonly_when))
+            inline_editable = _truthy(el.get("inline_editable", False)) and editable
+            formula_editable_when = el.get("formula_editable_when")
+            if isinstance(formula_editable_when, str) and formula_editable_when.startswith("@"):
+                formula_editable_when = node_data.get(formula_editable_when[1:])
+            formula_editable = editable or _truthy(formula_editable_when)
+            inline_value_style = (
+                ' style="text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;"'
+                if (context or {}).get("inline_node_row") and not inline_editable else ""
+            )
+            reactive_states = (context or {}).get("reactive_states") or {}
+            reactive_state = reactive_states.get(fid, {}) if isinstance(reactive_states, dict) else {}
+            reactive_status = str((reactive_state or {}).get("status") or "").strip()
+            reactive_error = str((reactive_state or {}).get("error") or "")
+            label_html = (f'<div class="nl-label">{escape(caption_raw)}</div>'
+                          if caption_raw and _truthy(el.get("show_caption", True)) else "")
             edit_html = (
                 '<button type="button" class="nl-reactive-edit" data-nl-reactive-edit="1" '
                 'title="Edit formula" aria-label="Edit formula" '
@@ -1691,7 +1708,11 @@ def render_nodalayout_html(
                 'style="display:block;margin:auto;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">'
                 '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>'
                 '</svg></button>'
-                if editable else ""
+                if formula_editable else ""
+            )
+            edit_slot_html = edit_html or (
+                '<span class="nl-reactive-edit-slot" aria-hidden="true"></span>'
+                if (context or {}).get("inline_node_row") else ""
             )
             reactive_ctx = []
             if ctx_target.get("repo_id") is not None:
@@ -1701,17 +1722,25 @@ def render_nodalayout_html(
             if ctx_target.get("node_id") is not None:
                 reactive_ctx.append(f'data-nl-reactive-node="{escape(str(ctx_target.get("node_id")))}"')
             reactive_ctx_attr = (" " + " ".join(reactive_ctx)) if reactive_ctx else ""
+            state_attr = f' data-reactive-status="{escape(reactive_status)}"' if reactive_status else ""
+            error_html = (f'<div class="nl-reactive-error" data-nl-reactive-inline-error="1">{escape(reactive_error)}</div>'
+                          if reactive_status == "error" and reactive_error else
+                          '<div class="nl-reactive-error" data-nl-reactive-inline-error="1" hidden></div>')
             return (
                 f'<div class="nl-field nl-reactive" data-nl-reactive="1" '
                 f'data-nl-reactive-field="{escape(fid)}" '
                 f'data-nl-reactive-default="{escape(default_formula)}" '
-                f'data-nl-reactive-async="{1 if async_mode else 0}"{reactive_ctx_attr}{style_attr}>'
+                f'data-nl-reactive-async="{1 if async_mode else 0}"{reactive_ctx_attr}{state_attr}{style_attr}>'
                 f'{label_html}'
                 f'<div class="nl-reactive-line">'
-                f'<div class="nl-reactive-value" data-nl-reactive-value="1">{escape(display)}</div>'
+                +(f'<input class="nl-reactive-value nl-reactive-value-input" type="number" step="any" '
+                   f'data-nl-reactive-value="1" data-nl-reactive-value-input="1" value="{escape(display)}" aria-label="{escape(caption_raw or fid)}"/>'
+                   if inline_editable else
+                   f'<div class="nl-reactive-value" data-nl-reactive-value="1"{inline_value_style}>{escape(display)}</div>')+
                 f'<span class="nl-reactive-status" data-nl-reactive-status="1"></span>'
-                f'{edit_html}'
+                f'{edit_slot_html}'
                 f'</div>'
+                f'{error_html}'
                 f'<div class="nl-reactive-editor" data-nl-reactive-editor="1" hidden></div>'
                 f'</div>'
             )
@@ -1735,6 +1764,11 @@ def render_nodalayout_html(
             # what to show in the readonly field: prefer <id>_view, else value
             view_key = f"{nid}_view"
             display = node_data.get(view_key)
+            display_value = el.get("display_value")
+            if isinstance(display_value, str) and display_value.startswith("@"):
+                display_value = node_data.get(display_value[1:])
+            if display_value not in (None, ""):
+                display = display_value
             raw_val = el.get("value")
             raw_ref = _resolve_link_value(raw_val, node_data).strip()
             # A legacy companion view may itself contain Class$id while the
@@ -1774,6 +1808,7 @@ def render_nodalayout_html(
                     ds_payload = "[]"
 
             style_attr_input = _style_attr(el, extra_css=extra_css, default_full_width=True)
+            inline_attr = ' data-nl-inline-node-picker="1"' if (context or {}).get("inline_node_row") else ""
             # button is wrap_content
             btn_style = _style_attr({"width": -2, "height": -2}, extra_css=None)
 
@@ -1786,10 +1821,11 @@ def render_nodalayout_html(
                 f'readonly value="{escape(display)}" '
                 f'placeholder="{escape(caption_raw) if el.get("extension_field") and not el.get("extension_show_caption") else ""}"/>'
                 f'<button class="nl-button nl-nodeinput-btn"{btn_style} type="button" '
-                f'data-nl-nodepick="1" data-nl-listener="{iid}" '
-                f'data-nl-ds-kind="{ds_kind}" data-nl-ds="{ds_payload}">…</button>'
+                f'data-nl-nodepick="1" data-nl-listener="{iid}"{inline_attr} '
+                f'data-nl-ds-kind="{ds_kind}" data-nl-ds="{ds_payload}" '
+                f'data-nl-groups-only="{1 if _truthy(el.get("groups_only", False)) else 0}">…</button>'
                 f'<button class="nl-button nl-nodeinput-clear"{btn_style} type="button" '
-                f'data-nl-clear="1" data-nl-clear-target="{iid}">×</button>'
+                f'data-nl-clear="1" data-nl-clear-target="{iid}"{inline_attr}>×</button>'
                 f'</div>'
                 f'</div>'
             )
@@ -1886,6 +1922,7 @@ def render_nodalayout_html(
             iid = escape(str(el.get("id") or path))
             itype = str(el.get("input_type") or "").upper().strip()
             events_attr = ' data-nl-events="1"' if el.get("events") else ""
+            inline_field_attr = ' data-nl-inline-node-field="1"' if (context or {}).get("inline_node_row") else ""
 
             # Inputs default to full width in row-based string layouts (Android-like MATCH_PARENT)
             input_extra_css = list(extra_css or []) if isinstance(extra_css, list) else ([] if extra_css is None else [str(extra_css)])
@@ -1915,7 +1952,7 @@ def render_nodalayout_html(
                     f'<div class="{field_cls}">'
                     f'{label_html}'
                     f'<textarea class="{textarea_cls}"{style_attr_input}{_tpl_attr("value", el.get("value"))}{_tpl_attr("placeholder", el.get("caption"))} '
-                    f'data-path="{path}" data-id="{iid}"{events_attr} '
+                    f'data-path="{path}" data-id="{iid}"{events_attr}{inline_field_attr} '
                     f'placeholder="{ph}">{escape(v)}</textarea>'
                     f'</div>'
                 )
@@ -1933,7 +1970,7 @@ def render_nodalayout_html(
                 f'<div class="nl-field nl-field-row">'
                 f'{label_html}'
                 f'<input class="nl-input"{style_attr_input}{_tpl_attr("value", el.get("value"))}{_tpl_attr("placeholder", el.get("caption"))} data-path="{path}" data-id="{iid}" '
-                f'type="{html_type}"{events_attr}{date_attr} '
+                f'type="{html_type}"{events_attr}{date_attr}{inline_field_attr} '
                 f'value="{escape(v)}" placeholder="{ph}"/>'
                 f'</div>'
             )
@@ -1949,10 +1986,11 @@ def render_nodalayout_html(
                     path = val[1:] if isinstance(val, str) else str(el.get("id") or "")
             checked = " checked" if str(val).lower() in ("1", "true", "yes", "on") else ""
             events_attr = ' data-nl-events="1"' if el.get("events") else ""
+            inline_field_attr = ' data-nl-inline-node-field="1"' if (context or {}).get("inline_node_row") else ""
             # data-path enables automatic _data sync; data-id is used as listener
             return (
                 f'<label class="nl-check"{style_attr}>'
-                f'<input type="checkbox" data-id="{iid}" data-path="{escape(path or str(el.get("id") or ""))}"{events_attr}{checked}/> {escape(cap)}'
+                f'<input type="checkbox" data-id="{iid}" data-path="{escape(path or str(el.get("id") or ""))}"{events_attr}{inline_field_attr}{checked}/> {escape(cap)}'
                 f"</label>"
             )
                 
@@ -2011,6 +2049,7 @@ def render_nodalayout_html(
                 ds_json = "[]"
 
             events_attr = ' data-nl-events="1"' if el.get("events") else ""
+            inline_field_attr = ' data-nl-inline-node-field="1"' if (context or {}).get("inline_node_row") else ""
 
             # Spinner sizing: same rules as Input
             style_attr_input = _style_attr(el, extra_css=extra_css, default_full_width=True)
@@ -2020,7 +2059,7 @@ def render_nodalayout_html(
                 f'{label_html}'
                 f'<select class="nl-input nl-spinner"{style_attr_input} '
                 f'data-path="{path}" data-id="{iid}" '
-                f'data-nl-spinner="1" data-nl-dataset="{ds_json}"{events_attr}>'
+                f'data-nl-spinner="1" data-nl-dataset="{ds_json}"{events_attr}{inline_field_attr}>'
                 + "".join(opt_parts) +
                 '</select>'
                 '</div>'
@@ -2064,6 +2103,61 @@ def render_nodalayout_html(
 
         if t == "NodeChildren":
             return render_node_children(el)
+
+        if t == "NodeRepeater":
+            source = el.get("value") or []
+            if isinstance(source, str) and source.startswith("@"):
+                source = node_data.get(source[1:], []) if isinstance(node_data, dict) else []
+            source = source if isinstance(source, list) else []
+            row_layout = el.get("layout") or []
+            group_field = str(el.get("group_field") or "").strip()
+            fetch_data = (context or {}).get("node_data")
+            target_base = dict((context or {}).get("target") or {})
+            parts: List[str] = []
+            last_group = None
+            for ref in source:
+                if not isinstance(ref, dict):
+                    continue
+                child_class = str(ref.get("class") or ref.get("_class") or "").strip()
+                child_id = str(ref.get("id") or ref.get("_id") or "").strip()
+                if not child_class or not child_id:
+                    continue
+                embedded_data = ref.get("data")
+                child_data = dict(embedded_data) if isinstance(embedded_data, dict) else {}
+                if not child_data and callable(fetch_data):
+                    try:
+                        child_data = fetch_data(child_class, child_id) or {}
+                    except Exception:
+                        child_data = {}
+                child_data = dict(child_data) if isinstance(child_data, dict) else {}
+                group_name = str(ref.get(group_field) or "").strip() if group_field else ""
+                if group_name and group_name != last_group:
+                    parts.append(f'<div class="nl-node-repeater-group">{escape(group_name)}</div>')
+                    last_group = group_name
+                row_context = dict(context or {})
+                row_target = dict(target_base)
+                row_target.update({"class_name": child_class, "node_id": child_id})
+                row_context["target"] = row_target
+                row_context["inline_node_row"] = True
+                try:
+                    row_data_attr = escape(json.dumps(child_data, ensure_ascii=False, separators=(",", ":")))
+                except Exception:
+                    row_data_attr = "{}"
+                try:
+                    inner = render_nodalayout_html(row_layout, child_data,
+                                                   assets_base_dir=assets_base_dir, context=row_context)
+                except Exception:
+                    inner = '<div class="text-danger small">Не удалось отобразить строку.</div>'
+                parts.append(
+                    f'<div class="nl-node-repeater-item" data-nl-inline-node-row="1" '
+                    f'data-nl-inline-node-class="{escape(child_class)}" '
+                    f'data-nl-inline-node-id="{escape(child_id)}" '
+                    f'data-nl-inline-node-data="{row_data_attr}">'
+                    f'{inner}<div class="nl-node-repeater-error" data-nl-inline-node-error="1" hidden></div></div>'
+                )
+            empty = '<div class="text-muted small py-3">Пока нет строк. Нажмите «Добавить».</div>' if not parts else ""
+            return (f'<div class="nl-node-repeater" data-nl-node-repeater="{escape(str(el.get("id") or ""))}"{style_attr}>'
+                    + empty + "".join(parts) + "</div>")
 
         # Unknown
         return f'<pre class="nl-unknown"{style_attr}>{escape(json.dumps(el, ensure_ascii=False, indent=2))}</pre>'
@@ -2148,20 +2242,20 @@ def render_nodalayout_html(
             return old_render_table(el)
 
         # ------- nodes_source=True -------
-        rows_nodes: List[Dict[str, str]] = []
+        rows_nodes: List[Dict[str, Any]] = []
 
         for r in rows_data:
             if isinstance(r, dict):
                 cid = str(r.get("id") or r.get("_id") or "").strip()
                 ccl = str(r.get("class") or r.get("_class") or "").strip()
                 if cid and ccl:
-                    rows_nodes.append({"class": ccl, "id": cid})
+                    rows_nodes.append({**r, "class": ccl, "id": cid})
                 else:
                     # if dict contain uid as string
                     u = str(r.get("uid") or "").strip()
                     if u:
                         c2, i2 = _parse_uid(u)
-                        rows_nodes.append({"class": c2, "id": i2})
+                        rows_nodes.append({**r, "class": c2, "id": i2})
 
             elif isinstance(r, str):
                 c2, i2 = _parse_uid(r)
@@ -2255,13 +2349,74 @@ def render_nodalayout_html(
                     return cur
 
                 body_rows: List[str] = []
-                for rn in rows_nodes:
+                row_layout = el.get("row_layout") if isinstance(el.get("row_layout"), list) else []
+                hierarchy_field = str(el.get("hierarchy_field") or "").strip()
+                hierarchy = bool(hierarchy_field)
+                order_field = str(el.get("order_field") or "").strip()
+                add_listener = str(el.get("add_listener") or "").strip()
+                add_parent_path = str(el.get("add_parent_path") or "_parent_ref").strip()
+                move_listener = str(el.get("move_listener") or "").strip()
+                move_node_path = str(el.get("move_node_path") or "_move_node_ref").strip()
+                move_direction_path = str(el.get("move_direction_path") or "_move_direction").strip()
+                table_target = dict((context or {}).get("target") or {})
+                event_target_attr = ""
+                if table_target.get("class_name") and table_target.get("node_id"):
+                    event_target_attr = (f' data-nl-event-target-class="{escape(str(table_target.get("class_name")))}"'
+                                         f' data-nl-event-target-node="{escape(str(table_target.get("node_id")))}"')
+                rows_by_id = {str(r.get("id") or ""): r for r in rows_nodes}
+                source_position = {str(r.get("id") or ""): index for index, r in enumerate(rows_nodes)}
+
+                def _row_sort_key(candidate: Dict[str, Any]) -> tuple[Any, ...]:
+                    if not order_field:
+                        return (0, source_position.get(str(candidate.get("id") or ""), 0))
+                    row_data = candidate.get("data") if isinstance(candidate.get("data"), dict) else {}
+                    raw_order = row_data.get(order_field)
+                    if raw_order in (None, ""):
+                        raw_order = source_position.get(str(candidate.get("id") or ""), 0)
+                    try:
+                        return (0, 0, float(raw_order), str(candidate.get("id") or ""))
+                    except (TypeError, ValueError):
+                        return (0, 1, str(raw_order).casefold(), str(candidate.get("id") or ""))
+
+                # A hierarchical Table is rendered as a tree in the same table.
+                # Parent references may be full config/class/id UIDs or just IDs.
+                ordered_rows: List[tuple[Dict[str, Any], int]] = []
+                if hierarchy:
+                    children: Dict[str, List[Dict[str, Any]]] = {}
+                    roots: List[Dict[str, Any]] = []
+                    for candidate in rows_nodes:
+                        candidate_data = candidate.get("data") if isinstance(candidate.get("data"), dict) else {}
+                        raw_parent = str(candidate_data.get(hierarchy_field) or "").strip()
+                        parent_id = raw_parent.split("$")[-1] if raw_parent else ""
+                        if parent_id and parent_id in rows_by_id and parent_id != str(candidate.get("id")):
+                            children.setdefault(parent_id, []).append(candidate)
+                        else:
+                            roots.append(candidate)
+                    visited: set[str] = set()
+                    def append_tree(candidate: Dict[str, Any], depth: int) -> None:
+                        candidate_id = str(candidate.get("id") or "")
+                        if candidate_id in visited:
+                            return
+                        visited.add(candidate_id)
+                        ordered_rows.append((candidate, depth))
+                        for child in sorted(children.get(candidate_id, []), key=_row_sort_key):
+                            append_tree(child, depth + 1)
+                    for candidate in sorted(roots, key=_row_sort_key):
+                        append_tree(candidate, 0)
+                    for candidate in rows_nodes:
+                        append_tree(candidate, 0)
+                else:
+                    ordered_rows = [(rn, 0) for rn in rows_nodes]
+
+                for rn, depth in ordered_rows:
                     node_id = (rn.get("id") or "").strip()
                     node_class = (rn.get("class") or "").strip()
 
                     # fetch node data once per row (best-effort)
                     nd: Any = {}
-                    if callable(node_data_fn) and node_class and node_id:
+                    if isinstance(rn.get("data"), dict):
+                        nd = dict(rn.get("data") or {})
+                    elif callable(node_data_fn) and node_class and node_id:
                         try:
                             nd = node_data_fn(node_class, node_id) or {}
                         except Exception:
@@ -2269,7 +2424,32 @@ def render_nodalayout_html(
 
                     # build cell values
                     tds: List[str] = []
-                    for c in cols:
+                    for column_index, c in enumerate(cols):
+                        if column_index < len(row_layout) and isinstance(row_layout[column_index], dict):
+                            cell_layout = dict(row_layout[column_index])
+                            cell_context = dict(context or {})
+                            cell_target = dict(cell_context.get("target") or {})
+                            cell_target.update({"class_name": node_class, "node_id": node_id})
+                            cell_context.update({"target": cell_target, "inline_node_row": True})
+                            try:
+                                cell_html = render_nodalayout_html([[cell_layout]], nd,
+                                    assets_base_dir=assets_base_dir, context=cell_context)
+                            except Exception:
+                                cell_html = ""
+                            pad_attr = (f' style="padding-left:{min(depth, 12) * 18 + 8}px;--nl-tree-action-indent:{min(depth, 12) * 18}px;"'
+                                        if hierarchy and column_index == 0 else "")
+                            tree_toggle = ""
+                            if hierarchy and column_index == 0:
+                                has_children = bool(children.get(node_id)) if hierarchy else False
+                                tree_toggle = (f'<button type="button" class="nl-tree-toggle" data-nl-tree-toggle="1" '
+                                               f'aria-expanded="true" title="Свернуть">▾</button>' if has_children else
+                                               '<span class="nl-tree-toggle-placeholder"></span>')
+                            if row_layout and column_index == 0:
+                                cell_html += '<div class="nl-inline-node-error" data-nl-inline-node-error="1" hidden></div>'
+                            if tree_toggle:
+                                cell_html = f'<div class="nl-tree-cell-content">{tree_toggle}{cell_html}</div>'
+                            tds.append(f'<td class="nl-table-inline-cell"{pad_attr}>{cell_html}</td>')
+                            continue
                         # For Table header we use the 2nd part as a key in node._data
                         key = str(c.get("key") or "").strip()
                         v: Any = ""
@@ -2311,19 +2491,58 @@ def render_nodalayout_html(
                             open_url = str(url_fn(node_class, node_id) or "")
                         except Exception:
                             open_url = ""
-                    open_attr = f' data-nl-open="1" data-nl-open-url="{escape(open_url)}"' if open_url else ""
+                    open_attr = (f' data-nl-open="1" data-nl-open-url="{escape(open_url)}"'
+                                 if open_url and not row_layout else "")
                     target_attr = f' data-nl-target-class="{escape(node_class)}" data-nl-target-node="{escape(node_id)}"'
+                    row_payload = nd if isinstance(nd, dict) else {}
+                    try:
+                        row_data_attr = escape(json.dumps(row_payload, ensure_ascii=False, separators=(",", ":")))
+                    except Exception:
+                        row_data_attr = "{}"
+                    parent_raw = str(row_payload.get(hierarchy_field) or "") if hierarchy_field else ""
+                    parent_id = parent_raw.split("$")[-1] if parent_raw else ""
+                    if row_layout:
+                        target_attr += (f' data-nl-inline-node-row="1" data-nl-inline-node-class="{escape(node_class)}"'
+                                        f' data-nl-inline-node-id="{escape(node_id)}" data-nl-inline-node-data="{row_data_attr}"')
+                    tree_attr = (f' data-nl-row-id="{escape(node_id)}" data-nl-row-parent="{escape(parent_id)}" '
+                                 f'data-nl-row-depth="{depth}"') if hierarchy else ""
+                    row_css = " nl-inline-node-row" if row_layout else ""
+                    if hierarchy and (add_listener or move_listener):
+                        action_buttons = []
+                        if add_listener:
+                            action_buttons.append(f'<button type="button" class="nl-table-add-child" data-nl-click="1" '
+                                f'data-nl-listener="{escape(add_listener)}" data-nl-extra-path="{escape(add_parent_path)}" '
+                                f'data-nl-extra-value="{escape(node_class)}${escape(node_id)}"{event_target_attr} title="Добавить подчинённую строку" '
+                                f'aria-label="Добавить подчинённую строку">＋</button>')
+                        if move_listener:
+                            for direction, glyph, title in (("up", "↑", "Переместить выше"), ("down", "↓", "Переместить ниже")):
+                                action_buttons.append(f'<button type="button" class="nl-table-move-row" data-nl-click="1" '
+                                    f'data-nl-listener="{escape(move_listener)}" data-nl-extra-path="{escape(move_node_path)}" '
+                                    f'data-nl-extra-value="{escape(node_class)}${escape(node_id)}" '
+                                    f'data-nl-extra-path-2="{escape(move_direction_path)}" data-nl-extra-value-2="{direction}" '
+                                    f'{event_target_attr} title="{title}" aria-label="{title}">{glyph}</button>')
+                        if tds:
+                            tds[0] = tds[0].replace('</td>', '<span class="nl-tree-actions">' + "".join(action_buttons) + '</span></td>')
                     body_rows.append(
-                        f'<tr class="nl-tr nl-clickable"{open_attr}{target_attr}>' + "".join(tds) + "</tr>"
+                        f'<tr class="nl-tr{row_css}"{open_attr}{target_attr}{tree_attr}>' + "".join(tds) +
+                        "</tr>"
                     )
 
+                root_add = ""
+                if hierarchy and add_listener:
+                    listener = escape(add_listener)
+                    root_add = (f'<tfoot><tr><td colspan="{len(cols)}"><button type="button" class="nl-table-add-root" '
+                                f'data-nl-click="1" data-nl-listener="{listener}" data-nl-extra-path="{escape(add_parent_path)}" '
+                                f'data-nl-extra-value=""{event_target_attr} title="Добавить строку в корень">＋ Добавить строку</button></td></tr></tfoot>')
+                enhanced_class = " nl-inline-enhanced-table" if (hierarchy or row_layout or add_listener or move_listener) else ""
+                enhanced_wrap_class = " nl-inline-enhanced-table-wrap" if enhanced_class else ""
                 body = "".join(body_rows)
                 return (
-                    f'<div class="nl-table-wrap" data-nl-table="{tid}"{style_attr}>'
-                    f'<table class="nl-table-el" style="width:100%;max-width:100%;table-layout:fixed;">'
+                    f'<div class="nl-table-wrap{enhanced_wrap_class}" data-nl-table="{tid}"{style_attr}>'
+                    f'<table class="nl-table-el nl-inline-tree-table{enhanced_class}" style="width:100%;max-width:100%;table-layout:fixed;">'
                     f'<colgroup>{colgroup}</colgroup>'
                     f'<thead><tr>{thead}</tr></thead>'
-                    f'<tbody>{body}</tbody></table></div>'
+                    f'<tbody>{body}</tbody>{root_add}</table></div>'
                 )
 
         # table-like list container (default)
@@ -2678,7 +2897,7 @@ def render_nodalayout_html(
                 # Some elements are containers and should take full row width by default.
                 # Tabs in particular looked "shrunken" because their wrapper cell is a flex item
                 # with auto width; mark them as full-width like Table/NodeChildren.
-                if el.get("type") in ("Table", "NodeChildren", "Tabs", "CodeFrame", "Divider", "Separator", "Files"):
+                if el.get("type") in ("Table", "NodeChildren", "NodeRepeater", "Tabs", "CodeFrame", "Divider", "Separator", "Files"):
                     cell_cls += " nl-cell-full"
                 elif el.get("type") == "VerticalDivider":
                     cell_cls += " nl-cell-vertical-divider"
@@ -2751,6 +2970,26 @@ DEFAULT_NL_CSS = """
 
 
 .nl-cell-full{flex:1 1 100%; width:100%; min-width:0}
+
+.nl-node-repeater{width:100%;max-width:100%;min-width:0}
+.nl-node-repeater-group{padding:7px 10px;margin-top:10px;background:#eef3f8;border-left:3px solid #4779a8;font-weight:650;color:#34465a}
+.nl-node-repeater-item{padding:5px 8px;border-bottom:1px solid rgba(108,122,137,.20);min-width:0;background:#fff}
+.nl-node-repeater-item:nth-child(even){background:#fafbfd}
+.nl-node-repeater-item .nl-screen{width:100%;min-width:0}
+.nl-node-repeater-item .nl-container.nl-row{flex-wrap:nowrap;gap:8px;width:100%;align-items:center}
+.nl-node-repeater-item .nl-container.nl-row>*{min-width:0}
+.nl-node-repeater-item .nl-field-row,.nl-node-repeater-item .nl-nodeinput{min-width:0;width:100%;gap:4px}
+.nl-node-repeater-item .nl-label{font-size:.76rem;opacity:.68;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nl-node-repeater-item .nl-reactive{padding:0 5px;width:auto;flex:1 1 0}
+.nl-node-repeater-item .nl-reactive-line{min-height:38px;border:0}
+.nl-node-repeater-item .nl-reactive-value{padding:.35rem .25rem;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.nl-node-repeater-item .nl-input[type=number]{text-align:right;font-variant-numeric:tabular-nums}
+.nl-node-repeater-item .nl-input{min-width:90px}
+.nl-node-repeater-item [data-nl-inline-node-picker="1"]{flex:0 0 30px;padding-left:4px;padding-right:4px}
+.nl-node-repeater-item .nl-nodeinput-clear{flex:0 0 30px;padding-left:4px;padding-right:4px}
+.nl-node-repeater [data-nl-node-repeater="budget_lines"]{border-top:2px solid #9daebd}
+.nl-node-repeater-group{position:sticky;left:0;z-index:1}
+.nl-node-repeater-error{margin-top:5px;padding:6px 9px;border-radius:6px;background:#ffe0e7;color:#8c2436;font-size:.82rem;white-space:pre-wrap}
 
 .nl-text,.nl-html,.nl-stub{line-height:1.25}
 .nl-title-value{display:flex;gap:8px;align-items:baseline}
@@ -2931,6 +3170,78 @@ DEFAULT_NL_CSS = """
 
 
 .nl-tr:hover{background:rgba(0,0,0,.03)}
+.nl-inline-tree-table .nl-table-inline-cell{padding:.25rem .4rem}
+.nl-inline-enhanced-table-wrap{display:block;width:100%;max-width:100%;min-width:0;overflow-x:auto;overscroll-behavior-x:contain;box-sizing:border-box}
+.nl-inline-enhanced-table-wrap>.nl-inline-enhanced-table{display:table;width:100%!important;min-width:0;max-width:100%;table-layout:fixed;box-sizing:border-box}
+.nl-inline-enhanced-table-wrap>.nl-inline-enhanced-table th,
+.nl-inline-enhanced-table-wrap>.nl-inline-enhanced-table td{min-width:0;max-width:0;overflow:hidden}
+.nl-inline-enhanced-table-wrap>.nl-inline-enhanced-table th{overflow-wrap:anywhere}
+/* In an enhanced table cell, force the one-field NodaLayout wrapper to occupy
+   the entire cell. Flex items sized from their min-content width otherwise
+   leave large empty strips beside Spinner/Input controls. */
+.nl-inline-enhanced-table .nl-table-inline-cell>.nl-screen{display:block!important;width:100%!important;min-width:0;max-width:100%}
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-row{display:block!important;width:100%;min-width:0;margin:0}
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-cell.nl-cell-field{display:block;width:100%;min-width:0;max-width:100%}
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-field{margin:0;min-width:0;width:100%;gap:.25rem}
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-screen{min-width:0;max-width:100%;width:100%}
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-label{display:none}
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-field-row,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-field-col,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-card,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-codeframe,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-nodeinput,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-switch,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-check{min-width:0;max-width:100%;margin:0;padding:0;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important}
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-input:not([type="checkbox"]):not([type="radio"]),
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-reactive-value-input,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-nodeinput-text,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-datasetinput-text{width:100%!important;min-width:0;min-height:2.35rem;height:auto;flex:1 1 0%;padding:.3rem .45rem;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;box-sizing:border-box}
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-field-row>.nl-input:not([type="checkbox"]):not([type="radio"]){display:block;flex:1 1 0%;align-self:stretch}
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-nodeinput,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-datasetinput{display:flex;width:100%;min-width:0}
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-nodeinput-text,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-datasetinput-text{width:0!important;flex:1 1 0%}
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-input:focus,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-reactive-value-input:focus{outline:2px solid rgba(35,126,86,.28);outline-offset:-2px}
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-button,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-nodeinput-btn,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-nodeinput-clear,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-datasetinput-btn,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-datasetinput-clear{min-width:1.8rem;min-height:1.8rem;padding:.15rem .35rem;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important}
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-button:hover,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-nodeinput-btn:hover,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-nodeinput-clear:hover,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-datasetinput-btn:hover,
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-datasetinput-clear:hover{background:rgba(15,23,42,.07)!important}
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-reactive{display:block;margin:0;min-width:0;width:100%}
+#webRoot .nl-inline-enhanced-table .nl-table-inline-cell .nl-reactive-line{display:grid!important;grid-template-columns:minmax(0,1fr) 1rem 1.75rem;align-items:center;gap:0;min-height:2.35rem;width:100%;border:0!important;border-bottom:0!important;box-sizing:border-box}
+#webRoot .nl-inline-enhanced-table .nl-table-inline-cell .nl-reactive-value{flex:none;min-width:0;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+#webRoot .nl-inline-enhanced-table .nl-table-inline-cell .nl-reactive-value,#webRoot .nl-inline-enhanced-table .nl-table-inline-cell .nl-reactive-value-input{width:100%;min-width:0;box-sizing:border-box;text-align:right!important;padding:.3rem .45rem!important}
+#webRoot .nl-inline-enhanced-table .nl-table-inline-cell .nl-reactive-value-input{-moz-appearance:textfield;appearance:textfield}
+#webRoot .nl-inline-enhanced-table .nl-table-inline-cell .nl-reactive-value-input::-webkit-inner-spin-button,#webRoot .nl-inline-enhanced-table .nl-table-inline-cell .nl-reactive-value-input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+#webRoot .nl-inline-enhanced-table .nl-table-inline-cell .nl-reactive-status{flex:none;width:1rem;min-width:1rem;max-width:1rem;text-align:center}
+#webRoot .nl-inline-enhanced-table .nl-table-inline-cell .nl-reactive-edit{flex:none!important;width:1.75rem!important;min-width:1.75rem!important;max-width:1.75rem!important}
+#webRoot .nl-inline-enhanced-table .nl-table-inline-cell .nl-reactive-edit-slot{display:block;flex:none;width:1.75rem;height:28px}
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-nodeinput{gap:2px!important}
+.nl-inline-enhanced-table .nl-table-inline-cell .nl-nodeinput-btn,.nl-inline-enhanced-table .nl-table-inline-cell .nl-nodeinput-clear{flex:0 0 1.8rem!important;width:1.8rem!important;height:1.8rem!important;padding:0!important;border-radius:50%!important;opacity:.55}
+.nl-inline-enhanced-table tr:hover .nl-nodeinput-btn,.nl-inline-enhanced-table tr:focus-within .nl-nodeinput-btn,.nl-inline-enhanced-table tr:hover .nl-nodeinput-clear,.nl-inline-enhanced-table tr:focus-within .nl-nodeinput-clear{opacity:.9}
+.nl-inline-tree-table .nl-tree-cell-content{display:flex;align-items:center;gap:.18rem;width:100%;min-width:0}
+.nl-inline-tree-table .nl-tree-cell-content>.nl-screen{flex:1 1 auto;width:0;min-width:0}
+.nl-inline-tree-table .nl-table-row-actions{white-space:nowrap;text-align:center;padding:.2rem}
+.nl-inline-tree-table .nl-table-row-actions button,.nl-inline-tree-table .nl-tree-toggle{
+  border:1px solid rgba(0,0,0,.15);border-radius:5px;background:#fff;color:inherit;
+  min-width:1.6rem;height:1.7rem;line-height:1;padding:0 .2rem;margin:0 .04rem;cursor:pointer
+}
+.nl-inline-tree-table td:first-child{position:relative;overflow:visible;padding-right:.35rem}
+.nl-inline-tree-table .nl-tree-actions{position:absolute;left:calc(1.15rem + var(--nl-tree-action-indent,0px));right:auto;top:auto;bottom:0;transform:translateY(50%);display:flex;align-items:center;gap:.08rem;opacity:0;pointer-events:none;transition:opacity .12s ease;z-index:4}
+.nl-inline-tree-table tr:hover .nl-tree-actions,.nl-inline-tree-table tr:focus-within .nl-tree-actions{opacity:1;pointer-events:auto}
+.nl-inline-tree-table .nl-tree-actions button{display:inline-flex;align-items:center;justify-content:center;width:1.65rem;height:1.65rem;min-width:1.65rem;padding:0;border:1px solid rgba(100,116,139,.22);border-radius:50%;background:rgba(255,255,255,.96);color:#475569;box-shadow:0 1px 4px rgba(15,23,42,.12);font-size:.85rem}
+.nl-inline-tree-table .nl-tree-actions button:hover{border-color:rgba(15,23,42,.32);background:#fff;color:#0f172a}
+.nl-inline-tree-table .nl-tree-toggle{display:inline-flex;flex:0 0 1.45rem;align-items:center;justify-content:center;width:1.45rem;min-width:1.45rem;height:1.8rem;padding:0;border:0!important;border-radius:50%;background:transparent!important;color:#64748b;font-size:1.1rem;line-height:1;box-shadow:none!important}
+.nl-inline-tree-table .nl-tree-toggle:hover{background:rgba(15,23,42,.07)!important;color:#0f172a}
+.nl-inline-tree-table .nl-tree-toggle-placeholder{display:inline-block;flex:0 0 1.45rem;width:1.45rem}
+.nl-inline-tree-table .nl-inline-node-error{color:#b42318;background:#fff0f1;border:1px solid #f3b4ba;border-radius:5px;padding:.2rem .4rem;margin-top:.2rem;font-size:.875rem}
+.nl-inline-tree-table .nl-table-add-root{border:0;background:transparent;color:#176b47;font-weight:600;padding:.35rem .25rem;cursor:pointer}
 
 .nl-grid{
   display:grid;

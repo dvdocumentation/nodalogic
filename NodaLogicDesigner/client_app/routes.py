@@ -37,6 +37,7 @@ from llm_credentials import chat_completion as _shared_chat_completion, message_
 from . import models
 from . import ngenie_core
 from . import ngenie_skill_registry
+from .release_info import SERVER_RELEASE, CLIENT_RELEASE, CONFIG_FORMAT_RELEASE
 import nodes as _nodes_mod
 import background_jobs as _background_jobs
 import hashlib
@@ -3711,6 +3712,8 @@ def normalize_sections(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
         out.append({
             "code": s.get("code") or "",
             "name": s.get("name") or (s.get("code") or "<no code>"),
+            # Web-client-only menu category; ignored by mobile clients.
+            "menu_group": str(s.get("menu_group") or s.get("menuGroup") or s.get("group") or "").strip(),
             "commands": (s.get("commands") or "").strip(),
             "hide_mobile_client": bool(s.get("hide_mobile_client") or s.get("hideMobileClient")),
             "hide_web_client": bool(s.get("hide_web_client") or s.get("hideWebClient")),
@@ -4343,7 +4346,16 @@ def build_global_sections(repos: List[models.Repo], db) -> List[Dict[str, Any]]:
                     "allow_client_extensions": _client_extension_bool(sec.get("allow_client_extensions"), default=True),
                     "mobile_form_node": str(sec.get("mobile_form_node") or ""),
                     "web_form_node": str(sec.get("web_form_node") or ""),
+                    "menu_group": str(sec.get("menu_group") or "").strip(),
+                    "configurations": [],
                 }
+            config_entry = {
+                "uid": str(r.config_uid or ""),
+                "name": str(r.name or r.config_uid or ""),
+                "version": str(cfg.get("version") or r.version or "").strip(),
+            }
+            if config_entry not in seen[code].setdefault("configurations", []):
+                seen[code]["configurations"].append(config_entry)
 
     # User-created sections are account-level and are not tied to a particular
     # repository. They are therefore visible from every browser for the account.
@@ -4358,6 +4370,8 @@ def build_global_sections(repos: List[models.Repo], db) -> List[Dict[str, Any]]:
             "name": str(sec.get("name") or code),
             "is_extension": True,
             "allow_client_extensions": True,
+            "menu_group": str(sec.get("menu_group") or sec.get("menuGroup") or "").strip(),
+            "configurations": [],
         }
 
     # Android extension documents created in a configured section can exist even
@@ -4380,6 +4394,8 @@ def build_global_sections(repos: List[models.Repo], db) -> List[Dict[str, Any]]:
             "name": str(data.get(_CLIENT_EXT_SECTION_NAME) or (cfg_sec or {}).get("name") or code),
             "is_extension": bool(code.startswith("ext_section_")),
             "allow_client_extensions": True if code.startswith("ext_section_") else _client_extension_bool((cfg_sec or {}).get("allow_client_extensions"), default=True),
+            "menu_group": str(data.get("menu_group") or data.get("menuGroup") or (cfg_sec or {}).get("menu_group") or "").strip(),
+            "configurations": [],
         }
 
     sections: List[Dict[str, Any]] = []
@@ -6471,7 +6487,7 @@ def _ngenie_build_messages(user_message: str, config_uid: str, node_context: Opt
             "node_uid_format": "<config_uid>$<class_name>$<id>",
             "prefer_indexes": True,
             "search_order_before_create": ["class indexes", "text search", "regex/fuzzy local scan"],
-            "helper_methods": ["Node.get_all(config_uid) returns dict id->Node", "ngenie_nodes", "ngenie_data", "ngenie_rows", "findByIndex", "getByIndex", "find(class_name, query) fallback when no suitable index exists", "findByGlobalIndex", "get_balance/getBalance/_get_balance", "class methods from nodes.py/handlers"],
+            "helper_methods": ["Node.count(config_uid)", "Node.iter_all(config_uid, page_size=1000)", "Node.iter_all_data(config_uid, page_size=1000)", "ngenie_data", "ngenie_rows", "findByIndex", "getByIndex", "find(class_name, query) fallback when no suitable index exists", "findByGlobalIndex", "get_balance/getBalance/_get_balance", "class methods from nodes.py/handlers"],
             "resolve_candidate_limit": _ngenie_resolve_candidate_limit(),
         },
     }
@@ -9019,8 +9035,8 @@ def _ngenie_repair_projection_after_preview_error(
         + str(error)
         + "\nИсправь только код HTML-отчёта и верни обычный JSON nGenie. "
           "operations, resolve_requests, clarification_requests и display_requests должны быть пустыми. "
-          "Не повторяй и не меняй данные. Помни: Class.get_all(config_uid) возвращает dict id->Node; "
-          "используй .values() либо ngenie_nodes(...), для данных ngenie_data(...), "
+          "Не повторяй и не меняй данные. Для полного прохода используй "
+          "Class.count(config_uid) и Class.iter_all(config_uid, page_size=1000), для данных ngenie_data(...), "
           "для табличной части ngenie_rows(...), для NodeLink node_view(uid). "
           "Текущая конфигурация внутри метода доступна как self._config_uid; если код использует "
           "selected_config_uid, сначала явно задай selected_config_uid = self._config_uid. "
@@ -10877,6 +10893,12 @@ def _inject_globals():
         "scanner_ws_url": scanner_ws_url,
         "scanner_ws_enabled": scanner_ws_enabled,
         "ngenie_enabled": _client_ngenie_enabled(),
+        "one_window_mode": str(_get_setting("one_window_mode", "1")).lower() not in ("0", "false", "no", "off"),
+        "platform_releases": {
+            "server": SERVER_RELEASE,
+            "client": CLIENT_RELEASE,
+            "format": CONFIG_FORMAT_RELEASE,
+        },
     }
 
 
@@ -10889,7 +10911,10 @@ def home():
     if section_code is None:
         section_code = _default_section_code(sections)
     scode_url = section_code if section_code != "" else "__empty__"
-    return redirect(url_for("client.section_view", section_code=scode_url))
+    selected = next((s for s in sections if str(s.get("code") or "") == str(section_code or "")), {})
+    configurations = selected.get("configurations") or []
+    config_uid = str(configurations[0].get("uid") or "") if configurations else ""
+    return redirect(url_for("client.section_view", section_code=scode_url, config_uid=config_uid))
 
 
 @client_bp.route("/sections")
@@ -10903,14 +10928,22 @@ def sections_home():
             title=f"{APP_TITLE} — Sections",
             repos=repos,
             sections=[],
+            menu_groups={},
+            config_sections=[],
+            loose_sections=[],
+            menu_group_by_config=str(_get_setting("menu_group_by_config", "1")).lower() not in ("0", "false", "no", "off"),
             section_code="",
+            section_config_uid="",
             section_name="",
             auto_refresh=AUTO_REFRESH_SECONDS,
             no_repos=(len(repos) == 0),
         )
     first = _default_section_code(sections)
     scode_url = first if first != "" else "__empty__"
-    return redirect(url_for("client.section_view", section_code=scode_url))
+    selected = next((s for s in sections if str(s.get("code") or "") == str(first or "")), {})
+    configurations = selected.get("configurations") or []
+    config_uid = str(configurations[0].get("uid") or "") if configurations else ""
+    return redirect(url_for("client.section_view", section_code=scode_url, config_uid=config_uid))
 
 
 def _get_repo_or_404(repo_id: int) -> models.Repo:
@@ -12621,6 +12654,11 @@ def api_reactive_state():
             "formula": node.get_reactive_formula(field),
             "dependencies": deps,
             "value": _reactive_json_value(value),
+            "affected_values": [
+                {**item, "value": _reactive_json_value(item.get("value"))}
+                for item in (state.get("affected_values") or []) if isinstance(item, dict)
+            ],
+            "pending": bool(state.get("pending")),
         })
     except PermissionError:
         return jsonify({"ok": False, "error": "Forbidden"}), 403
@@ -12657,6 +12695,11 @@ def api_reactive_formula():
             "formula": node.get_reactive_formula(field),
             "dependencies": deps,
             "value": _reactive_json_value(value),
+            "affected_values": [
+                {**item, "value": _reactive_json_value(item.get("value"))}
+                for item in (state.get("affected_values") or []) if isinstance(item, dict)
+            ],
+            "pending": bool(state.get("pending")),
         })
     except PermissionError:
         return jsonify({"ok": False, "error": "Forbidden"}), 403
@@ -13492,19 +13535,58 @@ def section_view(section_code: str):
         return redirect(url_for("client.sections_home"))
 
     code = "" if section_code == "__empty__" else section_code
+    section_config_uid = str(request.args.get("config_uid") or "").strip()
+    if section_config_uid:
+        scoped_repo = next((r for r in repos if str(r.config_uid or "") == section_config_uid), None)
+        if scoped_repo is None:
+            abort(404)
+        parsed_scoped = get_parsed_config(scoped_repo, models.db) or {}
+        scoped_codes = {str(s.get("code") or "") for s in normalize_sections(parsed_scoped.get("cfg") or {})}
+        scoped_codes.update(class_section_code(c) for c in ((parsed_scoped.get("cfg") or {}).get("classes") or []))
+        if code not in scoped_codes and code not in (DASHBOARD_SECTION_CODE, RAW_NODES_SECTION_CODE):
+            abort(404)
     sections = _with_received_nodes_section(build_global_sections(repos, models.db), repos)
     valid_codes = {str(s.get("code") or "") for s in sections}
     if sections and code not in valid_codes:
         first = _default_section_code(sections)
-        return redirect(url_for("client.section_view", section_code=(first if first != "" else "__empty__")))
+        selected = next((s for s in sections if str(s.get("code") or "") == str(first or "")), {})
+        configurations = selected.get("configurations") or []
+        config_uid = str(configurations[0].get("uid") or "") if configurations else ""
+        return redirect(url_for("client.section_view", section_code=(first if first != "" else "__empty__"), config_uid=config_uid))
     sec_name = DASHBOARD_SECTION_NAME if code == DASHBOARD_SECTION_CODE else ("<...>" if code == "" else next((s["name"] for s in sections if s["code"] == code), code))
+
+    menu_groups: Dict[str, List[Dict[str, Any]]] = {}
+    config_sections: Dict[str, Dict[str, Any]] = {}
+    loose_sections: List[Dict[str, Any]] = []
+    for section in sections:
+        if section.get("code") in (DASHBOARD_SECTION_CODE, RAW_NODES_SECTION_CODE):
+            continue
+        group_name = str(section.get("menu_group") or "").strip() or _("Other sections")
+        menu_groups.setdefault(group_name, []).append(section)
+        section_configs = section.get("configurations") or []
+        if not section_configs:
+            loose_sections.append(section)
+        for config in section_configs:
+            entry = config_sections.setdefault(str(config.get("uid") or ""), {
+                "uid": config.get("uid"),
+                "name": config.get("name"),
+                "version": config.get("version") or "",
+                "sections": [],
+            })
+            if section not in entry["sections"]:
+                entry["sections"].append(section)
 
     return render_template(
         "client/section.html",
         title=f"{APP_TITLE} — {sec_name}",
         repos=repos,
         sections=sections,
+        menu_groups=menu_groups,
+        loose_sections=loose_sections,
+        config_sections=sorted(config_sections.values(), key=lambda x: str(x.get("name") or "").lower()),
+        menu_group_by_config=str(_get_setting("menu_group_by_config", "1")).lower() not in ("0", "false", "no", "off"),
         section_code=code,
+        section_config_uid=section_config_uid,
         section_name=sec_name,
         auto_refresh=AUTO_REFRESH_SECONDS,
         no_repos=(len(repos) == 0),
@@ -13581,6 +13663,8 @@ def client_settings():
         _set_setting("scanner_ws_enabled", enabled)
         ngenie_enabled = "1" if (request.form.get("ngenie_enabled") in ("1", "on", "true", "True")) else "0"
         _set_setting("ngenie_enabled", ngenie_enabled)
+        _set_setting("menu_group_by_config", "1" if request.form.get("menu_group_by_config") in ("1", "on", "true", "True") else "0")
+        _set_setting("one_window_mode", "1" if request.form.get("one_window_mode") in ("1", "on", "true", "True") else "0")
         if _client_is_admin():
             show_json = "1" if (request.form.get("show_node_json") in ("1", "on", "true", "True")) else "0"
             _set_setting("show_node_json", show_json)
@@ -13593,6 +13677,8 @@ def client_settings():
         scanner_ws_url=_get_setting("scanner_ws_url", "ws://127.0.0.1:8765"),
         scanner_ws_enabled=(_get_setting("scanner_ws_enabled", "1") not in ("0", "false", "False", "no", "off")),
         ngenie_enabled=_client_ngenie_enabled(),
+        menu_group_by_config=str(_get_setting("menu_group_by_config", "1")).lower() not in ("0", "false", "no", "off"),
+        one_window_mode=str(_get_setting("one_window_mode", "1")).lower() not in ("0", "false", "no", "off"),
         is_admin=_client_is_admin(),
         show_node_json=_client_show_node_json(),
     )
@@ -13918,6 +14004,7 @@ def api_class_metadata():
 @login_required
 def api_section_data():
     section_code = request.args.get("section_code", "")
+    section_config_uid = str(request.args.get("config_uid") or "").strip()
     # Preserve the original query for embedding models.  q_lower is used only
     # by the local lexical checks for singleton/custom-process nodes.
     q = (request.args.get("q") or "").strip()
@@ -13959,6 +14046,17 @@ def api_section_data():
         }))
 
     repos = models.Repo.query.filter_by(user_id=_ngenie_effective_user_id()).all()
+    if section_config_uid:
+        scoped_repo = next((r for r in repos if str(r.config_uid or "") == section_config_uid), None)
+        if scoped_repo is None:
+            return jsonify({"ok": False, "error": "configuration not found"}), 404
+        parsed_scoped = get_parsed_config(scoped_repo, models.db) or {}
+        scoped_cfg = parsed_scoped.get("cfg") or {}
+        scoped_codes = {str(s.get("code") or "") for s in normalize_sections(scoped_cfg)}
+        scoped_codes.update(class_section_code(c) for c in (scoped_cfg.get("classes") or []))
+        if section_code not in scoped_codes and section_code not in (DASHBOARD_SECTION_CODE, RAW_NODES_SECTION_CODE):
+            return jsonify({"ok": False, "error": "section not found in configuration"}), 404
+        repos = [scoped_repo]
     extension_state = _client_extension_load_state()
     extension_section_meta = _client_extension_section(extension_state, section_code)
     if section_code not in (RAW_NODES_SECTION_CODE, DASHBOARD_SECTION_CODE):
@@ -14012,14 +14110,24 @@ def api_section_data():
     try:
         available_sections = _with_received_nodes_section(build_global_sections(repos, models.db), repos) if repos else []
         valid_codes = {str(s.get("code") or "") for s in available_sections}
-        if available_sections and section_code not in valid_codes and section_code != RAW_NODES_SECTION_CODE:
+        scoped_section_exists = True
+        if section_config_uid:
+            scoped_section_exists = any(
+                str(s.get("code") or "") == str(section_code or "")
+                and any(str(c.get("uid") or "") == section_config_uid for c in (s.get("configurations") or []))
+                for s in available_sections
+            )
+        if available_sections and (section_code not in valid_codes or not scoped_section_exists) and section_code != RAW_NODES_SECTION_CODE:
             first = _default_section_code(available_sections)
+            selected = next((s for s in available_sections if str(s.get("code") or "") == str(first or "")), {})
+            configurations = selected.get("configurations") or []
+            fallback_config_uid = str(configurations[0].get("uid") or "") if configurations else ""
             return jsonify({
                 "ok": True,
                 "items": [],
                 "count": 0,
                 "nl_css": DEFAULT_NL_CSS,
-                "redirect_url": url_for("client.section_view", section_code=(first if first != "" else "__empty__")),
+                "redirect_url": url_for("client.section_view", section_code=(first if first != "" else "__empty__"), config_uid=fallback_config_uid),
                 "meta": {"classes_ui": [], "table_headers": [], "start_menu_cmds_ui": [], "timers_ui": [], "filter_indexes": [], "tag_filter": [], "selected_tag": tag_filter},
             })
     except Exception as e:
@@ -14853,6 +14961,12 @@ def api_extension_class_create():
     if not section_code or not name:
         return jsonify({"ok": False, "error": "section_code and name required"}), 400
     repos = models.Repo.query.filter_by(user_id=_ngenie_effective_user_id()).all()
+    config_uid = str(j.get("config_uid") or "").strip()
+    if config_uid:
+        selected_repo = next((r for r in repos if str(r.config_uid or "") == config_uid), None)
+        if selected_repo is None:
+            return jsonify({"ok": False, "error": "configuration not found"}), 404
+        repos = [selected_repo]
     state = _client_extension_load_state()
     if not _client_extension_section_allowed(repos, state, section_code):
         return jsonify({"ok": False, "error": "Extensions are disabled for this section"}), 403
@@ -14923,6 +15037,12 @@ def api_extension_node_create():
         return jsonify({"ok": False, "error": "section_code required"}), 400
 
     repos = models.Repo.query.filter_by(user_id=_ngenie_effective_user_id()).all()
+    config_uid = str(j.get("config_uid") or "").strip()
+    if config_uid:
+        selected_repo = next((r for r in repos if str(r.config_uid or "") == config_uid), None)
+        if selected_repo is None:
+            return jsonify({"ok": False, "error": "configuration not found"}), 404
+        repos = [selected_repo]
     state = _client_extension_load_state()
     if not _client_extension_section_allowed(repos, state, section_code):
         return jsonify({"ok": False, "error": "Extensions are disabled for this section"}), 403
@@ -16285,6 +16405,14 @@ def api_node_movements():
 
         def _execute_movements_job():
             _background_jobs.update_progress(progress=0.02, text=progress_loading)
+            with app_obj.app_context():
+                try:
+                    models.db.session.remove()
+                    models.db.engine.dispose(close=False)
+                except TypeError:
+                    models.db.engine.dispose()
+                except Exception:
+                    pass
             with app_obj.test_client() as test_client:
                 with test_client.session_transaction() as session_data:
                     session_data["_user_id"] = user_id
@@ -16301,12 +16429,15 @@ def api_node_movements():
                     raise RuntimeError(str(result.get("error") or f"HTTP {response.status_code}"))
                 return result
 
-        job = _background_jobs.submit(
-            _execute_movements_job,
-            owner="web:" + user_id,
-            mode="runprogress",
-            title=progress_loading,
-        )
+        try:
+            job = _background_jobs.submit(
+                _execute_movements_job,
+                owner="web:" + user_id,
+                mode="runprogress",
+                title=progress_loading,
+            )
+        except _background_jobs.JobQueueFull as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 503
         job_id = str(job.get("id") or "")
         return jsonify({
             "ok": True,
@@ -16371,9 +16502,18 @@ def api_node_movements():
 
     _background_jobs.raise_if_cancelled()
     _background_jobs.update_progress(progress=0.96, current=0, total=0, text=progress_finishing)
+    cost_result = None
+    if class_name in {"ERPReceipt", "ERPProduction", "ERPAllocation"}:
+        try:
+            from n50_erp.native import movements_for_document
+            document = _movement_node_candidates(repo.config_uid, class_name, node_id)["full_uid"]
+            cost_result = movements_for_document(repo.config_uid, document)
+        except ImportError:
+            pass
     return jsonify({
         "ok": True,
         "quant_ledger": quant_result,
+        "cost_graph": cost_result,
         "transactions": transaction_result,
     })
 
@@ -16682,6 +16822,7 @@ def node_form(config_uid: str, class_name: str, node_id: str):
     # intentionally server-side as well as in the editor API: a calculated
     # value must not depend on whether the browser happened to initialise its
     # JavaScript editor successfully.
+    reactive_states = {}
     try:
         if layout is not None and not (base_url and base_url != current) and locals().get("node") is not None:
             reactive_fields = _ensure_reactive_layout_defaults(node, layout)
@@ -16690,6 +16831,12 @@ def node_form(config_uid: str, class_name: str, node_id: str):
                 if isinstance(fresh_reactive_data, dict):
                     for reactive_field in reactive_fields:
                         node_data[reactive_field] = fresh_reactive_data.get(reactive_field)
+            if isinstance(node_data, dict):
+                reactive_states = {
+                    str(el.get("id") or "").strip(): node.get_reactive_state(str(el.get("id") or "").strip())
+                    for el in _reactive_layout_specs(layout)
+                    if str(el.get("id") or "").strip()
+                }
     except Exception:
         pass
 
@@ -16700,11 +16847,13 @@ def node_form(config_uid: str, class_name: str, node_id: str):
     layout_html = ""
     if layout is not None:
         try:
+            nl_context = _nl_context(repo, class_name=class_name, node_id=node_id)
+            nl_context["reactive_states"] = reactive_states
             layout_html = render_nodalayout_html(
                 layout,
                 node_data if isinstance(node_data, dict) else {},
                 assets_base_dir=_userfiles_dir_for_repo(repo),
-                context=_nl_context(repo, class_name=class_name, node_id=node_id),
+                context=nl_context,
             )
         except Exception:
             layout_html = ""
@@ -17992,6 +18141,14 @@ def api_node_event_web():
         request_body["__event_job_execute"] = True
 
         def _execute_event_job():
+            with app_obj.app_context():
+                try:
+                    models.db.session.remove()
+                    models.db.engine.dispose(close=False)
+                except TypeError:
+                    models.db.engine.dispose()
+                except Exception:
+                    pass
             with app_obj.test_client() as test_client:
                 with test_client.session_transaction() as session_data:
                     session_data["_user_id"] = user_id
@@ -18008,12 +18165,15 @@ def api_node_event_web():
                     raise RuntimeError(str(result.get("error") or f"HTTP {response.status_code}"))
                 return result
 
-        job = _background_jobs.submit(
-            _execute_event_job,
-            owner="web:" + user_id,
-            mode=execution_mode,
-            title=str(event or "Operation"),
-        )
+        try:
+            job = _background_jobs.submit(
+                _execute_event_job,
+                owner="web:" + user_id,
+                mode=execution_mode,
+                title=str(event or "Operation"),
+            )
+        except _background_jobs.JobQueueFull as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 503
         job_id = str(job.get("id") or "")
         return jsonify({
             "ok": True,
@@ -19212,6 +19372,8 @@ def api_class_nodes():
     class_name = (request.args.get("class_name") or "").strip()
     q = (request.args.get("q") or "").strip()
     limit = int(request.args.get("limit") or 50)
+    hierarchy_mode = str(request.args.get("hierarchy_mode") or "").strip().lower()
+    exclude_id = str(request.args.get("exclude_id") or "").strip()
 
     if not class_name:
         return jsonify({"ok": False, "error": "bad args"}), 400
@@ -19308,27 +19470,103 @@ def api_class_nodes():
     items = []
     seen = set()
     for repo in repos:
+        parsed_cfg = get_parsed_config(repo, models.db)
+        class_meta = ((parsed_cfg or {}).get("classes") or {}).get(class_name) or {}
+        hierarchy_enabled = bool(class_meta.get("hierarchy_enabled"))
+        fetch_limit = max(limit, 1000) if hierarchy_enabled and hierarchy_mode in {"groups", "leaves"} else limit
         try:
-            nodes = _fetch_nodes_for_class(repo, config_uid=repo.config_uid, class_name=class_name, q=q, limit=limit) or []
+            nodes = _fetch_nodes_for_class(repo, config_uid=repo.config_uid, class_name=class_name, q=q, limit=fetch_limit) or []
         except Exception:
             nodes = []
 
-        parsed_cfg = get_parsed_config(repo, models.db)
+        hierarchy_node_class = None
+        hierarchy_view_cache = {}
+        if hierarchy_enabled and hierarchy_mode in {"groups", "leaves"}:
+            try:
+                hierarchy_node_class = _load_server_node_class(repo.config_uid, class_name)
+            except Exception:
+                hierarchy_node_class = None
+
+        def hierarchy_parent_path(parent_ref, visited=None, depth=0):
+            if not parent_ref or hierarchy_node_class is None or depth >= 32:
+                return ""
+            visited = set(visited or ())
+            if parent_ref in visited:
+                return ""
+            if parent_ref in hierarchy_view_cache:
+                return hierarchy_view_cache[parent_ref]
+            visited.add(parent_ref)
+            try:
+                parent = hierarchy_node_class.get(parent_ref, repo.config_uid)
+                if not parent:
+                    return ""
+                parent_data = parent.get_data() or {}
+                parent_id = str(parent_data.get("_id") or getattr(parent, "_id", "") or parent_ref.split("$")[-1])
+                label = str(_render_class_record_view(parsed_cfg, class_name, parent_id, parent_data) or parent_id)
+                ancestor_path = hierarchy_parent_path(str(parent_data.get("parent_ref") or "").strip(), visited, depth + 1)
+                result = f"{ancestor_path} / {label}" if ancestor_path else label
+                hierarchy_view_cache[parent_ref] = result
+                return result
+            except Exception:
+                return ""
+
+        def hierarchy_view(node_id, data, own_view):
+            """Render a short parent path without storing child arrays on groups."""
+            parent_path = hierarchy_parent_path(str((data or {}).get("parent_ref") or "").strip(), {str(node_id)})
+            return f"{parent_path} / {own_view}" if parent_path else str(own_view or node_id)
+
+        def hierarchy_would_cycle(data):
+            if not exclude_id or hierarchy_node_class is None or hierarchy_mode != "groups":
+                return False
+            parent_ref = str((data or {}).get("parent_ref") or "").strip()
+            visited = set()
+            for _depth in range(64):
+                if not parent_ref:
+                    return False
+                parent_id = parent_ref.split("$")[-1]
+                if parent_id == exclude_id:
+                    return True
+                if parent_ref in visited:
+                    return True
+                visited.add(parent_ref)
+                try:
+                    parent = hierarchy_node_class.get(parent_ref, repo.config_uid)
+                    if not parent:
+                        return False
+                    parent_data = parent.get_data() or {}
+                    parent_ref = str(parent_data.get("parent_ref") or "").strip()
+                except Exception:
+                    return False
+            return bool(parent_ref)
+
         for n in nodes:
             data = n.get("_data") or {}
             nid = n.get("_id") or data.get("_id") or ""
             if not nid:
                 continue
+            if hierarchy_enabled and hierarchy_mode in {"groups", "leaves"}:
+                is_group = str(data.get("is_group") or "").strip().lower() in {"1", "true", "yes", "on", "да"}
+                if hierarchy_mode == "groups" and not is_group:
+                    continue
+                if hierarchy_mode == "leaves" and is_group:
+                    continue
+                if exclude_id and str(nid) == exclude_id:
+                    continue
+                if hierarchy_would_cycle(data):
+                    continue
             uid = _nodes_mod.normalize_own_uid(repo.config_uid, class_name, str(nid))
             if not uid or uid in seen:
                 continue
             seen.add(uid)
             view = _render_class_record_view(parsed_cfg, class_name, str(nid), data)
+            if hierarchy_enabled and hierarchy_mode in {"groups", "leaves"}:
+                view = hierarchy_view(str(nid), data, view)
             cover_html = ""
-            try:
-                cover_html = _node_cover_html(repo, class_name, str(nid), mode="table")
-            except Exception:
-                cover_html = ""
+            if not hierarchy_enabled or hierarchy_mode not in {"groups", "leaves"}:
+                try:
+                    cover_html = _node_cover_html(repo, class_name, str(nid), mode="table")
+                except Exception:
+                    cover_html = ""
             items.append({
                 "uid": uid,
                 "_id": str(nid),
