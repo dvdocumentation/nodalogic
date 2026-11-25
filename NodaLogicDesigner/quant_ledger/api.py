@@ -553,6 +553,7 @@ class LedgerTransaction:
         self._closed = False
         self._failed = False
         self._failure = None
+        self._changed_spaces: set[str] = set()
 
     def __enter__(self) -> "LedgerTransaction":
         if self._connection is not None:
@@ -567,6 +568,7 @@ class LedgerTransaction:
         if self._connection is None:
             return False
         rollback_only = exc_type is not None or self._failed
+        committed_spaces = set(self._changed_spaces) if not rollback_only else set()
         try:
             if rollback_only:
                 self._connection.rollback()
@@ -576,6 +578,15 @@ class LedgerTransaction:
             self._connection.close()
             self._connection = None
             self._closed = True
+        if committed_spaces:
+            try:
+                import reactive
+                for space in committed_spaces:
+                    reactive.notify_external_change("ql", self.scope, space)
+            except Exception:
+                # A derived Reactive formula must never undo a committed ledger
+                # transaction or turn it into a failed business operation.
+                pass
         if exc_type is None and self._failed:
             raise QuantLedgerError(
                 "A move failed inside the transaction; all linked moves were rolled back"
@@ -600,7 +611,7 @@ class LedgerTransaction:
         if self._failed:
             raise QuantLedgerError("Transaction is marked for rollback after a failed move")
         try:
-            return _apply_move(
+            result = _apply_move(
                 self._connection,
                 scope=self.scope,
                 space=space,
@@ -613,6 +624,8 @@ class LedgerTransaction:
                 allow_negative=allow_negative,
                 nonnegative_resources=nonnegative_resources,
             )
+            self._changed_spaces.add(_validate_space(space))
+            return result
         except Exception as exc:
             self._failed = True
             self._failure = exc
@@ -630,12 +643,20 @@ class LedgerTransaction:
         if self._failed:
             raise QuantLedgerError("Transaction is marked for rollback after a failed operation")
         try:
-            return _apply_remove(
+            cursor = self._connection.cursor()
+            cursor.execute(
+                f"SELECT DISTINCT space FROM {MOVEMENT_TABLE} WHERE scope=? AND operation_id=?",
+                (self.scope, str(operation_id or "").strip()),
+            )
+            affected_spaces = {str(row[0]) for row in cursor.fetchall() if row[0]}
+            result = _apply_remove(
                 self._connection,
                 scope=self.scope,
                 operation_id=operation_id,
                 nonnegative_resources=nonnegative_resources,
             )
+            self._changed_spaces.update(affected_spaces)
+            return result
         except Exception as exc:
             self._failed = True
             self._failure = exc
